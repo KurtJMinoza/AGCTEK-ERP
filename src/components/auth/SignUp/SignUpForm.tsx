@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
+import Select from '@/components/ui/Select'
 import { FormItem, Form } from '@/components/ui/Form'
+import PasswordInput from '@/components/shared/PasswordInput'
+import { ROLE_OPTIONS, type RoleOption, type UserRole } from '@/constants/roles.constant'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -11,9 +14,10 @@ import type { CommonProps } from '@/@types/common'
 
 type SignUpFormSchema = {
     userName: string
-    password: string
     email: string
+    password: string
     confirmPassword: string
+    role: UserRole
 }
 
 export type OnSignUpPayload = {
@@ -31,26 +35,42 @@ interface SignUpFormProps extends CommonProps {
 
 const validationSchema = z
     .object({
-        email: z.email({ message: 'Please enter a valid email' }),
         userName: z.string().min(1, { message: 'Please enter your name' }),
-        password: z.string().min(1, { message: 'Password required' }),
-        confirmPassword: z.string().min(1, { message: 'Confirm Password Required' }),
+        email: z
+            .string()
+            .min(1, { message: 'Please enter your email' })
+            .email({ message: 'Please enter a valid email' }),
+        password: z
+            .string()
+            .min(6, { message: 'Password must be at least 6 characters' }),
+        confirmPassword: z
+            .string()
+            .min(1, { message: 'Please confirm your password' }),
+        role: z.enum(['super_admin', 'admin'], {
+            message: 'Please select a role',
+        }),
     })
     .refine((data) => data.password === data.confirmPassword, {
-        message: 'Password not match',
+        message: 'Passwords do not match',
         path: ['confirmPassword'],
     })
 
 const SignUpForm = (props: SignUpFormProps) => {
     const { onSignUp, className, setMessage } = props
-
-    const [isSubmitting, setSubmitting] = useState<boolean>(false)
+    const [isSubmitting, setSubmitting] = useState(false)
 
     const {
         handleSubmit,
         formState: { errors },
         control,
     } = useForm<SignUpFormSchema>({
+        defaultValues: {
+            userName: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            role: undefined,
+        },
         resolver: zodResolver(validationSchema),
     })
 
@@ -74,13 +94,14 @@ const SignUpForm = (props: SignUpFormProps) => {
                         render={({ field }) => (
                             <Input
                                 type="text"
-                                placeholder="User Name"
-                                autoComplete="off"
+                                placeholder="Enter your name"
+                                autoComplete="username"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
                 <FormItem
                     label="Email"
                     invalid={Boolean(errors.email)}
@@ -92,13 +113,37 @@ const SignUpForm = (props: SignUpFormProps) => {
                         render={({ field }) => (
                             <Input
                                 type="email"
-                                placeholder="Email"
-                                autoComplete="off"
+                                placeholder="Enter your email"
+                                autoComplete="email"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
+                <FormItem
+                    label="Role"
+                    invalid={Boolean(errors.role)}
+                    errorMessage={errors.role?.message}
+                >
+                    <Controller
+                        name="role"
+                        control={control}
+                        render={({ field }) => (
+                            <Select<RoleOption>
+                                placeholder="Select role"
+                                options={ROLE_OPTIONS}
+                                value={ROLE_OPTIONS.find(
+                                    (option) => option.value === field.value,
+                                )}
+                                onChange={(option) =>
+                                    field.onChange(option?.value)
+                                }
+                            />
+                        )}
+                    />
+                </FormItem>
+
                 <FormItem
                     label="Password"
                     invalid={Boolean(errors.password)}
@@ -108,40 +153,41 @@ const SignUpForm = (props: SignUpFormProps) => {
                         name="password"
                         control={control}
                         render={({ field }) => (
-                            <Input
-                                type="password"
-                                autoComplete="off"
-                                placeholder="Password"
+                            <PasswordInput
+                                placeholder="Enter your password"
+                                autoComplete="new-password"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
                 <FormItem
-                    label="Confirm Password"
+                    label="Confirm password"
                     invalid={Boolean(errors.confirmPassword)}
                     errorMessage={errors.confirmPassword?.message}
+                    className="mb-6"
                 >
                     <Controller
                         name="confirmPassword"
                         control={control}
                         render={({ field }) => (
-                            <Input
-                                type="password"
-                                autoComplete="off"
-                                placeholder="Confirm Password"
+                            <PasswordInput
+                                placeholder="Confirm your password"
+                                autoComplete="new-password"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
                 <Button
                     block
                     loading={isSubmitting}
                     variant="solid"
                     type="submit"
                 >
-                    {isSubmitting ? 'Creating Account...' : 'Sign Up'}
+                    {isSubmitting ? 'Creating account...' : 'Sign up'}
                 </Button>
             </Form>
         </div>

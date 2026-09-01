@@ -1,5 +1,5 @@
 export type SignInCredential = {
-    email: string
+    userName: string
     password: string
     rememberMe?: boolean
 }
@@ -24,6 +24,7 @@ export type SignUpCredential = {
     userName: string
     email: string
     password: string
+    role: 'super_admin' | 'admin'
 }
 
 export type ForgotPassword = {

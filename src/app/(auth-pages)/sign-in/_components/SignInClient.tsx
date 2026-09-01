@@ -19,7 +19,7 @@ const SignInClient = () => {
 
         onSignInWithCredentials(
             {
-                email: values.email,
+                userName: values.userName,
                 password: values.password,
                 rememberMe: values.rememberMe,
             },

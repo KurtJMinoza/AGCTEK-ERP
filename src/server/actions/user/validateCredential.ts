@@ -1,19 +1,33 @@
 'use server'
+
+import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type { SignInCredential } from '@/@types/auth'
-import { signInUserData } from '@/mock/data/authData'
-import sleep from '@/utils/sleep'
+import axios from 'axios'
+
+type AuthUser = {
+    id: string
+    email: string
+    userName: string
+    avatar: string
+    role: string
+    authority: string[]
+}
 
 const validateCredential = async (values: SignInCredential) => {
-    /** Implement your validation here, as this is just a mock */
-    const { email, password } = values
+    try {
+        const response = await ErpAxiosBase.post<AuthUser>('/auth/sign-in', {
+            userName: values.userName,
+            password: values.password,
+        })
 
-    await sleep(80)
+        return response.data
+    } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+            return null
+        }
 
-    const user = signInUserData.find(
-        (user) => user.email === email && user.password === password,
-    )
-
-    return user
+        return null
+    }
 }
 
 export default validateCredential

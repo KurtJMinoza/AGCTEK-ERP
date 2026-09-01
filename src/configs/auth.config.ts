@@ -11,7 +11,7 @@ export default {
     providers: [
         Credentials({
             credentials: {
-                email: { type: 'text' },
+                userName: { type: 'text' },
                 password: { type: 'password' },
                 rememberMe: { type: 'text' },
             },

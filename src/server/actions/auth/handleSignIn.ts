@@ -6,12 +6,12 @@ import { AuthError } from 'next-auth'
 import type { SignInCredential } from '@/@types/auth'
 
 export const onSignInWithCredentials = async (
-    { email, password, rememberMe }: SignInCredential,
+    { userName, password, rememberMe }: SignInCredential,
     callbackUrl?: string,
 ) => {
     try {
         await signIn('credentials', {
-            email,
+            userName,
             password,
             rememberMe: Boolean(rememberMe),
             redirectTo: callbackUrl || appConfig.authenticatedEntryPath,

@@ -5,6 +5,10 @@ const dashboardsRoute: Routes = {
         key: 'signIn',
         authority: [],
     },
+    '/sign-up': {
+        key: 'signUp',
+        authority: [],
+    },
 }
 
 export default dashboardsRoute

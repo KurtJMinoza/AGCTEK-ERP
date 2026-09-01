@@ -2,15 +2,17 @@
 
 import Alert from '@/components/ui/Alert'
 import Card from '@/components/ui/Card'
+import ActionLink from '@/components/shared/ActionLink'
 import SignInForm from './SignInForm'
 import useTimeOutMessage from '@/utils/hooks/useTimeOutMessage'
 import type { OnSignIn } from './SignInForm'
 
 type SignInProps = {
     onSignIn?: OnSignIn
+    signUpUrl?: string
 }
 
-const SignIn = ({ onSignIn }: SignInProps) => {
+const SignIn = ({ onSignIn, signUpUrl = '/sign-up' }: SignInProps) => {
     const [message, setMessage] = useTimeOutMessage()
 
     return (
@@ -22,7 +24,7 @@ const SignIn = ({ onSignIn }: SignInProps) => {
             <div className="mb-7">
                 <h2 className="text-2xl font-bold heading-text">Sign in</h2>
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Enter your credentials to access your workspace.
+                    Enter your username and password to access your workspace.
                 </p>
             </div>
 
@@ -34,9 +36,16 @@ const SignIn = ({ onSignIn }: SignInProps) => {
 
             <SignInForm setMessage={setMessage} onSignIn={onSignIn} />
 
-            <p className="mt-7 text-center text-xs text-gray-400 dark:text-gray-500">
-                Need help? Contact your system administrator.
-            </p>
+            <div className="mt-7 text-center text-sm text-gray-500 dark:text-gray-400">
+                <span>Don&apos;t have an account? </span>
+                <ActionLink
+                    href={signUpUrl}
+                    className="heading-text font-semibold"
+                    themeColor={false}
+                >
+                    Sign up
+                </ActionLink>
+            </div>
         </Card>
     )
 }
