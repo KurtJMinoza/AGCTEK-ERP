@@ -1,0 +1,26 @@
+@keyframes scroll {
+    to {
+    transform: translateY(calc(-50% - 0.5rem));
+    }
+}
+
+@keyframes aurora {
+    from {
+        background-position: 50% 50%, 50% 50%;
+    }
+    to {
+        background-position: 350% 50%, 350% 50%;
+    }
+}
+
+.animate-scroll {
+    animation: scroll var(--animation-duration, 40s) var(--animation-direction, forwards) linear infinite;
+
+    &.animation-play-state-paused:hover {
+        animation-play-state: paused;
+    }
+}
+
+.animate-aurora:after {
+    animation: aurora 60s linear infinite;
+}

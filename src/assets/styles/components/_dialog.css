@@ -1,0 +1,23 @@
+@layer components {
+  .dialog {
+    outline: none;
+    @apply mx-auto;
+  }
+  
+  .dialog-content {
+    @apply p-6 rounded-2xl shadow-xl mx-4 my-8 sm:mx-0 sm:my-16 relative h-full bg-white dark:bg-gray-800;
+  }
+  
+  .dialog-overlay {
+    transition: all 0.15s ease-in-out;
+    @apply inset-0 fixed z-40 bg-black/60 dark:bg-black/80 backdrop-blur-md;
+  }
+  
+  .dialog-overlay-after-open {
+    opacity: 1;
+  }
+  
+  .dialog-overlay-before-close {
+    opacity: 0;
+  }  
+}

@@ -1,0 +1,43 @@
+---
+description: ERP must compose from ECME UI — never invent a second design system
+alwaysApply: true
+---
+
+# ERP UI Rules
+
+## Component usage
+
+1. Always reuse existing components from `src/components/ui` and `src/components/shared`.
+2. ECME components are the primary UI components.
+3. Never install another UI library without explicit approval.
+4. Never recreate an existing ECME component (Button, Card, Input, Dialog, Table, Select, etc.).
+5. Do not modify ECME primitives in `src/components/ui` unless fixing a bug or an approved design-system change.
+6. Keep UI consistent across all modules.
+
+## Before implementing a page
+
+1. Inspect `src/components/ui` and `src/components/shared`.
+2. Prefer composing existing pieces over creating new ones.
+3. Create a new shared component only when no existing component can satisfy the requirement.
+4. Put domain-specific components under `src/modules/<module>/components`.
+
+## Page structure
+
+```text
+Page → PageHeader → Filters/Actions → Summary → Main Content
+```
+
+## Preferred building blocks
+
+- Tables: `DataTable` (`src/components/shared/DataTable.tsx`)
+- Forms: `Form`, `FormItem`, `FormContainer`, `Input`, `Select`, `DatePicker`, `Checkbox`, `Radio`, `Dialog`
+- Cards/stats: `Card`, `AdaptiveCard`, `GrowShrinkValue`, `AbbreviateNumber`
+- Status: `Tag`, `StatusBadge`, `Badge`
+- Charts: `Chart`
+- Layout chrome: existing `layouts` + `template` — do not rebuild the shell
+
+## Styling
+
+- Follow existing ECME Tailwind theme and tokens.
+- Do not introduce arbitrary one-off color systems.
+- Do not introduce another design system.

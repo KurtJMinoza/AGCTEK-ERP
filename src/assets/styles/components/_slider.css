@@ -1,0 +1,59 @@
+@layer components {
+    .slider-tooltip {
+        @apply absolute text-xs whitespace-nowrap pointer-events-none select-none touch-none z-50 max-w-[250px] text-white rounded-lg p-2 -top-11 left-0 bg-gray-800 dark:bg-black -translate-x-2/4;
+    }
+
+    .slider-thumb-wrapper {
+        @apply absolute;
+    }
+
+    .slider-thumb {
+        @apply absolute flex rounded-full h-5 w-5 ltr:-translate-x-2/4 -translate-y-2/4 cursor-pointer items-center justify-center z-[3] select-none touch-none outline-offset-2 left-0 border-4 border-solid top-[2.75px] border-primary bg-white;
+
+        &:active {
+            &:not(.disabled) {
+                @apply shadow-lg h-5.5 w-5.5;
+            }
+        }
+
+        &.disabled {
+            @apply cursor-not-allowed border-gray-300;
+        }
+    }
+
+    .slider-track-wrapper {
+        @apply flex items-center w-full cursor-pointer h-1.5;
+    }
+
+    .slider-track {
+        @apply h-1.5 relative w-full;
+
+        &:before {
+            @apply content-[''] bg-gray-100 absolute top-0 bottom-0 rounded-full inset-x-0 z-0;
+        }
+    }
+
+    .slider-bar {
+        @apply absolute z-[1] bg-primary rounded-sm inset-y-0;
+
+        &.disabled {
+            @apply bg-gray-300 cursor-not-allowed;
+        }
+    }
+
+    .slider-mark-wrapper {
+        @apply absolute z-[2] pointer-events-none -top-[3px] flex flex-col items-center gap-1 ltr:-translate-x-[50%] rtl:translate-x-[50%];
+    }
+
+    .slider-mark {
+        @apply h-3 w-3 bg-white pointer-events-none rounded-full border-3 border-gray-200;
+
+        &.slider-mark-filled {
+            @apply border-primary;
+        }
+    }
+
+    .slider-mark-label {
+        @apply whitespace-nowrap cursor-pointer select-none font-semibold;
+    }
+}

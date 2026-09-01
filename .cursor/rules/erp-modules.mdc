@@ -1,0 +1,30 @@
+---
+description: Domain modules own pages/services; app routes stay thin shells
+globs: src/modules/**/*.{ts,tsx},src/app/(protected-pages)/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# ERP Module Rules
+
+## Where code goes
+
+- Business pages → `src/modules/<module>/pages`
+- Domain components (AccountSelector, VendorSelector, …) → `src/modules/<module>/components`
+- Data fetching / API → `src/modules/<module>/services`
+- Module hooks/types → `src/modules/<module>/hooks` and `src/modules/<module>/types`
+- Cross-module UI → `src/components/shared`
+- Primitives → `src/components/ui` (reuse only; rarely edit)
+
+## App routes
+
+Next.js files under `src/app/(protected-pages)` should stay thin and re-export or render module pages:
+
+```tsx
+export { default } from '@/modules/accounting/pages/Dashboard'
+```
+
+Do not dump large page implementations directly into `app/` when a module page exists or should exist.
+
+## Navigation
+
+When adding a module page, also register it in `src/configs/navigation.config`.
