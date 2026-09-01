@@ -11,11 +11,13 @@ declare module 'next-auth' {
 
     interface User extends DefaultUser {
         authority: string[]
+        rememberMe?: boolean
     }
 }
 
 declare module 'next-auth/jwt' {
     interface JWT extends DefaultJWT {
         authority: string[]
+        rememberMe?: boolean
     }
 }

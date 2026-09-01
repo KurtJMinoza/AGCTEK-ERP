@@ -4,23 +4,34 @@ import Credentials from 'next-auth/providers/credentials'
 
 import type { SignInCredential } from '@/@types/auth'
 
+const SESSION_WITHOUT_REMEMBER_MS = 24 * 60 * 60 * 1000 // 1 day
+const SESSION_WITH_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
 export default {
     providers: [
         Credentials({
+            credentials: {
+                email: { type: 'text' },
+                password: { type: 'password' },
+                rememberMe: { type: 'text' },
+            },
             async authorize(credentials) {
                 /** validate credentials from backend here */
                 const user = await validateCredential(
                     credentials as SignInCredential,
                 )
+
                 if (!user) {
                     return null
                 }
+
                 return {
                     id: user.id,
                     name: user.userName,
                     email: user.email,
                     image: user.avatar,
                     authority: user.authority,
+                    rememberMe: credentials?.rememberMe === 'true',
                 }
             },
         }),
@@ -30,7 +41,23 @@ export default {
             // Persist the authority to the token right after signin
             if (user) {
                 token.authority = user.authority
+                token.rememberMe = user.rememberMe
+
+                const now = Date.now()
+                const ttl =
+                    (token.rememberMe
+                        ? SESSION_WITH_REMEMBER_MS
+                        : SESSION_WITHOUT_REMEMBER_MS) / 1000
+                token.exp = Math.floor(now / 1000) + ttl
             }
+
+            const expiresAt = (token.exp as number) * 1000
+
+            // Enforce session expiry on every request
+            if (expiresAt && Date.now() > expiresAt) {
+                return null
+            }
+
             return token
         },
         async session({ session, token }) {
@@ -45,5 +72,11 @@ export default {
                 },
             }
         },
+    },
+    session: {
+        strategy: 'jwt',
+        // Default cookie lifespan; the JWT callback overrides it per user below.
+        // Use 30 days so the session cookie stays valid while the token is checked on each request.
+        maxAge: 30 * 24 * 60 * 60,
     },
 } satisfies NextAuthConfig
