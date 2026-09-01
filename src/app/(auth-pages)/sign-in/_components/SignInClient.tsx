@@ -17,7 +17,10 @@ const SignInClient = () => {
     }: OnSignInPayload) => {
         setSubmitting(true)
 
-        onSignInWithCredentials(values, callbackUrl || '').then((data) => {
+        onSignInWithCredentials(
+            { email: values.email, password: values.password },
+            callbackUrl || '',
+        ).then((data) => {
             if (data?.error) {
                 setMessage(data.error as string)
                 setSubmitting(false)

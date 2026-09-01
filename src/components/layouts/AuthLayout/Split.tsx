@@ -1,4 +1,5 @@
 import { cloneElement } from 'react'
+import { APP_NAME } from '@/constants/app.constant'
 import type { ReactNode, ReactElement } from 'react'
 import type { CommonProps } from '@/@types/common'
 
@@ -8,29 +9,37 @@ interface SplitProps extends CommonProps {
 
 const Split = ({ children, content, ...rest }: SplitProps) => {
     return (
-        <div className="grid lg:grid-cols-2 h-full p-6 bg-white dark:bg-gray-800">
-            <div className="bg-no-repeat bg-cover py-6 px-16 flex-col justify-center items-center hidden lg:flex bg-primary rounded-3xl">
-                <div className="flex flex-col items-center gap-12">
+        <div className="grid h-full bg-gray-50 p-4 dark:bg-gray-950 lg:grid-cols-2 lg:p-6">
+            <div className="relative hidden flex-col justify-between overflow-hidden rounded-3xl bg-primary px-12 py-10 lg:flex">
+                <div className="relative z-10 flex flex-1 flex-col justify-center">
                     <img
-                        className="max-w-[450px] 2xl:max-w-[900px]"
+                        className="mx-auto max-w-[420px] 2xl:max-w-[520px]"
                         src="/img/others/auth-split-img.png"
-                        alt="auth-split-img"
+                        alt="AGCTEK ERP dashboard preview"
                     />
-                    <div className="text-center max-w-[550px]">
-                        <h1 className="text-neutral">
-                            The easiest way to build your admin app
+                    <div className="mx-auto mt-10 max-w-[480px] text-center">
+                        <h1 className="text-3xl font-bold text-neutral">
+                            Manage your business in one place
                         </h1>
-                        <p className="text-neutral opacity-80 mx-auto mt-8 font-semibold">
-                            Experience seamless business management with AGCTEK ERP.
-                            Simplify your workflow, and achieve your goals
-                            efficiently with our powerful and intuitive tools.
+                        <p className="mx-auto mt-4 text-base font-medium text-neutral/80">
+                            {APP_NAME} brings accounting, inventory, HR, and
+                            operations together with real-time insights and a
+                            unified workspace for your team.
                         </p>
                     </div>
                 </div>
+
+                <p className="relative z-10 text-sm text-neutral/70">
+                    Secure access for authorized personnel only.
+                </p>
+
+                <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10" />
+                <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-white/10" />
             </div>
-            <div className="flex flex-col justify-center items-center ">
-                <div className="w-full xl:max-w-[450px] px-8 max-w-[380px]">
-                    <div className="mb-8">{content}</div>
+
+            <div className="flex w-full flex-col items-center justify-center px-4 sm:px-8">
+                <div className="w-full max-w-[480px]">
+                    {content}
                     {children
                         ? cloneElement(children as ReactElement, {
                               ...rest,

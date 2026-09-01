@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
+import Checkbox from '@/components/ui/Checkbox'
 import { FormItem, Form } from '@/components/ui/Form'
 import PasswordInput from '@/components/shared/PasswordInput'
 import classNames from '@/utils/classNames'
@@ -29,15 +30,18 @@ interface SignInFormProps extends CommonProps {
 type SignInFormSchema = {
     email: string
     password: string
+    rememberMe: boolean
 }
 
 const validationSchema = z.object({
     email: z
         .string()
-        .min(1, { message: 'Please enter your email' }),
+        .min(1, { message: 'Please enter your email' })
+        .email({ message: 'Please enter a valid email address' }),
     password: z
         .string()
         .min(1, { message: 'Please enter your password' }),
+    rememberMe: z.boolean(),
 })
 
 const SignInForm = (props: SignInFormProps) => {
@@ -51,8 +55,9 @@ const SignInForm = (props: SignInFormProps) => {
         control,
     } = useForm<SignInFormSchema>({
         defaultValues: {
-            email: 'admin-01@ecme.com',
-            password: '123Qwe',
+            email: '',
+            password: '',
+            rememberMe: false,
         },
         resolver: zodResolver(validationSchema),
     })
@@ -77,44 +82,62 @@ const SignInForm = (props: SignInFormProps) => {
                         render={({ field }) => (
                             <Input
                                 type="email"
-                                placeholder="Email"
-                                autoComplete="off"
+                                placeholder="Enter username"
+                                autoComplete="email"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
                 <FormItem
                     label="Password"
                     invalid={Boolean(errors.password)}
                     errorMessage={errors.password?.message}
                     className={classNames(
                         passwordHint ? 'mb-0' : '',
-                        errors.password?.message ? 'mb-8' : '',
+                        errors.password?.message ? 'mb-6' : 'mb-4',
                     )}
                 >
                     <Controller
                         name="password"
                         control={control}
-                        rules={{ required: true }}
                         render={({ field }) => (
                             <PasswordInput
-                                type="text"
-                                placeholder="Password"
-                                autoComplete="off"
+                                placeholder="Enter your password"
+                                autoComplete="current-password"
                                 {...field}
                             />
                         )}
                     />
                 </FormItem>
+
                 {passwordHint}
+
+                <div className="mb-6 flex w-full items-center justify-between">
+                    <Controller
+                        name="rememberMe"
+                        control={control}
+                        render={({ field }) => (
+                            <Checkbox
+                                checked={field.value}
+                                onChange={(checked) =>
+                                    field.onChange(checked)
+                                }
+                            >
+                                Remember me
+                            </Checkbox>
+                        )}
+                    />
+                </div>
+
                 <Button
                     block
                     loading={isSubmitting}
                     variant="solid"
                     type="submit"
                 >
-                    {isSubmitting ? 'Signing in...' : 'Sign In'}
+                    {isSubmitting ? 'Signing in...' : 'Sign in'}
                 </Button>
             </Form>
         </div>

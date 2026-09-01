@@ -1,10 +1,9 @@
 'use client'
 
-import Logo from '@/components/template/Logo'
 import Alert from '@/components/ui/Alert'
+import Card from '@/components/ui/Card'
 import SignInForm from './SignInForm'
 import useTimeOutMessage from '@/utils/hooks/useTimeOutMessage'
-import useTheme from '@/utils/hooks/useTheme'
 import type { OnSignIn } from './SignInForm'
 
 type SignInProps = {
@@ -14,31 +13,31 @@ type SignInProps = {
 const SignIn = ({ onSignIn }: SignInProps) => {
     const [message, setMessage] = useTimeOutMessage()
 
-    const mode = useTheme((state) => state.mode)
-
     return (
-        <>
-            <div className="mb-8">
-                <Logo
-                    type="streamline"
-                    mode={mode}
-                    logoWidth={60}
-                    logoHeight={60}
-                />
-            </div>
-            <div className="mb-10">
-                <h2 className="mb-2">Welcome back!</h2>
-                <p className="font-semibold heading-text">
-                    Please enter your credentials to sign in!
+        <Card
+            bordered={false}
+            className="w-full border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:shadow-2xl"
+            bodyClass="p-7 sm:p-8"
+        >
+            <div className="mb-7">
+                <h2 className="text-2xl font-bold heading-text">Sign in</h2>
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    Enter your credentials to access your workspace.
                 </p>
             </div>
-            {message && (
-                <Alert showIcon className="mb-4" type="danger">
+
+            {message ? (
+                <Alert showIcon className="mb-6" type="danger">
                     <span className="break-all">{message}</span>
                 </Alert>
-            )}
+            ) : null}
+
             <SignInForm setMessage={setMessage} onSignIn={onSignIn} />
-        </>
+
+            <p className="mt-7 text-center text-xs text-gray-400 dark:text-gray-500">
+                Need help? Contact your system administrator.
+            </p>
+        </Card>
     )
 }
 
