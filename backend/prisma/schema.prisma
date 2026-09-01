@@ -10,7 +10,10 @@ datasource db {
 model User {
   id            String         @id @default(cuid())
   email         String         @unique
-  name          String?
+  userName      String         @unique
+  passwordHash  String
+  role          String
+  avatar        String         @default("")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   notifications Notification[]

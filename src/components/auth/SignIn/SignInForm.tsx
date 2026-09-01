@@ -28,19 +28,14 @@ interface SignInFormProps extends CommonProps {
 }
 
 type SignInFormSchema = {
-    email: string
+    userName: string
     password: string
     rememberMe: boolean
 }
 
 const validationSchema = z.object({
-    email: z
-        .string()
-        .min(1, { message: 'Please enter your email' })
-        .email({ message: 'Please enter a valid email address' }),
-    password: z
-        .string()
-        .min(1, { message: 'Please enter your password' }),
+    userName: z.string().min(1, { message: 'Please enter your username' }),
+    password: z.string().min(1, { message: 'Please enter your password' }),
     rememberMe: z.boolean(),
 })
 
@@ -55,7 +50,7 @@ const SignInForm = (props: SignInFormProps) => {
         control,
     } = useForm<SignInFormSchema>({
         defaultValues: {
-            email: '',
+            userName: '',
             password: '',
             rememberMe: false,
         },
@@ -72,18 +67,18 @@ const SignInForm = (props: SignInFormProps) => {
         <div className={className}>
             <Form onSubmit={handleSubmit(handleSignIn)}>
                 <FormItem
-                    label="Email"
-                    invalid={Boolean(errors.email)}
-                    errorMessage={errors.email?.message}
+                    label="Username"
+                    invalid={Boolean(errors.userName)}
+                    errorMessage={errors.userName?.message}
                 >
                     <Controller
-                        name="email"
+                        name="userName"
                         control={control}
                         render={({ field }) => (
                             <Input
-                                type="email"
+                                type="text"
                                 placeholder="Enter username"
-                                autoComplete="email"
+                                autoComplete="username"
                                 {...field}
                             />
                         )}

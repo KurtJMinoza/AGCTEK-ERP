@@ -1,4 +1,4 @@
-import ApiService from './ApiService'
+import ErpAxiosBase from './axios/ErpAxiosBase'
 
 import type {
     SignUpCredential,
@@ -8,25 +8,22 @@ import type {
 } from '@/@types/auth'
 
 export async function apiSignUp(data: SignUpCredential) {
-    return ApiService.fetchDataWithAxios<SignUpResponse>({
-        url: '/auth/sign-up',
-        method: 'post',
+    const response = await ErpAxiosBase.post<SignUpResponse>(
+        '/auth/sign-up',
         data,
-    })
+    )
+
+    return response.data
 }
 
 export async function apiForgotPassword<T>(data: ForgotPassword) {
-    return ApiService.fetchDataWithAxios<T>({
-        url: '/auth/forgot-password',
-        method: 'post',
-        data,
-    })
+    const response = await ErpAxiosBase.post<T>('/auth/forgot-password', data)
+
+    return response.data
 }
 
 export async function apiResetPassword<T>(data: ResetPassword) {
-    return ApiService.fetchDataWithAxios<T>({
-        url: '/auth/reset-password',
-        method: 'post',
-        data,
-    })
+    const response = await ErpAxiosBase.post<T>('/auth/reset-password', data)
+
+    return response.data
 }

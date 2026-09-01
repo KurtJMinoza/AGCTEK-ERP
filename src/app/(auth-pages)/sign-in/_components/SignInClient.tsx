@@ -18,7 +18,11 @@ const SignInClient = () => {
         setSubmitting(true)
 
         onSignInWithCredentials(
-            { email: values.email, password: values.password },
+            {
+                userName: values.userName,
+                password: values.password,
+                rememberMe: values.rememberMe,
+            },
             callbackUrl || '',
         ).then((data) => {
             if (data?.error) {
