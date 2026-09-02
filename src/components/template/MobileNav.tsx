@@ -1,6 +1,8 @@
 import { useState, Suspense, lazy } from 'react'
 import classNames from 'classnames'
+import Link from 'next/link'
 import Drawer from '@/components/ui/Drawer'
+import Logo from '@/components/template/Logo'
 import NavToggle from '@/components/shared/NavToggle'
 import { DIR_RTL } from '@/constants/theme.constant'
 import withHeaderItem, { WithHeaderItemProps } from '@/utils/hoc/withHeaderItem'
@@ -61,7 +63,15 @@ const MobileNav = ({
                 <MobileNavToggle toggled={isOpen} />
             </div>
             <Drawer
-                title="Navigation"
+                title={
+                    <Link
+                        href={appConfig.authenticatedEntryPath}
+                        className="inline-flex"
+                        onClick={handleDrawerClose}
+                    >
+                        <Logo imgClass="max-h-10" type="full" />
+                    </Link>
+                }
                 isOpen={isOpen}
                 bodyClass={classNames('p-0')}
                 width={330}

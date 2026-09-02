@@ -40,7 +40,7 @@ const ThemeProvider = ({ children, theme, locale }: ThemeProviderProps) => {
         >
             <ConfigProvider
                 value={{
-                    ...theme,
+                    ...themeState,
                     locale: locale || appConfig.locale,
                 }}
             >

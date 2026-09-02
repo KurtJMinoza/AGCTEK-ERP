@@ -7,6 +7,8 @@ import type { SignInCredential } from '@/@types/auth'
 const SESSION_WITHOUT_REMEMBER_MS = 24 * 60 * 60 * 1000 // 1 day
 const SESSION_WITH_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
+const isDataUrl = (value?: string | null) => Boolean(value?.startsWith('data:'))
+
 export default {
     providers: [
         Credentials({
@@ -29,7 +31,6 @@ export default {
                     id: user.id,
                     name: user.userName,
                     email: user.email,
-                    image: user.avatar,
                     authority: user.authority,
                     rememberMe: credentials?.rememberMe === 'true',
                 }
@@ -37,7 +38,7 @@ export default {
         }),
     ],
     callbacks: {
-        async jwt({ token, user }) {
+        async jwt({ token, user, trigger, session }) {
             // Persist the authority to the token right after signin
             if (user) {
                 token.authority = user.authority
@@ -49,6 +50,20 @@ export default {
                         ? SESSION_WITH_REMEMBER_MS
                         : SESSION_WITHOUT_REMEMBER_MS) / 1000
                 token.exp = Math.floor(now / 1000) + ttl
+            }
+
+            if (trigger === 'update' && session) {
+                if (session.name !== undefined) {
+                    token.name = session.name
+                }
+
+                if (session.email !== undefined) {
+                    token.email = session.email
+                }
+            }
+
+            if (isDataUrl(token.picture as string | undefined)) {
+                delete token.picture
             }
 
             const expiresAt = (token.exp as number) * 1000

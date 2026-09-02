@@ -32,7 +32,7 @@ const _Notification = ({ className }: { className?: string }) => {
     const [notificationList, setNotificationList] = useState<
         NotificationItem[]
     >([])
-    const [unreadNotification, setUnreadNotification] = useState(false)
+    const [unreadCount, setUnreadCount] = useState(0)
     const [noResult, setNoResult] = useState(false)
     const [loading, setLoading] = useState(false)
 
@@ -43,9 +43,9 @@ const _Notification = ({ className }: { className?: string }) => {
     const refreshCount = useCallback(async () => {
         try {
             const resp = await apiGetNotificationCount()
-            setUnreadNotification(resp.count > 0)
+            setUnreadCount(resp.count)
         } catch {
-            setUnreadNotification(false)
+            setUnreadCount(0)
         }
     }, [])
 
@@ -61,13 +61,12 @@ const _Notification = ({ className }: { className?: string }) => {
                 return [notification, ...current]
             })
             setNoResult(false)
-            setUnreadNotification(true)
         },
         [],
     )
 
     const handleRealtimeCount = useCallback((count: number) => {
-        setUnreadNotification(count > 0)
+        setUnreadCount(count)
     }, [])
 
     useNotificationSocket({
@@ -87,10 +86,13 @@ const _Notification = ({ className }: { className?: string }) => {
         setLoading(true)
 
         try {
-            const resp = await apiGetNotificationList()
+            const [resp, countResp] = await Promise.all([
+                apiGetNotificationList(),
+                apiGetNotificationCount(),
+            ])
             setNotificationList(resp)
             setNoResult(resp.length === 0)
-            setUnreadNotification(resp.some((item) => !item.readed))
+            setUnreadCount(countResp.count)
         } catch {
             setNotificationList([])
             setNoResult(true)
@@ -107,7 +109,7 @@ const _Notification = ({ className }: { className?: string }) => {
         setNotificationList((current) =>
             current.map((item) => ({ ...item, readed: true })),
         )
-        setUnreadNotification(false)
+        setUnreadCount(0)
 
         try {
             await apiMarkAllNotificationsAsRead()
@@ -118,21 +120,25 @@ const _Notification = ({ className }: { className?: string }) => {
     }
 
     const onMarkAsRead = async (id: string) => {
+        const wasUnread = notificationList.some(
+            (item) => item.id === id && !item.readed,
+        )
+
         try {
             await apiMarkNotificationAsRead(id)
         } catch {
             // Keep optimistic UI if API is temporarily unavailable.
         }
 
-        setNotificationList((current) => {
-            const next = current.map((item) =>
+        setNotificationList((current) =>
+            current.map((item) =>
                 item.id === id ? { ...item, readed: true } : item,
-            )
-            const hasUnread = next.some((item) => !item.readed)
-            setUnreadNotification(hasUnread)
+            ),
+        )
 
-            return next
-        })
+        if (wasUnread) {
+            setUnreadCount((current) => Math.max(0, current - 1))
+        }
     }
 
     const handleViewAllActivity = () => {
@@ -145,7 +151,7 @@ const _Notification = ({ className }: { className?: string }) => {
             ref={notificationDropdownRef}
             renderTitle={
                 <NotificationToggle
-                    dot={unreadNotification}
+                    count={unreadCount}
                     className={className}
                 />
             }

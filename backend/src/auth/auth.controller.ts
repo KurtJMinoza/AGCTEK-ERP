@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common'
 import { AuthService } from './auth.service'
 
 type SignUpBody = {
@@ -13,6 +13,19 @@ type SignInBody = {
     password: string
 }
 
+type UpdateProfileBody = {
+    userName: string
+    email?: string
+    newUserName?: string
+    avatar?: string
+}
+
+type ChangePasswordBody = {
+    userName: string
+    currentPassword: string
+    newPassword: string
+}
+
 @Controller('auth')
 export class AuthController {
     constructor(private readonly authService: AuthService) {}
@@ -25,5 +38,20 @@ export class AuthController {
     @Post('sign-in')
     signIn(@Body() body: SignInBody) {
         return this.authService.signIn(body)
+    }
+
+    @Get('profile')
+    getProfile(@Query('userName') userName: string) {
+        return this.authService.getProfile(userName)
+    }
+
+    @Patch('profile')
+    updateProfile(@Body() body: UpdateProfileBody) {
+        return this.authService.updateProfile(body)
+    }
+
+    @Patch('password')
+    changePassword(@Body() body: ChangePasswordBody) {
+        return this.authService.changePassword(body)
     }
 }

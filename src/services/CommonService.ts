@@ -1,6 +1,6 @@
 import ErpAxiosBase from './axios/ErpAxiosBase'
-import ApiService from './ApiService'
 import type { NotificationItem } from '@/@types/notification'
+import { searchPages, type SearchResultGroup } from '@/configs/search.config'
 
 export async function apiGetNotificationCount() {
     const response = await ErpAxiosBase.get<{ count: number }>(
@@ -30,10 +30,6 @@ export async function apiMarkAllNotificationsAsRead() {
     await ErpAxiosBase.patch('/notifications/read-all')
 }
 
-export async function apiGetSearchResult<T>(params: { query: string }) {
-    return ApiService.fetchDataWithAxios<T>({
-        url: '/search',
-        method: 'get',
-        params,
-    })
+export async function apiGetSearchResult(params: { query: string }) {
+    return searchPages(params.query) as SearchResultGroup[]
 }

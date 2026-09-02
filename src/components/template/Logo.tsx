@@ -1,11 +1,16 @@
+'use client'
+
 import classNames from 'classnames'
 import { APP_NAME } from '@/constants/app.constant'
+import { MODE_DARK } from '@/constants/theme.constant'
 import Image from 'next/image'
+import useTheme from '@/utils/hooks/useTheme'
 import type { CommonProps } from '@/@types/common'
+import type { Mode } from '@/@types/theme'
 
 interface LogoProps extends CommonProps {
     type?: 'full' | 'streamline'
-    mode?: 'light' | 'dark'
+    mode?: Mode
     imgClass?: string
     logoWidth?: number
     logoHeight?: number
@@ -14,9 +19,11 @@ interface LogoProps extends CommonProps {
 const LOGO_SRC_PATH = '/img/logo/'
 
 const Logo = (props: LogoProps) => {
+    const themeMode = useTheme((state) => state.mode)
+
     const {
         type = 'full',
-        mode = 'light',
+        mode,
         className,
         imgClass,
         style,
@@ -24,10 +31,12 @@ const Logo = (props: LogoProps) => {
         logoHeight,
     } = props
 
+    const resolvedMode = mode ?? themeMode
+
     const src =
-        mode === 'light'
-            ? `${LOGO_SRC_PATH}AGC_DARK.png`
-            : `${LOGO_SRC_PATH}AGC_WHITE.png`
+        resolvedMode === MODE_DARK
+            ? `${LOGO_SRC_PATH}AGC_WHITE.png`
+            : `${LOGO_SRC_PATH}AGC_DARK.png`
 
     const width = logoWidth || (type === 'full' ? 140 : 48)
     const height = logoHeight || (type === 'full' ? 48 : 48)

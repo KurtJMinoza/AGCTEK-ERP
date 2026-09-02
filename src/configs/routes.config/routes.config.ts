@@ -18,6 +18,22 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/account/profile': {
+        key: 'profile',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/account/settings': {
+        key: 'accountSettings',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
 }
 
 export const publicRoutes: Routes = {}

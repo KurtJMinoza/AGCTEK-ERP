@@ -15,6 +15,7 @@ import TopBarClassic from './components/TopBarClassic'
 import ContentOverlay from './components/ContentOverlay'
 import Blank from './components/Blank'
 import PageContainer from '@/components/template/PageContainer'
+import { UserAvatarProvider } from '@/modules/account/hooks/useUserAvatar'
 import queryRoute from '@/utils/queryRoute'
 import useTheme from '@/utils/hooks/useTheme'
 import { usePathname } from 'next/navigation'
@@ -52,11 +53,15 @@ const PostLoginLayout = ({ children }: CommonProps) => {
     const route = queryRoute(pathname)
 
     return (
-        <Layout
-            layoutType={route?.meta?.layout ? route?.meta?.layout : layoutType}
-        >
-            <PageContainer {...route?.meta}>{children}</PageContainer>
-        </Layout>
+        <UserAvatarProvider>
+            <Layout
+                layoutType={
+                    route?.meta?.layout ? route?.meta?.layout : layoutType
+                }
+            >
+                <PageContainer {...route?.meta}>{children}</PageContainer>
+            </Layout>
+        </UserAvatarProvider>
     )
 }
 
