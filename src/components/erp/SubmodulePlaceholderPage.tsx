@@ -45,7 +45,7 @@ export default function SubmodulePlaceholderPage({
     return (
         <PageContainer className="mx-auto max-w-3xl">
             <ErpBackLink items={breadcrumbItems} />
-            <Breadcrumb items={breadcrumbItems} />
+            <Breadcrumb items={breadcrumbItems} className="mb-4" />
 
             <PageHeader
                 title={pageItem.title}
