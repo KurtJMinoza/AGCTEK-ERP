@@ -21,13 +21,14 @@ export async function apiGetNotificationList(params?: { limit?: number }) {
 export async function apiMarkNotificationAsRead(id: string) {
     const response = await ErpAxiosBase.patch<NotificationItem>(
         `/notifications/${id}/read`,
+        {},
     )
 
     return response.data
 }
 
 export async function apiMarkAllNotificationsAsRead() {
-    await ErpAxiosBase.patch('/notifications/read-all')
+    await ErpAxiosBase.patch('/notifications/read-all', {})
 }
 
 export async function apiGetSearchResult(params: { query: string }) {

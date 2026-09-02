@@ -113,9 +113,9 @@ const _Notification = ({ className }: { className?: string }) => {
 
         try {
             await apiMarkAllNotificationsAsRead()
+            await refreshCount()
         } catch {
             await refreshCount()
-            await onNotificationOpenChange(true)
         }
     }
 
