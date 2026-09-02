@@ -126,35 +126,4 @@ export class NotificationsService {
         const count = await this.getUnreadCount()
         this.gateway.emitCount(count)
     }
-
-    async seedIfEmpty() {
-        const count = await this.prisma.notification.count()
-
-        if (count > 0) {
-            return
-        }
-
-        const seedItems = [
-            {
-                target: 'System',
-                description: 'Welcome to AGCTEK ERP.',
-                type: 0,
-            },
-            {
-                target: 'Inventory',
-                description: 'Low stock alert for warehouse A.',
-                type: 2,
-                status: 'failed',
-            },
-            {
-                target: 'Procurement',
-                description: 'Purchase order PO-4821 is pending approval.',
-                type: 1,
-            },
-        ]
-
-        for (const item of seedItems) {
-            await this.create(item)
-        }
-    }
 }
