@@ -14,7 +14,7 @@ const ModeSwitcher = () => {
     return (
         <div>
             <Switcher
-                defaultChecked={mode === 'dark'}
+                checked={mode === 'dark'}
                 onChange={onSwitchChange}
             />
         </div>

@@ -131,6 +131,118 @@ export class AuthService {
         return this.toPublicUser(user)
     }
 
+    async getProfile(userName: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { userName: userName.trim() },
+        })
+
+        if (!user) {
+            throw new UnauthorizedException('User not found.')
+        }
+
+        return this.toPublicUser(user)
+    }
+
+    async updateProfile(input: {
+        userName: string
+        email?: string
+        newUserName?: string
+        avatar?: string
+    }) {
+        const currentUserName = input.userName.trim()
+        const user = await this.prisma.user.findUnique({
+            where: { userName: currentUserName },
+        })
+
+        if (!user) {
+            throw new UnauthorizedException('User not found.')
+        }
+
+        const nextEmail = input.email?.trim().toLowerCase()
+        const nextUserName = input.newUserName?.trim()
+
+        if (nextEmail && nextEmail !== user.email) {
+            const emailTaken = await this.prisma.user.findUnique({
+                where: { email: nextEmail },
+            })
+
+            if (emailTaken) {
+                throw new ConflictException(
+                    'An account with this email already exists.',
+                )
+            }
+        }
+
+        if (nextUserName && nextUserName !== user.userName) {
+            const userNameTaken = await this.prisma.user.findUnique({
+                where: { userName: nextUserName },
+            })
+
+            if (userNameTaken) {
+                throw new ConflictException(
+                    'An account with this username already exists.',
+                )
+            }
+        }
+
+        const updated = await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ...(nextEmail ? { email: nextEmail } : {}),
+                ...(nextUserName ? { userName: nextUserName } : {}),
+                ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+            },
+        })
+
+        return {
+            status: 'success',
+            message: 'Profile updated successfully.',
+            user: this.toPublicUser(updated),
+        }
+    }
+
+    async changePassword(input: {
+        userName: string
+        currentPassword: string
+        newPassword: string
+    }) {
+        const userName = input.userName.trim()
+        const user = await this.prisma.user.findUnique({
+            where: { userName },
+        })
+
+        if (!user) {
+            throw new UnauthorizedException('User not found.')
+        }
+
+        const valid = await bcrypt.compare(
+            input.currentPassword,
+            user.passwordHash,
+        )
+
+        if (!valid) {
+            throw new BadRequestException('Current password is incorrect.')
+        }
+
+        if (!input.newPassword || input.newPassword.length < 6) {
+            throw new BadRequestException(
+                'New password must be at least 6 characters.',
+            )
+        }
+
+        const passwordHash = await bcrypt.hash(input.newPassword, 10)
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { passwordHash },
+        })
+
+        return {
+            status: 'success',
+            message: 'Password updated successfully.',
+        }
+    }
+
     async seedDemoUser() {
         const email = 'admin-01@ecme.com'
         const userName = 'admin'

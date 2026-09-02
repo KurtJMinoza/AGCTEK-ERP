@@ -9,7 +9,9 @@ import { AppModule } from './app.module'
 async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(
         AppModule,
-        new FastifyAdapter(),
+        new FastifyAdapter({
+            bodyLimit: 5 * 1024 * 1024,
+        }),
     )
 
     app.useWebSocketAdapter(new IoAdapter(app))
@@ -17,6 +19,7 @@ async function bootstrap() {
     app.enableCors({
         origin: process.env.FRONTEND_URL || 'http://localhost:3000',
         credentials: true,
+        methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })
 
     const port = Number(process.env.PORT) || 3001

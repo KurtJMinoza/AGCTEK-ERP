@@ -8,11 +8,13 @@ import Dialog from '@/components/ui/Dialog'
 import ScrollBar from '@/components/ui/ScrollBar'
 import navigationIcon from '@/configs/navigation-icon.config'
 import { apiGetSearchResult } from '@/services/CommonService'
+import { recommendedSearch } from '@/configs/search.config'
 import debounce from 'lodash/debounce'
 import { HiOutlineSearch, HiChevronRight } from 'react-icons/hi'
 import { PiMagnifyingGlassDuotone } from 'react-icons/pi'
 import Link from 'next/link'
 import Highlighter from 'react-highlight-words'
+import type { SearchResultGroup } from '@/configs/search.config'
 
 type SearchData = {
     key: string
@@ -23,17 +25,8 @@ type SearchData = {
     categoryTitle: string
 }
 
-type SearchResult = {
-    title: string
-    data: SearchData[]
-}
+type SearchResult = SearchResultGroup
 
-const recommendedSearch: SearchResult[] = [
-    {
-        title: 'Recommended',
-        data: [],
-    },
-]
 
 const ListItem = (props: {
     icon: string
@@ -113,7 +106,7 @@ const _Search = ({ className }: { className?: string }) => {
             setNoResult(false)
         }
 
-        const respond = await apiGetSearchResult<SearchResult[]>({ query })
+        const respond = await apiGetSearchResult({ query })
 
         if (respond) {
             if (respond.length === 0) {
