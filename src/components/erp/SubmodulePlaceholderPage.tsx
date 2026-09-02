@@ -2,7 +2,6 @@
 
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import ActionLink from '@/components/shared/ActionLink'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
@@ -26,16 +25,14 @@ export default function SubmodulePlaceholderPage({
 
     return (
         <PageContainer className="mx-auto max-w-3xl">
-            <ActionLink
-                href={module.path}
-                className="mb-4 inline-flex items-center gap-1 text-sm font-medium"
-            >
-                ← Back to {module.shortTitle}
-            </ActionLink>
-
             <PageHeader
                 title={submodule.title}
                 description={submodule.description}
+                breadcrumbs={[
+                    { label: module.title, href: module.path },
+                    { label: category.title },
+                    { label: submodule.title },
+                ]}
             />
 
             <AdaptiveCard className="mt-6">

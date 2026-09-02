@@ -513,7 +513,7 @@ export const ERP_MODULES: ErpModule[] = [
                         title: 'Transportation Management',
                         description:
                             'Plan shipments, carriers, and freight costs.',
-                        path: '/modules/scm/transportation',
+                        path: '/scm',
                         icon: 'truck',
                     },
                     {

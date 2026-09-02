@@ -17,6 +17,7 @@ model User {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   notifications Notification[]
+  driver        Driver?
 }
 
 model Notification {
@@ -35,4 +36,251 @@ model Notification {
   updatedAt     DateTime @updatedAt
 
   @@index([readed, createdAt])
+}
+
+// ─── SCM Transportation ─────────────────────────────────────────────────────
+
+enum VehicleStatus {
+  AVAILABLE
+  IN_TRANSIT
+  MAINTENANCE
+  OUT_OF_SERVICE
+  INACTIVE
+}
+
+enum VehicleType {
+  TRUCK
+  VAN
+  TRAILER
+  REEFER
+  OTHER
+}
+
+enum DriverStatus {
+  AVAILABLE
+  ON_TRIP
+  OFF_DUTY
+  INACTIVE
+}
+
+enum TripStatus {
+  DRAFT
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum StopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  READY
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum MaintenanceType {
+  PREVENTATIVE
+  CORRECTIVE
+  INSPECTION
+  OTHER
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Vehicle {
+  id                 String               @id @default(cuid())
+  code               String               @unique
+  plateNumber        String               @unique
+  make               String
+  model              String
+  year               Int?
+  type               VehicleType
+  status             VehicleStatus        @default(AVAILABLE)
+  capacityWeightKg   Float
+  capacityVolumeM3   Float
+  odometerKm         Float                @default(0)
+  /// When set and odometerKm >= maxOdometerKm, vehicle is blocked from routing
+  maxOdometerKm      Float?
+  routingBlocked     Boolean              @default(false)
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  trips              Trip[]
+  gpsLogs            GpsLog[]
+  maintenanceRecords MaintenanceRecord[]
+
+  @@index([status])
+  @@index([type])
+}
+
+model Driver {
+  id            String       @id @default(cuid())
+  userId        String       @unique
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode  String?      @unique
+  firstName     String
+  lastName      String
+  licenseNumber String       @unique
+  licenseExpiry DateTime
+  phone         String
+  status        DriverStatus @default(AVAILABLE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  trips         Trip[]
+
+  @@index([status])
+}
+
+model Shipment {
+  id                  String             @id @default(cuid())
+  reference           String             @unique
+  customerName        String?
+  originAddress       String
+  originLat           Float?
+  originLng           Float?
+  destAddress         String
+  destLat             Float?
+  destLng             Float?
+  weightKg            Float
+  volumeM3            Float
+  status              ShipmentStatus     @default(DRAFT)
+  requestedPickupAt   DateTime?
+  requestedDeliveryAt DateTime?
+  earliestDeliveryAt  DateTime?
+  latestDeliveryAt    DateTime?
+  podSignatureUrl     String?
+  podPhotoUrl         String?
+  deliveredAt         DateTime?
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  tripStopShipments   TripStopShipment[]
+
+  @@index([status])
+}
+
+model Trip {
+  id             String     @id @default(cuid())
+  code           String     @unique
+  vehicleId      String?
+  vehicle        Vehicle?   @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId       String?
+  driver         Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  status         TripStatus @default(DRAFT)
+  plannedStartAt DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  totalWeightKg  Float?
+  totalVolumeM3  Float?
+  notes          String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  stops          TripStop[]
+  gpsLogs        GpsLog[]
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([driverId])
+}
+
+model TripStop {
+  id         String             @id @default(cuid())
+  tripId     String
+  trip       Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  sequence   Int
+  name       String?
+  address    String
+  lat        Float?
+  lng        Float?
+  windowStart DateTime?
+  windowEnd  DateTime?
+  status     StopStatus         @default(PENDING)
+  arrivedAt  DateTime?
+  completedAt DateTime?
+  notes      String?
+  shipments  TripStopShipment[]
+
+  @@unique([tripId, sequence])
+  @@index([tripId])
+}
+
+model TripStopShipment {
+  id         String   @id @default(cuid())
+  tripStopId String
+  tripStop   TripStop @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  /// PICKUP | DROPOFF
+  action     String
+
+  @@unique([tripStopId, shipmentId, action])
+  @@index([shipmentId])
+}
+
+model GpsLog {
+  id         String   @id @default(cuid())
+  vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  tripId     String?
+  trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  latitude   Float
+  longitude  Float
+  speedKmh   Float    @default(0)
+  heading    Float?
+  recordedAt DateTime @default(now())
+
+  @@index([vehicleId, recordedAt])
+  @@index([tripId, recordedAt])
+}
+
+model MaintenanceRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  type          MaintenanceType
+  status        MaintenanceStatus @default(SCHEDULED)
+  title         String
+  description   String?
+  odometerKm    Float?
+  cost          Float?
+  scheduledAt   DateTime
+  completedAt   DateTime?
+  /// When true (and status not COMPLETED/CANCELLED), vehicle.routingBlocked is set
+  blocksRouting Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([scheduledAt])
+}
+
+/// Kept for future Demand Planning — no API/UI yet
+model DemandForecast {
+  id           String   @id @default(cuid())
+  productCode  String
+  locationCode String
+  periodStart  DateTime
+  periodEnd    DateTime
+  quantity     Float
+  unit         String   @default("EA")
+  source       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productCode, locationCode, periodStart])
 }

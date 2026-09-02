@@ -34,6 +34,70 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/scm': {
+        key: 'scmDashboard',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/dashboard': {
+        key: 'scmDashboardAlias',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/vehicles': {
+        key: 'scmVehicles',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/drivers': {
+        key: 'scmDrivers',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/trips': {
+        key: 'scmTrips',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/shipments': {
+        key: 'scmShipments',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/tracking': {
+        key: 'scmTracking',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/maintenance': {
+        key: 'scmMaintenance',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/modules/[moduleCode]': {
         key: 'erpModule',
         authority: [],

@@ -1,6 +1,7 @@
 'use client'
 
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import Breadcrumb from '@/components/shared/Breadcrumb'
 import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
@@ -26,6 +27,13 @@ export default function ModuleHeroCard({
                 }
             >
                 <div>
+                    <Breadcrumb
+                        className="mb-2"
+                        items={[
+                            { label: 'Home', href: '/home' },
+                            { label: module.title },
+                        ]}
+                    />
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                         <Tag className="text-xs font-semibold uppercase">
                             {module.shortTitle}
