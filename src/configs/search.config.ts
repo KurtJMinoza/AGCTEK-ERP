@@ -1,3 +1,5 @@
+import { getResolvedErpModules } from '@/configs/erp-modules'
+
 export type SearchItem = {
     key: string
     path: string
@@ -5,6 +7,8 @@ export type SearchItem = {
     icon: string
     category: string
     categoryTitle: string
+    /** Extra text included when matching search queries */
+    searchText?: string
 }
 
 export type SearchResultGroup = {
@@ -47,12 +51,66 @@ export const searchablePages: SearchItem[] = [
     },
 ]
 
+export function getErpSearchItems(): SearchItem[] {
+    const items: SearchItem[] = []
+
+    for (const module of getResolvedErpModules()) {
+        items.push({
+            key: `module-${module.code}`,
+            path: module.path,
+            title: module.title,
+            icon: module.icon,
+            category: 'erp-modules',
+            categoryTitle: 'Modules',
+            searchText: `${module.shortTitle} ${module.title} ${module.description}`,
+        })
+
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                items.push({
+                    key: `submodule-${module.code}-${submodule.code}`,
+                    path: submodule.path,
+                    title: submodule.title,
+                    icon: submodule.icon || module.icon,
+                    category: module.code,
+                    categoryTitle: `${module.title} · ${category.title}`,
+                    searchText: `${submodule.title} ${submodule.description} ${submodule.code} ${module.title} ${module.shortTitle} ${category.title}`,
+                })
+            }
+        }
+    }
+
+    return items
+}
+
+const allSearchableItems: SearchItem[] = [
+    ...searchablePages,
+    ...getErpSearchItems(),
+]
+
 export const recommendedSearch: SearchResultGroup[] = [
     {
-        title: 'Recommended',
-        data: searchablePages.slice(0, 3),
+        title: 'Modules',
+        data: getErpSearchItems().filter((item) => item.category === 'erp-modules'),
+    },
+    {
+        title: 'Pages',
+        data: searchablePages,
     },
 ]
+
+function itemMatchesQuery(item: SearchItem, normalized: string): boolean {
+    const haystack = [
+        item.title,
+        item.path,
+        item.categoryTitle,
+        item.searchText ?? '',
+    ]
+        .join(' ')
+        .toLowerCase()
+
+    return haystack.includes(normalized)
+}
 
 export function searchPages(query: string): SearchResultGroup[] {
     const normalized = query.trim().toLowerCase()
@@ -61,13 +119,9 @@ export function searchPages(query: string): SearchResultGroup[] {
         return recommendedSearch
     }
 
-    const matched = searchablePages.filter((item) => {
-        return (
-            item.title.toLowerCase().includes(normalized) ||
-            item.path.toLowerCase().includes(normalized) ||
-            item.categoryTitle.toLowerCase().includes(normalized)
-        )
-    })
+    const matched = allSearchableItems.filter((item) =>
+        itemMatchesQuery(item, normalized),
+    )
 
     if (matched.length === 0) {
         return []
