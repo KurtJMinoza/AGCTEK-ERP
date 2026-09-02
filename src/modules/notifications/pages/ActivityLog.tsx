@@ -7,7 +7,11 @@ import Badge from '@/components/ui/Badge'
 import Spinner from '@/components/ui/Spinner'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
+import Breadcrumb from '@/components/shared/Breadcrumb'
 import StatusBadge from '@/components/shared/StatusBadge'
+import ErpBackLink from '@/components/erp/ErpBackLink'
+import { ACTIVITY_LOG_PATH } from '@/constants/route.constant'
+import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import NotificationAvatar from '@/components/template/Notification/NotificationAvatar'
 import { HiOutlineMailOpen } from 'react-icons/hi'
 import {
@@ -83,9 +87,13 @@ const ActivityLog = () => {
     }
 
     const unreadCount = notifications.filter((item) => !item.readed).length
+    const breadcrumbItems = buildErpBreadcrumbs(ACTIVITY_LOG_PATH)
 
     return (
         <PageContainer>
+            <ErpBackLink items={breadcrumbItems} />
+            <Breadcrumb items={breadcrumbItems} />
+
             <PageHeader
                 title="Activity Log"
                 description="Full history of system notifications and activity updates."

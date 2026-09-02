@@ -76,6 +76,18 @@ export function getErpSearchItems(): SearchItem[] {
                     categoryTitle: `${module.title} · ${category.title}`,
                     searchText: `${submodule.title} ${submodule.description} ${submodule.code} ${module.title} ${module.shortTitle} ${category.title}`,
                 })
+
+                for (const child of submodule.children ?? []) {
+                    items.push({
+                        key: `feature-${module.code}-${submodule.code}-${child.code}`,
+                        path: child.path,
+                        title: child.title,
+                        icon: child.icon || submodule.icon || module.icon,
+                        category: module.code,
+                        categoryTitle: `${module.title} · ${submodule.title}`,
+                        searchText: `${child.title} ${child.description} ${child.code} ${submodule.title} ${module.title} ${module.shortTitle}`,
+                    })
+                }
             }
         }
     }

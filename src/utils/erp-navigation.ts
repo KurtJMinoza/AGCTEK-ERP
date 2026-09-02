@@ -1,5 +1,13 @@
+import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
+import appConfig from '@/configs/app.config'
+import { ACTIVITY_LOG_PATH } from '@/constants/route.constant'
 import type { ErpModule, ErpNavSearchResult } from '@/types/erp-modules'
 import { getResolvedErpModules } from '@/configs/erp-modules'
+
+const homeBreadcrumb = (): BreadcrumbItem => ({
+    label: 'Home',
+    href: appConfig.authenticatedEntryPath,
+})
 
 function normalizeQuery(query: string): string {
     return query.trim().toLowerCase()
@@ -54,6 +62,22 @@ export function searchErpNavigation(
                         submodule,
                     })
                 }
+
+                for (const child of submodule.children ?? []) {
+                    const childMatches =
+                        matchesText(child.title, q) ||
+                        matchesText(child.description, q) ||
+                        matchesText(child.code, q)
+
+                    if (childMatches) {
+                        results.push({
+                            type: 'submodule',
+                            module,
+                            category,
+                            submodule: child,
+                        })
+                    }
+                }
             }
         }
     }
@@ -67,4 +91,64 @@ export function getActiveModuleCode(pathname: string): string | undefined {
         (m) => pathname === m.path || pathname.startsWith(`${m.path}/`),
     )
     return match?.code
+}
+
+/**
+ * Builds breadcrumb trail for home, activity log, module landing, and submodule pages.
+ */
+export function buildErpBreadcrumbs(pathname: string): BreadcrumbItem[] {
+    const home = appConfig.authenticatedEntryPath
+
+    if (pathname === home || pathname === '/') {
+        return [{ label: 'Home' }]
+    }
+
+    if (pathname === ACTIVITY_LOG_PATH) {
+        return [homeBreadcrumb(), { label: 'Activity Log' }]
+    }
+
+    const modules = getResolvedErpModules()
+
+    for (const module of modules) {
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                for (const child of submodule.children ?? []) {
+                    if (child.path === pathname) {
+                        const crumbs: BreadcrumbItem[] = [
+                            homeBreadcrumb(),
+                            { label: module.title, href: module.path },
+                            { label: category.title },
+                            {
+                                label: submodule.title,
+                                href: submodule.path,
+                            },
+                        ]
+
+                        if (submodule.childGroupTitle) {
+                            crumbs.push({ label: submodule.childGroupTitle })
+                        }
+
+                        crumbs.push({ label: child.title })
+                        return crumbs
+                    }
+                }
+
+                if (submodule.path === pathname) {
+                    return [
+                        homeBreadcrumb(),
+                        { label: module.title, href: module.path },
+                        { label: category.title },
+                        { label: submodule.title },
+                    ]
+                }
+            }
+        }
+    }
+
+    const module = modules.find((item) => item.path === pathname)
+    if (module) {
+        return [homeBreadcrumb(), { label: module.title }]
+    }
+
+    return [homeBreadcrumb()]
 }
