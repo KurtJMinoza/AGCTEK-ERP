@@ -34,6 +34,24 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/modules/[moduleCode]': {
+        key: 'erpModule',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/modules/[moduleCode]/[submoduleCode]': {
+        key: 'erpSubmodule',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
 }
 
 export const publicRoutes: Routes = {}
