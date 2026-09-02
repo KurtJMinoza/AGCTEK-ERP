@@ -7,6 +7,8 @@ import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import ScrollBar from '@/components/ui/ScrollBar'
 import navigationIcon from '@/configs/navigation-icon.config'
+import erpIcon from '@/configs/erp-icon.config'
+import ErpIcon from '@/components/erp/ErpIcon'
 import { apiGetSearchResult } from '@/services/CommonService'
 import { recommendedSearch } from '@/configs/search.config'
 import debounce from 'lodash/debounce'
@@ -52,7 +54,12 @@ const ListItem = (props: {
                             'rounded-lg border-2 border-gray-200 shadow-xs text-xl group-hover:shadow-sm h-10 w-10 flex items-center justify-center bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100',
                         )}
                     >
-                        {icon && navigationIcon[icon]}
+                        {icon &&
+                            (erpIcon[icon] ? (
+                                <ErpIcon icon={icon} className="text-xl" />
+                            ) : (
+                                navigationIcon[icon]
+                            ))}
                     </div>
                     <div className="text-gray-900 dark:text-gray-300">
                         <Highlighter
@@ -154,7 +161,7 @@ const _Search = ({ className }: { className?: string }) => {
                             <input
                                 ref={inputRef}
                                 className="ring-0 outline-hidden block w-full p-4 text-base bg-transparent text-gray-900 dark:text-gray-100"
-                                placeholder="Search..."
+                                placeholder="Search modules, pages..."
                                 onChange={handleSearch}
                             />
                         </div>
@@ -167,9 +174,9 @@ const _Search = ({ className }: { className?: string }) => {
                             {searchResult.map((result) => (
                                 <div key={result.title} className="mb-4">
                                     <h6 className="mb-3">{result.title}</h6>
-                                    {result.data.map((data, index) => (
+                                    {result.data.map((data) => (
                                         <ListItem
-                                            key={data.title + index}
+                                            key={data.key}
                                             icon={data.icon}
                                             label={data.title}
                                             url={data.path}
