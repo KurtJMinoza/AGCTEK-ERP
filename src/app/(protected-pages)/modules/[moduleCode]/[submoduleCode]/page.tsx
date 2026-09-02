@@ -1,6 +1,11 @@
 import { notFound } from 'next/navigation'
+import SubmoduleHubPage from '@/components/erp/SubmoduleHubPage'
 import SubmodulePlaceholderPage from '@/components/erp/SubmodulePlaceholderPage'
-import { findSubmoduleByPath, getResolvedErpModules } from '@/configs/erp-modules'
+import {
+    findSubmoduleByPath,
+    getResolvedErpModules,
+    submoduleHasChildren,
+} from '@/configs/erp-modules'
 
 type PageProps = {
     params: Promise<{ moduleCode: string; submoduleCode: string }>
@@ -35,9 +40,14 @@ export async function generateMetadata({ params }: PageProps) {
 export default async function Page({ params }: PageProps) {
     const { moduleCode, submoduleCode } = await params
     const pathname = `/modules/${moduleCode}/${submoduleCode}`
+    const match = findSubmoduleByPath(pathname)
 
-    if (!findSubmoduleByPath(pathname)) {
+    if (!match || match.child) {
         notFound()
+    }
+
+    if (submoduleHasChildren(match.submodule)) {
+        return <SubmoduleHubPage pathname={pathname} />
     }
 
     return <SubmodulePlaceholderPage pathname={pathname} />

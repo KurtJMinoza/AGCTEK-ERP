@@ -10,6 +10,17 @@ export type ErpSubmodule = {
     /** App Router path, e.g. "/modules/sd/customer-master" */
     path: string
     icon?: ErpIconName
+    /** Section label when this submodule has nested features */
+    childGroupTitle?: string
+    /** Nested features shown on the submodule hub page */
+    children?: ErpSubmodule[]
+}
+
+export type SubmodulePathMatch = {
+    module: ErpModule
+    category: ErpCategory
+    submodule: ErpSubmodule
+    child?: ErpSubmodule
 }
 
 export type ErpCategory = {

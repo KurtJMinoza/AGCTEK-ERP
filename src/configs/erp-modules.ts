@@ -1,4 +1,5 @@
 import type { ErpModule, ErpModuleCode } from '@/types/erp-modules'
+import { MM_CATEGORIES } from '@/configs/erp-modules/mm.module'
 
 /**
  * Single source of truth for ERP navigation.
@@ -125,115 +126,10 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'MM',
         title: 'Materials Management',
         description:
-            'Procure, store, and manage materials — vendors, inventory, goods movements, and valuation.',
+            'End-to-end materials operations — master data, procurement, receiving, inventory, warehouse, planning, valuation, and analytics.',
         path: '/modules/mm',
         icon: 'warehouse',
-        categories: [
-            {
-                code: 'master-data',
-                title: 'Master Data',
-                submodules: [
-                    {
-                        code: 'material-master',
-                        title: 'Material Master',
-                        description:
-                            'Create and maintain material master records across views.',
-                        path: '/modules/mm/material-master',
-                        icon: 'package',
-                    },
-                    {
-                        code: 'vendor-master',
-                        title: 'Vendor Master',
-                        description:
-                            'Manage supplier accounts, payment terms, and purchasing data.',
-                        path: '/modules/mm/vendor-master',
-                        icon: 'users',
-                    },
-                    {
-                        code: 'batch-management',
-                        title: 'Batch Management',
-                        description:
-                            'Track batch numbers, shelf life, and quality certificates.',
-                        path: '/modules/mm/batch-management',
-                        icon: 'layers',
-                    },
-                ],
-            },
-            {
-                code: 'transactional',
-                title: 'Transactional',
-                submodules: [
-                    {
-                        code: 'purchase-orders',
-                        title: 'Purchase Orders',
-                        description:
-                            'Create and approve purchase requisitions and orders.',
-                        path: '/modules/mm/purchase-orders',
-                        icon: 'clipboard',
-                    },
-                    {
-                        code: 'goods-receipt',
-                        title: 'Goods Receipt',
-                        description:
-                            'Post goods receipts against purchase orders.',
-                        path: '/modules/mm/goods-receipt',
-                        icon: 'boxes',
-                    },
-                    {
-                        code: 'inventory-management',
-                        title: 'Inventory Management',
-                        description:
-                            'Monitor stock levels, reservations, and transfers.',
-                        path: '/modules/mm/inventory-management',
-                        icon: 'warehouse',
-                    },
-                ],
-            },
-            {
-                code: 'reports',
-                title: 'Reports & Analytics',
-                submodules: [
-                    {
-                        code: 'stock-overview',
-                        title: 'Stock Overview',
-                        description:
-                            'Real-time stock by plant, storage location, and material.',
-                        path: '/modules/mm/stock-overview',
-                        icon: 'barChart',
-                    },
-                    {
-                        code: 'material-valuation',
-                        title: 'Material Valuation',
-                        description:
-                            'Review inventory value by valuation class and price.',
-                        path: '/modules/mm/material-valuation',
-                        icon: 'fileSpreadsheet',
-                    },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'plants-storage',
-                        title: 'Plants & Storage Locations',
-                        description:
-                            'Configure plants, storage locations, and warehouse structure.',
-                        path: '/modules/mm/plants-storage',
-                        icon: 'building',
-                    },
-                    {
-                        code: 'movement-types',
-                        title: 'Movement Types',
-                        description:
-                            'Define goods movement types and automatic account determination.',
-                        path: '/modules/mm/movement-types',
-                        icon: 'cog',
-                    },
-                ],
-            },
-        ],
+        categories: MM_CATEGORIES,
     },
     {
         code: 'fico',
@@ -583,15 +479,42 @@ export function getAllSubmodules(module: ErpModule) {
 export function findSubmoduleByPath(pathname: string) {
     for (const module of ERP_MODULES) {
         for (const category of module.categories) {
-            const submodule = category.submodules.find(
-                (s) => s.path === pathname,
-            )
-            if (submodule) {
-                return { module, category, submodule }
+            for (const submodule of category.submodules) {
+                if (submodule.path === pathname) {
+                    return { module, category, submodule }
+                }
+
+                for (const child of submodule.children ?? []) {
+                    if (child.path === pathname) {
+                        return { module, category, submodule, child }
+                    }
+                }
             }
         }
     }
     return undefined
+}
+
+export function submoduleHasChildren(submodule: { children?: unknown[] }) {
+    return Boolean(submodule.children && submodule.children.length > 0)
+}
+
+export function getNestedSubmoduleStaticParams() {
+    return getResolvedErpModules().flatMap((module) =>
+        module.categories.flatMap((category) =>
+            category.submodules.flatMap((submodule) => {
+                if (!submoduleHasChildren(submodule)) {
+                    return []
+                }
+
+                return (submodule.children ?? []).map((child) => ({
+                    moduleCode: module.code,
+                    submoduleCode: submodule.code,
+                    featureCode: child.code,
+                }))
+            }),
+        ),
+    )
 }
 
 export function isValidModuleCode(code: string): code is ErpModuleCode {

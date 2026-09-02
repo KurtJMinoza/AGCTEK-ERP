@@ -1,7 +1,10 @@
 import { notFound } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
+import Breadcrumb from '@/components/shared/Breadcrumb'
 import ModuleHeroCard from '@/components/erp/ModuleHeroCard'
 import SubmoduleCard from '@/components/erp/SubmoduleCard'
+import ErpBackLink from '@/components/erp/ErpBackLink'
+import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     getAllSubmodules,
     getErpModule,
@@ -24,9 +27,13 @@ export default function ModuleLandingPage({ moduleCode }: ModuleLandingPageProps
     const resolvedModule =
         resolvedModules.find((m) => m.code === moduleCode) ?? module
     const totalSubmodules = getAllSubmodules(resolvedModule).length
+    const breadcrumbItems = buildErpBreadcrumbs(resolvedModule.path)
 
     return (
         <PageContainer>
+            <ErpBackLink items={breadcrumbItems} />
+            <Breadcrumb items={breadcrumbItems} />
+
             <ModuleHeroCard
                 module={resolvedModule}
                 totalSubmodules={totalSubmodules}

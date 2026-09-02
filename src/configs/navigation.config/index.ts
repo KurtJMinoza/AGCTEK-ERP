@@ -15,6 +15,16 @@ const navigationConfig: NavigationTree[] = [
         authority: [],
         subMenu: [],
     },
+    {
+        key: 'activityLog',
+        path: '/activity-log',
+        title: 'Activity Log',
+        translateKey: 'nav.activityLog',
+        icon: 'activityLog',
+        type: NAV_ITEM_TYPE_ITEM,
+        authority: [],
+        subMenu: [],
+    },
 ]
 
 export default navigationConfig
