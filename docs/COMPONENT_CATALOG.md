@@ -29,7 +29,7 @@ import { Button, Card, Input, Dialog, Select } from '@/components/ui'
 | --- | --- |
 | Page chrome | `PageHeader`, shared `PageContainer` (content only), `Container`, `AdaptiveCard`; shell containment via route `meta` + `template/PageContainer` |
 | Tables | `DataTable` |
-| Forms sections | `FormSection`, `ConfirmDialog` |
+| Forms sections | `FormSection`, `FormDialog`, `ConfirmDialog` |
 | Status | `StatusBadge`, `Tag` (via ui), `GrowShrinkValue` |
 | Numbers | `NumericInput`, `AbbreviateNumber`, `CustomFormatInput` |
 | Charts / calendar | `Chart`, `CalendarView` |

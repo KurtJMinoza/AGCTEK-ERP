@@ -1,9 +1,9 @@
 @layer components {
   .steps {
-    @apply flex justify-between items-center;
+    @apply flex justify-between items-center overflow-x-auto gap-1;
 
     &.steps-vertical {
-      @apply flex-col items-start;
+      @apply flex-col items-start overflow-visible;
     }
   }
 
@@ -37,7 +37,7 @@
   }
 
   .step-item-title {
-    @apply whitespace-nowrap font-bold block text-gray-600 dark:text-gray-300;
+    @apply whitespace-nowrap font-bold hidden sm:block text-gray-600 dark:text-gray-300;
 
     &.step-item-title-error {
       @apply text-red-500;

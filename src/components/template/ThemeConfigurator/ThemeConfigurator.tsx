@@ -2,12 +2,11 @@ import ModeSwitcher from './ModeSwitcher'
 import LayoutSwitcher from './LayoutSwitcher'
 import ThemeSwitcher from './ThemeSwitcher'
 import DirectionSwitcher from './DirectionSwitcher'
-import CopyButton from './CopyButton'
 
 const ThemeConfigurator = () => {
     return (
-        <div className="flex flex-col h-full justify-between">
-            <div className="flex flex-col gap-y-10 mb-6">
+        <div className="flex flex-col h-full">
+            <div className="flex flex-col gap-y-10">
                 <div className="flex items-center justify-between">
                     <div>
                         <h6>Dark Mode</h6>
@@ -31,7 +30,6 @@ const ThemeConfigurator = () => {
                     <LayoutSwitcher />
                 </div>
             </div>
-            <CopyButton />
         </div>
     )
 }

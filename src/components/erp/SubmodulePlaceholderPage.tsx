@@ -7,7 +7,6 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
-import ErpBackLink from '@/components/erp/ErpBackLink'
 import { findSubmoduleByPath, getResolvedErpModules } from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -44,7 +43,6 @@ export default function SubmodulePlaceholderPage({
 
     return (
         <PageContainer className="mx-auto max-w-3xl">
-            <ErpBackLink items={breadcrumbItems} />
             <Breadcrumb items={breadcrumbItems} />
 
             <PageHeader
