@@ -33,6 +33,7 @@ const SegmentItem = (props: SegmentItemProps) => {
         ref,
         value: valueProp,
         size,
+        type = 'button',
         ...rest
     } = props
 
@@ -100,6 +101,7 @@ const SegmentItem = (props: SegmentItemProps) => {
     ) : (
         <button
             ref={ref}
+            type={type}
             className={classNames(
                 'segment-item',
                 getSegmentSize(),

@@ -1,0 +1,17 @@
+---
+description: Apply Materials Management architecture before any MM design/implement/debug work
+globs: src/modules/mm/**/*,backend/src/mm/**/*,backend/prisma/schema.prisma,src/configs/erp-modules/mm.module.ts,src/app/(protected-pages)/modules/mm/**/*
+alwaysApply: false
+---
+
+# MM Architecture Gate
+
+Before any Materials Management change in matching paths:
+
+1. Read and follow `.cursor/skills/materials-management/SKILL.md`.
+2. For build order, document ownership, and consumers, read `docs/MM_DEPENDENCY_MAP.md`.
+3. For detailed rules (ownership, ledger, flows, DoD), read `.cursor/skills/materials-management/reference.md`.
+3. Prefer reusing `InventoryPostingService` for all physical stock changes.
+4. Preserve: Receiving → Goods Receipt → Inventory Posting Service → Inventory Ledger.
+5. Do not invent a second GR, availability, or stock-calculation path.
+6. Keep UI on ECME + existing shared components; thin app routes under `src/app/(protected-pages)/modules/mm/`.

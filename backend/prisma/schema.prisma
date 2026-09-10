@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Existing models ────────────────────────────────────────────────
+
 model User {
   id            String         @id @default(cuid())
   email         String         @unique
@@ -35,4 +37,3192 @@ model Notification {
   updatedAt     DateTime @updatedAt
 
   @@index([readed, createdAt])
+}
+
+// ─── Organisation stubs ─────────────────────────────────────────────
+
+model Company {
+  id         String       @id @default(cuid())
+  code       String       @unique
+  name       String
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  warehouses Warehouse[]
+  materials  MmMaterial[]
+
+  inventoryTransactions  MmInventoryTransaction[]
+  mmInventoryBalances    MmInventoryBalance[]
+  inventoryReservations  MmInventoryReservation[]
+
+  goodsReceipts          MmGoodsReceipt[]
+  goodsIssues            MmGoodsIssue[]
+  binTransfers           MmBinTransfer[]
+  warehouseTransferOrders MmWarehouseTransferOrder[]
+  inventoryAdjustments   MmInventoryAdjustment[]
+  countRules             MmCountRule[]
+  inventoryCounts        MmInventoryCount[]
+
+  suppliers              MmSupplier[]
+
+  purchaseRequisitions   MmPurchaseRequisition[]
+  rfqs                   MmRfq[]
+  purchaseOrders         MmPurchaseOrder[]
+  purchaseContracts      MmPurchaseContract[]
+  poToleranceConfigs     MmPoToleranceConfig[]
+  asns                   MmAsn[]
+  expectedReceipts       MmExpectedReceipt[]
+  qualityInspections     MmQualityInspection[]
+  accountingEvents       MmAccountingEvent[]
+
+  materialValuations     MmMaterialValuation[]
+  costLayers             MmCostLayer[]
+  valuationTransactions  MmInventoryValuationTransaction[]
+  standardCostRevisions  MmStandardCostRevision[]
+  landedCosts            MmLandedCost[]
+  supplierInvoices       MmSupplierInvoice[]
+  mrpRuns                MmMrpRun[]
+  reorderRules           MmReorderRule[]
+  planningDemands        MmPlanningDemand[]
+  materialRequirements   MmMaterialRequirement[]
+  procurementSuggestions MmProcurementSuggestion[]
+  supplierScoreWeightConfigs MmSupplierScoreWeightConfig[]
+  supplierAlertConfigs   MmSupplierAlertConfig[]
+  supplierEvaluations    MmSupplierEvaluation[]
+  supplierAlerts         MmSupplierAlert[]
+  supplierManualAssessments MmSupplierManualAssessment[]
+  returnsDisposalConfigs MmReturnsDisposalConfig[]
+  supplierReturns        MmSupplierReturn[]
+  disposals              MmDisposal[]
+  customerReturns        MmCustomerReturn[]
+  scannerEvents          MmScannerEvent[]
+  dashboardAnalyticsCaches MmDashboardAnalyticsCache[]
+  plants                   Plant[]
+  branches                 Branch[]
+
+  @@map("companies")
+}
+
+model Plant {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  warehouses Warehouse[]
+  branches   Branch[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("plants")
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  plantId   String?
+  plant     Plant?   @relation(fields: [plantId], references: [id])
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  warehouses Warehouse[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([plantId])
+  @@map("branches")
+}
+
+model Warehouse {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  companyId            String
+  company              Company  @relation(fields: [companyId], references: [id])
+  plantId              String?
+  plant                Plant?   @relation(fields: [plantId], references: [id])
+  branchId             String?
+  branch               Branch?  @relation(fields: [branchId], references: [id])
+  managerId            String?
+  warehouseType        String?  @default("GENERAL")
+  address              String?
+  timezone             String?  @default("UTC")
+  status               String   @default("ACTIVE")
+  defaultReceivingArea String?
+  defaultShippingArea  String?
+  barcode              String?  @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
+
+  materials            MmMaterial[]
+  storageTypes         WmStorageType[]
+  audits               WmWarehouseAudit[]
+  putawayTasks         WmPutawayTask[]
+  pickWaves            WmPickWave[]
+  pickingTasks         WmPickingTask[]
+  packages             WmPackage[]
+  transfersOut         WmWarehouseTransfer[] @relation("TransferSource")
+  transfersIn          WmWarehouseTransfer[] @relation("TransferDest")
+
+  inventoryTransactions  MmInventoryTransaction[]
+  mmInventoryBalances    MmInventoryBalance[]
+  inventoryReservations  MmInventoryReservation[]
+
+  goodsReceipts          MmGoodsReceipt[]
+  goodsIssues            MmGoodsIssue[]
+  binTransfers           MmBinTransfer[]
+  wtoSource              MmWarehouseTransferOrder[] @relation("WtoSource")
+  wtoDest                MmWarehouseTransferOrder[] @relation("WtoDest")
+  inventoryAdjustments   MmInventoryAdjustment[]
+  countRules             MmCountRule[]
+  inventoryCounts        MmInventoryCount[]
+
+  suppliersDefaultWh     MmSupplier[] @relation("SupplierDefaultWh")
+  prLines                MmPurchaseRequisitionLine[] @relation("PrLineWarehouse")
+  purchaseOrders         MmPurchaseOrder[] @relation("PoWarehouse")
+  poLines                MmPurchaseOrderLine[] @relation("PoLineWarehouse")
+  asns                   MmAsn[] @relation("AsnWarehouse")
+  expectedReceipts       MmExpectedReceipt[] @relation("ExpectedReceiptWarehouse")
+
+  materialValuations     MmMaterialValuation[]
+  costLayers             MmCostLayer[]
+  valuationTransactions  MmInventoryValuationTransaction[]
+  standardCostRevisions  MmStandardCostRevision[]
+  landedCosts            MmLandedCost[]
+  mrpRuns                MmMrpRun[]
+  reorderRules           MmReorderRule[]
+  planningDemands        MmPlanningDemand[]
+  materialRequirements   MmMaterialRequirement[]
+  procurementSuggestions MmProcurementSuggestion[]
+  supplierReturns        MmSupplierReturn[] @relation("ReturnWarehouse")
+  disposals              MmDisposal[] @relation("DisposalWarehouse")
+  customerReturns        MmCustomerReturn[] @relation("CustomerReturnWarehouse")
+  scannerEvents          MmScannerEvent[]
+  serialNumbersCurrent   MmSerialNumber[] @relation("SerialCurrentWarehouse")
+
+  @@index([plantId])
+  @@index([branchId])
+  @@map("warehouses")
+}
+
+// ─── Warehouse Topology ─────────────────────────────────────────────
+
+model WmStorageType {
+  id                    String   @id @default(cuid())
+  code                  String
+  name                  String
+  description           String?
+  warehouseId           String
+  warehouse             Warehouse @relation(fields: [warehouseId], references: [id])
+  temperatureControlled Boolean  @default(false)
+  hazardous             Boolean  @default(false)
+  pickingAllowed        Boolean  @default(true)
+  putawayAllowed        Boolean  @default(true)
+  receivingAllowed      Boolean  @default(false)
+  shippingAllowed       Boolean  @default(false)
+  qualityControlled     Boolean  @default(false)
+  status                String   @default("ACTIVE")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  deletedAt             DateTime?
+  sections              WmStorageSection[]
+
+  @@unique([warehouseId, code])
+  @@map("wm_storage_types")
+}
+
+model WmStorageSection {
+  id            String        @id @default(cuid())
+  code          String
+  name          String
+  description   String?
+  storageTypeId String
+  storageType   WmStorageType @relation(fields: [storageTypeId], references: [id])
+  status        String        @default("ACTIVE")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  bins          WmStorageBin[]
+
+  @@unique([storageTypeId, code])
+  @@map("wm_storage_sections")
+}
+
+model WmStorageBin {
+  id               String           @id @default(cuid())
+  code             String
+  storageSectionId String
+  storageSection   WmStorageSection @relation(fields: [storageSectionId], references: [id])
+  barcode          String?          @unique
+  capacityQuantity Decimal          @default(0)
+  capacityWeight   Decimal          @default(0)
+  capacityVolume   Decimal          @default(0)
+  weightUom        String?
+  volumeUom        String?
+  pickingAllowed   Boolean          @default(true)
+  putawayAllowed   Boolean          @default(true)
+  status           String           @default("ACTIVE")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  inventoryBalances  WmInventoryBalance[]
+  putawayRecommended WmPutawayTask[]      @relation("RecommendedBin")
+  putawayActual      WmPutawayTask[]      @relation("ActualBin")
+  pickingTasks       WmPickingTask[]
+  transferLinesSource WmWarehouseTransferLine[] @relation("TransferSourceBin")
+  transferLinesDest   WmWarehouseTransferLine[] @relation("TransferDestBin")
+
+  invTransactions        MmInventoryTransaction[]
+  mmInvBalances          MmInventoryBalance[]
+  invReservations        MmInventoryReservation[]
+
+  grLines                MmGoodsReceiptLine[] @relation("GrLineBin")
+  giLines                MmGoodsIssueLine[] @relation("GiLineBin")
+  btSourceLines          MmBinTransferLine[] @relation("BtLineSourceBin")
+  btDestLines            MmBinTransferLine[] @relation("BtLineDestBin")
+  wtoSourceLines         MmWarehouseTransferOrderLine[] @relation("WtoLineSourceBin")
+  wtoDestLines           MmWarehouseTransferOrderLine[] @relation("WtoLineDestBin")
+  adjLines               MmInventoryAdjustmentLine[] @relation("AdjLineBin")
+  poLines                MmPurchaseOrderLine[] @relation("PoLineBin")
+  countLines             MmInventoryCountLine[]
+  serialNumbersCurrent   MmSerialNumber[] @relation("SerialCurrentBin")
+
+  @@unique([storageSectionId, code])
+  @@map("wm_storage_bins")
+}
+
+model WmWarehouseAudit {
+  id          String    @id @default(cuid())
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  entityType  String
+  entityId    String
+  action      String
+  changes     Json?
+  performedBy String?
+  performedAt DateTime  @default(now())
+
+  @@index([warehouseId, performedAt])
+  @@map("wm_warehouse_audits")
+}
+
+// ─── Inventory Balance (stub) ───────────────────────────────────────
+
+model WmInventoryBalance {
+  id                String      @id @default(cuid())
+  binId             String
+  bin               WmStorageBin @relation(fields: [binId], references: [id])
+  materialId        String
+  material          MmMaterial  @relation(fields: [materialId], references: [id])
+  batchId           String?
+  serialId          String?
+  quantity          Decimal     @default(0)
+  reservedQuantity  Decimal     @default(0)
+  availableQuantity Decimal     @default(0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([binId, materialId, batchId, serialId])
+  @@index([materialId])
+  @@index([binId])
+  @@map("wm_inventory_balances")
+}
+
+// ─── Putaway ────────────────────────────────────────────────────────
+
+model WmPutawayTask {
+  id              String       @id @default(cuid())
+  taskNumber      String       @unique
+  warehouseId     String
+  warehouse       Warehouse    @relation(fields: [warehouseId], references: [id])
+  companyId       String?
+  sourceDocument  String?
+  goodsReceiptId  String?
+  goodsReceipt    MmGoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
+  goodsReceiptLineId String?
+  goodsReceiptLine MmGoodsReceiptLine? @relation(fields: [goodsReceiptLineId], references: [id])
+  materialId      String
+  material        MmMaterial   @relation(fields: [materialId], references: [id])
+  quantity        Decimal
+  uomId           String?
+  batchId         String?
+  serialId        String?
+  stockStatus     String       @default("UNRESTRICTED")
+  sourceLocation  String?
+  sourceBinId     String?
+  recommendedBinId String?
+  recommendedBin  WmStorageBin? @relation("RecommendedBin", fields: [recommendedBinId], references: [id])
+  actualBinId     String?
+  actualBin       WmStorageBin? @relation("ActualBin", fields: [actualBinId], references: [id])
+  assignedWorker  String?
+  priority        Int          @default(5)
+  status          String       @default("PENDING")
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([warehouseId, status])
+  @@index([status])
+  @@index([goodsReceiptId])
+  @@map("wm_putaway_tasks")
+}
+
+// ─── Picking ────────────────────────────────────────────────────────
+
+model WmPickWave {
+  id             String          @id @default(cuid())
+  waveNumber     String          @unique
+  warehouseId    String
+  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id])
+  strategy       String          @default("FIFO") // FIFO | FEFO | ZONE | PRIORITY
+  priority       Int             @default(5)
+  status         String          @default("DRAFT")
+  taskCount      Int             @default(0)
+  completedCount Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  tasks          WmPickingTask[]
+
+  @@index([warehouseId, status])
+  @@map("wm_pick_waves")
+}
+
+model WmPickingTask {
+  id           String        @id @default(cuid())
+  taskNumber   String        @unique
+  waveId       String?
+  wave         WmPickWave?   @relation(fields: [waveId], references: [id])
+  warehouseId  String
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  companyId    String?
+  reservationId String?
+  reservation  MmInventoryReservation? @relation(fields: [reservationId], references: [id])
+  sourceBinId  String
+  sourceBin    WmStorageBin  @relation(fields: [sourceBinId], references: [id])
+  materialId   String
+  material     MmMaterial    @relation(fields: [materialId], references: [id])
+  batchId      String?
+  serialId     String?
+  uomId        String?
+  requiredQty  Decimal
+  pickedQty    Decimal       @default(0)
+  sourceDocument String?
+  assignedUser String?
+  priority     Int           @default(5)
+  status       String        @default("OPEN")
+  lastIdempotencyKey String? @unique
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  packages     WmPackage[]   @relation("PackageFromPick")
+
+  @@index([warehouseId, status])
+  @@index([waveId])
+  @@index([reservationId])
+  @@map("wm_picking_tasks")
+}
+
+// ─── Packing ────────────────────────────────────────────────────────
+
+model WmPackage {
+  id             String          @id @default(cuid())
+  packageNumber  String          @unique
+  orderNumber    String?
+  warehouseId    String
+  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id])
+  pickingTaskId  String?
+  pickingTask    WmPickingTask?  @relation("PackageFromPick", fields: [pickingTaskId], references: [id])
+  reservationId  String?
+  reservation    MmInventoryReservation? @relation(fields: [reservationId], references: [id])
+  packageType    String?
+  weight         Decimal?
+  length         Decimal?
+  width          Decimal?
+  height         Decimal?
+  carrier        String?
+  trackingNumber String?
+  status         String          @default("OPEN") // OPEN | VERIFIED | SEALED | READY_FOR_DISPATCH | DISPATCHED
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  items          WmPackageItem[]
+  goodsIssues    MmGoodsIssue[]
+
+  @@index([warehouseId, status])
+  @@index([pickingTaskId])
+  @@map("wm_packages")
+}
+
+model WmPackageItem {
+  id          String     @id @default(cuid())
+  packageId   String
+  package     WmPackage  @relation(fields: [packageId], references: [id])
+  materialId  String
+  material    MmMaterial @relation(fields: [materialId], references: [id])
+  expectedQty Decimal
+  scannedQty  Decimal    @default(0)
+  batchId     String?
+  serialId    String?
+  status      String     @default("PENDING")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([packageId])
+  @@map("wm_package_items")
+}
+
+// ─── Warehouse Transfers ────────────────────────────────────────────
+
+model WmWarehouseTransfer {
+  id                     String                    @id @default(cuid())
+  transferNumber         String                    @unique
+  sourceWarehouseId      String
+  sourceWarehouse        Warehouse                 @relation("TransferSource", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouseId String
+  destinationWarehouse   Warehouse                 @relation("TransferDest", fields: [destinationWarehouseId], references: [id])
+  requestedBy            String?
+  approvedBy             String?
+  status                 String                    @default("DRAFT")
+  notes                  String?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  lines                  WmWarehouseTransferLine[]
+
+  @@index([status])
+  @@map("wm_warehouse_transfers")
+}
+
+model WmWarehouseTransferLine {
+  id               String              @id @default(cuid())
+  transferId       String
+  transfer         WmWarehouseTransfer @relation(fields: [transferId], references: [id])
+  materialId       String
+  material         MmMaterial          @relation(fields: [materialId], references: [id])
+  quantity         Decimal
+  batchId          String?
+  serialId         String?
+  sourceBinId      String?
+  sourceBin        WmStorageBin?       @relation("TransferSourceBin", fields: [sourceBinId], references: [id])
+  destinationBinId String?
+  destinationBin   WmStorageBin?       @relation("TransferDestBin", fields: [destinationBinId], references: [id])
+  pickedQty        Decimal             @default(0)
+  receivedQty      Decimal             @default(0)
+  status           String              @default("PENDING")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([transferId])
+  @@map("wm_warehouse_transfer_lines")
+}
+
+// ─── MM Reference masters ───────────────────────────────────────────
+
+model MmMaterialType {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  description String?
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+  materials   MmMaterial[]
+
+  @@map("mm_material_types")
+}
+
+model MmMaterialCategory {
+  id          String               @id @default(cuid())
+  code        String               @unique
+  name        String
+  description String?
+  parentId    String?
+  parent      MmMaterialCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    MmMaterialCategory[] @relation("CategoryTree")
+  isActive    Boolean              @default(true)
+  sortOrder   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  deletedAt   DateTime?
+  materials   MmMaterial[]
+  purchaseContracts MmPurchaseContract[]
+
+  @@map("mm_material_categories")
+}
+
+model MmUom {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  symbol    String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  materialsBase     MmMaterial[]     @relation("BaseUom")
+  materialsPurchase MmMaterial[]     @relation("PurchaseUom")
+  materialsSales    MmMaterial[]     @relation("SalesUom")
+  conversionsFrom   MmUomConversion[] @relation("ConvFrom")
+  conversionsTo     MmUomConversion[] @relation("ConvTo")
+
+  inventoryTransactions MmInventoryTransaction[]
+
+  grLineUoms  MmGoodsReceiptLine[] @relation("GrLineUom")
+  giLineUoms  MmGoodsIssueLine[] @relation("GiLineUom")
+  btLineUoms  MmBinTransferLine[] @relation("BtLineUom")
+  wtoLineUoms MmWarehouseTransferOrderLine[] @relation("WtoLineUom")
+  adjLineUoms MmInventoryAdjustmentLine[] @relation("AdjLineUom")
+  prLineUoms  MmPurchaseRequisitionLine[] @relation("PrLineUom")
+  rfqLineUoms MmRfqLine[] @relation("RfqLineUom")
+  quotationLineUoms MmSupplierQuotationLine[] @relation("QuotationLineUom")
+  poLineUoms  MmPurchaseOrderLine[] @relation("PoLineUom")
+  contractLineUoms MmPurchaseContractLine[] @relation("ContractLineUom")
+  asnLineUoms MmAsnLine[] @relation("AsnLineUom")
+  erLineUoms  MmExpectedReceiptLine[] @relation("ErLineUom")
+  invoiceLineUoms MmSupplierInvoiceLine[] @relation("InvoiceLineUom")
+
+  @@map("mm_uoms")
+}
+
+model MmUomConversion {
+  id         String      @id @default(cuid())
+  fromUomId  String
+  fromUom    MmUom       @relation("ConvFrom", fields: [fromUomId], references: [id])
+  toUomId    String
+  toUom      MmUom       @relation("ConvTo", fields: [toUomId], references: [id])
+  factor     Decimal
+  materialId String?
+  material   MmMaterial? @relation(fields: [materialId], references: [id])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([fromUomId, toUomId, materialId])
+  @@map("mm_uom_conversions")
+}
+
+model MmValuationClass {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  materials MmMaterial[]
+
+  @@map("mm_valuation_classes")
+}
+
+model MmCurrency {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  name      String
+  symbol    String
+  createdAt DateTime     @default(now())
+  materials MmMaterial[]
+
+  suppliers          MmSupplier[] @relation("SupplierCurrency")
+  supplierMaterials  MmSupplierMaterial[] @relation("SupMatCurrency")
+  supplierPrices     MmSupplierPrice[] @relation("SupPriceCurrency")
+  rfqs               MmRfq[] @relation("RfqCurrency")
+  quotations         MmSupplierQuotation[] @relation("QuotationCurrency")
+  purchaseOrders     MmPurchaseOrder[] @relation("PoCurrency")
+  purchaseContracts  MmPurchaseContract[] @relation("ContractCurrency")
+  materialValuations MmMaterialValuation[]
+  supplierInvoices   MmSupplierInvoice[] @relation("InvoiceCurrency")
+
+  @@map("mm_currencies")
+}
+
+// ─── Core Material ──────────────────────────────────────────────────
+
+model MmMaterial {
+  id               String  @id @default(cuid())
+  materialCode     String  @unique
+  materialName     String
+  description      String?
+  shortDescription String?
+  sku              String? @unique
+  brand            String?
+  model            String?
+  manufacturer     String?
+
+  materialTypeId     String
+  materialType       MmMaterialType     @relation(fields: [materialTypeId], references: [id])
+  materialCategoryId String
+  materialCategory   MmMaterialCategory @relation(fields: [materialCategoryId], references: [id])
+  status             String             @default("DRAFT")
+
+  baseUomId     String
+  baseUom       MmUom   @relation("BaseUom", fields: [baseUomId], references: [id])
+  purchaseUomId String?
+  purchaseUom   MmUom?  @relation("PurchaseUom", fields: [purchaseUomId], references: [id])
+  salesUomId    String?
+  salesUom      MmUom?  @relation("SalesUom", fields: [salesUomId], references: [id])
+
+  weight       Decimal?
+  weightUom    String?
+  length       Decimal?
+  width        Decimal?
+  height       Decimal?
+  dimensionUom String?
+  volume       Decimal?
+  volumeUom    String?
+
+  inventoryManaged           Boolean @default(true)
+  purchasable                Boolean @default(true)
+  sellable                   Boolean @default(true)
+  batchManaged               Boolean @default(false)
+  serialManaged              Boolean @default(false)
+  negativeStockAllowed       Boolean @default(false)
+  expiryManaged              Boolean @default(false)
+  qualityInspectionRequired  Boolean @default(false)
+  /// A | B | C — cycle-count classification
+  abcClass                   String?
+  /// FAST | MEDIUM | SLOW — cycle-count velocity
+  velocityClass              String?
+  /// LOW | MEDIUM | HIGH — cycle-count risk
+  riskClass                  String?
+
+  minimumStock         Decimal @default(0)
+  maximumStock         Decimal @default(0)
+  safetyStock          Decimal @default(0)
+  reorderPoint         Decimal @default(0)
+  reorderQuantity      Decimal @default(0)
+  leadTimeDays         Int     @default(0)
+  minimumOrderQuantity Decimal @default(0)
+
+  valuationMethod  String?
+  standardCost     Decimal          @default(0)
+  currencyId       String?
+  currency         MmCurrency?      @relation(fields: [currencyId], references: [id])
+  valuationClassId String?
+  valuationClass   MmValuationClass? @relation(fields: [valuationClassId], references: [id])
+
+  companyId          String?
+  company            Company?   @relation(fields: [companyId], references: [id])
+  defaultWarehouseId String?
+  defaultWarehouse   Warehouse? @relation(fields: [defaultWarehouseId], references: [id])
+
+  preferredSupplierId String?
+  preferredSupplier   MmSupplier? @relation("MaterialPreferredSupplier", fields: [preferredSupplierId], references: [id])
+
+  createdBy String?
+  updatedBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  barcodes       MmBarcode[]
+  batches        MmBatch[]
+  serialNumbers  MmSerialNumber[]
+  audits         MmMaterialAudit[]
+  attachments    MmMaterialAttachment[]
+  uomConversions MmUomConversion[]
+  inventoryBalances WmInventoryBalance[]
+  putawayTasks      WmPutawayTask[]
+  pickingTasks      WmPickingTask[]
+  packageItems      WmPackageItem[]
+  transferLines     WmWarehouseTransferLine[]
+
+  inventoryTransactions  MmInventoryTransaction[]
+  mmInventoryBalances    MmInventoryBalance[]
+  inventoryReservations  MmInventoryReservation[]
+
+  grLines                MmGoodsReceiptLine[]
+  giLines                MmGoodsIssueLine[]
+  btLines                MmBinTransferLine[]
+  wtoLines               MmWarehouseTransferOrderLine[]
+  adjLines               MmInventoryAdjustmentLine[]
+  supplierMaterials      MmSupplierMaterial[]
+  supplierPrices         MmSupplierPrice[]
+  prLines                MmPurchaseRequisitionLine[]
+  rfqLines               MmRfqLine[]
+  quotationLines         MmSupplierQuotationLine[]
+  poLines                MmPurchaseOrderLine[]
+  purchaseContractLines  MmPurchaseContractLine[]
+  asnLines               MmAsnLine[]
+  expectedReceiptLines   MmExpectedReceiptLine[]
+  countLines             MmInventoryCountLine[]
+
+  materialValuations     MmMaterialValuation[]
+  costLayers             MmCostLayer[]
+  valuationTransactions  MmInventoryValuationTransaction[]
+  standardCostRevisions  MmStandardCostRevision[]
+  landedCostLines        MmLandedCostLine[]
+  landedCostAllocations  MmLandedCostAllocation[]
+  supplierInvoiceLines   MmSupplierInvoiceLine[]
+  reorderRules           MmReorderRule[]
+  planningDemands        MmPlanningDemand[]
+  materialRequirements   MmMaterialRequirement[]
+  procurementSuggestions MmProcurementSuggestion[]
+  supplierReturnLines    MmSupplierReturnLine[]
+  disposalLines          MmDisposalLine[]
+  customerReturnLines    MmCustomerReturnLine[]
+
+  @@index([status])
+  @@index([materialTypeId])
+  @@index([materialCategoryId])
+  @@index([abcClass])
+  @@index([deletedAt])
+  @@map("mm_materials")
+}
+
+// ─── Material dependents ────────────────────────────────────────────
+
+model MmBarcode {
+  id           String     @id @default(cuid())
+  materialId   String
+  material     MmMaterial @relation(fields: [materialId], references: [id])
+  barcodeType  String
+  barcodeValue String     @unique
+  isPrimary    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  deletedAt    DateTime?
+
+  @@index([materialId])
+  @@map("mm_barcodes")
+}
+
+model MmBatch {
+  id                String           @id @default(cuid())
+  materialId        String
+  material          MmMaterial       @relation(fields: [materialId], references: [id])
+  batchNumber       String
+  manufacturingDate DateTime?
+  expiryDate        DateTime?
+  supplierId        String?
+  supplier          MmSupplier?      @relation(fields: [supplierId], references: [id])
+  status            String           @default("AVAILABLE")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
+  serialNumbers     MmSerialNumber[]
+
+  inventoryTransactions  MmInventoryTransaction[]
+  mmInventoryBalances    MmInventoryBalance[]
+  inventoryReservations  MmInventoryReservation[]
+
+  grLines                MmGoodsReceiptLine[] @relation("GrLineBatch")
+  giLines                MmGoodsIssueLine[] @relation("GiLineBatch")
+  btLines                MmBinTransferLine[] @relation("BtLineBatch")
+  wtoLines               MmWarehouseTransferOrderLine[] @relation("WtoLineBatch")
+  adjLines               MmInventoryAdjustmentLine[] @relation("AdjLineBatch")
+
+  @@unique([materialId, batchNumber])
+  @@index([materialId])
+  @@index([supplierId])
+  @@map("mm_batches")
+}
+
+model MmSerialNumber {
+  id                  String         @id @default(cuid())
+  materialId          String
+  material            MmMaterial     @relation(fields: [materialId], references: [id])
+  serialNumber        String
+  batchId             String?
+  batch               MmBatch?       @relation(fields: [batchId], references: [id])
+  currentWarehouseId  String?
+  currentWarehouse    Warehouse?     @relation("SerialCurrentWarehouse", fields: [currentWarehouseId], references: [id])
+  currentBinId        String?
+  currentBin          WmStorageBin?  @relation("SerialCurrentBin", fields: [currentBinId], references: [id])
+  status              String         @default("AVAILABLE")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?
+
+  inventoryTransactions  MmInventoryTransaction[]
+  mmInventoryBalances    MmInventoryBalance[]
+  inventoryReservations  MmInventoryReservation[]
+
+  grLines                MmGoodsReceiptLine[] @relation("GrLineSerial")
+  giLines                MmGoodsIssueLine[] @relation("GiLineSerial")
+  btLines                MmBinTransferLine[] @relation("BtLineSerial")
+  wtoLines               MmWarehouseTransferOrderLine[] @relation("WtoLineSerial")
+  adjLines               MmInventoryAdjustmentLine[] @relation("AdjLineSerial")
+
+  @@unique([materialId, serialNumber])
+  @@index([materialId])
+  @@index([currentWarehouseId])
+  @@index([currentBinId])
+  @@map("mm_serial_numbers")
+}
+
+// ─── Material audit trail ───────────────────────────────────────────
+
+model MmMaterialAudit {
+  id          String     @id @default(cuid())
+  materialId  String
+  material    MmMaterial @relation(fields: [materialId], references: [id])
+  action      String
+  changes     Json?
+  performedBy String?
+  performedAt DateTime   @default(now())
+
+  @@index([materialId, performedAt])
+  @@map("mm_material_audits")
+}
+
+model MmMaterialAttachment {
+  id          String     @id @default(cuid())
+  materialId  String
+  material    MmMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String?
+  storageKey  String?
+  mimeType    String?
+  uploadedBy  String?
+  uploadedAt  DateTime   @default(now())
+
+  @@index([materialId])
+  @@map("mm_material_attachments")
+}
+
+// ─── Inventory Ledger ───────────────────────────────────────────────
+
+model MmInventoryTransaction {
+  id                    String    @id @default(cuid())
+  transactionNumber     String    @unique
+  companyId             String
+  company               Company   @relation(fields: [companyId], references: [id])
+  plantId               String?
+  warehouseId           String
+  warehouse             Warehouse @relation(fields: [warehouseId], references: [id])
+  storageBinId          String?
+  storageBin            WmStorageBin? @relation(fields: [storageBinId], references: [id])
+  materialId            String
+  material              MmMaterial @relation(fields: [materialId], references: [id])
+  batchId               String?
+  batch                 MmBatch?   @relation(fields: [batchId], references: [id])
+  serialNumberId        String?
+  serialNumber          MmSerialNumber? @relation(fields: [serialNumberId], references: [id])
+  stockStatus           String    @default("UNRESTRICTED")
+  movementType          String
+  quantity              Decimal
+  /// Absolute quantity in base UOM (same magnitude as quantity for normal posts)
+  baseQuantity          Decimal   @default(0)
+  /// Signed quantity in base UOM (+ inbound / − outbound)
+  signedQuantity        Decimal   @default(0)
+  uomId                 String
+  uom                   MmUom     @relation(fields: [uomId], references: [id])
+  unitCost              Decimal   @default(0)
+  totalCost             Decimal   @default(0)
+  postingDate           DateTime
+  documentDate          DateTime
+  sourceModule          String?
+  sourceDocumentType    String?
+  sourceDocumentId      String?
+  sourceDocumentLineId  String?
+  reasonCode            String?
+  remarks               String?
+  reversalOfId          String?   @unique
+  reversalOf            MmInventoryTransaction? @relation("TxnReversal", fields: [reversalOfId], references: [id])
+  reversedBy            MmInventoryTransaction? @relation("TxnReversal")
+  idempotencyKey        String?   @unique
+  createdBy             String?
+  createdAt             DateTime  @default(now())
+
+  audit                 MmInventoryAudit[]
+  costLayers            MmCostLayer[]
+  valuationTransaction  MmInventoryValuationTransaction?
+
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([postingDate])
+  @@index([sourceDocumentId])
+  @@index([companyId])
+  @@map("mm_inventory_transactions")
+}
+
+model MmInventoryBalance {
+  id                String    @id @default(cuid())
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse @relation(fields: [warehouseId], references: [id])
+  storageBinId      String?
+  storageBin        WmStorageBin? @relation(fields: [storageBinId], references: [id])
+  materialId        String
+  material          MmMaterial @relation(fields: [materialId], references: [id])
+  batchId           String?
+  batch             MmBatch?   @relation(fields: [batchId], references: [id])
+  serialNumberId    String?
+  serialNumber      MmSerialNumber? @relation(fields: [serialNumberId], references: [id])
+  stockStatus       String    @default("UNRESTRICTED")
+  quantity          Decimal   @default(0)
+  reservedQuantity  Decimal   @default(0)
+  availableQuantity Decimal   @default(0)
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([companyId, warehouseId, storageBinId, materialId, batchId, serialNumberId, stockStatus])
+  @@index([materialId])
+  @@index([warehouseId])
+  @@map("mm_inventory_balances")
+}
+
+model MmInventoryReservation {
+  id                    String    @id @default(cuid())
+  reservationNumber     String    @unique
+  companyId             String
+  company               Company   @relation(fields: [companyId], references: [id])
+  warehouseId           String
+  warehouse             Warehouse @relation(fields: [warehouseId], references: [id])
+  storageBinId          String?
+  storageBin            WmStorageBin? @relation(fields: [storageBinId], references: [id])
+  materialId            String
+  material              MmMaterial @relation(fields: [materialId], references: [id])
+  batchId               String?
+  batch                 MmBatch?   @relation(fields: [batchId], references: [id])
+  serialNumberId        String?
+  serialNumber          MmSerialNumber? @relation(fields: [serialNumberId], references: [id])
+  stockStatus           String    @default("UNRESTRICTED")
+  /// Requested / reserved allocation (does not change on-hand quantity)
+  quantity              Decimal
+  reservedQuantity      Decimal   @default(0)
+  fulfilledQuantity     Decimal   @default(0)
+  /// SALES_ORDER | PRODUCTION_ORDER | MAINTENANCE_ORDER | INTERNAL_REQUEST | PROJECT
+  sourceType            String    @default("INTERNAL_REQUEST")
+  sourceModule          String
+  sourceDocumentType    String
+  sourceDocumentId      String
+  sourceDocumentLineId  String?
+  /// OPEN | PARTIAL | FULFILLED | CANCELLED | EXPIRED
+  status                String    @default("OPEN")
+  validUntil            DateTime?
+  createdBy             String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  pickingTasks          WmPickingTask[]
+  packages              WmPackage[]
+  goodsIssues           MmGoodsIssue[]
+
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([sourceDocumentId])
+  @@index([status])
+  @@map("mm_inventory_reservations")
+}
+
+model MmInventoryAudit {
+  id            String   @id @default(cuid())
+  transactionId String
+  transaction   MmInventoryTransaction @relation(fields: [transactionId], references: [id])
+  action        String
+  changes       Json?
+  performedBy   String?
+  performedAt   DateTime @default(now())
+
+  @@index([transactionId])
+  @@map("mm_inventory_audits")
+}
+
+// ─── Stock Operations Documents ─────────────────────────────────────
+
+model MmGoodsReceipt {
+  id             String   @id @default(cuid())
+  documentNumber String   @unique
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   MmPurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  expectedReceiptId String?
+  expectedReceipt   MmExpectedReceipt? @relation(fields: [expectedReceiptId], references: [id])
+  asnId          String?
+  asn            MmAsn? @relation(fields: [asnId], references: [id])
+  supplierId     String?
+  supplier       MmSupplier? @relation("GrSupplier", fields: [supplierId], references: [id])
+  postingDate    DateTime
+  documentDate   DateTime
+  stockStatus    String   @default("UNRESTRICTED")
+  remarks        String?
+  createdBy      String?
+  receiverId     String?
+  status         String   @default("DRAFT")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lines          MmGoodsReceiptLine[]
+  qualityInspections MmQualityInspection[]
+  putawayTasks   WmPutawayTask[]
+  supplierReturns MmSupplierReturn[]
+
+  @@index([status])
+  @@index([warehouseId])
+  @@index([purchaseOrderId])
+  @@index([expectedReceiptId])
+  @@map("mm_goods_receipts")
+}
+
+model MmGoodsReceiptLine {
+  id             String   @id @default(cuid())
+  receiptId      String
+  receipt        MmGoodsReceipt @relation(fields: [receiptId], references: [id])
+  materialId     String
+  material       MmMaterial @relation(fields: [materialId], references: [id])
+  quantity       Decimal
+  expectedQuantity Decimal?
+  shortageQuantity Decimal @default(0)
+  overageQuantity  Decimal @default(0)
+  damagedQuantity  Decimal @default(0)
+  rejectedQuantity Decimal @default(0)
+  uomId          String
+  uom            MmUom    @relation("GrLineUom", fields: [uomId], references: [id])
+  storageBinId   String?
+  storageBin     WmStorageBin? @relation("GrLineBin", fields: [storageBinId], references: [id])
+  batchId        String?
+  batch          MmBatch? @relation("GrLineBatch", fields: [batchId], references: [id])
+  serialNumberId String?
+  serialNumber   MmSerialNumber? @relation("GrLineSerial", fields: [serialNumberId], references: [id])
+  unitCost       Decimal  @default(0)
+  totalCost      Decimal  @default(0)
+  stockStatus    String?
+  remarks        String?
+  purchaseOrderLineId String?
+  purchaseOrderLine   MmPurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+  expectedReceiptLineId String?
+  expectedReceiptLine   MmExpectedReceiptLine? @relation(fields: [expectedReceiptLineId], references: [id])
+  discrepancyFlag String?
+  putawayTasks   WmPutawayTask[]
+  qualityInspectionLines MmQualityInspectionLine[]
+  invoiceLineReceipts MmSupplierInvoiceLineReceipt[]
+  supplierReturnLines MmSupplierReturnLine[]
+
+  @@index([receiptId])
+  @@index([purchaseOrderLineId])
+  @@map("mm_goods_receipt_lines")
+}
+
+model MmGoodsIssue {
+  id             String   @id @default(cuid())
+  documentNumber String   @unique
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  reservationId  String?
+  reservation    MmInventoryReservation? @relation(fields: [reservationId], references: [id])
+  packageId      String?
+  package        WmPackage? @relation(fields: [packageId], references: [id])
+  sourceDocumentType String?
+  sourceDocumentId   String?
+  postingDate    DateTime
+  documentDate   DateTime
+  issuePurpose   String   @default("INTERNAL")
+  remarks        String?
+  createdBy      String?
+  status         String   @default("DRAFT")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lines          MmGoodsIssueLine[]
+
+  @@index([status])
+  @@index([warehouseId])
+  @@index([reservationId])
+  @@index([packageId])
+  @@map("mm_goods_issues")
+}
+
+model MmGoodsIssueLine {
+  id             String   @id @default(cuid())
+  issueId        String
+  issue          MmGoodsIssue @relation(fields: [issueId], references: [id])
+  materialId     String
+  material       MmMaterial @relation(fields: [materialId], references: [id])
+  quantity       Decimal
+  uomId          String
+  uom            MmUom    @relation("GiLineUom", fields: [uomId], references: [id])
+  storageBinId   String?
+  storageBin     WmStorageBin? @relation("GiLineBin", fields: [storageBinId], references: [id])
+  batchId        String?
+  batch          MmBatch? @relation("GiLineBatch", fields: [batchId], references: [id])
+  serialNumberId String?
+  serialNumber   MmSerialNumber? @relation("GiLineSerial", fields: [serialNumberId], references: [id])
+  reservationId  String?
+  pickingTaskId  String?
+  unitCost       Decimal  @default(0)
+  totalCost      Decimal  @default(0)
+  remarks        String?
+
+  @@index([issueId])
+  @@map("mm_goods_issue_lines")
+}
+
+model MmBinTransfer {
+  id             String   @id @default(cuid())
+  documentNumber String   @unique
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  postingDate    DateTime
+  remarks        String?
+  createdBy      String?
+  status         String   @default("DRAFT")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lines          MmBinTransferLine[]
+
+  @@index([status])
+  @@map("mm_bin_transfers")
+}
+
+model MmBinTransferLine {
+  id               String   @id @default(cuid())
+  transferId       String
+  transfer         MmBinTransfer @relation(fields: [transferId], references: [id])
+  materialId       String
+  material         MmMaterial @relation(fields: [materialId], references: [id])
+  quantity         Decimal
+  uomId            String
+  uom              MmUom    @relation("BtLineUom", fields: [uomId], references: [id])
+  sourceBinId      String
+  sourceBin        WmStorageBin @relation("BtLineSourceBin", fields: [sourceBinId], references: [id])
+  destinationBinId String
+  destinationBin   WmStorageBin @relation("BtLineDestBin", fields: [destinationBinId], references: [id])
+  batchId          String?
+  batch            MmBatch? @relation("BtLineBatch", fields: [batchId], references: [id])
+  serialNumberId   String?
+  serialNumber     MmSerialNumber? @relation("BtLineSerial", fields: [serialNumberId], references: [id])
+
+  @@index([transferId])
+  @@map("mm_bin_transfer_lines")
+}
+
+model MmWarehouseTransferOrder {
+  id                     String   @id @default(cuid())
+  documentNumber         String   @unique
+  companyId              String
+  company                Company  @relation(fields: [companyId], references: [id])
+  sourceWarehouseId      String
+  sourceWarehouse        Warehouse @relation("WtoSource", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouseId String
+  destinationWarehouse   Warehouse @relation("WtoDest", fields: [destinationWarehouseId], references: [id])
+  postingDate            DateTime
+  requestedBy            String?
+  approvedBy             String?
+  dispatchedAt           DateTime?
+  receivedAt             DateTime?
+  notes                  String?
+  status                 String   @default("DRAFT")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  lines                  MmWarehouseTransferOrderLine[]
+
+  @@index([status])
+  @@map("mm_warehouse_transfer_orders")
+}
+
+model MmWarehouseTransferOrderLine {
+  id               String   @id @default(cuid())
+  orderId          String
+  order            MmWarehouseTransferOrder @relation(fields: [orderId], references: [id])
+  materialId       String
+  material         MmMaterial @relation(fields: [materialId], references: [id])
+  quantity         Decimal
+  uomId            String
+  uom              MmUom    @relation("WtoLineUom", fields: [uomId], references: [id])
+  sourceBinId      String?
+  sourceBin        WmStorageBin? @relation("WtoLineSourceBin", fields: [sourceBinId], references: [id])
+  destinationBinId String?
+  destinationBin   WmStorageBin? @relation("WtoLineDestBin", fields: [destinationBinId], references: [id])
+  batchId          String?
+  batch            MmBatch? @relation("WtoLineBatch", fields: [batchId], references: [id])
+  serialNumberId   String?
+  serialNumber     MmSerialNumber? @relation("WtoLineSerial", fields: [serialNumberId], references: [id])
+  dispatchedQty    Decimal  @default(0)
+  receivedQty      Decimal  @default(0)
+  status           String   @default("PENDING")
+
+  @@index([orderId])
+  @@map("mm_warehouse_transfer_order_lines")
+}
+
+model MmInventoryAdjustment {
+  id                String   @id @default(cuid())
+  documentNumber    String   @unique
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse @relation(fields: [warehouseId], references: [id])
+  sourceCountId     String?  @unique
+  sourceCount       MmInventoryCount? @relation(fields: [sourceCountId], references: [id])
+  postingDate       DateTime
+  adjustmentReason  String
+  justification     String?
+  approvalThreshold Decimal  @default(10000)
+  createdBy         String?
+  approvedBy        String?
+  rejectionReason   String?
+  status            String   @default("DRAFT")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lines             MmInventoryAdjustmentLine[]
+
+  @@index([status])
+  @@index([sourceCountId])
+  @@map("mm_inventory_adjustments")
+}
+
+model MmInventoryAdjustmentLine {
+  id             String   @id @default(cuid())
+  adjustmentId   String
+  adjustment     MmInventoryAdjustment @relation(fields: [adjustmentId], references: [id])
+  materialId     String
+  material       MmMaterial @relation(fields: [materialId], references: [id])
+  quantity       Decimal
+  uomId          String
+  uom            MmUom    @relation("AdjLineUom", fields: [uomId], references: [id])
+  storageBinId   String?
+  storageBin     WmStorageBin? @relation("AdjLineBin", fields: [storageBinId], references: [id])
+  batchId        String?
+  batch          MmBatch? @relation("AdjLineBatch", fields: [batchId], references: [id])
+  serialNumberId String?
+  serialNumber   MmSerialNumber? @relation("AdjLineSerial", fields: [serialNumberId], references: [id])
+  unitCost       Decimal  @default(0)
+  remarks        String?
+
+  @@index([adjustmentId])
+  @@map("mm_inventory_adjustment_lines")
+}
+
+// ─── Supplier Management ────────────────────────────────────────────
+
+model MmPaymentTerms {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  name            String
+  description     String?
+  dueDays         Int       @default(30)
+  discountDays    Int?
+  discountPercent Decimal?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  suppliers       MmSupplier[]
+  quotations      MmSupplierQuotation[]
+  purchaseOrders  MmPurchaseOrder[]
+  purchaseContracts MmPurchaseContract[]
+
+  @@map("mm_payment_terms")
+}
+
+model MmSupplierCategory {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  suppliers   MmSupplier[]
+
+  @@map("mm_supplier_categories")
+}
+
+model MmSupplier {
+  id                  String    @id @default(cuid())
+  supplierCode        String    @unique
+  supplierName        String
+  legalName           String?
+  supplierType        String?
+  taxId               String?
+
+  primaryContact      String?
+  email               String?
+  phone               String?
+  website             String?
+
+  billingAddress      String?
+  shippingAddress     String?
+  country             String?
+  region              String?
+
+  currencyId          String?
+  currency            MmCurrency? @relation("SupplierCurrency", fields: [currencyId], references: [id])
+  paymentTermsId      String?
+  paymentTerms        MmPaymentTerms? @relation(fields: [paymentTermsId], references: [id])
+  deliveryTerms       String?
+  defaultWarehouseId  String?
+  defaultWarehouse    Warehouse? @relation("SupplierDefaultWh", fields: [defaultWarehouseId], references: [id])
+  leadTimeDays        Int?
+
+  taxCode             String?
+  taxStatus           String?
+
+  companyId           String
+  company             Company @relation(fields: [companyId], references: [id])
+  categoryId          String?
+  category            MmSupplierCategory? @relation(fields: [categoryId], references: [id])
+
+  status              String    @default("DRAFT")
+  blockReason         String?
+  createdBy           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  bankAccounts        MmSupplierBankAccount[]
+  supplierMaterials   MmSupplierMaterial[]
+  prices              MmSupplierPrice[]
+  documents           MmSupplierDocument[]
+  audits              MmSupplierAudit[]
+  preferredByMaterials MmMaterial[] @relation("MaterialPreferredSupplier")
+  batches             MmBatch[]
+  prLines             MmPurchaseRequisitionLine[] @relation("PrPreferredSupplier")
+  rfqInvites          MmRfqSupplier[]
+  quotations          MmSupplierQuotation[]
+  rfqAwards           MmRfqAward[]
+  purchaseOrders      MmPurchaseOrder[]
+  purchaseContracts   MmPurchaseContract[]
+  asns                MmAsn[]
+  expectedReceipts    MmExpectedReceipt[]
+  goodsReceipts       MmGoodsReceipt[] @relation("GrSupplier")
+  supplierInvoices    MmSupplierInvoice[]
+  evaluations         MmSupplierEvaluation[]
+  performanceAlerts   MmSupplierAlert[]
+  manualAssessments   MmSupplierManualAssessment[]
+  supplierReturns     MmSupplierReturn[]
+  procurementSuggestions MmProcurementSuggestion[] @relation("SuggestionPreferredSupplier")
+
+  @@index([status])
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([deletedAt])
+  @@map("mm_suppliers")
+}
+
+model MmSupplierBankAccount {
+  id            String    @id @default(cuid())
+  supplierId    String
+  supplier      MmSupplier @relation(fields: [supplierId], references: [id])
+  bankName      String
+  accountName   String
+  accountNumber String
+  routingNumber String?
+  swiftCode     String?
+  iban          String?
+  currency      String?
+  isPrimary     Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([supplierId])
+  @@map("mm_supplier_bank_accounts")
+}
+
+model MmSupplierMaterial {
+  id                   String    @id @default(cuid())
+  supplierId           String
+  supplier             MmSupplier @relation(fields: [supplierId], references: [id])
+  materialId           String
+  material             MmMaterial @relation(fields: [materialId], references: [id])
+  supplierMaterialCode String?
+  supplierBarcode      String?   @unique
+  unitPrice            Decimal   @default(0)
+  currencyId           String?
+  currency             MmCurrency? @relation("SupMatCurrency", fields: [currencyId], references: [id])
+  minimumOrderQuantity Decimal?
+  leadTimeDays         Int?
+  validityStart        DateTime?
+  validityEnd          DateTime?
+  preferredSupplier    Boolean   @default(false)
+  status               String    @default("ACTIVE")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  prices               MmSupplierPrice[]
+
+  @@unique([supplierId, materialId])
+  @@index([supplierId])
+  @@index([materialId])
+  @@map("mm_supplier_materials")
+}
+
+model MmSupplierPrice {
+  id                 String    @id @default(cuid())
+  supplierId         String
+  supplier           MmSupplier @relation(fields: [supplierId], references: [id])
+  materialId         String
+  material           MmMaterial @relation(fields: [materialId], references: [id])
+  supplierMaterialId String?
+  supplierMaterial   MmSupplierMaterial? @relation(fields: [supplierMaterialId], references: [id])
+  unitPrice          Decimal
+  currencyId         String?
+  currency           MmCurrency? @relation("SupPriceCurrency", fields: [currencyId], references: [id])
+  minimumQuantity    Decimal   @default(0)
+  effectiveFrom      DateTime  @default(now())
+  effectiveTo        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  @@index([supplierId, materialId, effectiveFrom])
+  @@index([materialId])
+  @@index([deletedAt])
+  @@map("mm_supplier_prices")
+}
+
+model MmSupplierDocument {
+  id          String    @id @default(cuid())
+  supplierId  String
+  supplier    MmSupplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String?
+  storageKey  String?
+  mimeType    String?
+  docType     String?
+  uploadedBy  String?
+  uploadedAt  DateTime  @default(now())
+
+  @@index([supplierId])
+  @@map("mm_supplier_documents")
+}
+
+model MmSupplierAudit {
+  id          String   @id @default(cuid())
+  supplierId  String
+  supplier    MmSupplier @relation(fields: [supplierId], references: [id])
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  performedBy String?
+  performedAt DateTime @default(now())
+  ipAddress   String?
+  details     Json?
+
+  @@index([supplierId])
+  @@index([performedAt])
+  @@map("mm_supplier_audits")
+}
+
+// ─── Workflow Engine ────────────────────────────────────────────────
+
+model MmApprovalWorkflow {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  name                String
+  entityType          String
+  approverRole        String
+  companyId           String?
+  departmentId        String?
+  costCenterId        String?
+  supplierId          String?
+  materialCategoryId  String?
+  minAmount           Decimal  @default(0)
+  maxAmount           Decimal?
+  sortOrder           Int      @default(0)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  instances   MmWorkflowInstance[]
+
+  @@index([entityType, isActive])
+  @@index([companyId])
+  @@index([supplierId])
+  @@map("mm_approval_workflows")
+}
+
+model MmWorkflowInstance {
+  id          String    @id @default(cuid())
+  entityType  String
+  entityId    String
+  workflowId  String
+  workflow    MmApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  status      String    @default("PENDING")
+  initiatedBy String?
+  initiatedAt DateTime  @default(now())
+  decidedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks       MmApprovalTask[]
+  purchaseRequisition MmPurchaseRequisition? @relation("PrWorkflow")
+  purchaseOrder       MmPurchaseOrder? @relation("PoWorkflow")
+
+  @@index([entityType, entityId])
+  @@index([status])
+  @@map("mm_workflow_instances")
+}
+
+model MmApprovalTask {
+  id          String            @id @default(cuid())
+  instanceId  String
+  instance    MmWorkflowInstance @relation(fields: [instanceId], references: [id])
+  stepNumber  Int
+  approverRole String
+  approverId  String?
+  status      String            @default("PENDING")
+  comment     String?
+  decidedBy   String?
+  decidedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([instanceId])
+  @@index([status])
+  @@map("mm_approval_tasks")
+}
+
+// ─── Purchase Requisition ───────────────────────────────────────────
+
+model MmPurchaseRequisition {
+  id                String    @id @default(cuid())
+  requisitionNumber String    @unique
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  businessUnitId    String?
+  branchId          String?
+  departmentId      String?
+  costCenterId      String?
+  projectId         String?
+  requesterId       String
+  requiredDate      DateTime
+  purpose           String
+  status            String    @default("DRAFT")
+  approvedBy        String?
+  rejectionReason   String?
+  returnedReason    String?
+  submittedAt       DateTime?
+  approvedAt        DateTime?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workflowInstanceId  String?   @unique
+  workflowInstance    MmWorkflowInstance? @relation("PrWorkflow", fields: [workflowInstanceId], references: [id])
+  lines             MmPurchaseRequisitionLine[]
+  conversions       MmPrConversion[]
+  audits            MmPurchaseRequisitionAudit[]
+  rfqs              MmRfq[]
+  purchaseOrders    MmPurchaseOrder[]
+  procurementSuggestions MmProcurementSuggestion[]
+  sourceMrpRunId    String?
+  sourceMrpRun      MmMrpRun? @relation("PrSourceMrpRun", fields: [sourceMrpRunId], references: [id])
+
+  @@index([status])
+  @@index([companyId])
+  @@index([requesterId])
+  @@index([sourceMrpRunId])
+  @@map("mm_purchase_requisitions")
+}
+
+model MmPurchaseRequisitionLine {
+  id                  String    @id @default(cuid())
+  requisitionId       String
+  requisition         MmPurchaseRequisition @relation(fields: [requisitionId], references: [id])
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id])
+  description         String
+  requestedQuantity   Decimal
+  uomId               String
+  uom                 MmUom    @relation("PrLineUom", fields: [uomId], references: [id])
+  estimatedUnitPrice  Decimal
+  estimatedTotal      Decimal
+  requiredDate        DateTime
+  warehouseId         String?
+  warehouse           Warehouse? @relation("PrLineWarehouse", fields: [warehouseId], references: [id])
+  preferredSupplierId String?
+  preferredSupplier   MmSupplier? @relation("PrPreferredSupplier", fields: [preferredSupplierId], references: [id])
+  convertedQty        Decimal  @default(0)
+  remarks             String?
+
+  conversions         MmPrConversion[]
+  poLines             MmPurchaseOrderLine[]
+
+  @@index([requisitionId])
+  @@index([materialId])
+  @@map("mm_purchase_requisition_lines")
+}
+
+model MmPrConversion {
+  id            String    @id @default(cuid())
+  requisitionId String
+  requisition   MmPurchaseRequisition @relation(fields: [requisitionId], references: [id])
+  lineId        String
+  line          MmPurchaseRequisitionLine @relation(fields: [lineId], references: [id])
+  targetType    String
+  targetId      String?
+  convertedQty  Decimal
+  convertedBy   String?
+  convertedAt   DateTime  @default(now())
+
+  @@unique([lineId, targetType])
+  @@index([requisitionId])
+  @@index([lineId, targetType])
+  @@map("mm_pr_conversions")
+}
+
+model MmPurchaseRequisitionAudit {
+  id            String   @id @default(cuid())
+  requisitionId String
+  requisition   MmPurchaseRequisition @relation(fields: [requisitionId], references: [id])
+  action        String
+  field         String?
+  oldValue      String?
+  newValue      String?
+  performedBy   String?
+  performedAt   DateTime @default(now())
+  details       Json?
+
+  @@index([requisitionId])
+  @@index([performedAt])
+  @@map("mm_purchase_requisition_audits")
+}
+
+// ─── RFQ & Supplier Quotations (MM-07) ──────────────────────────────
+
+model MmRfq {
+  id                String    @id @default(cuid())
+  rfqNumber         String    @unique
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  buyerId           String
+  issueDate         DateTime?
+  responseDeadline  DateTime
+  currencyId        String?
+  currency          MmCurrency? @relation("RfqCurrency", fields: [currencyId], references: [id])
+  status            String    @default("DRAFT")
+  purpose           String?
+  notes             String?
+  /// When true, award endpoint may auto-pick lowest total; default false.
+  autoSelectCheapest Boolean  @default(false)
+  purchaseRequisitionId String?
+  purchaseRequisition   MmPurchaseRequisition? @relation(fields: [purchaseRequisitionId], references: [id])
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines             MmRfqLine[]
+  invitedSuppliers  MmRfqSupplier[]
+  quotations        MmSupplierQuotation[]
+  awards            MmRfqAward[]
+  audits            MmRfqAudit[]
+  purchaseOrders    MmPurchaseOrder[]
+
+  @@index([status])
+  @@index([companyId])
+  @@index([buyerId])
+  @@index([responseDeadline])
+  @@map("mm_rfqs")
+}
+
+model MmRfqLine {
+  id              String   @id @default(cuid())
+  rfqId           String
+  rfq             MmRfq    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  lineNumber      Int      @default(1)
+  materialId      String
+  material        MmMaterial @relation(fields: [materialId], references: [id])
+  quantity        Decimal
+  uomId           String
+  uom             MmUom    @relation("RfqLineUom", fields: [uomId], references: [id])
+  requiredDate    DateTime?
+  specifications  String?
+  prLineId        String?
+
+  quotationLines  MmSupplierQuotationLine[]
+  poLines         MmPurchaseOrderLine[]
+
+  @@index([rfqId])
+  @@index([materialId])
+  @@map("mm_rfq_lines")
+}
+
+model MmRfqSupplier {
+  id             String   @id @default(cuid())
+  rfqId          String
+  rfq            MmRfq    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplierId     String
+  supplier       MmSupplier @relation(fields: [supplierId], references: [id])
+  invitedAt      DateTime @default(now())
+  responseStatus String   @default("INVITED") // INVITED | RESPONDED | DECLINED | EXPIRED
+  respondedAt    DateTime?
+  notes          String?
+
+  @@unique([rfqId, supplierId])
+  @@index([rfqId])
+  @@index([supplierId])
+  @@index([responseStatus])
+  @@map("mm_rfq_suppliers")
+}
+
+model MmSupplierQuotation {
+  id               String    @id @default(cuid())
+  quotationNumber  String    @unique
+  rfqId            String
+  rfq              MmRfq     @relation(fields: [rfqId], references: [id])
+  supplierId       String
+  supplier         MmSupplier @relation(fields: [supplierId], references: [id])
+  validityDate     DateTime
+  currencyId       String?
+  currency         MmCurrency? @relation("QuotationCurrency", fields: [currencyId], references: [id])
+  paymentTermsId   String?
+  paymentTerms     MmPaymentTerms? @relation(fields: [paymentTermsId], references: [id])
+  deliveryTerms    String?
+  freight          Decimal   @default(0)
+  tax              Decimal   @default(0)
+  total            Decimal   @default(0)
+  status           String    @default("DRAFT") // DRAFT | SUBMITTED | WITHDRAWN | EXPIRED | SELECTED
+  qualityScore     Decimal?
+  supplierScore    Decimal?
+  notes            String?
+  submittedAt      DateTime?
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  lines            MmSupplierQuotationLine[]
+  awards           MmRfqAward[]
+  purchaseOrders   MmPurchaseOrder[]
+
+  @@unique([rfqId, supplierId])
+  @@index([rfqId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([validityDate])
+  @@map("mm_supplier_quotations")
+}
+
+model MmSupplierQuotationLine {
+  id            String   @id @default(cuid())
+  quotationId   String
+  quotation     MmSupplierQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  rfqLineId     String?
+  rfqLine       MmRfqLine? @relation(fields: [rfqLineId], references: [id])
+  materialId    String
+  material      MmMaterial @relation(fields: [materialId], references: [id])
+  quantity      Decimal
+  uomId         String
+  uom           MmUom    @relation("QuotationLineUom", fields: [uomId], references: [id])
+  unitPrice     Decimal  @default(0)
+  discount      Decimal  @default(0)
+  tax           Decimal  @default(0)
+  lineTotal     Decimal  @default(0)
+  leadTimeDays  Int?
+  moq           Decimal?
+  warranty      String?
+  notes         String?
+
+  poLines       MmPurchaseOrderLine[]
+
+  @@index([quotationId])
+  @@index([materialId])
+  @@index([rfqLineId])
+  @@map("mm_supplier_quotation_lines")
+}
+
+model MmRfqAward {
+  id              String   @id @default(cuid())
+  rfqId           String
+  rfq             MmRfq    @relation(fields: [rfqId], references: [id])
+  supplierId      String
+  supplier        MmSupplier @relation(fields: [supplierId], references: [id])
+  quotationId     String?
+  quotation       MmSupplierQuotation? @relation(fields: [quotationId], references: [id])
+  reason          String
+  evaluatedBy     String?
+  evaluatedAt     DateTime @default(now())
+  autoSelected    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  purchaseOrders  MmPurchaseOrder[]
+
+  @@index([rfqId])
+  @@index([supplierId])
+  @@map("mm_rfq_awards")
+}
+
+model MmRfqAudit {
+  id          String   @id @default(cuid())
+  rfqId       String
+  rfq         MmRfq    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  performedBy String?
+  performedAt DateTime @default(now())
+  details     Json?
+
+  @@index([rfqId])
+  @@index([performedAt])
+  @@map("mm_rfq_audits")
+}
+
+// ─── Purchase Order (MM-08) ─────────────────────────────────────────
+
+model MmPurchaseOrder {
+  id                      String    @id @default(cuid())
+  poNumber                String    @unique
+  companyId               String
+  company                 Company   @relation(fields: [companyId], references: [id])
+  branchId                String?
+  departmentId            String?
+  supplierId              String
+  supplier                MmSupplier @relation(fields: [supplierId], references: [id])
+  buyerId                 String
+  currencyId              String?
+  currency                MmCurrency? @relation("PoCurrency", fields: [currencyId], references: [id])
+  paymentTermsId          String?
+  paymentTerms            MmPaymentTerms? @relation(fields: [paymentTermsId], references: [id])
+  deliveryTerms           String?
+  warehouseId             String?
+  warehouse               Warehouse? @relation("PoWarehouse", fields: [warehouseId], references: [id])
+  expectedDeliveryDate    DateTime?
+  status                  String    @default("DRAFT")
+  totalAmount             Decimal   @default(0)
+  purchaseRequisitionId   String?
+  purchaseRequisition     MmPurchaseRequisition? @relation(fields: [purchaseRequisitionId], references: [id])
+  rfqId                   String?
+  rfq                     MmRfq? @relation(fields: [rfqId], references: [id])
+  quotationId             String?
+  quotation               MmSupplierQuotation? @relation(fields: [quotationId], references: [id])
+  awardId                 String?
+  award                   MmRfqAward? @relation(fields: [awardId], references: [id])
+  /// Optional per-PO overrides (null = use company MmPoToleranceConfig)
+  overDeliveryPctOverride   Decimal?
+  underDeliveryPctOverride  Decimal?
+  priceTolerancePctOverride Decimal?
+  quantityTolerancePctOverride Decimal?
+  approvedBy              String?
+  approvedAt              DateTime?
+  rejectionReason         String?
+  returnedReason          String?
+  submittedAt             DateTime?
+  sentAt                  DateTime?
+  closedAt                DateTime?
+  cancelledAt             DateTime?
+  cancelReason            String?
+  createdBy               String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  workflowInstanceId      String?   @unique
+  workflowInstance        MmWorkflowInstance? @relation("PoWorkflow", fields: [workflowInstanceId], references: [id])
+
+  lines                   MmPurchaseOrderLine[]
+  audits                  MmPurchaseOrderAudit[]
+  attachments             MmPurchaseOrderAttachment[]
+  goodsReceipts           MmGoodsReceipt[]
+  asns                    MmAsn[]
+  expectedReceipts        MmExpectedReceipt[]
+  supplierInvoices        MmSupplierInvoice[]
+  matchExceptions         MmMatchException[]
+  purchaseContracts       MmPurchaseContract[]
+
+  @@index([status])
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([buyerId])
+  @@map("mm_purchase_orders")
+}
+
+model MmPurchaseOrderLine {
+  id                  String    @id @default(cuid())
+  purchaseOrderId     String
+  purchaseOrder       MmPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  lineNumber          Int       @default(1)
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id])
+  description         String
+  quantity            Decimal
+  uomId               String
+  uom                 MmUom @relation("PoLineUom", fields: [uomId], references: [id])
+  unitPrice           Decimal   @default(0)
+  discount            Decimal   @default(0)
+  tax                 Decimal   @default(0)
+  freight             Decimal   @default(0)
+  lineTotal           Decimal   @default(0)
+  requiredDate        DateTime?
+  expectedDeliveryDate DateTime?
+  warehouseId         String?
+  warehouse           Warehouse? @relation("PoLineWarehouse", fields: [warehouseId], references: [id])
+  storageBinId        String?
+  storageBin          WmStorageBin? @relation("PoLineBin", fields: [storageBinId], references: [id])
+  costCenterId        String?
+  projectId           String?
+  receivedQuantity    Decimal   @default(0)
+  invoicedQuantity    Decimal   @default(0)
+  prLineId            String?
+  prLine              MmPurchaseRequisitionLine? @relation(fields: [prLineId], references: [id])
+  rfqLineId           String?
+  rfqLine             MmRfqLine? @relation(fields: [rfqLineId], references: [id])
+  quotationLineId     String?
+  quotationLine       MmSupplierQuotationLine? @relation(fields: [quotationLineId], references: [id])
+  remarks             String?
+
+  goodsReceiptLines   MmGoodsReceiptLine[]
+  supplierInvoiceLines MmSupplierInvoiceLine[]
+
+  @@index([purchaseOrderId])
+  @@index([materialId])
+  @@index([prLineId])
+  @@map("mm_purchase_order_lines")
+}
+
+model MmPoToleranceConfig {
+  id                    String   @id @default(cuid())
+  companyId             String   @unique
+  company               Company  @relation(fields: [companyId], references: [id])
+  overDeliveryPct       Decimal  @default(0)
+  underDeliveryPct      Decimal  @default(0)
+  priceTolerancePct     Decimal  @default(0)
+  quantityTolerancePct  Decimal  @default(0)
+  absoluteToleranceAmount Decimal @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("mm_po_tolerance_configs")
+}
+
+// ─── Purchase Contracts (MM-07) — commercial terms only; never posts inventory ──
+
+model MmPurchaseContract {
+  id                  String    @id @default(cuid())
+  contractNumber      String    @unique
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id])
+  supplierId          String
+  supplier            MmSupplier @relation(fields: [supplierId], references: [id])
+  buyerId             String
+  /// DRAFT | ACTIVE | EXPIRED | CANCELLED
+  status              String    @default("DRAFT")
+  validFrom           DateTime
+  validTo             DateTime?
+  currencyId          String?
+  currency            MmCurrency? @relation("ContractCurrency", fields: [currencyId], references: [id])
+  paymentTermsId      String?
+  paymentTerms        MmPaymentTerms? @relation(fields: [paymentTermsId], references: [id])
+  deliveryTerms       String?
+  materialCategoryId  String?
+  materialCategory    MmMaterialCategory? @relation(fields: [materialCategoryId], references: [id])
+  /// Optional link to a PO that references these terms (does not create stock)
+  purchaseOrderId     String?
+  purchaseOrder       MmPurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  notes               String?
+  createdBy           String?
+  activatedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  lines               MmPurchaseContractLine[]
+
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([purchaseOrderId])
+  @@map("mm_purchase_contracts")
+}
+
+model MmPurchaseContractLine {
+  id              String    @id @default(cuid())
+  contractId      String
+  contract        MmPurchaseContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  lineNumber      Int       @default(1)
+  materialId      String
+  material        MmMaterial @relation(fields: [materialId], references: [id])
+  uomId           String
+  uom             MmUom     @relation("ContractLineUom", fields: [uomId], references: [id])
+  negotiatedPrice Decimal   @default(0)
+  moq             Decimal?
+  leadTimeDays    Int?
+  remarks         String?
+
+  @@index([contractId])
+  @@index([materialId])
+  @@map("mm_purchase_contract_lines")
+}
+
+model MmPurchaseOrderAudit {
+  id            String   @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder MmPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  action        String
+  field         String?
+  oldValue      String?
+  newValue      String?
+  performedBy   String?
+  performedAt   DateTime @default(now())
+  details       Json?
+
+  @@index([purchaseOrderId])
+  @@index([performedAt])
+  @@map("mm_purchase_order_audits")
+}
+
+model MmPurchaseOrderAttachment {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   MmPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  fileName        String
+  fileUrl         String?
+  storageKey      String?
+  uploadedBy      String?
+  uploadedAt      DateTime @default(now())
+
+  @@index([purchaseOrderId])
+  @@map("mm_purchase_order_attachments")
+}
+
+// ─── Inbound: ASN / Expected Receipt / Quality (MM-09) ──────────────
+
+model MmAsn {
+  id              String   @id @default(cuid())
+  asnNumber       String   @unique
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  supplierId      String
+  supplier        MmSupplier @relation(fields: [supplierId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   MmPurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  warehouseId     String?
+  warehouse       Warehouse? @relation("AsnWarehouse", fields: [warehouseId], references: [id])
+  /// Supplier shipment identity
+  shipmentNumber  String?
+  carrier         String?
+  trackingNumber  String?
+  expectedDate    DateTime?
+  status          String   @default("DRAFT") // DRAFT | CONFIRMED | CANCELLED
+  remarks         String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lines           MmAsnLine[]
+  expectedReceipts MmExpectedReceipt[]
+  goodsReceipts   MmGoodsReceipt[]
+
+  @@index([status])
+  @@index([companyId])
+  @@index([purchaseOrderId])
+  @@map("mm_asns")
+}
+
+model MmAsnLine {
+  id              String   @id @default(cuid())
+  asnId           String
+  asn             MmAsn    @relation(fields: [asnId], references: [id], onDelete: Cascade)
+  materialId      String
+  material        MmMaterial @relation(fields: [materialId], references: [id])
+  quantity        Decimal
+  uomId           String
+  uom             MmUom @relation("AsnLineUom", fields: [uomId], references: [id])
+  purchaseOrderLineId String?
+  /// Foresight only — posting uses GR batch/serial FKs
+  batchNumber     String?
+  serialNumber    String?
+  remarks         String?
+
+  @@index([asnId])
+  @@map("mm_asn_lines")
+}
+
+model MmExpectedReceipt {
+  id              String   @id @default(cuid())
+  documentNumber  String   @unique
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  supplierId      String
+  supplier        MmSupplier @relation(fields: [supplierId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   MmPurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  asnId           String?
+  asn             MmAsn? @relation(fields: [asnId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse @relation("ExpectedReceiptWarehouse", fields: [warehouseId], references: [id])
+  expectedDate    DateTime?
+  status          String   @default("OPEN") // OPEN | IN_PROGRESS | CLOSED | CANCELLED
+  sourceType      String   // PO | ASN
+  remarks         String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lines           MmExpectedReceiptLine[]
+  goodsReceipts   MmGoodsReceipt[]
+
+  @@index([status])
+  @@index([companyId])
+  @@index([purchaseOrderId])
+  @@map("mm_expected_receipts")
+}
+
+model MmExpectedReceiptLine {
+  id                String   @id @default(cuid())
+  expectedReceiptId String
+  expectedReceipt   MmExpectedReceipt @relation(fields: [expectedReceiptId], references: [id], onDelete: Cascade)
+  materialId        String
+  material          MmMaterial @relation(fields: [materialId], references: [id])
+  expectedQuantity  Decimal
+  receivedQuantity  Decimal  @default(0)
+  damagedQuantity   Decimal  @default(0)
+  rejectedQuantity  Decimal  @default(0)
+  uomId             String
+  uom               MmUom @relation("ErLineUom", fields: [uomId], references: [id])
+  purchaseOrderLineId String?
+  asnLineId         String?
+  status            String   @default("OPEN") // OPEN | PARTIAL | COMPLETE | SHORT | OVER
+  remarks           String?
+  goodsReceiptLines MmGoodsReceiptLine[]
+
+  @@index([expectedReceiptId])
+  @@map("mm_expected_receipt_lines")
+}
+
+model MmQualityInspection {
+  id              String   @id @default(cuid())
+  inspectionNumber String  @unique
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  goodsReceiptId  String
+  goodsReceipt    MmGoodsReceipt @relation(fields: [goodsReceiptId], references: [id])
+  warehouseId     String
+  status          String   @default("PENDING") // PENDING | COMPLETED | CANCELLED
+  result          String?  // PASS | FAIL | PARTIAL_PASS
+  inspectedBy     String?
+  inspectedAt     DateTime?
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lines           MmQualityInspectionLine[]
+
+  @@index([status])
+  @@index([goodsReceiptId])
+  @@map("mm_quality_inspections")
+}
+
+model MmQualityInspectionLine {
+  id                    String   @id @default(cuid())
+  inspectionId          String
+  inspection            MmQualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  goodsReceiptLineId    String
+  goodsReceiptLine      MmGoodsReceiptLine @relation(fields: [goodsReceiptLineId], references: [id])
+  materialId            String
+  quantity              Decimal
+  passQuantity          Decimal  @default(0)
+  failQuantity          Decimal  @default(0)
+  result                String?  // PASS | FAIL | PARTIAL_PASS
+  remarks               String?
+
+  @@index([inspectionId])
+  @@map("mm_quality_inspection_lines")
+}
+
+model MmAccountingEvent {
+  id              String   @id @default(cuid())
+  eventType       String
+  sourceModule    String
+  documentType    String
+  documentId      String
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id])
+  payload         Json
+  status          String   @default("PENDING") // PENDING | CONSUMED | FAILED
+  createdAt       DateTime @default(now())
+  consumedAt      DateTime?
+
+  @@index([documentType, documentId])
+  @@index([status])
+  @@map("mm_accounting_events")
+}
+
+// ─── Inventory Control (Cycle Count / Physical Inventory) ───────────
+
+model MmCountRule {
+  id                     String    @id @default(cuid())
+  code                   String    @unique
+  name                   String
+  companyId              String?
+  company                Company?  @relation(fields: [companyId], references: [id])
+  warehouseId            String?
+  warehouse              Warehouse? @relation(fields: [warehouseId], references: [id])
+  /// A | B | C
+  abcClass               String?
+  /// FAST | MEDIUM | SLOW
+  velocityClass          String?
+  /// LOW | MEDIUM | HIGH
+  riskClass              String?
+  materialCategoryId     String?
+  materialTypeId         String?
+  /// Days between counts (e.g. 7 weekly, 30 monthly, 90 quarterly)
+  frequencyDays          Int       @default(30)
+  varianceQtyTolerance   Decimal   @default(0)
+  varianceValueTolerance Decimal   @default(0)
+  /// Value band filter on material.standardCost
+  minUnitValue           Decimal?
+  maxUnitValue           Decimal?
+  priority               Int       @default(5)
+  isActive               Boolean   @default(true)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  counts                 MmInventoryCount[]
+
+  @@index([warehouseId])
+  @@index([abcClass])
+  @@index([velocityClass])
+  @@index([riskClass])
+  @@index([isActive])
+  @@map("mm_count_rules")
+}
+
+model MmInventoryCount {
+  id             String    @id @default(cuid())
+  countNumber    String    @unique
+  /// CYCLE | PHYSICAL
+  countType      String
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  ruleId         String?
+  rule           MmCountRule? @relation(fields: [ruleId], references: [id])
+  /// OPEN | COUNTING | RECOUNT | APPROVAL | POSTED | CLOSED
+  status         String    @default("OPEN")
+  dueDate        DateTime?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lines          MmInventoryCountLine[]
+  adjustment     MmInventoryAdjustment?
+
+  @@index([status])
+  @@index([warehouseId])
+  @@index([countType])
+  @@map("mm_inventory_counts")
+}
+
+model MmInventoryCountLine {
+  id                   String   @id @default(cuid())
+  countId              String
+  count                MmInventoryCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  lineNumber           Int
+  storageBinId         String?
+  storageBin           WmStorageBin? @relation(fields: [storageBinId], references: [id])
+  materialId           String
+  material             MmMaterial @relation(fields: [materialId], references: [id])
+  batchId              String?
+  serialNumberId       String?
+  systemQuantity       Decimal  @default(0)
+  countedQuantity      Decimal?
+  recountQuantity      Decimal?
+  finalQuantity        Decimal?
+  varianceQuantity     Decimal  @default(0)
+  varianceValue        Decimal  @default(0)
+  unitCost             Decimal  @default(0)
+  assignedCounter      String?
+  /// PENDING | COUNTED | REQUIRE_RECOUNT | RECOUNTED | APPROVED | REJECTED | ADJUSTED
+  status               String   @default("PENDING")
+  lastIdempotencyKey   String?  @unique
+  countedBy            String?
+  countedAt            DateTime?
+  recountBy            String?
+  recountedAt          DateTime?
+  approvedBy           String?
+  approvedAt           DateTime?
+  originalCount        Decimal?
+  finalAdjustmentQty   Decimal?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([countId])
+  @@index([status])
+  @@index([materialId])
+  @@index([assignedCounter])
+  @@map("mm_inventory_count_lines")
+}
+
+// ─── Inventory Valuation (MM-12) ────────────────────────────────────
+
+model MmMaterialValuation {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id])
+  materialId         String
+  material           MmMaterial @relation(fields: [materialId], references: [id])
+  /// Valuation area = warehouse
+  warehouseId        String
+  warehouse          Warehouse @relation(fields: [warehouseId], references: [id])
+  currencyId         String?
+  currency           MmCurrency? @relation(fields: [currencyId], references: [id])
+  /// STANDARD_COST | MOVING_AVERAGE | FIFO
+  valuationMethod    String
+  standardCost       Decimal   @default(0)
+  movingAverageCost  Decimal   @default(0)
+  effectiveDate      DateTime  @default(now())
+  revision           Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([companyId, materialId, warehouseId])
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([valuationMethod])
+  @@map("mm_material_valuation")
+}
+
+model MmCostLayer {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id])
+  materialId         String
+  material           MmMaterial @relation(fields: [materialId], references: [id])
+  warehouseId        String
+  warehouse          Warehouse @relation(fields: [warehouseId], references: [id])
+  batchId            String?
+  receiptTxnId       String
+  receiptTxn         MmInventoryTransaction @relation(fields: [receiptTxnId], references: [id])
+  receiptDocumentId  String?
+  originalQuantity   Decimal
+  remainingQuantity  Decimal
+  unitCost           Decimal
+  postingDate        DateTime
+  /// OPEN | DEPLETED | REVERSED
+  status             String    @default("OPEN")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([materialId, warehouseId, postingDate])
+  @@index([remainingQuantity])
+  @@index([status])
+  @@index([receiptTxnId])
+  @@map("mm_cost_layer")
+}
+
+model MmInventoryValuationTransaction {
+  id                 String    @id @default(cuid())
+  valuationNumber    String    @unique
+  inventoryTxnId     String    @unique
+  inventoryTxn       MmInventoryTransaction @relation(fields: [inventoryTxnId], references: [id])
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id])
+  materialId         String
+  material           MmMaterial @relation(fields: [materialId], references: [id])
+  warehouseId        String
+  warehouse          Warehouse @relation(fields: [warehouseId], references: [id])
+  /// STANDARD_COST | MOVING_AVERAGE | FIFO
+  valuationMethod    String
+  /// IN | OUT | REVERSAL
+  direction          String
+  quantity           Decimal
+  unitCost           Decimal
+  totalCost          Decimal
+  priceVariance      Decimal   @default(0)
+  movingAvgBefore    Decimal?
+  movingAvgAfter     Decimal?
+  /// FIFO: [{layerId, qty, unitCost}]
+  layerConsumptions  Json?
+  reversalOfId       String?   @unique
+  reversalOf         MmInventoryValuationTransaction? @relation("ValTxnReversal", fields: [reversalOfId], references: [id])
+  reversedBy         MmInventoryValuationTransaction? @relation("ValTxnReversal")
+  createdAt          DateTime  @default(now())
+
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([valuationMethod])
+  @@index([companyId])
+  @@map("mm_inventory_valuation_transaction")
+}
+
+model MmStandardCostRevision {
+  id            String    @id @default(cuid())
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id])
+  materialId    String
+  material      MmMaterial @relation(fields: [materialId], references: [id])
+  warehouseId   String
+  warehouse     Warehouse @relation(fields: [warehouseId], references: [id])
+  standardCost  Decimal
+  effectiveDate DateTime
+  revision      Int
+  createdBy     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([materialId, warehouseId])
+  @@map("mm_standard_cost_revisions")
+}
+
+model MmLandedCost {
+  id              String    @id @default(cuid())
+  documentNumber  String    @unique
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  warehouseId     String?
+  warehouse       Warehouse? @relation(fields: [warehouseId], references: [id])
+  /// QUANTITY | WEIGHT | VOLUME | VALUE | MANUAL
+  allocationBase  String    @default("VALUE")
+  currencyId      String?
+  totalAmount     Decimal   @default(0)
+  /// DRAFT | ALLOCATED | CANCELLED
+  status          String    @default("DRAFT")
+  referenceDocType String?
+  referenceDocId  String?
+  remarks         String?
+  createdBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  lines           MmLandedCostLine[]
+  allocations     MmLandedCostAllocation[]
+
+  @@index([status])
+  @@index([companyId])
+  @@map("mm_landed_cost")
+}
+
+model MmLandedCostLine {
+  id            String      @id @default(cuid())
+  landedCostId  String
+  landedCost    MmLandedCost @relation(fields: [landedCostId], references: [id], onDelete: Cascade)
+  /// FREIGHT | CUSTOMS | INSURANCE | HANDLING | OTHER
+  costType      String
+  description   String?
+  amount        Decimal
+  materialId    String?
+  material      MmMaterial? @relation(fields: [materialId], references: [id])
+  weight        Decimal?
+  volume        Decimal?
+  quantity      Decimal?
+  valueBase     Decimal?
+
+  @@index([landedCostId])
+  @@map("mm_landed_cost_lines")
+}
+
+model MmLandedCostAllocation {
+  id            String      @id @default(cuid())
+  landedCostId  String
+  landedCost    MmLandedCost @relation(fields: [landedCostId], references: [id], onDelete: Cascade)
+  materialId    String
+  material      MmMaterial  @relation(fields: [materialId], references: [id])
+  allocatedAmount Decimal
+  allocationShare Decimal?
+  notes         String?
+
+  @@index([landedCostId])
+  @@index([materialId])
+  @@map("mm_landed_cost_allocations")
+}
+
+// ─── Three-Way Match (MM-13) ────────────────────────────────────────
+
+model MmSupplierInvoice {
+  id               String    @id @default(cuid())
+  invoiceNumber    String    @unique
+  companyId        String
+  company          Company   @relation(fields: [companyId], references: [id])
+  supplierId       String
+  supplier         MmSupplier @relation(fields: [supplierId], references: [id])
+  purchaseOrderId  String
+  purchaseOrder    MmPurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  currencyId       String?
+  currency         MmCurrency? @relation("InvoiceCurrency", fields: [currencyId], references: [id])
+  invoiceDate      DateTime
+  postingDate      DateTime?
+  taxAmount        Decimal   @default(0)
+  totalAmount      Decimal   @default(0)
+  /// DRAFT | SUBMITTED | MATCHED | PARTIALLY_MATCHED | VARIANCE | BLOCKED | CANCELLED
+  status           String    @default("DRAFT")
+  /// Last engine result (same vocabulary as status match outcomes)
+  matchStatus      String?
+  paymentEligible  Boolean   @default(false)
+  invoicedApplied  Boolean   @default(false)
+  approvedBy       String?
+  approvedAt       DateTime?
+  matchedAt        DateTime?
+  createdBy        String?
+  remarks          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  lines            MmSupplierInvoiceLine[]
+  exceptions       MmMatchException[]
+
+  @@index([status])
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([purchaseOrderId])
+  @@map("mm_supplier_invoices")
+}
+
+model MmSupplierInvoiceLine {
+  id                  String   @id @default(cuid())
+  invoiceId           String
+  invoice             MmSupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNumber          Int      @default(1)
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id])
+  purchaseOrderLineId String
+  purchaseOrderLine   MmPurchaseOrderLine @relation(fields: [purchaseOrderLineId], references: [id])
+  uomId               String
+  uom                 MmUom @relation("InvoiceLineUom", fields: [uomId], references: [id])
+  invoicedQuantity    Decimal
+  unitPrice           Decimal  @default(0)
+  taxAmount           Decimal  @default(0)
+  lineTotal           Decimal  @default(0)
+  matchedQuantity     Decimal  @default(0)
+  /// PENDING | MATCHED | PARTIALLY_MATCHED | VARIANCE | BLOCKED
+  matchStatus         String   @default("PENDING")
+  quantityVariance    Decimal  @default(0)
+  priceVariance       Decimal  @default(0)
+  taxVariance         Decimal  @default(0)
+  remarks             String?
+
+  receipts            MmSupplierInvoiceLineReceipt[]
+  exceptions          MmMatchException[]
+
+  @@index([invoiceId])
+  @@index([purchaseOrderLineId])
+  @@index([materialId])
+  @@map("mm_supplier_invoice_lines")
+}
+
+model MmSupplierInvoiceLineReceipt {
+  id                 String   @id @default(cuid())
+  invoiceLineId      String
+  invoiceLine        MmSupplierInvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
+  goodsReceiptLineId String
+  goodsReceiptLine   MmGoodsReceiptLine @relation(fields: [goodsReceiptLineId], references: [id])
+  allocatedQuantity  Decimal
+
+  @@unique([invoiceLineId, goodsReceiptLineId])
+  @@index([goodsReceiptLineId])
+  @@map("mm_supplier_invoice_line_receipts")
+}
+
+model MmMatchException {
+  id               String   @id @default(cuid())
+  invoiceId        String
+  invoice          MmSupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceLineId    String?
+  invoiceLine      MmSupplierInvoiceLine? @relation(fields: [invoiceLineId], references: [id])
+  purchaseOrderId  String
+  purchaseOrder    MmPurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  /// QUANTITY | PRICE | TAX | CURRENCY | SUPPLIER | MATERIAL
+  varianceType     String
+  /// VARIANCE | BLOCKED
+  severity         String
+  message          String
+  poSnapshot       Json?
+  grSnapshot       Json?
+  invoiceSnapshot  Json?
+  /// OPEN | ACKNOWLEDGED | RESOLVED | WAIVED
+  status           String   @default("OPEN")
+  paymentBlocked   Boolean  @default(true)
+  notifiedAt       DateTime?
+  resolvedBy       String?
+  resolvedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@index([status])
+  @@index([varianceType])
+  @@index([purchaseOrderId])
+  @@map("mm_match_exceptions")
+}
+
+// ─── Planning / MRP (MM-14) ─────────────────────────────────────────
+
+model MmMrpRun {
+  id                   String    @id @default(cuid())
+  runNumber            String    @unique
+  companyId            String
+  company              Company   @relation(fields: [companyId], references: [id])
+  warehouseId          String?
+  warehouse            Warehouse? @relation(fields: [warehouseId], references: [id])
+  executionTime        DateTime?
+  planningHorizonDays  Int       @default(30)
+  includeOpenReceipts  Boolean   @default(true)
+  /// PENDING | RUNNING | COMPLETED | FAILED | CANCELLED
+  status               String    @default("PENDING")
+  createdBy            String?
+  errorMessage         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  requirements         MmMaterialRequirement[]
+  suggestions          MmProcurementSuggestion[]
+  purchaseRequisitions MmPurchaseRequisition[] @relation("PrSourceMrpRun")
+
+  @@index([companyId])
+  @@index([status])
+  @@map("mm_mrp_run")
+}
+
+model MmMaterialRequirement {
+  id                     String    @id @default(cuid())
+  mrpRunId               String
+  mrpRun                 MmMrpRun  @relation(fields: [mrpRunId], references: [id], onDelete: Cascade)
+  companyId              String
+  company                Company   @relation(fields: [companyId], references: [id])
+  warehouseId            String
+  warehouse              Warehouse @relation(fields: [warehouseId], references: [id])
+  materialId             String
+  material               MmMaterial @relation(fields: [materialId], references: [id])
+  unrestrictedQty        Decimal   @default(0)
+  reservedQty            Decimal   @default(0)
+  qualityQty             Decimal   @default(0)
+  blockedQty             Decimal   @default(0)
+  availableQty           Decimal   @default(0)
+  incomingQty            Decimal   @default(0)
+  demandQty              Decimal   @default(0)
+  safetyStock            Decimal   @default(0)
+  reorderPoint           Decimal   @default(0)
+  moq                    Decimal   @default(0)
+  leadTimeDays           Int       @default(0)
+  netRequirement         Decimal   @default(0)
+  recommendedQty         Decimal   @default(0)
+  /// Earliest demand date in horizon, or run as-of when demand-less
+  requiredDate           DateTime?
+  /// Aggregated demand source: SALES | PRODUCTION | ... | MIXED | REORDER
+  source                 String?
+  expectedProcurementDate DateTime?
+  projectedStockoutDate  DateTime?
+  belowReorderPoint      Boolean   @default(false)
+  shortage               Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+
+  suggestions            MmProcurementSuggestion[]
+
+  @@unique([mrpRunId, warehouseId, materialId])
+  @@index([mrpRunId])
+  @@index([materialId])
+  @@index([belowReorderPoint])
+  @@index([shortage])
+  @@map("mm_material_requirement")
+}
+
+model MmReorderRule {
+  id                    String    @id @default(cuid())
+  companyId             String
+  company               Company   @relation(fields: [companyId], references: [id])
+  materialId            String
+  material              MmMaterial @relation(fields: [materialId], references: [id])
+  warehouseId           String?
+  warehouse             Warehouse? @relation(fields: [warehouseId], references: [id])
+  reorderPoint          Decimal   @default(0)
+  safetyStock           Decimal   @default(0)
+  reorderQuantity       Decimal   @default(0)
+  minimumOrderQuantity  Decimal   @default(0)
+  leadTimeDays          Int       @default(0)
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([companyId, materialId])
+  @@index([warehouseId])
+  @@map("mm_reorder_rule")
+}
+
+model MmPlanningDemand {
+  id                String    @id @default(cuid())
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  warehouseId       String?
+  warehouse         Warehouse? @relation(fields: [warehouseId], references: [id])
+  materialId        String
+  material          MmMaterial @relation(fields: [materialId], references: [id])
+  demandDate        DateTime
+  quantity          Decimal
+  /// SALES | PRODUCTION | MAINTENANCE | PROJECTS | MANUAL_INTERNAL | FORECAST
+  /// Legacy aliases still accepted in API: MANUAL | SALES_ORDER | OTHER
+  sourceType        String    @default("MANUAL_INTERNAL")
+  sourceDocumentId  String?
+  remarks           String?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([companyId, materialId])
+  @@index([demandDate])
+  @@index([warehouseId])
+  @@map("mm_planning_demands")
+}
+
+model MmProcurementSuggestion {
+  id                     String    @id @default(cuid())
+  mrpRunId               String
+  mrpRun                 MmMrpRun  @relation(fields: [mrpRunId], references: [id], onDelete: Cascade)
+  materialRequirementId  String?
+  materialRequirement    MmMaterialRequirement? @relation(fields: [materialRequirementId], references: [id])
+  /// PR_RECOMMENDATION | PLANNED_REPLENISHMENT
+  suggestionType         String
+  companyId              String
+  company                Company   @relation(fields: [companyId], references: [id])
+  materialId             String
+  material               MmMaterial @relation(fields: [materialId], references: [id])
+  warehouseId            String
+  warehouse              Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity               Decimal
+  uomId                  String
+  requiredDate           DateTime
+  leadTimeDays           Int       @default(0)
+  preferredSupplierId    String?
+  preferredSupplier      MmSupplier? @relation("SuggestionPreferredSupplier", fields: [preferredSupplierId], references: [id])
+  /// SHORTAGE | BELOW_REORDER_POINT | NET_REQUIREMENT
+  reason                 String?
+  /// OPEN | CONVERTED | DISMISSED
+  status                 String    @default("OPEN")
+  purchaseRequisitionId  String?
+  purchaseRequisition    MmPurchaseRequisition? @relation(fields: [purchaseRequisitionId], references: [id])
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([mrpRunId])
+  @@index([status])
+  @@index([materialId])
+  @@index([preferredSupplierId])
+  @@map("mm_procurement_suggestions")
+}
+
+// ─── Supplier Performance / Evaluation (MM-13) ─────────────────────
+
+model MmSupplierScoreWeightConfig {
+  id                String   @id @default(cuid())
+  companyId         String   @unique
+  company           Company  @relation(fields: [companyId], references: [id])
+  deliveryWeight    Int      @default(30)
+  qualityWeight     Int      @default(30)
+  priceWeight       Int      @default(20)
+  serviceWeight     Int      @default(10)
+  complianceWeight  Int      @default(10)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("mm_supplier_score_weight_config")
+}
+
+model MmSupplierAlertConfig {
+  id              String   @id @default(cuid())
+  companyId       String   @unique
+  company         Company  @relation(fields: [companyId], references: [id])
+  scoreThreshold  Decimal  @default(70)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("mm_supplier_alert_config")
+}
+
+model MmSupplierEvaluation {
+  id                      String   @id @default(cuid())
+  companyId               String
+  company                 Company  @relation(fields: [companyId], references: [id])
+  supplierId              String
+  supplier                MmSupplier @relation(fields: [supplierId], references: [id])
+  periodStart             DateTime
+  periodEnd               DateTime
+  onTimePct               Decimal  @default(0)
+  qualityAcceptanceRate   Decimal  @default(0)
+  returnRate              Decimal  @default(0)
+  leadTimeAccuracyPct     Decimal  @default(0)
+  priceVariancePct        Decimal  @default(0)
+  avgResponseHours        Decimal  @default(0)
+  complianceRate          Decimal  @default(0)
+  purchaseVolume          Decimal  @default(0)
+  deliveryScore           Decimal  @default(0)
+  qualityScore            Decimal  @default(0)
+  priceScore              Decimal  @default(0)
+  serviceScore            Decimal  @default(0)
+  complianceScore         Decimal  @default(0)
+  overallScore            Decimal  @default(0)
+  deliveryWeight          Int      @default(30)
+  qualityWeight           Int      @default(30)
+  priceWeight             Int      @default(20)
+  serviceWeight           Int      @default(10)
+  complianceWeight        Int      @default(10)
+  sampleSizes             Json?
+  computedAt              DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  alerts                  MmSupplierAlert[]
+
+  @@unique([companyId, supplierId, periodStart, periodEnd])
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([overallScore])
+  @@index([periodStart, periodEnd])
+  @@map("mm_supplier_evaluation")
+}
+
+model MmSupplierAlert {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id])
+  supplierId    String
+  supplier      MmSupplier @relation(fields: [supplierId], references: [id])
+  evaluationId  String
+  evaluation    MmSupplierEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  score         Decimal
+  threshold     Decimal
+  /// OPEN | ACKNOWLEDGED | DISMISSED
+  status        String   @default("OPEN")
+  message       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([evaluationId])
+  @@map("mm_supplier_alerts")
+}
+
+/// Controlled manual assessment — never overwrites MmSupplierEvaluation computed scores.
+model MmSupplierManualAssessment {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  supplierId        String
+  supplier          MmSupplier @relation(fields: [supplierId], references: [id])
+  assessmentDate    DateTime @default(now())
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  deliveryScore     Decimal?
+  qualityScore      Decimal?
+  priceScore        Decimal?
+  serviceScore      Decimal?
+  complianceScore   Decimal?
+  overallScore      Decimal
+  notes             String?
+  assessedBy        String
+  /// DRAFT | SUBMITTED | APPROVED | CANCELLED
+  status            String   @default("DRAFT")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([assessmentDate])
+  @@map("mm_supplier_manual_assessments")
+}
+
+// ─── Returns & Disposal (MM-16) ─────────────────────────────────────
+
+model MmReturnsDisposalConfig {
+  id                         String   @id @default(cuid())
+  companyId                  String   @unique
+  company                    Company  @relation(fields: [companyId], references: [id])
+  approvalAmountThreshold    Decimal  @default(10000)
+  approvalQuantityThreshold  Decimal  @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@map("mm_returns_disposal_config")
+}
+
+model MmSupplierReturn {
+  id                String    @id @default(cuid())
+  returnNumber      String    @unique
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  supplierId        String
+  supplier          MmSupplier @relation(fields: [supplierId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse @relation("ReturnWarehouse", fields: [warehouseId], references: [id])
+  goodsReceiptId    String?
+  goodsReceipt      MmGoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
+  purchaseOrderId   String?
+  reason            String
+  remarks           String?
+  /// DRAFT | SUBMITTED | PENDING_APPROVAL | APPROVED | REJECTED | SHIPPED | COMPLETED | CANCELLED | REVERSED
+  status            String    @default("DRAFT")
+  estimatedValue    Decimal   @default(0)
+  totalQuantity     Decimal   @default(0)
+  approvalThresholdSnapshot Decimal?
+  submittedBy       String?
+  submittedAt       DateTime?
+  approvedBy        String?
+  approvedAt        DateTime?
+  rejectedBy        String?
+  rejectedAt        DateTime?
+  shippedBy         String?
+  shippedAt         DateTime?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines             MmSupplierReturnLine[]
+  audits            MmSupplierReturnAudit[]
+
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("mm_supplier_returns")
+}
+
+model MmSupplierReturnLine {
+  id                  String   @id @default(cuid())
+  returnId            String
+  supplierReturn      MmSupplierReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  lineNumber          Int      @default(1)
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id])
+  uomId               String
+  batchId             String?
+  serialNumberId      String?
+  storageBinId        String?
+  goodsReceiptLineId  String?
+  goodsReceiptLine    MmGoodsReceiptLine? @relation(fields: [goodsReceiptLineId], references: [id])
+  quantity            Decimal
+  unitCost            Decimal  @default(0)
+  reason              String
+  stockStatus         String   @default("BLOCKED")
+  inventoryTxnId      String?
+  remarks             String?
+
+  @@index([returnId])
+  @@index([materialId])
+  @@map("mm_supplier_return_lines")
+}
+
+model MmSupplierReturnAudit {
+  id            String   @id @default(cuid())
+  returnId      String
+  supplierReturn MmSupplierReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  action        String
+  field         String?
+  oldValue      String?
+  newValue      String?
+  performedBy   String?
+  details       Json?
+  performedAt   DateTime @default(now())
+
+  @@index([returnId])
+  @@map("mm_supplier_return_audits")
+}
+
+model MmDisposal {
+  id                String    @id @default(cuid())
+  disposalNumber    String    @unique
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse @relation("DisposalWarehouse", fields: [warehouseId], references: [id])
+  /// SCRAP | DISPOSAL
+  disposalType      String
+  reason            String
+  remarks           String?
+  /// DRAFT | SUBMITTED | PENDING_APPROVAL | APPROVED | REJECTED | POSTED | CANCELLED | REVERSED
+  status            String    @default("DRAFT")
+  estimatedValue    Decimal   @default(0)
+  totalQuantity     Decimal   @default(0)
+  approvalThresholdSnapshot Decimal?
+  submittedBy       String?
+  submittedAt       DateTime?
+  approvedBy        String?
+  approvedAt        DateTime?
+  rejectedBy        String?
+  rejectedAt        DateTime?
+  postedBy          String?
+  postedAt          DateTime?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines             MmDisposalLine[]
+  audits            MmDisposalAudit[]
+
+  @@index([companyId])
+  @@index([warehouseId])
+  @@index([disposalType])
+  @@index([status])
+  @@map("mm_disposals")
+}
+
+model MmDisposalLine {
+  id              String   @id @default(cuid())
+  disposalId      String
+  disposal        MmDisposal @relation(fields: [disposalId], references: [id], onDelete: Cascade)
+  lineNumber      Int      @default(1)
+  materialId      String
+  material        MmMaterial @relation(fields: [materialId], references: [id])
+  uomId           String
+  batchId         String?
+  serialNumberId  String?
+  storageBinId    String?
+  quantity        Decimal
+  unitCost        Decimal  @default(0)
+  reason          String
+  stockStatus     String   @default("BLOCKED")
+  inventoryTxnId  String?
+  remarks         String?
+
+  @@index([disposalId])
+  @@index([materialId])
+  @@map("mm_disposal_lines")
+}
+
+model MmDisposalAudit {
+  id          String   @id @default(cuid())
+  disposalId  String
+  disposal    MmDisposal @relation(fields: [disposalId], references: [id], onDelete: Cascade)
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  performedBy String?
+  details     Json?
+  performedAt DateTime @default(now())
+
+  @@index([disposalId])
+  @@map("mm_disposal_audits")
+}
+
+model MmCustomerReturn {
+  id                String    @id @default(cuid())
+  returnNumber      String    @unique
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse @relation("CustomerReturnWarehouse", fields: [warehouseId], references: [id])
+  /// Optional external customer reference (no CRM master required)
+  customerRef       String?
+  customerName      String?
+  reason            String?
+  remarks           String?
+  /// DRAFT | INTAKE | INSPECTION | PENDING_APPROVAL | APPROVED | COMPLETED | CANCELLED | REVERSED
+  status            String    @default("DRAFT")
+  estimatedValue    Decimal   @default(0)
+  totalQuantity     Decimal   @default(0)
+  approvalThresholdSnapshot Decimal?
+  submittedBy       String?
+  submittedAt       DateTime?
+  approvedBy        String?
+  approvedAt        DateTime?
+  rejectedBy        String?
+  rejectedAt        DateTime?
+  completedBy       String?
+  completedAt       DateTime?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines             MmCustomerReturnLine[]
+  audits            MmCustomerReturnAudit[]
+
+  @@index([companyId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("mm_customer_returns")
+}
+
+model MmCustomerReturnLine {
+  id                  String   @id @default(cuid())
+  returnId            String
+  customerReturn      MmCustomerReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  lineNumber          Int      @default(1)
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id])
+  uomId               String
+  batchId             String?
+  serialNumberId      String?
+  storageBinId        String?
+  quantity            Decimal
+  unitCost            Decimal  @default(0)
+  /// RESTOCK | REPAIR | BLOCK | SCRAP | null until set
+  disposition         String?
+  /// PENDING | POSTED | LINKED_DISPOSAL
+  dispositionStatus   String   @default("PENDING")
+  inventoryTxnId      String?
+  disposalId          String?
+  remarks             String?
+
+  @@index([returnId])
+  @@index([materialId])
+  @@map("mm_customer_return_lines")
+}
+
+model MmCustomerReturnAudit {
+  id            String   @id @default(cuid())
+  returnId      String
+  customerReturn MmCustomerReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  action        String
+  field         String?
+  oldValue      String?
+  newValue      String?
+  performedBy   String?
+  details       Json?
+  performedAt   DateTime @default(now())
+
+  @@index([returnId])
+  @@map("mm_customer_return_audits")
+}
+
+// ─── Scanner / Mobile Ops (MM-17) ───────────────────────────────────
+
+model MmScannerEvent {
+  id               String    @id @default(cuid())
+  idempotencyKey   String    @unique
+  deviceId         String
+  userId           String
+  operation        String
+  barcode          String
+  timestamp        DateTime
+  quantity         Decimal?
+  companyId        String?
+  company          Company?  @relation(fields: [companyId], references: [id])
+  warehouseId      String?
+  warehouse        Warehouse? @relation(fields: [warehouseId], references: [id])
+  storageBinId     String?
+  materialId       String?
+  batchId          String?
+  serialNumberId   String?
+  documentType     String?
+  documentId       String?
+  /// SUCCESS | FAILED | DUPLICATE
+  status           String
+  errorCode        String?
+  errorMessage     String?
+  result           Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([operation])
+  @@index([status])
+  @@index([createdAt])
+  @@map("mm_scanner_events")
+}
+
+// ─── Dashboard Analytics Cache (MM-18) ──────────────────────────────
+
+model MmDashboardAnalyticsCache {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  cacheKey    String   @unique
+  /// AGING | TURNOVER | DEAD_STOCK | MOVEMENT | PROCUREMENT_SPEND | FULL_DASHBOARD | SUPPLIERS
+  metricType  String
+  payload     Json
+  computedAt  DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([companyId])
+  @@index([expiresAt])
+  @@index([metricType])
+  @@map("mm_dashboard_analytics_cache")
 }
