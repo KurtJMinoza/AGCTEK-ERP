@@ -11,7 +11,7 @@ async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(
         AppModule,
         new FastifyAdapter({
-            bodyLimit: 5 * 1024 * 1024,
+            bodyLimit: 15 * 1024 * 1024,
         }),
     )
 
@@ -25,10 +25,11 @@ async function bootstrap() {
         }),
     )
 
-    app.useWebSocketAdapter(new IoAdapter(app))
+    // Attach Socket.IO to Fastify's underlying Node HTTP server.
+    app.useWebSocketAdapter(new IoAdapter(app.getHttpServer()))
 
     app.enableCors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: true,
         credentials: true,
         methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })

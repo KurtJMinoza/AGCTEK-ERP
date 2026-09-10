@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Existing models ────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Existing models ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model User {
   id            String         @id @default(cuid())
@@ -19,6 +19,7 @@ model User {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   notifications Notification[]
+  driver        Driver?
 }
 
 model Notification {
@@ -39,7 +40,7 @@ model Notification {
   @@index([readed, createdAt])
 }
 
-// ─── Organisation stubs ─────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Organisation stubs ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model Company {
   id         String       @id @default(cuid())
@@ -213,7 +214,7 @@ model Warehouse {
   @@map("warehouses")
 }
 
-// ─── Warehouse Topology ─────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Warehouse Topology ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmStorageType {
   id                    String   @id @default(cuid())
@@ -315,7 +316,7 @@ model WmWarehouseAudit {
   @@map("wm_warehouse_audits")
 }
 
-// ─── Inventory Balance (stub) ───────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Inventory Balance (stub) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmInventoryBalance {
   id                String      @id @default(cuid())
@@ -337,7 +338,7 @@ model WmInventoryBalance {
   @@map("wm_inventory_balances")
 }
 
-// ─── Putaway ────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Putaway ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmPutawayTask {
   id              String       @id @default(cuid())
@@ -376,7 +377,7 @@ model WmPutawayTask {
   @@map("wm_putaway_tasks")
 }
 
-// ─── Picking ────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Picking ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmPickWave {
   id             String          @id @default(cuid())
@@ -431,7 +432,7 @@ model WmPickingTask {
   @@map("wm_picking_tasks")
 }
 
-// ─── Packing ────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Packing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmPackage {
   id             String          @id @default(cuid())
@@ -479,7 +480,7 @@ model WmPackageItem {
   @@map("wm_package_items")
 }
 
-// ─── Warehouse Transfers ────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Warehouse Transfers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmWarehouseTransfer {
   id                     String                    @id @default(cuid())
@@ -523,7 +524,7 @@ model WmWarehouseTransferLine {
   @@map("wm_warehouse_transfer_lines")
 }
 
-// ─── MM Reference masters ───────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ MM Reference masters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMaterialType {
   id          String       @id @default(cuid())
@@ -644,7 +645,7 @@ model MmCurrency {
   @@map("mm_currencies")
 }
 
-// ─── Core Material ──────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Core Material ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMaterial {
   id               String  @id @default(cuid())
@@ -687,11 +688,11 @@ model MmMaterial {
   negativeStockAllowed       Boolean @default(false)
   expiryManaged              Boolean @default(false)
   qualityInspectionRequired  Boolean @default(false)
-  /// A | B | C — cycle-count classification
+  /// A | B | C ΓÇö cycle-count classification
   abcClass                   String?
-  /// FAST | MEDIUM | SLOW — cycle-count velocity
+  /// FAST | MEDIUM | SLOW ΓÇö cycle-count velocity
   velocityClass              String?
-  /// LOW | MEDIUM | HIGH — cycle-count risk
+  /// LOW | MEDIUM | HIGH ΓÇö cycle-count risk
   riskClass                  String?
 
   minimumStock         Decimal @default(0)
@@ -778,7 +779,7 @@ model MmMaterial {
   @@map("mm_materials")
 }
 
-// ─── Material dependents ────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Material dependents ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmBarcode {
   id           String     @id @default(cuid())
@@ -858,7 +859,7 @@ model MmSerialNumber {
   @@map("mm_serial_numbers")
 }
 
-// ─── Material audit trail ───────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Material audit trail ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMaterialAudit {
   id          String     @id @default(cuid())
@@ -888,7 +889,7 @@ model MmMaterialAttachment {
   @@map("mm_material_attachments")
 }
 
-// ─── Inventory Ledger ───────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Inventory Ledger ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmInventoryTransaction {
   id                    String    @id @default(cuid())
@@ -911,7 +912,7 @@ model MmInventoryTransaction {
   quantity              Decimal
   /// Absolute quantity in base UOM (same magnitude as quantity for normal posts)
   baseQuantity          Decimal   @default(0)
-  /// Signed quantity in base UOM (+ inbound / − outbound)
+  /// Signed quantity in base UOM (+ inbound / ΓêÆ outbound)
   signedQuantity        Decimal   @default(0)
   uomId                 String
   uom                   MmUom     @relation(fields: [uomId], references: [id])
@@ -1027,7 +1028,7 @@ model MmInventoryAudit {
   @@map("mm_inventory_audits")
 }
 
-// ─── Stock Operations Documents ─────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Stock Operations Documents ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmGoodsReceipt {
   id             String   @id @default(cuid())
@@ -1297,7 +1298,7 @@ model MmInventoryAdjustmentLine {
   @@map("mm_inventory_adjustment_lines")
 }
 
-// ─── Supplier Management ────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Supplier Management ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmPaymentTerms {
   id              String    @id @default(cuid())
@@ -1513,7 +1514,7 @@ model MmSupplierAudit {
   @@map("mm_supplier_audits")
 }
 
-// ─── Workflow Engine ────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Workflow Engine ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmApprovalWorkflow {
   id                  String   @id @default(cuid())
@@ -1582,7 +1583,7 @@ model MmApprovalTask {
   @@map("mm_approval_tasks")
 }
 
-// ─── Purchase Requisition ───────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Purchase Requisition ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmPurchaseRequisition {
   id                String    @id @default(cuid())
@@ -1688,7 +1689,7 @@ model MmPurchaseRequisitionAudit {
   @@map("mm_purchase_requisition_audits")
 }
 
-// ─── RFQ & Supplier Quotations (MM-07) ──────────────────────────────
+// ΓöÇΓöÇΓöÇ RFQ & Supplier Quotations (MM-07) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmRfq {
   id                String    @id @default(cuid())
@@ -1868,7 +1869,7 @@ model MmRfqAudit {
   @@map("mm_rfq_audits")
 }
 
-// ─── Purchase Order (MM-08) ─────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Purchase Order (MM-08) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmPurchaseOrder {
   id                      String    @id @default(cuid())
@@ -1994,7 +1995,7 @@ model MmPoToleranceConfig {
   @@map("mm_po_tolerance_configs")
 }
 
-// ─── Purchase Contracts (MM-07) — commercial terms only; never posts inventory ──
+// ΓöÇΓöÇΓöÇ Purchase Contracts (MM-07) ΓÇö commercial terms only; never posts inventory ΓöÇΓöÇ
 
 model MmPurchaseContract {
   id                  String    @id @default(cuid())
@@ -2085,7 +2086,7 @@ model MmPurchaseOrderAttachment {
   @@map("mm_purchase_order_attachments")
 }
 
-// ─── Inbound: ASN / Expected Receipt / Quality (MM-09) ──────────────
+// ΓöÇΓöÇΓöÇ Inbound: ASN / Expected Receipt / Quality (MM-09) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmAsn {
   id              String   @id @default(cuid())
@@ -2128,7 +2129,7 @@ model MmAsnLine {
   uomId           String
   uom             MmUom @relation("AsnLineUom", fields: [uomId], references: [id])
   purchaseOrderLineId String?
-  /// Foresight only — posting uses GR batch/serial FKs
+  /// Foresight only ΓÇö posting uses GR batch/serial FKs
   batchNumber     String?
   serialNumber    String?
   remarks         String?
@@ -2245,7 +2246,7 @@ model MmAccountingEvent {
   @@map("mm_accounting_events")
 }
 
-// ─── Inventory Control (Cycle Count / Physical Inventory) ───────────
+// ΓöÇΓöÇΓöÇ Inventory Control (Cycle Count / Physical Inventory) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmCountRule {
   id                     String    @id @default(cuid())
@@ -2350,7 +2351,7 @@ model MmInventoryCountLine {
   @@map("mm_inventory_count_lines")
 }
 
-// ─── Inventory Valuation (MM-12) ────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Inventory Valuation (MM-12) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMaterialValuation {
   id                 String    @id @default(cuid())
@@ -2522,7 +2523,7 @@ model MmLandedCostAllocation {
   @@map("mm_landed_cost_allocations")
 }
 
-// ─── Three-Way Match (MM-13) ────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Three-Way Match (MM-13) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmSupplierInvoice {
   id               String    @id @default(cuid())
@@ -2640,7 +2641,7 @@ model MmMatchException {
   @@map("mm_match_exceptions")
 }
 
-// ─── Planning / MRP (MM-14) ─────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Planning / MRP (MM-14) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMrpRun {
   id                   String    @id @default(cuid())
@@ -2794,7 +2795,7 @@ model MmProcurementSuggestion {
   @@map("mm_procurement_suggestions")
 }
 
-// ─── Supplier Performance / Evaluation (MM-13) ─────────────────────
+// ΓöÇΓöÇΓöÇ Supplier Performance / Evaluation (MM-13) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmSupplierScoreWeightConfig {
   id                String   @id @default(cuid())
@@ -2888,7 +2889,7 @@ model MmSupplierAlert {
   @@map("mm_supplier_alerts")
 }
 
-/// Controlled manual assessment — never overwrites MmSupplierEvaluation computed scores.
+/// Controlled manual assessment ΓÇö never overwrites MmSupplierEvaluation computed scores.
 model MmSupplierManualAssessment {
   id                String   @id @default(cuid())
   companyId         String
@@ -2918,7 +2919,7 @@ model MmSupplierManualAssessment {
   @@map("mm_supplier_manual_assessments")
 }
 
-// ─── Returns & Disposal (MM-16) ─────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Returns & Disposal (MM-16) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmReturnsDisposalConfig {
   id                         String   @id @default(cuid())
@@ -3171,7 +3172,7 @@ model MmCustomerReturnAudit {
   @@map("mm_customer_return_audits")
 }
 
-// ─── Scanner / Mobile Ops (MM-17) ───────────────────────────────────
+// ΓöÇΓöÇΓöÇ Scanner / Mobile Ops (MM-17) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmScannerEvent {
   id               String    @id @default(cuid())
@@ -3208,7 +3209,7 @@ model MmScannerEvent {
   @@map("mm_scanner_events")
 }
 
-// ─── Dashboard Analytics Cache (MM-18) ──────────────────────────────
+// ΓöÇΓöÇΓöÇ Dashboard Analytics Cache (MM-18) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmDashboardAnalyticsCache {
   id          String   @id @default(cuid())
@@ -3225,4 +3226,355 @@ model MmDashboardAnalyticsCache {
   @@index([expiresAt])
   @@index([metricType])
   @@map("mm_dashboard_analytics_cache")
+}
+
+// ─── SCM Transportation ───────────────────────────────────────────────────
+
+enum VehicleStatus {
+  AVAILABLE
+  IN_TRANSIT
+  MAINTENANCE
+  OUT_OF_SERVICE
+  INACTIVE
+}
+
+enum VehicleType {
+  TRUCK
+  VAN
+  TRAILER
+  REEFER
+  OTHER
+}
+
+enum DriverStatus {
+  AVAILABLE
+  ON_TRIP
+  OFF_DUTY
+  INACTIVE
+}
+
+enum TripStatus {
+  DRAFT
+  PLANNED
+  /// Vehicle (+ optional driver) assigned ΓÇö ready to start (Phase 3.2 Dispatch)
+  ASSIGNED
+  /// Trip started ΓÇö live tracking (Phase 3.3). Maps to diagram IN_TRANSIT.
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+enum StopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  READY
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+/// Outbound shipping vs customer/supplier pickup (return to hub).
+enum ShipmentMovementType {
+  DELIVERY
+  PICKUP
+}
+
+enum MaintenanceType {
+  PREVENTATIVE
+  CORRECTIVE
+  INSPECTION
+  OTHER
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Vehicle {
+  id                 String               @id @default(cuid())
+  code               String               @unique
+  plateNumber        String               @unique
+  make               String
+  model              String
+  year               Int?
+  type               VehicleType
+  status             VehicleStatus        @default(AVAILABLE)
+  capacityWeightKg   Float                @default(0)
+  capacityVolumeM3   Float                @default(0)
+  /// Max items this vehicle can carry (primary load constraint)
+  capacityQty        Int                  @default(0)
+  /// Last recorded odometer (km). Updated live from GPS while moving; finalized on trip complete.
+  odometerKm         Float                @default(0)
+  /// Service due when odometerKm >= this value (e.g. 50000). Flags preventative maintenance.
+  maintenanceThresholdKm Float?
+  routingBlocked     Boolean              @default(false)
+  /// flespi JT808 ident = first 14 digits of IMEI (or full IMEI). See docs/SCM_FLESPI_VL502.md
+  telematicsDeviceId String?
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  trips              Trip[]
+  gpsLogs            GpsLog[]
+  maintenanceRecords MaintenanceRecord[]
+
+  @@index([status])
+  @@index([type])
+  @@index([telematicsDeviceId])
+}
+
+model Driver {
+  id            String       @id @default(cuid())
+  userId        String       @unique
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode  String?      @unique
+  firstName     String
+  lastName      String
+  licenseNumber String       @unique
+  licenseExpiry DateTime
+  phone         String
+  status        DriverStatus @default(AVAILABLE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  trips         Trip[]
+
+  @@index([status])
+}
+
+model Shipment {
+  id                  String             @id @default(cuid())
+  reference           String             @unique
+  customerName        String?
+  originAddress       String?
+  originLat           Float?
+  originLng           Float?
+  destAddress         String
+  destLat             Float?
+  destLng             Float?
+  weightKg            Float              @default(0)
+  volumeM3            Float              @default(0)
+  /// Item count ΓÇö primary load field for vehicle capacity
+  quantity            Int                @default(0)
+  /// Optional material / SKU reference (MM master stays in MM)
+  materialCode        String?
+  /// External MM / WMS order id ΓÇö warehouse release stub hand-off key
+  externalOrderId     String?
+  /// Short cargo description for drivers / load lists
+  description         String?
+  isFragile           Boolean            @default(false)
+  requiresColdChain   Boolean            @default(false)
+  /// DELIVERY = ship to customer; PICKUP = collect from customer/supplier
+  movementType        ShipmentMovementType @default(DELIVERY)
+  status              ShipmentStatus     @default(DRAFT)
+  requestedPickupAt   DateTime?
+  requestedDeliveryAt DateTime?
+  earliestDeliveryAt  DateTime?
+  latestDeliveryAt    DateTime?
+  podSignatureUrl     String?
+  podPhotoUrl         String?
+  deliveredAt         DateTime?
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  tripStopShipments   TripStopShipment[]
+
+  @@index([status])
+  @@index([movementType])
+}
+
+model Trip {
+  id             String     @id @default(cuid())
+  code           String     @unique
+  vehicleId      String?
+  vehicle        Vehicle?   @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId       String?
+  driver         Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  status         TripStatus @default(DRAFT)
+  plannedStartAt DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  totalWeightKg  Float?
+  totalVolumeM3  Float?
+  totalQty       Int?
+  notes          String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  stops          TripStop[]
+  gpsLogs        GpsLog[]
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([driverId])
+}
+
+model TripStop {
+  id         String             @id @default(cuid())
+  tripId     String
+  trip       Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  sequence   Int
+  name       String?
+  address    String
+  lat        Float?
+  lng        Float?
+  windowStart DateTime?
+  windowEnd  DateTime?
+  status     StopStatus         @default(PENDING)
+  arrivedAt  DateTime?
+  completedAt DateTime?
+  notes      String?
+  /// Driver POD ΓÇö signature image (data URL or hosted URL)
+  podSignatureUrl String?
+  /// Driver POD ΓÇö proof photo
+  podPhotoUrl     String?
+  /// Driver POD notes
+  podNotes        String?
+  /// Set when status = FAILED
+  failureReason   String?
+  /// Optional map pin color for intermediate stops (hex, e.g. #f59e0b). Destination always uses red.
+  pinColor   String?
+  shipments  TripStopShipment[]
+
+  @@unique([tripId, sequence])
+  @@index([tripId])
+}
+
+model TripStopShipment {
+  id         String   @id @default(cuid())
+  tripStopId String
+  tripStop   TripStop @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  /// PICKUP | DROPOFF
+  action     String
+
+  @@unique([tripStopId, shipmentId, action])
+  @@index([shipmentId])
+}
+
+model GpsLog {
+  id         String   @id @default(cuid())
+  vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  tripId     String?
+  trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  latitude   Float
+  longitude  Float
+  speedKmh   Float    @default(0)
+  heading    Float?
+  /// Optional sparse device payload (e.g. fuelPct, rpm) ΓÇö not a full OBD dump
+  rawPayload Json?
+  recordedAt DateTime @default(now())
+
+  @@index([vehicleId, recordedAt])
+  @@index([tripId, recordedAt])
+}
+
+model MaintenanceRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  type          MaintenanceType
+  status        MaintenanceStatus @default(SCHEDULED)
+  title         String
+  description   String?
+  odometerKm    Float?
+  cost          Float?
+  scheduledAt   DateTime
+  completedAt   DateTime?
+  /// When true (and status not COMPLETED/CANCELLED), vehicle.routingBlocked is set
+  blocksRouting Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([scheduledAt])
+}
+
+enum GeofenceKind {
+  HUB
+  CHECKPOINT
+  ZONE
+}
+
+enum GeofenceDetect {
+  ENTER
+  EXIT
+  INSIDE
+  OUTSIDE
+}
+
+/// Circular geofence / hub ΓÇö Postgres is CRUD source of truth; Tile38 holds live geometry + hooks
+model Geofence {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  name      String
+  kind      GeofenceKind @default(HUB)
+  lat       Float
+  lng       Float
+  radiusM   Int
+  color     String?
+  active    Boolean      @default(true)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  events    GeofenceEvent[]
+
+  @@index([active])
+  @@index([kind])
+}
+
+model GeofenceEvent {
+  id         String         @id @default(cuid())
+  geofenceId String
+  geofence   Geofence       @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+  vehicleId  String
+  detect     GeofenceDetect
+  latitude   Float
+  longitude  Float
+  rawPayload Json?
+  detectedAt DateTime       @default(now())
+
+  @@index([geofenceId, detectedAt])
+  @@index([vehicleId, detectedAt])
+}
+
+enum PlanningBucketSize {
+  DAY
+  WEEK
+}
+
+/// Singleton planning-horizon parameters for Demand Planning (Phase 1).
+model ScmPlanningSettings {
+  id             String             @id @default("default")
+  horizonWeeks   Int                @default(12)
+  bucketSize     PlanningBucketSize @default(WEEK)
+  frozenZoneDays Int                @default(7)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+/// Kept for future Demand Planning ΓÇö no API/UI yet
+model DemandForecast {
+  id           String   @id @default(cuid())
+  productCode  String
+  locationCode String
+  periodStart  DateTime
+  periodEnd    DateTime
+  quantity     Float
+  unit         String   @default("EA")
+  source       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productCode, locationCode, periodStart])
 }

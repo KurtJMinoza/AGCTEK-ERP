@@ -1,10 +1,13 @@
 import classNames from '@/utils/classNames'
+import Breadcrumb from '@/components/shared/Breadcrumb'
+import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import type { ReactNode } from 'react'
 
 type PageHeaderProps = {
     title: ReactNode
     description?: ReactNode
     actions?: ReactNode
+    breadcrumbs?: BreadcrumbItem[]
     className?: string
 }
 
@@ -12,6 +15,7 @@ const PageHeader = ({
     title,
     description,
     actions,
+    breadcrumbs,
     className,
 }: PageHeaderProps) => {
     return (
@@ -22,6 +26,9 @@ const PageHeader = ({
             )}
         >
             <div className="min-w-0">
+                {breadcrumbs?.length ? (
+                    <Breadcrumb items={breadcrumbs} className="mb-2" />
+                ) : null}
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                     {title}
                 </h2>
@@ -40,4 +47,5 @@ const PageHeader = ({
     )
 }
 
+export type { BreadcrumbItem }
 export default PageHeader

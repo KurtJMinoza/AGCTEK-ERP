@@ -5,6 +5,7 @@ import { AppService } from './app.service'
 import { PrismaModule } from './prisma/prisma.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { AuthModule } from './auth/auth.module'
+import { ScmModule } from './scm/scm.module'
 import { MmModule } from './mm/mm.module'
 
 @Module({
@@ -13,6 +14,7 @@ import { MmModule } from './mm/mm.module'
         PrismaModule,
         NotificationsModule,
         AuthModule,
+        ScmModule,
         MmModule,
     ],
     controllers: [AppController],

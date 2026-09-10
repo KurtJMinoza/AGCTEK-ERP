@@ -87,10 +87,46 @@ export function searchErpNavigation(
 
 export function getActiveModuleCode(pathname: string): string | undefined {
     const modules = getResolvedErpModules()
-    const match = modules.find(
-        (m) => pathname === m.path || pathname.startsWith(`${m.path}/`),
-    )
-    return match?.code
+
+    // Prefer longest matching module/submodule path (covers /scm/* under SCM).
+    let best: { code: string; length: number } | undefined
+
+    for (const module of modules) {
+        if (pathname === module.path || pathname.startsWith(`${module.path}/`)) {
+            const length = module.path.length
+            if (!best || length > best.length) {
+                best = { code: module.code, length }
+            }
+        }
+
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                if (
+                    pathname === submodule.path ||
+                    pathname.startsWith(`${submodule.path}/`)
+                ) {
+                    const length = submodule.path.length
+                    if (!best || length > best.length) {
+                        best = { code: module.code, length }
+                    }
+                }
+
+                for (const child of submodule.children ?? []) {
+                    if (
+                        pathname === child.path ||
+                        pathname.startsWith(`${child.path}/`)
+                    ) {
+                        const length = child.path.length
+                        if (!best || length > best.length) {
+                            best = { code: module.code, length }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return best?.code
 }
 
 /**
