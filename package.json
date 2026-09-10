@@ -39,6 +39,7 @@
     "d3-fetch": "^3.0.1",
     "d3-scale": "^4.0.2",
     "dayjs": "^1.11.13",
+    "echarts": "^6.1.0",
     "framer-motion": "12.23.6",
     "gantt-task-react": "^0.3.9",
     "html-react-parser": "^5.2.1",

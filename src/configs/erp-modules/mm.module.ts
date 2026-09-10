@@ -5,6 +5,8 @@ type ChildDef = {
     title: string
     description?: string
     icon?: string
+    /** Absolute module path override (cross-hub deep link) */
+    path?: string
 }
 
 function mmPage(
@@ -36,7 +38,7 @@ function mmHub(
             title: child.title,
             description:
                 child.description ?? `${title} — ${child.title}.`,
-            path: `/modules/mm/${code}/${child.code}`,
+            path: child.path ?? `/modules/mm/${code}/${child.code}`,
             icon: child.icon ?? icon,
         })),
     }
@@ -49,8 +51,8 @@ export const MM_CATEGORIES: ErpCategory[] = [
         submodules: [
             mmPage(
                 'dashboard',
-                'MM Dashboard',
-                'Overview of stock, procurement, warehouse, and valuation KPIs.',
+                'Analytics Dashboard',
+                'Charts and reports across Materials Management.',
                 'barChart',
             ),
             mmHub(
@@ -172,6 +174,21 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         icon: 'clipboard',
                     },
                     {
+                        code: 'supplier-invoices',
+                        title: 'Supplier Invoices',
+                        icon: 'receipt',
+                    },
+                    {
+                        code: 'three-way-match',
+                        title: 'Three-Way Match',
+                        icon: 'gitBranch',
+                    },
+                    {
+                        code: 'match-exceptions',
+                        title: 'Match Exceptions',
+                        icon: 'alertTriangle',
+                    },
+                    {
                         code: 'po-approvals',
                         title: 'PO Approvals',
                         icon: 'clipboard',
@@ -229,6 +246,9 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'supplier-returns',
                         title: 'Supplier Returns',
                         icon: 'truck',
+                        path: '/modules/mm/returns-disposal/supplier-returns',
+                        description:
+                            'Owned by Returns & Disposal — open supplier return documents from blocked QI stock.',
                     },
                 ],
             ),
@@ -239,6 +259,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'warehouse',
                 'Inventory Management',
                 [
+                    {
+                        code: 'goods-receipt',
+                        title: 'Goods Receipt',
+                        icon: 'boxes',
+                    },
                     {
                         code: 'stock-overview',
                         title: 'Stock Overview',
@@ -293,6 +318,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'building',
                 'Warehouse Management',
                 [
+                    {
+                        code: 'overview',
+                        title: 'Overview',
+                        icon: 'barChart',
+                    },
                     {
                         code: 'warehouses',
                         title: 'Warehouses',

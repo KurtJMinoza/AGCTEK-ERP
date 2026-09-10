@@ -13,7 +13,24 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "test": "jest --runInBand --forceExit"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.[tj]s$": "ts-jest"
+    },
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "node_modules/(?!(@nestjs/event-emitter|eventemitter2)/)"
+    ]
   },
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
@@ -21,11 +38,15 @@
   "dependencies": {
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/event-emitter": "^12.0.0",
+    "@nestjs/mapped-types": "^12.0.0",
     "@nestjs/platform-fastify": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.2.3",
     "@nestjs/websockets": "^11.2.3",
     "@prisma/client": "^6.19.0",
     "bcryptjs": "^3.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
     "fastify": "^5.2.1",
     "ioredis": "^6.0.0",
     "mqtt": "^5.15.2",
@@ -38,11 +59,14 @@
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jest": "^30.0.0",
     "@types/mqtt": "^0.0.34",
     "@types/node": "^22.10.5",
     "@types/socket.io": "^3.0.1",
+    "jest": "^30.5.1",
     "prisma": "^6.19.0",
     "source-map-support": "^0.5.21",
+    "ts-jest": "^29.4.12",
     "ts-loader": "^9.5.1",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",

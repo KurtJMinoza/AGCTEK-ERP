@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core'
+import { ValidationPipe } from '@nestjs/common'
 import { IoAdapter } from '@nestjs/platform-socket.io'
 import {
     FastifyAdapter,
@@ -11,6 +12,16 @@ async function bootstrap() {
         AppModule,
         new FastifyAdapter({
             bodyLimit: 15 * 1024 * 1024,
+        }),
+    )
+
+    app.setGlobalPrefix('api/v1')
+
+    app.useGlobalPipes(
+        new ValidationPipe({
+            whitelist: true,
+            transform: true,
+            transformOptions: { enableImplicitConversion: true },
         }),
     )
 

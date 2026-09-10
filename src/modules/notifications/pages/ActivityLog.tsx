@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import classNames from 'classnames'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Badge from '@/components/ui/Badge'
@@ -20,9 +22,14 @@ import {
     apiMarkNotificationAsRead,
 } from '@/services/CommonService'
 import useNotificationSocket from '@/utils/hooks/useNotificationSocket'
+import {
+    notificationIsNavigable,
+    resolveNotificationHref,
+} from '@/utils/notification-navigation'
 import type { NotificationItem } from '@/@types/notification'
 
 const ActivityLog = () => {
+    const router = useRouter()
     const [notifications, setNotifications] = useState<NotificationItem[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -86,6 +93,15 @@ const ActivityLog = () => {
         )
     }
 
+    const handleNotificationClick = async (item: NotificationItem) => {
+        await onMarkAsRead(item.id)
+
+        const href = resolveNotificationHref(item)
+        if (href) {
+            router.push(href)
+        }
+    }
+
     const unreadCount = notifications.filter((item) => !item.readed).length
     const breadcrumbItems = buildErpBreadcrumbs(ACTIVITY_LOG_PATH)
 
@@ -132,8 +148,16 @@ const ActivityLog = () => {
                         {notifications.map((item) => (
                             <div
                                 key={item.id}
-                                className="relative flex cursor-pointer px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                                onClick={() => onMarkAsRead(item.id)}
+                                className={classNames(
+                                    'relative flex cursor-pointer px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                                    notificationIsNavigable(item) && 'hover:ring-1 hover:ring-inset hover:ring-primary/20',
+                                )}
+                                onClick={() => handleNotificationClick(item)}
+                                title={
+                                    notificationIsNavigable(item)
+                                        ? 'Open related record'
+                                        : undefined
+                                }
                             >
                                 <div>
                                     <NotificationAvatar {...item} />

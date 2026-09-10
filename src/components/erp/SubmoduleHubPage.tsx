@@ -8,7 +8,6 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
-import ErpBackLink from '@/components/erp/ErpBackLink'
 import {
     findSubmoduleByPath,
     getResolvedErpModules,
@@ -41,7 +40,6 @@ export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
 
     return (
         <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
             <Breadcrumb items={breadcrumbItems} />
 
             <AdaptiveCard className="mb-8">

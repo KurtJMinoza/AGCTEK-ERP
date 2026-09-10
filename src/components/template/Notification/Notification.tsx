@@ -23,6 +23,10 @@ import isLastChild from '@/utils/isLastChild'
 import useResponsive from '@/utils/hooks/useResponsive'
 import useNotificationSocket from '@/utils/hooks/useNotificationSocket'
 import { ACTIVITY_LOG_PATH } from '@/constants/route.constant'
+import {
+    notificationIsNavigable,
+    resolveNotificationHref,
+} from '@/utils/notification-navigation'
 import type { NotificationItem } from '@/@types/notification'
 import type { DropdownRef } from '@/components/ui/Dropdown'
 
@@ -148,6 +152,18 @@ const _Notification = ({ className }: { className?: string }) => {
         }
     }
 
+    const handleNotificationClick = async (item: NotificationItem) => {
+        await onMarkAsRead(item.id)
+
+        const href = resolveNotificationHref(item)
+        if (!href) {
+            return
+        }
+
+        notificationDropdownRef.current?.handleDropdownClose()
+        router.push(href)
+    }
+
     const handleViewAllActivity = () => {
         notificationDropdownRef.current?.handleDropdownClose()
         router.push(ACTIVITY_LOG_PATH)
@@ -187,8 +203,16 @@ const _Notification = ({ className }: { className?: string }) => {
                     notificationList.map((item, index) => (
                         <div key={item.id}>
                             <div
-                                className="relative rounded-xl flex px-4 py-3 cursor-pointer hover:bg-gray-100 active:bg-gray-100 dark:hover:bg-gray-700"
-                                onClick={() => onMarkAsRead(item.id)}
+                                className={classNames(
+                                    'relative rounded-xl flex px-4 py-3 cursor-pointer hover:bg-gray-100 active:bg-gray-100 dark:hover:bg-gray-700',
+                                    notificationIsNavigable(item) && 'hover:ring-1 hover:ring-primary/20',
+                                )}
+                                onClick={() => handleNotificationClick(item)}
+                                title={
+                                    notificationIsNavigable(item)
+                                        ? 'Open related record'
+                                        : undefined
+                                }
                             >
                                 <div>
                                     <NotificationAvatar {...item} />

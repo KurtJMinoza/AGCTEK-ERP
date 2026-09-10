@@ -3,7 +3,6 @@ import PageContainer from '@/components/shared/PageContainer'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ModuleHeroCard from '@/components/erp/ModuleHeroCard'
 import SubmoduleCard from '@/components/erp/SubmoduleCard'
-import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     getAllSubmodules,
@@ -31,7 +30,6 @@ export default function ModuleLandingPage({ moduleCode }: ModuleLandingPageProps
 
     return (
         <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
             <Breadcrumb items={breadcrumbItems} />
 
             <ModuleHeroCard

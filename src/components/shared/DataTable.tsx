@@ -55,6 +55,10 @@ type DataTableProps<T> = {
     }
     checkboxChecked?: (row: T) => boolean
     indeterminateCheckboxChecked?: (row: Row<T>[]) => boolean
+    /** Fit columns to container width with no horizontal scroll */
+    fit?: boolean
+    /** Hide pagination controls (e.g. embedded line tables in modals) */
+    hidePagination?: boolean
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -132,6 +136,8 @@ function DataTable<T>(props: DataTableProps<T>) {
         checkboxChecked,
         indeterminateCheckboxChecked,
         instanceId = 'data-table',
+        fit = false,
+        hidePagination = false,
         ref,
         ...rest
     } = props
@@ -181,6 +187,7 @@ function DataTable<T>(props: DataTableProps<T>) {
             return [
                 {
                     id: 'select',
+                    size: 40,
                     maxSize: 50,
                     header: ({ table }) => (
                         <IndeterminateCheckbox
@@ -271,9 +278,28 @@ function DataTable<T>(props: DataTableProps<T>) {
         }
     }
 
+    const totalSize = table.getTotalSize() || 1
+    const columnStyle = (size: number, minSize?: number) => {
+        if (fit) {
+            return {
+                width: `${(size / totalSize) * 100}%`,
+                minWidth: 0,
+                maxWidth: `${(size / totalSize) * 100}%`,
+            } as const
+        }
+        return {
+            width: size,
+            minWidth: minSize ?? size,
+        } as const
+    }
+
     return (
         <Loading loading={Boolean(loading && data.length !== 0)} type="cover">
-            <Table {...rest}>
+            <Table
+                {...rest}
+                overflow={fit ? false : rest.overflow}
+                className={classNames(fit && 'w-full table-fixed', rest.className)}
+            >
                 <THead>
                     {table.getHeaderGroups().map((headerGroup) => (
                         <Tr key={headerGroup.id}>
@@ -282,10 +308,16 @@ function DataTable<T>(props: DataTableProps<T>) {
                                     <Th
                                         key={header.id}
                                         colSpan={header.colSpan}
+                                        style={columnStyle(
+                                            header.getSize(),
+                                            header.column.columnDef.minSize,
+                                        )}
                                     >
                                         {header.isPlaceholder ? null : (
                                             <div
                                                 className={classNames(
+                                                    'inline-flex items-center gap-1.5',
+                                                    fit ? 'max-w-full truncate' : 'whitespace-nowrap',
                                                     header.column.getCanSort() &&
                                                         'cursor-pointer select-none point',
                                                     loading &&
@@ -353,9 +385,11 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                     return (
                                                         <Td
                                                             key={cell.id}
-                                                            style={{
-                                                                width: cell.column.getSize(),
-                                                            }}
+                                                            style={columnStyle(
+                                                                cell.column.getSize(),
+                                                                cell.column.columnDef.minSize,
+                                                            )}
+                                                            className={fit ? 'overflow-hidden' : undefined}
                                                         >
                                                             {flexRender(
                                                                 cell.column
@@ -373,27 +407,29 @@ function DataTable<T>(props: DataTableProps<T>) {
                     </TBody>
                 )}
             </Table>
-            <div className="flex items-center justify-between mt-4">
-                <Pagination
-                    pageSize={pageSize}
-                    currentPage={pageIndex}
-                    total={total}
-                    onChange={handlePaginationChange}
-                />
-                <div style={{ minWidth: 130 }}>
-                    <Select
-                        instanceId={instanceId}
-                        size="sm"
-                        menuPlacement="top"
-                        isSearchable={false}
-                        value={pageSizeOption.filter(
-                            (option) => option.value === pageSize,
-                        )}
-                        options={pageSizeOption}
-                        onChange={(option) => handleSelectChange(option?.value)}
+            {!hidePagination ? (
+                <div className="flex items-center justify-between mt-4">
+                    <Pagination
+                        pageSize={pageSize}
+                        currentPage={pageIndex}
+                        total={total}
+                        onChange={handlePaginationChange}
                     />
+                    <div style={{ minWidth: 130 }}>
+                        <Select
+                            instanceId={instanceId}
+                            size="sm"
+                            menuPlacement="top"
+                            isSearchable={false}
+                            value={pageSizeOption.filter(
+                                (option) => option.value === pageSize,
+                            )}
+                            options={pageSizeOption}
+                            onChange={(option) => handleSelectChange(option?.value)}
+                        />
+                    </div>
                 </div>
-            </div>
+            ) : null}
         </Loading>
     )
 }

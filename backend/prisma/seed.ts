@@ -7,6 +7,7 @@ import {
     ShipmentStatus,
 } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
+import { seedMmOrg } from './seed-mm-org'
 
 const prisma = new PrismaClient()
 
@@ -365,6 +366,8 @@ function daysFromNow(days: number, hour: number): Date {
 }
 
 async function main() {
+    await seedMmOrg(prisma)
+
     let hubUpserted = 0
     for (const row of hubGeofences) {
         await prisma.geofence.upsert({
