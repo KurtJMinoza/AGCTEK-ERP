@@ -1,19 +1,21 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { useState } from 'react'
 import Button from '@/components/ui/Button'
+import Card from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Dialog from '@/components/ui/Dialog'
+import Pagination from '@/components/ui/Pagination'
+import Spinner from '@/components/ui/Spinner'
 import { Form, FormItem } from '@/components/ui/Form'
 import Alert from '@/components/ui/Alert'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable from '@/components/shared/DataTable'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
+import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
+import VehicleViewDialog from '../components/VehicleViewDialog'
 import { useVehicles } from '../hooks/useVehicles'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { Vehicle, VehicleStatus, VehicleType } from '../types'
@@ -37,6 +39,12 @@ const statusOptions: Option[] = [
     { value: 'INACTIVE', label: 'Inactive' },
 ]
 
+const pageSizeOptions: Option[] = [
+    { value: '10', label: '10 / page' },
+    { value: '20', label: '20 / page' },
+    { value: '50', label: '50 / page' },
+]
+
 const emptyForm = {
     code: '',
     plateNumber: '',
@@ -45,10 +53,9 @@ const emptyForm = {
     year: '',
     type: 'TRUCK' as VehicleType,
     status: 'AVAILABLE' as VehicleStatus,
-    capacityWeightKg: '',
-    capacityVolumeM3: '',
+    capacityQty: '',
     odometerKm: '0',
-    maxOdometerKm: '',
+    maintenanceThresholdKm: '',
     notes: '',
 }
 
@@ -64,79 +71,19 @@ export default function VehiclesPage() {
         setParams,
         create,
         remove,
+        reload,
     } = useVehicles()
 
-    const [dialogOpen, setDialogOpen] = useState(false)
+    const [createOpen, setCreateOpen] = useState(false)
+    const [viewId, setViewId] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
     const [form, setForm] = useState(emptyForm)
 
-    const columns = useMemo<ColumnDef<Vehicle>[]>(
-        () => [
-            {
-                header: 'Code',
-                accessorKey: 'code',
-            },
-            {
-                header: 'Plate',
-                accessorKey: 'plateNumber',
-            },
-            {
-                header: 'Vehicle',
-                cell: ({ row }) =>
-                    `${row.original.make} ${row.original.model}${
-                        row.original.year ? ` (${row.original.year})` : ''
-                    }`,
-            },
-            {
-                header: 'Type',
-                accessorKey: 'type',
-                cell: ({ row }) => formatStatusLabel(row.original.type),
-            },
-            {
-                header: 'Capacity',
-                cell: ({ row }) =>
-                    `${row.original.capacityWeightKg} kg / ${row.original.capacityVolumeM3} m³`,
-            },
-            {
-                header: 'Odometer',
-                cell: ({ row }) => `${row.original.odometerKm.toLocaleString()} km`,
-            },
-            {
-                header: 'Status',
-                cell: ({ row }) => (
-                    <div className="flex flex-wrap gap-1">
-                        <StatusBadge tone={statusTone(row.original.status)}>
-                            {formatStatusLabel(row.original.status)}
-                        </StatusBadge>
-                        {row.original.routingBlocked ? (
-                            <StatusBadge tone="danger">Routing blocked</StatusBadge>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                header: '',
-                id: 'actions',
-                cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        variant="plain"
-                        className="text-red-600"
-                        onClick={() => void remove(row.original.id)}
-                    >
-                        Delete
-                    </Button>
-                ),
-            },
-        ],
-        [remove],
-    )
-
     const openCreate = () => {
         setForm(emptyForm)
         setFormError(null)
-        setDialogOpen(true)
+        setCreateOpen(true)
     }
 
     const onSubmit = async () => {
@@ -151,15 +98,14 @@ export default function VehiclesPage() {
                 year: form.year ? Number(form.year) : null,
                 type: form.type,
                 status: form.status,
-                capacityWeightKg: Number(form.capacityWeightKg),
-                capacityVolumeM3: Number(form.capacityVolumeM3),
+                capacityQty: Number(form.capacityQty),
                 odometerKm: Number(form.odometerKm || 0),
-                maxOdometerKm: form.maxOdometerKm
-                    ? Number(form.maxOdometerKm)
+                maintenanceThresholdKm: form.maintenanceThresholdKm
+                    ? Number(form.maintenanceThresholdKm)
                     : null,
                 notes: form.notes || null,
             })
-            setDialogOpen(false)
+            setCreateOpen(false)
         } catch (err) {
             setFormError(
                 err instanceof Error ? err.message : 'Failed to create vehicle',
@@ -173,7 +119,7 @@ export default function VehiclesPage() {
         <PageContainer>
             <PageHeader
                 title="Vehicles"
-                description="Fleet master data for transportation planning and load building."
+                description="Fleet master data — Capacity (items) drives load assignment and routing eligibility."
                 breadcrumbs={scmPageBreadcrumbs('Vehicles')}
                 actions={
                     <Button variant="solid" onClick={openCreate}>
@@ -207,48 +153,94 @@ export default function VehiclesPage() {
                         options={statusOptions}
                         value={
                             statusOptions.find(
-                                (option) => option.value === (params.status ?? ''),
+                                (option) =>
+                                    option.value === (params.status ?? ''),
                             ) ?? statusOptions[0]
                         }
                         onChange={(option) =>
                             setParams((current) => ({
                                 ...current,
                                 page: 1,
-                                status: (option as Option | null)?.value || undefined,
+                                status:
+                                    (option as Option | null)?.value ||
+                                    undefined,
                             }))
                         }
                     />
                 </div>
             </AdaptiveCard>
 
-            <AdaptiveCard>
-                <DataTable
-                    columns={columns}
-                    data={data}
-                    loading={loading}
-                    noData={!loading && data.length === 0}
-                    pagingData={{
-                        total,
-                        pageIndex: page,
-                        pageSize,
-                    }}
-                    onPaginationChange={(nextPage) =>
-                        setParams((current) => ({ ...current, page: nextPage }))
-                    }
-                    onSelectChange={(nextSize) =>
-                        setParams((current) => ({
-                            ...current,
-                            page: 1,
-                            pageSize: nextSize,
-                        }))
-                    }
-                />
-            </AdaptiveCard>
+            {loading && data.length === 0 ? (
+                <div className="flex justify-center py-16">
+                    <Spinner size={40} />
+                </div>
+            ) : null}
+
+            {!loading && data.length === 0 ? (
+                <AdaptiveCard>
+                    <p className="py-10 text-center text-sm text-gray-500">
+                        No vehicles found.
+                    </p>
+                </AdaptiveCard>
+            ) : null}
+
+            {data.length > 0 ? (
+                <>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {data.map((vehicle) => (
+                            <VehicleCard
+                                key={vehicle.id}
+                                vehicle={vehicle}
+                                onView={() => setViewId(vehicle.id)}
+                                onDelete={() => void remove(vehicle.id)}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="mt-13 flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                        <Pagination
+                            pageSize={pageSize}
+                            currentPage={page}
+                            total={total}
+                            onChange={(nextPage) =>
+                                setParams((current) => ({
+                                    ...current,
+                                    page: nextPage,
+                                }))
+                            }
+                        />
+                        <div className="min-w-[130px]">
+                            <Select
+                                size="sm"
+                                menuPlacement="top"
+                                isSearchable={false}
+                                options={pageSizeOptions}
+                                value={
+                                    pageSizeOptions.find(
+                                        (option) =>
+                                            option.value === String(pageSize),
+                                    ) ?? pageSizeOptions[0]
+                                }
+                                onChange={(option) =>
+                                    setParams((current) => ({
+                                        ...current,
+                                        page: 1,
+                                        pageSize: Number(
+                                            (option as Option | null)?.value ||
+                                                10,
+                                        ),
+                                    }))
+                                }
+                            />
+                        </div>
+                    </div>
+                </>
+            ) : null}
 
             <Dialog
-                isOpen={dialogOpen}
-                onClose={() => setDialogOpen(false)}
-                onRequestClose={() => setDialogOpen(false)}
+                isOpen={createOpen}
+                onClose={() => setCreateOpen(false)}
+                onRequestClose={() => setCreateOpen(false)}
             >
                 <h4 className="mb-4">Add vehicle</h4>
                 {formError ? (
@@ -327,30 +319,20 @@ export default function VehiclesPage() {
                                 onChange={(option) =>
                                     setForm((current) => ({
                                         ...current,
-                                        type: ((option as Option | null)?.value ||
+                                        type: ((option as Option | null)
+                                            ?.value ||
                                             'TRUCK') as VehicleType,
                                     }))
                                 }
                             />
                         </FormItem>
-                        <FormItem label="Capacity weight (kg)">
+                        <FormItem label="Capacity (items)">
                             <Input
-                                value={form.capacityWeightKg}
+                                value={form.capacityQty}
                                 onChange={(e) =>
                                     setForm((current) => ({
                                         ...current,
-                                        capacityWeightKg: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Capacity volume (m³)">
-                            <Input
-                                value={form.capacityVolumeM3}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        capacityVolumeM3: e.target.value,
+                                        capacityQty: e.target.value,
                                     }))
                                 }
                             />
@@ -366,14 +348,14 @@ export default function VehiclesPage() {
                                 }
                             />
                         </FormItem>
-                        <FormItem label="Max odometer (km)">
+                        <FormItem label="Maintenance threshold (km)">
                             <Input
-                                value={form.maxOdometerKm}
-                                placeholder="Optional — blocks routing when reached"
+                                value={form.maintenanceThresholdKm}
+                                placeholder="e.g. 50000 — flags service when reached"
                                 onChange={(e) =>
                                     setForm((current) => ({
                                         ...current,
-                                        maxOdometerKm: e.target.value,
+                                        maintenanceThresholdKm: e.target.value,
                                     }))
                                 }
                             />
@@ -395,7 +377,7 @@ export default function VehiclesPage() {
                         <Button
                             type="button"
                             variant="plain"
-                            onClick={() => setDialogOpen(false)}
+                            onClick={() => setCreateOpen(false)}
                         >
                             Cancel
                         </Button>
@@ -405,6 +387,106 @@ export default function VehiclesPage() {
                     </div>
                 </Form>
             </Dialog>
+
+            <VehicleViewDialog
+                vehicleId={viewId}
+                isOpen={viewId != null}
+                onClose={() => setViewId(null)}
+                onUpdated={() => void reload()}
+            />
         </PageContainer>
+    )
+}
+
+function VehicleCard({
+    vehicle,
+    onView,
+    onDelete,
+}: {
+    vehicle: Vehicle
+    onView: () => void
+    onDelete: () => void
+}) {
+    return (
+        <Card
+            clickable
+            className="h-full"
+            bodyClass="flex h-full flex-col gap-4"
+            header={{
+                content: (
+                    <div className="flex min-w-0 flex-col gap-1">
+                        <span className="truncate font-semibold">
+                            {vehicle.plateNumber}
+                        </span>
+                        <span className="truncate text-xs font-normal text-gray-500">
+                            {vehicle.code}
+                        </span>
+                    </div>
+                ),
+                extra: (
+                    <div className="flex flex-wrap justify-end gap-1">
+                        <StatusBadge tone={statusTone(vehicle.status)}>
+                            {formatStatusLabel(vehicle.status)}
+                        </StatusBadge>
+                        {vehicle.routingBlocked ? (
+                            <StatusBadge tone="danger">Blocked</StatusBadge>
+                        ) : null}
+                    </div>
+                ),
+            }}
+            onClick={onView}
+        >
+            <div>
+                <p className="font-medium text-gray-900 dark:text-gray-100">
+                    {vehicle.make} {vehicle.model}
+                    {vehicle.year ? ` (${vehicle.year})` : ''}
+                </p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {formatStatusLabel(vehicle.type)}
+                </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div className="min-w-0">
+                    <dt className="text-xs uppercase tracking-wide text-gray-400">
+                        Capacity
+                    </dt>
+                    <dd className="mt-0.5 truncate font-medium tabular-nums">
+                        {(vehicle.capacityQty ?? 0).toLocaleString()}{' '}
+                        <span className="font-normal text-gray-500">items</span>
+                    </dd>
+                </div>
+                <div className="min-w-0">
+                    <dt className="text-xs uppercase tracking-wide text-gray-400">
+                        Odometer (last)
+                    </dt>
+                    <dd className="mt-0.5 truncate font-medium tabular-nums">
+                        {(vehicle.odometerKm ?? 0).toLocaleString()}{' '}
+                        <span className="font-normal text-gray-500">km</span>
+                    </dd>
+                </div>
+            </dl>
+            <div className="mt-auto flex items-center justify-end gap-2 pt-1">
+                <Button
+                    size="xs"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onView()
+                    }}
+                >
+                    View
+                </Button>
+                <Button
+                    size="xs"
+                    variant="plain"
+                    className="text-red-600"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete()
+                    }}
+                >
+                    Delete
+                </Button>
+            </div>
+        </Card>
     )
 }

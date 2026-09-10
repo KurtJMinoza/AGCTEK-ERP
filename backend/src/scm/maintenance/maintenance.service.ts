@@ -36,6 +36,7 @@ type CreateMaintenanceBody = {
 
 const MAINT_TYPES = new Set(Object.values(MaintenanceType))
 const MAINT_STATUSES = new Set(Object.values(MaintenanceStatus))
+const ODOMETER_DUE_TITLE_PREFIX = 'Odometer service due'
 
 const includeVehicle = {
     vehicle: true,
@@ -46,7 +47,7 @@ export class MaintenanceService {
     constructor(private readonly prisma: PrismaService) {}
 
     async findAll(
-        query: ListQuery & { vehicleId?: string },
+        query: ListQuery & { vehicleId?: string; type?: string },
     ): Promise<PaginatedResult<unknown>> {
         const { page, pageSize, skip } = parsePagination(query)
         const where: Prisma.MaintenanceRecordWhereInput = {}
@@ -62,11 +63,38 @@ export class MaintenanceService {
             where.status = query.status as MaintenanceStatus
         }
 
+        if (query.type) {
+            if (!MAINT_TYPES.has(query.type as MaintenanceType)) {
+                throw new BadRequestException('Invalid maintenance type')
+            }
+            where.type = query.type as MaintenanceType
+        }
+
         if (query.search?.trim()) {
             const q = query.search.trim()
             where.OR = [
                 { title: { contains: q, mode: 'insensitive' } },
                 { description: { contains: q, mode: 'insensitive' } },
+                {
+                    vehicle: {
+                        is: {
+                            OR: [
+                                {
+                                    plateNumber: {
+                                        contains: q,
+                                        mode: 'insensitive',
+                                    },
+                                },
+                                {
+                                    code: {
+                                        contains: q,
+                                        mode: 'insensitive',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
             ]
         }
 
@@ -94,10 +122,26 @@ export class MaintenanceService {
         )
     }
 
-    private async syncVehicleRoutingBlock(vehicleId: string) {
-        const blocking = await this.prisma.maintenanceRecord.count({
+    /**
+     * When last recorded odometer hits maintenanceThresholdKm, open a
+     * preventative maintenance that blocks routing (idempotent).
+     */
+    async ensureOdometerMaintenanceDue(vehicleId: string) {
+        const vehicle = await this.prisma.vehicle.findUnique({
+            where: { id: vehicleId },
+        })
+        if (!vehicle) return null
+        if (
+            vehicle.maintenanceThresholdKm == null ||
+            vehicle.odometerKm < vehicle.maintenanceThresholdKm
+        ) {
+            return null
+        }
+
+        const openDue = await this.prisma.maintenanceRecord.findFirst({
             where: {
                 vehicleId,
+                type: MaintenanceType.PREVENTATIVE,
                 blocksRouting: true,
                 status: {
                     in: [
@@ -105,6 +149,47 @@ export class MaintenanceService {
                         MaintenanceStatus.IN_PROGRESS,
                     ],
                 },
+                title: { startsWith: ODOMETER_DUE_TITLE_PREFIX },
+            },
+        })
+        if (openDue) {
+            await this.syncVehicleRoutingBlock(vehicleId)
+            return openDue
+        }
+
+        const threshold = vehicle.maintenanceThresholdKm
+        const record = await this.prisma.maintenanceRecord.create({
+            data: {
+                vehicleId,
+                type: MaintenanceType.PREVENTATIVE,
+                status: MaintenanceStatus.SCHEDULED,
+                title: `${ODOMETER_DUE_TITLE_PREFIX} (${threshold.toLocaleString()} km)`,
+                description: `Last recorded odometer ${vehicle.odometerKm.toLocaleString()} km reached the maintenance threshold of ${threshold.toLocaleString()} km.`,
+                odometerKm: vehicle.odometerKm,
+                scheduledAt: new Date(),
+                blocksRouting: true,
+            },
+        })
+
+        await this.syncVehicleRoutingBlock(vehicleId)
+        return record
+    }
+
+    async syncVehicleRoutingBlock(vehicleId: string) {
+        // Block when IN_PROGRESS (always) or SCHEDULED/IN_PROGRESS with blocksRouting
+        const blocking = await this.prisma.maintenanceRecord.count({
+            where: {
+                vehicleId,
+                status: {
+                    in: [
+                        MaintenanceStatus.SCHEDULED,
+                        MaintenanceStatus.IN_PROGRESS,
+                    ],
+                },
+                OR: [
+                    { status: MaintenanceStatus.IN_PROGRESS },
+                    { blocksRouting: true },
+                ],
             },
         })
 
@@ -113,17 +198,18 @@ export class MaintenanceService {
         })
         if (!vehicle) return
 
-        const odometerBlocked =
-            vehicle.maxOdometerKm != null &&
-            vehicle.odometerKm >= vehicle.maxOdometerKm
+        const onActiveTrip = vehicle.status === VehicleStatus.IN_TRANSIT
 
         await this.prisma.vehicle.update({
             where: { id: vehicleId },
             data: {
-                routingBlocked: blocking > 0 || odometerBlocked,
+                routingBlocked: blocking > 0,
                 status:
                     blocking > 0
-                        ? VehicleStatus.MAINTENANCE
+                        ? // Don't pull a live trip into MAINTENANCE status
+                          onActiveTrip
+                            ? vehicle.status
+                            : VehicleStatus.MAINTENANCE
                         : vehicle.status === VehicleStatus.MAINTENANCE
                           ? VehicleStatus.AVAILABLE
                           : vehicle.status,
@@ -133,7 +219,7 @@ export class MaintenanceService {
 
     async create(body: CreateMaintenanceBody) {
         const vehicleId = requireString(body.vehicleId, 'vehicleId')
-        assertFound(
+        const vehicle = assertFound(
             await this.prisma.vehicle.findUnique({ where: { id: vehicleId } }),
             'Vehicle not found',
         )
@@ -152,6 +238,11 @@ export class MaintenanceService {
             throw new BadRequestException('scheduledAt is required')
         }
 
+        const blocksRouting =
+            status === MaintenanceStatus.IN_PROGRESS
+                ? true
+                : (optionalBoolean(body.blocksRouting) ?? false)
+
         const record = await this.prisma.maintenanceRecord.create({
             data: {
                 vehicleId,
@@ -159,11 +250,12 @@ export class MaintenanceService {
                 status,
                 title: requireString(body.title, 'title'),
                 description: optionalString(body.description) ?? null,
-                odometerKm: optionalNumber(body.odometerKm),
+                odometerKm:
+                    optionalNumber(body.odometerKm) ?? vehicle.odometerKm,
                 cost: optionalNumber(body.cost),
                 scheduledAt,
                 completedAt: optionalDate(body.completedAt),
-                blocksRouting: optionalBoolean(body.blocksRouting) ?? false,
+                blocksRouting,
             },
             include: includeVehicle,
         })
@@ -193,6 +285,9 @@ export class MaintenanceService {
             ) {
                 data.completedAt = new Date()
             }
+            if (body.status === MaintenanceStatus.IN_PROGRESS) {
+                data.blocksRouting = true
+            }
         }
         if (body.title !== undefined) {
             data.title = requireString(body.title, 'title')
@@ -220,8 +315,27 @@ export class MaintenanceService {
             data.blocksRouting =
                 optionalBoolean(body.blocksRouting) ?? false
         }
+        // IN_PROGRESS always blocks (overrides explicit false)
+        if (
+            (body.status ?? existing.status) === MaintenanceStatus.IN_PROGRESS
+        ) {
+            data.blocksRouting = true
+        }
 
         await this.prisma.maintenanceRecord.update({ where: { id }, data })
+
+        // After odometer-due service is done, clear threshold so it does not
+        // immediately re-open. Set the next service km on the vehicle afterward.
+        const completedOdometerDue =
+            body.status === MaintenanceStatus.COMPLETED &&
+            existing.title.startsWith(ODOMETER_DUE_TITLE_PREFIX)
+        if (completedOdometerDue) {
+            await this.prisma.vehicle.update({
+                where: { id: existing.vehicleId },
+                data: { maintenanceThresholdKm: null },
+            })
+        }
+
         await this.syncVehicleRoutingBlock(existing.vehicleId)
         return this.findOne(id)
     }
@@ -231,5 +345,76 @@ export class MaintenanceService {
         await this.prisma.maintenanceRecord.delete({ where: { id } })
         await this.syncVehicleRoutingBlock(existing.vehicleId)
         return { ok: true }
+    }
+
+    /**
+     * Set maintenanceThresholdKm on all vehicles or a selected subset.
+     * Immediately opens odometer-due records for vehicles already at/over threshold.
+     */
+    async setOdometerThresholds(body: {
+        thresholdKm?: number | null
+        vehicleIds?: string[]
+    }) {
+        if (!('thresholdKm' in body)) {
+            throw new BadRequestException(
+                'thresholdKm is required (number or null)',
+            )
+        }
+
+        let thresholdKm: number | null
+        if (body.thresholdKm === null) {
+            thresholdKm = null
+        } else {
+            const n = optionalNumber(body.thresholdKm)
+            if (n == null || !(n > 0)) {
+                throw new BadRequestException(
+                    'thresholdKm must be a number greater than 0, or null to clear',
+                )
+            }
+            thresholdKm = n
+        }
+
+        const ids = Array.isArray(body.vehicleIds)
+            ? body.vehicleIds
+                  .map((id) => (typeof id === 'string' ? id.trim() : ''))
+                  .filter(Boolean)
+            : []
+
+        const where: Prisma.VehicleWhereInput =
+            ids.length > 0 ? { id: { in: ids } } : {}
+
+        if (ids.length > 0) {
+            const found = await this.prisma.vehicle.count({
+                where: { id: { in: ids } },
+            })
+            if (found !== ids.length) {
+                throw new BadRequestException(
+                    'One or more vehicleIds were not found',
+                )
+            }
+        }
+
+        const result = await this.prisma.vehicle.updateMany({
+            where,
+            data: { maintenanceThresholdKm: thresholdKm },
+        })
+
+        const vehicles = await this.prisma.vehicle.findMany({
+            where,
+            select: { id: true },
+        })
+
+        let dueOpened = 0
+        for (const vehicle of vehicles) {
+            const due = await this.ensureOdometerMaintenanceDue(vehicle.id)
+            if (due) dueOpened += 1
+        }
+
+        return {
+            updated: result.count,
+            thresholdKm,
+            dueOpened,
+            scope: ids.length > 0 ? 'selected' : 'all',
+        }
     }
 }

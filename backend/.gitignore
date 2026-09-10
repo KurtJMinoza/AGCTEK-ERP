@@ -7,3 +7,7 @@ data
 
 # legacy sqlite dev database
 /data/
+
+# Traccar runtime logs (keep directory)
+traccar/logs/*
+!traccar/logs/.gitkeep

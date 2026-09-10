@@ -11,6 +11,11 @@ export class VehiclesController {
         return this.vehiclesService.findAll(query)
     }
 
+    @Get(':id/cargo')
+    getCargo(@Param('id') id: string) {
+        return this.vehiclesService.getCargo(id)
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.vehiclesService.findOne(id)

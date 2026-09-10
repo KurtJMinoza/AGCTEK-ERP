@@ -35,10 +35,17 @@ const _Notification = ({ className }: { className?: string }) => {
     const [unreadCount, setUnreadCount] = useState(0)
     const [noResult, setNoResult] = useState(false)
     const [loading, setLoading] = useState(false)
+    const [placement, setPlacement] = useState<'bottom-end' | 'bottom'>(
+        'bottom',
+    )
 
     const { larger } = useResponsive()
     const router = useRouter()
     const notificationDropdownRef = useRef<DropdownRef>(null)
+
+    useEffect(() => {
+        setPlacement(larger.md ? 'bottom-end' : 'bottom')
+    }, [larger.md])
 
     const refreshCount = useCallback(async () => {
         try {
@@ -156,7 +163,7 @@ const _Notification = ({ className }: { className?: string }) => {
                 />
             }
             menuClass="min-w-[280px] md:min-w-[340px]"
-            placement={larger.md ? 'bottom-end' : 'bottom'}
+            placement={placement}
             onOpen={onNotificationOpenChange}
         >
             <Dropdown.Item variant="header">

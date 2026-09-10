@@ -2,7 +2,7 @@ import {
     BadRequestException,
     Injectable,
 } from '@nestjs/common'
-import { Prisma, ShipmentStatus } from '@prisma/client'
+import { Prisma, ShipmentMovementType, ShipmentStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
     assertFound,
@@ -10,6 +10,7 @@ import {
     optionalNumber,
     optionalString,
     parsePagination,
+    requireInt,
     requireNumber,
     requireString,
     type ListQuery,
@@ -19,6 +20,9 @@ import {
 type CreateShipmentBody = {
     reference?: string
     customerName?: string | null
+    externalOrderId?: string | null
+    materialCode?: string | null
+    description?: string | null
     originAddress?: string
     originLat?: number
     originLng?: number
@@ -27,7 +31,9 @@ type CreateShipmentBody = {
     destLng?: number
     weightKg?: number
     volumeM3?: number
+    quantity?: number
     status?: ShipmentStatus
+    movementType?: ShipmentMovementType
     requestedPickupAt?: string | Date
     requestedDeliveryAt?: string | Date
     earliestDeliveryAt?: string | Date
@@ -38,6 +44,23 @@ type CreateShipmentBody = {
 }
 
 const SHIPMENT_STATUSES = new Set(Object.values(ShipmentStatus))
+const MOVEMENT_TYPES = new Set(Object.values(ShipmentMovementType))
+
+function parseMovementType(
+    value: unknown,
+    fallback?: ShipmentMovementType,
+): ShipmentMovementType {
+    if (value === undefined || value === null || value === '') {
+        if (fallback) return fallback
+        return ShipmentMovementType.DELIVERY
+    }
+    if (typeof value !== 'string' || !MOVEMENT_TYPES.has(value as ShipmentMovementType)) {
+        throw new BadRequestException(
+            'movementType must be DELIVERY (shipping) or PICKUP',
+        )
+    }
+    return value as ShipmentMovementType
+}
 
 @Injectable()
 export class ShipmentsService {
@@ -54,6 +77,10 @@ export class ShipmentsService {
             where.status = query.status as ShipmentStatus
         }
 
+        if (query.movementType) {
+            where.movementType = parseMovementType(query.movementType)
+        }
+
         if (query.search?.trim()) {
             const q = query.search.trim()
             where.OR = [
@@ -61,6 +88,8 @@ export class ShipmentsService {
                 { customerName: { contains: q, mode: 'insensitive' } },
                 { originAddress: { contains: q, mode: 'insensitive' } },
                 { destAddress: { contains: q, mode: 'insensitive' } },
+                { externalOrderId: { contains: q, mode: 'insensitive' } },
+                { materialCode: { contains: q, mode: 'insensitive' } },
             ]
         }
 
@@ -90,18 +119,31 @@ export class ShipmentsService {
             throw new BadRequestException('Invalid shipment status')
         }
 
+        const movementType = parseMovementType(body.movementType)
+        const originAddress = optionalString(body.originAddress) ?? null
+        if (movementType === ShipmentMovementType.PICKUP && !originAddress) {
+            throw new BadRequestException(
+                'Pickup shipments require a pickup-from address (originAddress)',
+            )
+        }
+
         return this.prisma.shipment.create({
             data: {
                 reference: requireString(body.reference, 'reference'),
                 customerName: optionalString(body.customerName) ?? null,
-                originAddress: requireString(body.originAddress, 'originAddress'),
+                externalOrderId: optionalString(body.externalOrderId) ?? null,
+                materialCode: optionalString(body.materialCode) ?? null,
+                description: optionalString(body.description) ?? null,
+                originAddress,
                 originLat: optionalNumber(body.originLat),
                 originLng: optionalNumber(body.originLng),
                 destAddress: requireString(body.destAddress, 'destAddress'),
                 destLat: optionalNumber(body.destLat),
                 destLng: optionalNumber(body.destLng),
-                weightKg: requireNumber(body.weightKg, 'weightKg'),
-                volumeM3: requireNumber(body.volumeM3, 'volumeM3'),
+                quantity: requireInt(body.quantity, 'quantity'),
+                weightKg: optionalNumber(body.weightKg) ?? 0,
+                volumeM3: optionalNumber(body.volumeM3) ?? 0,
+                movementType,
                 status,
                 requestedPickupAt: optionalDate(body.requestedPickupAt),
                 requestedDeliveryAt: optionalDate(body.requestedDeliveryAt),
@@ -122,11 +164,17 @@ export class ShipmentsService {
         if (body.customerName !== undefined) {
             data.customerName = optionalString(body.customerName) ?? null
         }
+        if (body.externalOrderId !== undefined) {
+            data.externalOrderId = optionalString(body.externalOrderId) ?? null
+        }
+        if (body.materialCode !== undefined) {
+            data.materialCode = optionalString(body.materialCode) ?? null
+        }
+        if (body.description !== undefined) {
+            data.description = optionalString(body.description) ?? null
+        }
         if (body.originAddress !== undefined) {
-            data.originAddress = requireString(
-                body.originAddress,
-                'originAddress',
-            )
+            data.originAddress = optionalString(body.originAddress) ?? null
         }
         if (body.originLat !== undefined) {
             data.originLat = optionalNumber(body.originLat) ?? null
@@ -142,6 +190,12 @@ export class ShipmentsService {
         }
         if (body.destLng !== undefined) {
             data.destLng = optionalNumber(body.destLng) ?? null
+        }
+        if (body.quantity !== undefined) {
+            data.quantity = requireInt(body.quantity, 'quantity')
+        }
+        if (body.movementType !== undefined) {
+            data.movementType = parseMovementType(body.movementType)
         }
         if (body.weightKg !== undefined) {
             data.weightKg = requireNumber(body.weightKg, 'weightKg')
@@ -185,6 +239,20 @@ export class ShipmentsService {
         }
         if (body.notes !== undefined) {
             data.notes = optionalString(body.notes) ?? null
+        }
+
+        const nextMovement =
+            body.movementType !== undefined
+                ? parseMovementType(body.movementType)
+                : existing.movementType
+        const nextOrigin =
+            body.originAddress !== undefined
+                ? optionalString(body.originAddress) ?? null
+                : existing.originAddress
+        if (nextMovement === ShipmentMovementType.PICKUP && !nextOrigin) {
+            throw new BadRequestException(
+                'Pickup shipments require a pickup-from address (originAddress)',
+            )
         }
 
         // POD present → mark delivered

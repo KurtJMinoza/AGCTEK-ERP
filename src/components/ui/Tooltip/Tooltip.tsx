@@ -65,8 +65,8 @@ const Tooltip = (props: TooltipProps) => {
         ],
     })
 
-    const hover = useHover(context, { move: false })
-    const focus = useFocus(context)
+    const hover = useHover(context, { move: false, enabled: !disabled })
+    const focus = useFocus(context, { enabled: !disabled })
     const dismiss = useDismiss(context)
     const role = useRole(context, { role: 'tooltip' })
 

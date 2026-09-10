@@ -1,0 +1,12 @@
+-- AlterTable
+ALTER TABLE "Vehicle" ALTER COLUMN "capacityWeightKg" SET DEFAULT 0;
+ALTER TABLE "Vehicle" ALTER COLUMN "capacityVolumeM3" SET DEFAULT 0;
+ALTER TABLE "Vehicle" ADD COLUMN "capacityQty" INTEGER NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "Shipment" ALTER COLUMN "weightKg" SET DEFAULT 0;
+ALTER TABLE "Shipment" ALTER COLUMN "volumeM3" SET DEFAULT 0;
+ALTER TABLE "Shipment" ADD COLUMN "quantity" INTEGER NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "Trip" ADD COLUMN "totalQty" INTEGER;

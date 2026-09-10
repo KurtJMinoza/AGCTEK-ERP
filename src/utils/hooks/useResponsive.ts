@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import isBrowser from '../isBrowser'
 
 const twBreakpoint: Record<'2xl' | 'xl' | 'lg' | 'md' | 'sm' | 'xs', string> = {
     '2xl': '1536',
@@ -25,6 +24,27 @@ const breakpoint = {
     xs: breakpointInt(twBreakpoint.xs), // 576
 }
 
+/** SSR-safe defaults — never read `window` during the initial render. */
+const defaultResponsiveState = {
+    windowWidth: 0,
+    larger: {
+        lg: false,
+        md: false,
+        sm: false,
+        xs: false,
+        xl: false,
+        '2xl': false,
+    },
+    smaller: {
+        lg: false,
+        md: false,
+        sm: false,
+        xs: false,
+        xl: false,
+        '2xl': false,
+    },
+}
+
 const getAllSizes = (comparator = 'smaller') => {
     const currentWindowWidth = window.innerWidth
     return Object.fromEntries(
@@ -38,48 +58,28 @@ const getAllSizes = (comparator = 'smaller') => {
 }
 
 const getResponsiveState = () => {
-    if (isBrowser) {
-        const currentWindowWidth = window.innerWidth
-        return {
-            windowWidth: currentWindowWidth,
-            larger: getAllSizes('larger'),
-            smaller: getAllSizes('smaller'),
-        }
-    }
+    const currentWindowWidth = window.innerWidth
     return {
-        windowWidth: 0,
-        larger: {
-            lg: false,
-            md: false,
-            sm: false,
-            xs: false,
-            xl: false,
-            '2xl': false,
-        },
-        smaller: {
-            lg: false,
-            md: false,
-            sm: false,
-            xs: false,
-            xl: false,
-            '2xl': false,
-        },
+        windowWidth: currentWindowWidth,
+        larger: getAllSizes('larger') as typeof defaultResponsiveState.larger,
+        smaller: getAllSizes('smaller') as typeof defaultResponsiveState.smaller,
     }
 }
 
 const useResponsive = () => {
-    const [responsive, setResponsive] = useState(getResponsiveState())
-
-    const resizeHandler = () => {
-        const responsiveState = getResponsiveState()
-        setResponsive(responsiveState)
-    }
+    // Must match server HTML on the first client render to avoid useId drift
+    // in Floating UI dropdowns further down the tree.
+    const [responsive, setResponsive] = useState(defaultResponsiveState)
 
     useEffect(() => {
-        if (!isBrowser) return
+        const resizeHandler = () => {
+            setResponsive(getResponsiveState())
+        }
+
+        resizeHandler()
         window.addEventListener('resize', resizeHandler)
         return () => window.removeEventListener('resize', resizeHandler)
-    }, [responsive.windowWidth])
+    }, [])
 
     return responsive
 }

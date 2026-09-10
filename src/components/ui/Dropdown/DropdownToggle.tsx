@@ -94,14 +94,24 @@ const DropdownToggle = (
 
     if (renderTitle) {
         return (
-            <div className={dropdownToggleClass} {...rest} ref={ref}>
+            <div
+                className={dropdownToggleClass}
+                {...rest}
+                ref={ref}
+                suppressHydrationWarning
+            >
                 {renderTitle}
             </div>
         )
     }
 
     return (
-        <div ref={ref} className={dropdownToggleDefaultClass} {...rest}>
+        <div
+            ref={ref}
+            className={dropdownToggleDefaultClass}
+            {...rest}
+            suppressHydrationWarning
+        >
             <span className="flex items-center gap-1">
                 <DropdownToggleDefaultContent placement={placement}>
                     {children}

@@ -66,7 +66,10 @@ enum DriverStatus {
 enum TripStatus {
   DRAFT
   PLANNED
-  IN_PROGRESS
+  /// Vehicle (+ optional driver) assigned — ready to start (Phase 3.2 Dispatch)
+  ASSIGNED
+  /// Trip started — live tracking (Phase 3.3). Maps to diagram IN_TRANSIT.
+  IN_TRANSIT
   COMPLETED
   CANCELLED
 }
@@ -86,6 +89,12 @@ enum ShipmentStatus {
   IN_TRANSIT
   DELIVERED
   CANCELLED
+}
+
+/// Outbound shipping vs customer/supplier pickup (return to hub).
+enum ShipmentMovementType {
+  DELIVERY
+  PICKUP
 }
 
 enum MaintenanceType {
@@ -111,12 +120,17 @@ model Vehicle {
   year               Int?
   type               VehicleType
   status             VehicleStatus        @default(AVAILABLE)
-  capacityWeightKg   Float
-  capacityVolumeM3   Float
+  capacityWeightKg   Float                @default(0)
+  capacityVolumeM3   Float                @default(0)
+  /// Max items this vehicle can carry (primary load constraint)
+  capacityQty        Int                  @default(0)
+  /// Last recorded odometer (km). Updated live from GPS while moving; finalized on trip complete.
   odometerKm         Float                @default(0)
-  /// When set and odometerKm >= maxOdometerKm, vehicle is blocked from routing
-  maxOdometerKm      Float?
+  /// Service due when odometerKm >= this value (e.g. 50000). Flags preventative maintenance.
+  maintenanceThresholdKm Float?
   routingBlocked     Boolean              @default(false)
+  /// flespi JT808 ident = first 14 digits of IMEI (or full IMEI). See docs/SCM_FLESPI_VL502.md
+  telematicsDeviceId String?
   notes              String?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -126,6 +140,7 @@ model Vehicle {
 
   @@index([status])
   @@index([type])
+  @@index([telematicsDeviceId])
 }
 
 model Driver {
@@ -150,14 +165,26 @@ model Shipment {
   id                  String             @id @default(cuid())
   reference           String             @unique
   customerName        String?
-  originAddress       String
+  originAddress       String?
   originLat           Float?
   originLng           Float?
   destAddress         String
   destLat             Float?
   destLng             Float?
-  weightKg            Float
-  volumeM3            Float
+  weightKg            Float              @default(0)
+  volumeM3            Float              @default(0)
+  /// Item count — primary load field for vehicle capacity
+  quantity            Int                @default(0)
+  /// Optional material / SKU reference (MM master stays in MM)
+  materialCode        String?
+  /// External MM / WMS order id — warehouse release stub hand-off key
+  externalOrderId     String?
+  /// Short cargo description for drivers / load lists
+  description         String?
+  isFragile           Boolean            @default(false)
+  requiresColdChain   Boolean            @default(false)
+  /// DELIVERY = ship to customer; PICKUP = collect from customer/supplier
+  movementType        ShipmentMovementType @default(DELIVERY)
   status              ShipmentStatus     @default(DRAFT)
   requestedPickupAt   DateTime?
   requestedDeliveryAt DateTime?
@@ -172,6 +199,7 @@ model Shipment {
   tripStopShipments   TripStopShipment[]
 
   @@index([status])
+  @@index([movementType])
 }
 
 model Trip {
@@ -187,6 +215,7 @@ model Trip {
   completedAt    DateTime?
   totalWeightKg  Float?
   totalVolumeM3  Float?
+  totalQty       Int?
   notes          String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
@@ -213,6 +242,16 @@ model TripStop {
   arrivedAt  DateTime?
   completedAt DateTime?
   notes      String?
+  /// Driver POD — signature image (data URL or hosted URL)
+  podSignatureUrl String?
+  /// Driver POD — proof photo
+  podPhotoUrl     String?
+  /// Driver POD notes
+  podNotes        String?
+  /// Set when status = FAILED
+  failureReason   String?
+  /// Optional map pin color for intermediate stops (hex, e.g. #f59e0b). Destination always uses red.
+  pinColor   String?
   shipments  TripStopShipment[]
 
   @@unique([tripId, sequence])
@@ -242,6 +281,8 @@ model GpsLog {
   longitude  Float
   speedKmh   Float    @default(0)
   heading    Float?
+  /// Optional sparse device payload (e.g. fuelPct, rpm) — not a full OBD dump
+  rawPayload Json?
   recordedAt DateTime @default(now())
 
   @@index([vehicleId, recordedAt])
@@ -267,6 +308,69 @@ model MaintenanceRecord {
 
   @@index([vehicleId, status])
   @@index([scheduledAt])
+}
+
+enum GeofenceKind {
+  HUB
+  CHECKPOINT
+  ZONE
+}
+
+enum GeofenceDetect {
+  ENTER
+  EXIT
+  INSIDE
+  OUTSIDE
+}
+
+/// Circular geofence / hub — Postgres is CRUD source of truth; Tile38 holds live geometry + hooks
+model Geofence {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  name      String
+  kind      GeofenceKind @default(HUB)
+  lat       Float
+  lng       Float
+  radiusM   Int
+  color     String?
+  active    Boolean      @default(true)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  events    GeofenceEvent[]
+
+  @@index([active])
+  @@index([kind])
+}
+
+model GeofenceEvent {
+  id         String         @id @default(cuid())
+  geofenceId String
+  geofence   Geofence       @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+  vehicleId  String
+  detect     GeofenceDetect
+  latitude   Float
+  longitude  Float
+  rawPayload Json?
+  detectedAt DateTime       @default(now())
+
+  @@index([geofenceId, detectedAt])
+  @@index([vehicleId, detectedAt])
+}
+
+enum PlanningBucketSize {
+  DAY
+  WEEK
+}
+
+/// Singleton planning-horizon parameters for Demand Planning (Phase 1).
+model ScmPlanningSettings {
+  id             String             @id @default("default")
+  horizonWeeks   Int                @default(12)
+  bucketSize     PlanningBucketSize @default(WEEK)
+  frozenZoneDays Int                @default(7)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 }
 
 /// Kept for future Demand Planning — no API/UI yet

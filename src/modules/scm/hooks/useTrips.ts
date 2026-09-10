@@ -8,7 +8,7 @@ import {
     apiUpdateTrip,
     apiUpdateTripStatus,
 } from '../services/scmApi'
-import type { ListParams, Paginated, Trip } from '../types'
+import type { CreateTripInput, ListParams, Paginated, Trip } from '../types'
 
 const empty: Paginated<Trip> = {
     data: [],
@@ -45,7 +45,7 @@ export function useTrips(initial?: ListParams) {
         void reload()
     }, [reload])
 
-    const create = async (body: Record<string, unknown>) => {
+    const create = async (body: CreateTripInput) => {
         const created = await apiCreateTrip(body)
         await reload()
         return created

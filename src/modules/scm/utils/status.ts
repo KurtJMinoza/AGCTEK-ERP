@@ -34,3 +34,10 @@ export function formatStatusLabel(status: string) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(' ')
 }
+
+/** User-facing label for shipment movement (shipping vs pickup). */
+export function formatMovementLabel(movementType: string | null | undefined) {
+    if (movementType === 'PICKUP') return 'Pickup'
+    if (movementType === 'DELIVERY') return 'Shipping'
+    return formatStatusLabel(movementType ?? 'DELIVERY')
+}

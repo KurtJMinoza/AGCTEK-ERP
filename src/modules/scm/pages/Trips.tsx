@@ -5,8 +5,6 @@ import type { ColumnDef } from '@tanstack/react-table'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
-import Dialog from '@/components/ui/Dialog'
-import { Form, FormItem } from '@/components/ui/Form'
 import Alert from '@/components/ui/Alert'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable from '@/components/shared/DataTable'
@@ -14,8 +12,10 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
+import PlanTripWizard from '../components/trips/PlanTripWizard'
+import EditTripDialog from '../components/trips/EditTripDialog'
 import { useTrips } from '../hooks/useTrips'
-import { useVehicles } from '../hooks/useVehicles'
+import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { Trip, TripStatus } from '../types'
 
@@ -25,15 +25,25 @@ const statusOptions: Option[] = [
     { value: '', label: 'All statuses' },
     { value: 'DRAFT', label: 'Draft' },
     { value: 'PLANNED', label: 'Planned' },
-    { value: 'IN_PROGRESS', label: 'In Progress' },
+    { value: 'ASSIGNED', label: 'Assigned' },
+    { value: 'IN_TRANSIT', label: 'In Transit' },
     { value: 'COMPLETED', label: 'Completed' },
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
+/** Phase 3.2 Dispatch → 3.3 Start → Complete */
 const nextStatus: Partial<Record<TripStatus, TripStatus>> = {
     DRAFT: 'PLANNED',
-    PLANNED: 'IN_PROGRESS',
-    IN_PROGRESS: 'COMPLETED',
+    PLANNED: 'ASSIGNED',
+    ASSIGNED: 'IN_TRANSIT',
+    IN_TRANSIT: 'COMPLETED',
+}
+
+const advanceLabel: Partial<Record<TripStatus, string>> = {
+    DRAFT: 'Approve plan',
+    PLANNED: 'Dispatch',
+    ASSIGNED: 'Start trip',
+    IN_TRANSIT: 'Complete',
 }
 
 export default function TripsPage() {
@@ -46,39 +56,14 @@ export default function TripsPage() {
         error,
         params,
         setParams,
-        create,
         updateStatus,
+        update,
         remove,
+        reload,
     } = useTrips()
 
-    const vehicles = useVehicles({ page: 1, pageSize: 100 })
-
-    const [dialogOpen, setDialogOpen] = useState(false)
-    const [saving, setSaving] = useState(false)
-    const [formError, setFormError] = useState<string | null>(null)
-    const [form, setForm] = useState({
-        code: '',
-        vehicleId: '',
-        plannedStartAt: '',
-        notes: '',
-        stopAddress: '',
-        stopName: '',
-        windowStart: '',
-        windowEnd: '',
-    })
-
-    const vehicleOptions: Option[] = useMemo(
-        () => [
-            { value: '', label: 'Unassigned' },
-            ...vehicles.data.map((vehicle) => ({
-                value: vehicle.id,
-                label: `${vehicle.code} · ${vehicle.plateNumber}${
-                    vehicle.routingBlocked ? ' (blocked)' : ''
-                }`,
-            })),
-        ],
-        [vehicles.data],
-    )
+    const [wizardOpen, setWizardOpen] = useState(false)
+    const [editingTrip, setEditingTrip] = useState<Trip | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
         () => [
@@ -102,6 +87,35 @@ export default function TripsPage() {
                 cell: ({ row }) => row.original.stops?.length ?? 0,
             },
             {
+                header: 'Load',
+                cell: ({ row }) => {
+                    const vehicle = row.original.vehicle
+                    if (!vehicle) return '—'
+                    const shipments =
+                        row.original.stops?.flatMap(
+                            (stop) =>
+                                stop.shipments
+                                    ?.map((link) => link.shipment)
+                                    .filter(Boolean) ?? [],
+                        ) ?? []
+                    const unique = [
+                        ...new Map(
+                            shipments.map((s) => [s!.id, s!]),
+                        ).values(),
+                    ]
+                    const snap = computeCapacity(vehicle, unique)
+                    if (snap.pctQty == null) {
+                        return '—'
+                    }
+                    return (
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                            {snap.loadedQty}/{snap.capacityQty} (
+                            {Math.round(snap.pctQty)}%)
+                        </span>
+                    )
+                },
+            },
+            {
                 header: 'Planned start',
                 cell: ({ row }) =>
                     row.original.plannedStartAt
@@ -121,16 +135,29 @@ export default function TripsPage() {
                 id: 'actions',
                 cell: ({ row }) => {
                     const advance = nextStatus[row.original.status]
+                    const canEdit =
+                        row.original.status === 'DRAFT' ||
+                        row.original.status === 'PLANNED'
                     return (
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
+                            {canEdit ? (
+                                <Button
+                                    size="xs"
+                                    onClick={() => setEditingTrip(row.original)}
+                                >
+                                    Edit
+                                </Button>
+                            ) : null}
                             {advance ? (
                                 <Button
                                     size="xs"
+                                    variant="solid"
                                     onClick={() =>
                                         void updateStatus(row.original.id, advance)
                                     }
                                 >
-                                    → {formatStatusLabel(advance)}
+                                    {advanceLabel[row.original.status] ??
+                                        `→ ${formatStatusLabel(advance)}`}
                                 </Button>
                             ) : null}
                             <Button
@@ -149,61 +176,16 @@ export default function TripsPage() {
         [remove, updateStatus],
     )
 
-    const onSubmit = async () => {
-        setSaving(true)
-        setFormError(null)
-        try {
-            await create({
-                code: form.code,
-                vehicleId: form.vehicleId || null,
-                plannedStartAt: form.plannedStartAt || null,
-                notes: form.notes || null,
-                status: 'DRAFT',
-                stops: form.stopAddress
-                    ? [
-                          {
-                              sequence: 1,
-                              name: form.stopName || undefined,
-                              address: form.stopAddress,
-                              windowStart: form.windowStart || undefined,
-                              windowEnd: form.windowEnd || undefined,
-                          },
-                      ]
-                    : [],
-            })
-            setDialogOpen(false)
-            setForm({
-                code: '',
-                vehicleId: '',
-                plannedStartAt: '',
-                notes: '',
-                stopAddress: '',
-                stopName: '',
-                windowStart: '',
-                windowEnd: '',
-            })
-        } catch (err) {
-            setFormError(
-                err instanceof Error ? err.message : 'Failed to create trip',
-            )
-        } finally {
-            setSaving(false)
-        }
-    }
-
     return (
         <PageContainer>
             <PageHeader
                 title="Trips"
-                description="Multi-stop routes with vehicle assignment and time windows."
+                description="Fleet & Dispatch (3.2) → Start trip for In-Transit Monitoring (3.3). Plan trip builds load; Dispatch requires a vehicle."
                 breadcrumbs={scmPageBreadcrumbs('Trips')}
                 actions={
                     <Button
                         variant="solid"
-                        onClick={() => {
-                            setFormError(null)
-                            setDialogOpen(true)
-                        }}
+                        onClick={() => setWizardOpen(true)}
                     >
                         Plan trip
                     </Button>
@@ -273,137 +255,22 @@ export default function TripsPage() {
                 />
             </AdaptiveCard>
 
-            <Dialog
-                isOpen={dialogOpen}
-                onClose={() => setDialogOpen(false)}
-                onRequestClose={() => setDialogOpen(false)}
-            >
-                <h4 className="mb-4">Plan trip</h4>
-                {formError ? (
-                    <Alert showIcon type="danger" className="mb-3">
-                        {formError}
-                    </Alert>
-                ) : null}
-                <Form
-                    onSubmit={(e) => {
-                        e.preventDefault()
-                        void onSubmit()
-                    }}
-                >
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <FormItem label="Trip code">
-                            <Input
-                                value={form.code}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        code: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Vehicle">
-                            <Select
-                                options={vehicleOptions}
-                                value={
-                                    vehicleOptions.find(
-                                        (option) => option.value === form.vehicleId,
-                                    ) ?? vehicleOptions[0]
-                                }
-                                onChange={(option) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        vehicleId:
-                                            (option as Option | null)?.value || '',
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Planned start">
-                            <Input
-                                type="datetime-local"
-                                value={form.plannedStartAt}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        plannedStartAt: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="First stop name">
-                            <Input
-                                value={form.stopName}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        stopName: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="First stop address" className="md:col-span-2">
-                            <Input
-                                value={form.stopAddress}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        stopAddress: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Window start">
-                            <Input
-                                type="datetime-local"
-                                value={form.windowStart}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        windowStart: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Window end">
-                            <Input
-                                type="datetime-local"
-                                value={form.windowEnd}
-                                onChange={(e) =>
-                                    setForm((current) => ({
-                                        ...current,
-                                        windowEnd: e.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                    </div>
-                    <FormItem label="Notes" className="mt-3">
-                        <Input
-                            textArea
-                            value={form.notes}
-                            onChange={(e) =>
-                                setForm((current) => ({
-                                    ...current,
-                                    notes: e.target.value,
-                                }))
-                            }
-                        />
-                    </FormItem>
-                    <div className="mt-4 flex justify-end gap-2">
-                        <Button
-                            type="button"
-                            variant="plain"
-                            onClick={() => setDialogOpen(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button type="submit" variant="solid" loading={saving}>
-                            Save trip
-                        </Button>
-                    </div>
-                </Form>
-            </Dialog>
+            <PlanTripWizard
+                isOpen={wizardOpen}
+                onClose={() => setWizardOpen(false)}
+                onCreated={() => {
+                    void reload()
+                }}
+            />
+
+            <EditTripDialog
+                isOpen={Boolean(editingTrip)}
+                trip={editingTrip}
+                onClose={() => setEditingTrip(null)}
+                onSave={async (id, body) => {
+                    await update(id, body)
+                }}
+            />
         </PageContainer>
     )
 }

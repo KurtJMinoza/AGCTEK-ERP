@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common'
 import { MaintenanceService } from './maintenance.service'
 import type { ListQuery } from '../scm.utils'
 
@@ -7,8 +7,19 @@ export class MaintenanceController {
     constructor(private readonly maintenanceService: MaintenanceService) {}
 
     @Get()
-    findAll(@Query() query: ListQuery & { vehicleId?: string }) {
+    findAll(
+        @Query() query: ListQuery & { vehicleId?: string; type?: string },
+    ) {
         return this.maintenanceService.findAll(query)
+    }
+
+    /**
+     * Bulk-set Vehicle.maintenanceThresholdKm from Maintenance UI.
+     * Empty vehicleIds → all vehicles. null thresholdKm clears.
+     */
+    @Put('odometer-thresholds')
+    setOdometerThresholds(@Body() body: Record<string, unknown>) {
+        return this.maintenanceService.setOdometerThresholds(body as never)
     }
 
     @Get(':id')

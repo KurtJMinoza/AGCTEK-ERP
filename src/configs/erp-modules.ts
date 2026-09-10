@@ -366,59 +366,43 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'SCM',
         title: 'Supply Chain Management',
         description:
-            'End-to-end supply chain visibility — demand planning, logistics, and supplier collaboration.',
+            'Goods in motion — demand planning, transportation execution, fleet telematics, and last-mile tracking.',
         path: '/modules/scm',
         icon: 'truck',
         categories: [
             {
-                code: 'master-data',
-                title: 'Master Data',
-                submodules: [
-                    {
-                        code: 'supply-network',
-                        title: 'Supply Network',
-                        description:
-                            'Model suppliers, plants, and distribution lanes.',
-                        path: '/modules/scm/supply-network',
-                        icon: 'gitBranch',
-                    },
-                    {
-                        code: 'product-locations',
-                        title: 'Product Locations',
-                        description:
-                            'Assign products to locations and sourcing rules.',
-                        path: '/modules/scm/product-locations',
-                        icon: 'package',
-                    },
-                ],
-            },
-            {
-                code: 'transactional',
-                title: 'Transactional',
+                code: 'planning',
+                title: 'Planning',
                 submodules: [
                     {
                         code: 'demand-planning',
                         title: 'Demand Planning',
                         description:
-                            'Forecast demand and collaborate on consensus plans.',
-                        path: '/modules/scm/demand-planning',
+                            'Forecast demand and consensus plans (PDF pillar 1).',
+                        path: '/scm/demand-planning',
                         icon: 'lineChart',
                     },
+                    {
+                        code: 'planning-horizons',
+                        title: 'Planning Horizons',
+                        description:
+                            'Horizon weeks, bucket size, and frozen-zone days for demand planning.',
+                        path: '/scm/planning-horizons',
+                        icon: 'settings',
+                    },
+                ],
+            },
+            {
+                code: 'execute',
+                title: 'Execute',
+                submodules: [
                     {
                         code: 'transportation',
                         title: 'Transportation Management',
                         description:
-                            'Plan shipments, carriers, and freight costs.',
+                            'Shipments, load building, trips, fleet, drivers, tracking, and maintenance.',
                         path: '/scm',
                         icon: 'truck',
-                    },
-                    {
-                        code: 'warehouse-operations',
-                        title: 'Warehouse Operations',
-                        description:
-                            'Manage inbound/outbound warehouse tasks and slotting.',
-                        path: '/modules/scm/warehouse-operations',
-                        icon: 'warehouse',
                     },
                 ],
             },
@@ -430,23 +414,9 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'supply-chain-dashboard',
                         title: 'Supply Chain Dashboard',
                         description:
-                            'KPIs for OTIF, lead times, and inventory turns.',
-                        path: '/modules/scm/supply-chain-dashboard',
+                            'Ops KPIs — fleet utilization, shipments, trips; OTIF later.',
+                        path: '/scm/supply-chain-dashboard',
                         icon: 'barChart',
-                    },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'planning-horizons',
-                        title: 'Planning Horizons',
-                        description:
-                            'Set planning buckets and frozen zone parameters.',
-                        path: '/modules/scm/planning-horizons',
-                        icon: 'settings',
                     },
                 ],
             },

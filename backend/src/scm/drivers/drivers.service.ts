@@ -61,6 +61,16 @@ export class DriversService {
                 { licenseNumber: { contains: q, mode: 'insensitive' } },
                 { employeeCode: { contains: q, mode: 'insensitive' } },
                 { phone: { contains: q, mode: 'insensitive' } },
+                {
+                    user: {
+                        is: {
+                            OR: [
+                                { userName: { contains: q, mode: 'insensitive' } },
+                                { email: { contains: q, mode: 'insensitive' } },
+                            ],
+                        },
+                    },
+                },
             ]
         }
 
@@ -85,6 +95,18 @@ export class DriversService {
                 include: driverInclude,
             }),
             'Driver not found',
+        )
+    }
+
+    /** Resolve Driver profile for a signed-in ERP user (mobile /me). */
+    async findByUserId(userId: string) {
+        const id = requireString(userId, 'userId')
+        return assertFound(
+            await this.prisma.driver.findUnique({
+                where: { userId: id },
+                include: driverInclude,
+            }),
+            'No driver profile linked to this user',
         )
     }
 

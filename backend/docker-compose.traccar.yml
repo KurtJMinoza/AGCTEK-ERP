@@ -1,0 +1,29 @@
+# Traccar GPS protocol server (OPTIONAL — prefer flespi for VL502 testing).
+# See docs/SCM_FLESPI_VL502.md (active) and docs/SCM_TRACCAR_VL502.md (optional).
+# UI: http://localhost:8082
+# Device TCP: host:5015  ← Huabao/JT808 for Jimi VL502 (packets start 0x7e). NOT GT06 (5023).
+#
+# Usage:
+#   cd backend
+#   docker compose -f docker-compose.traccar.yml up -d
+#
+# Cellular devices cannot use 127.0.0.1 — expose 5015 with ngrok tcp if you use this path.
+
+services:
+  traccar:
+    image: traccar/traccar:latest
+    container_name: agctek-traccar
+    restart: unless-stopped
+    ports:
+      - "8082:8082"   # Traccar web UI / API (ops only — ERP map stays Leaflet)
+      - "5015:5015"   # Huabao protocol — Jimi IoT VL502
+    volumes:
+      - traccar-data:/opt/traccar/data
+      - ./traccar/logs:/opt/traccar/logs
+      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+    # Uncomment if Nest runs on the host and Traccar (Docker) must reach ingest:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+volumes:
+  traccar-data:

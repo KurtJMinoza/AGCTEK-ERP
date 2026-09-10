@@ -82,6 +82,30 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/scm/demand-planning': {
+        key: 'scmDemandPlanning',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/planning-horizons': {
+        key: 'scmPlanningHorizons',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/supply-chain-dashboard': {
+        key: 'scmSupplyChainDashboard',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/scm/tracking': {
         key: 'scmTracking',
         authority: [],

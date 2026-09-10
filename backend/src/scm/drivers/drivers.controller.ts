@@ -11,6 +11,12 @@ export class DriversController {
         return this.driversService.findAll(query)
     }
 
+    /** Mobile: resolve Driver for ERP user id (Nest has no JWT yet). */
+    @Get('me')
+    me(@Query('userId') userId: string) {
+        return this.driversService.findByUserId(userId)
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.driversService.findOne(id)
