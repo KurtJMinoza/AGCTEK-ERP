@@ -51,8 +51,22 @@ export class PackingController {
     }
 
     @Post(':id/ready-for-dispatch')
-    readyForDispatch(@Param('id') id: string) {
-        return this.service.markReadyForDispatch(id)
+    readyForDispatch(
+        @Param('id') id: string,
+        @Body()
+        body?: {
+            shipToName?: string
+            shipToAddress?: string
+            shipToLat?: number
+            shipToLng?: number
+        },
+    ) {
+        return this.service.markReadyForDispatch(id, body)
+    }
+
+    @Post(':id/retry-scm-release')
+    retryScmRelease(@Param('id') id: string) {
+        return this.service.retryScmRelease(id)
     }
 
     @Post(':id/dispatch')

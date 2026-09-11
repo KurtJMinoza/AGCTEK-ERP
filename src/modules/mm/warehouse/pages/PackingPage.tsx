@@ -104,6 +104,8 @@ const PackingPage = () => {
 
     const [dispatchCarrier, setDispatchCarrier] = useState('')
     const [dispatchTracking, setDispatchTracking] = useState('')
+    const [shipToName, setShipToName] = useState('')
+    const [shipToAddress, setShipToAddress] = useState('')
 
     const queryParams = useMemo<PackageQueryParams>(
         () => ({
@@ -196,9 +198,13 @@ const PackingPage = () => {
         setSealHeight('')
         setDispatchCarrier('')
         setDispatchTracking('')
+        setShipToName(pkg.shipToName ?? '')
+        setShipToAddress(pkg.shipToAddress ?? '')
         try {
             const full = await packingService.get(pkg.id)
             setDetailPkg(full)
+            setShipToName(full.shipToName ?? '')
+            setShipToAddress(full.shipToAddress ?? '')
         } catch {
             pushToast('danger', 'Error', 'Failed to load package details')
             setDetailOpen(false)
@@ -262,13 +268,74 @@ const PackingPage = () => {
 
     const handleReadyForDispatch = useCallback(async () => {
         if (!detailPkg) return
+        if (!shipToAddress.trim()) {
+            pushToast(
+                'danger',
+                'Ship-to required',
+                'Enter a ship-to address before Ready for Dispatch (SCM release).',
+            )
+            return
+        }
         try {
-            await packingService.readyForDispatch(detailPkg.id)
-            pushToast('success', 'Ready', `Package ${detailPkg.packageNumber} ready for dispatch.`)
+            const result = await packingService.readyForDispatch(detailPkg.id, {
+                shipToName: shipToName.trim() || undefined,
+                shipToAddress: shipToAddress.trim(),
+            })
+            if (result.scmReleaseError) {
+                pushToast(
+                    'warning',
+                    'Ready — SCM release failed',
+                    `${result.scmReleaseError}. Use Retry SCM release.`,
+                )
+            } else if (result.scmShipment) {
+                pushToast(
+                    'success',
+                    'Ready + SCM shipment',
+                    `Package ready. Shipment ${result.scmShipment.reference} created.`,
+                )
+            } else {
+                pushToast(
+                    'success',
+                    'Ready',
+                    `Package ${detailPkg.packageNumber} ready for dispatch.`,
+                )
+            }
             await refreshDetail()
             fetchPackages()
         } catch (err: any) {
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Ready-for-dispatch failed')
+            pushToast(
+                'danger',
+                'Error',
+                err?.response?.data?.message || 'Ready-for-dispatch failed',
+            )
+        }
+    }, [
+        detailPkg,
+        shipToName,
+        shipToAddress,
+        refreshDetail,
+        fetchPackages,
+    ])
+
+    const handleRetryScmRelease = useCallback(async () => {
+        if (!detailPkg) return
+        try {
+            const result = await packingService.retryScmRelease(detailPkg.id)
+            pushToast(
+                'success',
+                'SCM released',
+                result.scmShipment
+                    ? `Shipment ${result.scmShipment.reference}`
+                    : 'Release OK',
+            )
+            await refreshDetail()
+            fetchPackages()
+        } catch (err: any) {
+            pushToast(
+                'danger',
+                'SCM release failed',
+                err?.response?.data?.message || 'Retry failed',
+            )
         }
     }, [detailPkg, refreshDetail, fetchPackages])
 
@@ -614,24 +681,52 @@ const PackingPage = () => {
                         )}
 
                         {detailPkg.status === 'VERIFIED' && (
-                            <div className="mt-4 flex flex-wrap gap-2 items-center">
-                                <Input size="sm" placeholder="Weight (kg)" value={sealWeight} onChange={(e) => setSealWeight(e.target.value)} className="w-24" />
-                                <Input size="sm" placeholder="L" value={sealLength} onChange={(e) => setSealLength(e.target.value)} className="w-16" />
-                                <Input size="sm" placeholder="W" value={sealWidth} onChange={(e) => setSealWidth(e.target.value)} className="w-16" />
-                                <Input size="sm" placeholder="H" value={sealHeight} onChange={(e) => setSealHeight(e.target.value)} className="w-16" />
-                                <Button size="sm" variant="solid" onClick={handleSeal}>Seal</Button>
-                                <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
+                            <div className="mt-4 space-y-2">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <Input size="sm" placeholder="Weight (kg)" value={sealWeight} onChange={(e) => setSealWeight(e.target.value)} className="w-24" />
+                                    <Input size="sm" placeholder="L" value={sealLength} onChange={(e) => setSealLength(e.target.value)} className="w-16" />
+                                    <Input size="sm" placeholder="W" value={sealWidth} onChange={(e) => setSealWidth(e.target.value)} className="w-16" />
+                                    <Input size="sm" placeholder="H" value={sealHeight} onChange={(e) => setSealHeight(e.target.value)} className="w-16" />
+                                    <Button size="sm" variant="solid" onClick={handleSeal}>Seal</Button>
+                                </div>
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <Input size="sm" placeholder="Ship-to name" value={shipToName} onChange={(e) => setShipToName(e.target.value)} className="w-40" />
+                                    <Input size="sm" placeholder="Ship-to address (required for SCM)" value={shipToAddress} onChange={(e) => setShipToAddress(e.target.value)} className="min-w-[220px] flex-1" />
+                                    <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
+                                </div>
                             </div>
                         )}
 
                         {(detailPkg.status === 'SEALED' || detailPkg.status === 'READY_FOR_DISPATCH') && (
-                            <div className="mt-4 flex flex-wrap gap-2 items-center">
-                                <Input size="sm" placeholder="Carrier" value={dispatchCarrier} onChange={(e) => setDispatchCarrier(e.target.value)} className="w-32" />
-                                <Input size="sm" placeholder="Tracking #" value={dispatchTracking} onChange={(e) => setDispatchTracking(e.target.value)} className="w-40" />
-                                {detailPkg.status === 'SEALED' && (
-                                    <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
-                                )}
-                                <Button size="sm" variant="solid" icon={<HiOutlineTruck />} onClick={handleDispatch}>Dispatch</Button>
+                            <div className="mt-4 space-y-2">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <Input size="sm" placeholder="Ship-to name" value={shipToName} onChange={(e) => setShipToName(e.target.value)} className="w-40" />
+                                    <Input size="sm" placeholder="Ship-to address (required for SCM)" value={shipToAddress} onChange={(e) => setShipToAddress(e.target.value)} className="min-w-[220px] flex-1" />
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 items-center">
+                                    <Input size="sm" placeholder="Carrier" value={dispatchCarrier} onChange={(e) => setDispatchCarrier(e.target.value)} className="w-32" />
+                                    <Input size="sm" placeholder="Tracking #" value={dispatchTracking} onChange={(e) => setDispatchTracking(e.target.value)} className="w-40" />
+                                    {detailPkg.status === 'SEALED' && (
+                                        <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
+                                    )}
+                                    {detailPkg.status === 'READY_FOR_DISPATCH' && (
+                                        <Button size="sm" onClick={handleRetryScmRelease}>
+                                            Retry SCM release
+                                        </Button>
+                                    )}
+                                    <Button size="sm" variant="solid" icon={<HiOutlineTruck />} onClick={handleDispatch}>Dispatch</Button>
+                                </div>
+                                {detailPkg.scmShipment ? (
+                                    <p className="text-xs text-gray-500">
+                                        SCM shipment{' '}
+                                        <a
+                                            className="text-primary hover:underline"
+                                            href={`/scm/shipments`}
+                                        >
+                                            {detailPkg.scmShipment.reference}
+                                        </a>
+                                    </p>
+                                ) : null}
                             </div>
                         )}
                     </div>

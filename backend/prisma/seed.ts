@@ -8,6 +8,7 @@ import {
 } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
 import { seedMmOrg } from './seed-mm-org'
+import { seedMmScmHandoff } from './seed-mm-scm-handoff'
 
 const prisma = new PrismaClient()
 
@@ -462,7 +463,93 @@ async function main() {
         `Seeded ${hubUpserted} hub geofences (HUB-LUZON / HUB-VISAYAS / HUB-MINDANAO).`,
     )
     console.log(
-        `Seeded ${upserted} READY shipments (${deliveries} DELIVERY + ${pickups} PICKUP), shuffled insert order.`,
+        `Seeded ${upserted} READY stub shipments (${deliveries} DELIVERY + ${pickups} PICKUP), shuffled insert order.`,
+    )
+
+    // Package-linked MM → SCM handoff (GI-capable on trip start)
+    await seedMmScmHandoff(prisma)
+
+    // Fleet for load plan / dispatch (AVAILABLE, capacityQty > 0)
+    const fleetVehicles = [
+        {
+            code: 'VEH-LZN-01',
+            plateNumber: 'ABC-1001',
+            make: 'Isuzu',
+            model: 'ELF NPR',
+            year: 2022,
+            type: 'TRUCK' as const,
+            capacityQty: 120,
+            capacityWeightKg: 3500,
+            capacityVolumeM3: 18,
+            notes: 'Luzon hub fleet — MM→SCM demo',
+        },
+        {
+            code: 'VEH-VIS-01',
+            plateNumber: 'ABC-2001',
+            make: 'Hino',
+            model: '300 Series',
+            year: 2021,
+            type: 'TRUCK' as const,
+            capacityQty: 100,
+            capacityWeightKg: 3000,
+            capacityVolumeM3: 16,
+            notes: 'Visayas hub fleet — MM→SCM demo',
+        },
+        {
+            code: 'VEH-MIN-01',
+            plateNumber: 'ABC-3001',
+            make: 'Mitsubishi',
+            model: 'Canter',
+            year: 2023,
+            type: 'VAN' as const,
+            capacityQty: 80,
+            capacityWeightKg: 2500,
+            capacityVolumeM3: 12,
+            notes: 'Mindanao hub fleet — MM→SCM demo',
+        },
+        {
+            code: 'VEH-DEMO-PM',
+            plateNumber: 'PM-SEED-01',
+            make: 'Foton',
+            model: 'View',
+            year: 2019,
+            type: 'VAN' as const,
+            capacityQty: 40,
+            capacityWeightKg: 1500,
+            capacityVolumeM3: 8,
+            notes: 'Maintenance demo only — intentionally routing-blocked',
+        },
+    ]
+
+    for (const v of fleetVehicles) {
+        await prisma.vehicle.upsert({
+            where: { code: v.code },
+            create: {
+                ...v,
+                status: 'AVAILABLE',
+                routingBlocked: false,
+                odometerKm: 12000,
+                maintenanceThresholdKm: 50000,
+            },
+            update: {
+                plateNumber: v.plateNumber,
+                make: v.make,
+                model: v.model,
+                year: v.year,
+                type: v.type,
+                capacityQty: v.capacityQty,
+                capacityWeightKg: v.capacityWeightKg,
+                capacityVolumeM3: v.capacityVolumeM3,
+                notes: v.notes,
+                // Keep VEH-DEMO-PM block flags from maintenance seed; reset others for dispatch
+                ...(v.code === 'VEH-DEMO-PM'
+                    ? {}
+                    : { status: 'AVAILABLE' as const, routingBlocked: false }),
+            },
+        })
+    }
+    console.log(
+        'Seeded fleet vehicles VEH-LZN-01 / VEH-VIS-01 / VEH-MIN-01 (+ VEH-DEMO-PM for maintenance).',
     )
 
     // Demo driver for Expo app (apps/driver)
@@ -502,6 +589,7 @@ async function main() {
             lastName: 'Reyes',
             phone: '+63 917 000 0001',
             employeeCode: 'DRV-001',
+            status: 'AVAILABLE',
         },
     })
 
@@ -509,23 +597,24 @@ async function main() {
         'Seeded driver user driver01 / 123Qwe (linked Driver profile for Expo app).',
     )
 
-    // Sample preventative maintenance (blocks routing) on first vehicle if any
-    const seedVehicle = await prisma.vehicle.findFirst({
-        orderBy: { createdAt: 'asc' },
+    // Sample preventative maintenance on VEH-DEMO-PM only (keeps fleet dispatchable)
+    const seedVehicle = await prisma.vehicle.findUnique({
+        where: { code: 'VEH-DEMO-PM' },
     })
     if (seedVehicle) {
-        // VL502: same IMEI in Traccar Devices uniqueId and Vehicle.telematicsDeviceId
         const seedImei = process.env.SEED_VL502_IMEI?.trim()
-        if (seedImei && seedVehicle.telematicsDeviceId !== seedImei) {
+        const fleetForTelematics = await prisma.vehicle.findUnique({
+            where: { code: 'VEH-LZN-01' },
+        })
+        if (seedImei && fleetForTelematics) {
             await prisma.vehicle.update({
-                where: { id: seedVehicle.id },
+                where: { id: fleetForTelematics.id },
                 data: { telematicsDeviceId: seedImei },
             })
-            seedVehicle.telematicsDeviceId = seedImei
             console.log(
-                `Set ${seedVehicle.plateNumber}.telematicsDeviceId = ${seedImei} (flespi: use 14-digit ident). See docs/SCM_FLESPI_VL502.md`,
+                `Set ${fleetForTelematics.plateNumber}.telematicsDeviceId = ${seedImei} (flespi: use 14-digit ident). See docs/SCM_FLESPI_VL502.md`,
             )
-        } else if (!seedVehicle.telematicsDeviceId) {
+        } else if (fleetForTelematics && !fleetForTelematics.telematicsDeviceId) {
             console.log(
                 'Tip: set SEED_VL502_IMEI to flespi 14-digit ident (or full IMEI). See docs/SCM_FLESPI_VL502.md',
             )
@@ -551,7 +640,6 @@ async function main() {
                 },
             })
         }
-        // Sync vehicle block flags via same rules as MaintenanceService
         const blocking = await prisma.maintenanceRecord.count({
             where: {
                 vehicleId: seedVehicle.id,
@@ -571,14 +659,12 @@ async function main() {
             where: { id: seedVehicle.id },
             data: {
                 routingBlocked: blocking > 0,
-                status: blocking > 0 ? 'MAINTENANCE' : seedVehicle.status,
+                status: blocking > 0 ? 'MAINTENANCE' : 'AVAILABLE',
             },
         })
         console.log(
-            `Seeded maintenance on ${seedVehicle.plateNumber} (blocksRouting=${blocking > 0}).`,
+            `Seeded maintenance on ${seedVehicle.plateNumber} (blocksRouting=${blocking > 0}). Fleet vehicles remain AVAILABLE.`,
         )
-    } else {
-        console.log('No vehicles found — skipped maintenance seed.')
     }
 }
 

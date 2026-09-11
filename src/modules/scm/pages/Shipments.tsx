@@ -118,8 +118,12 @@ export default function ShipmentsPage() {
                 cell: ({ row }) => row.original.materialCode || '—',
             },
             {
-                header: 'Ext. order',
-                cell: ({ row }) => row.original.externalOrderId || '—',
+                header: 'Ext. order / pkg',
+                cell: ({ row }) =>
+                    row.original.externalOrderId ||
+                    (row.original.packageId
+                        ? row.original.packageId.slice(0, 8)
+                        : '—'),
             },
             {
                 header: 'Quantity',
@@ -231,7 +235,7 @@ export default function ShipmentsPage() {
                                 setCreateOpen(true)
                             }}
                         >
-                            Warehouse release
+                            Warehouse release (manual)
                         </Button>
                     </>
                 }
@@ -243,9 +247,10 @@ export default function ShipmentsPage() {
                 </Alert>
             ) : null}
 
-            <Alert showIcon type="info" className="mb-4" title="Warehouse release stub">
-                Manual create marks shipments READY (packed / ready to ship). A
-                real MM → SCM listener will replace this hand-off later.
+            <Alert showIcon type="info" className="mb-4" title="Released from MM">
+                READY shipments come from MM packing (auto-release when a package
+                is Ready for Dispatch). Manual create remains an admin fallback.
+                Goods Issue posts when the trip starts.
             </Alert>
 
             <AdaptiveCard className="mb-4">

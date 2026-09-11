@@ -11,6 +11,11 @@ export class ShipmentsController {
         return this.shipmentsService.findAll(query)
     }
 
+    @Post('from-package/:packageId')
+    createFromPackage(@Param('packageId') packageId: string) {
+        return this.shipmentsService.createFromPackage(packageId)
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.shipmentsService.findOne(id)

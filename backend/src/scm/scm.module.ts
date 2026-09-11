@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { VehiclesController } from './vehicles/vehicles.controller'
 import { VehiclesService } from './vehicles/vehicles.service'
 import { DriversController } from './drivers/drivers.controller'
@@ -23,8 +23,10 @@ import { PlanningSettingsController } from './planning-settings/planning-setting
 import { PlanningSettingsService } from './planning-settings/planning-settings.service'
 import { DashboardController } from './dashboard/dashboard.controller'
 import { DashboardService } from './dashboard/dashboard.service'
+import { MmModule } from '../mm/mm.module'
 
 @Module({
+    imports: [forwardRef(() => MmModule)],
     controllers: [
         VehiclesController,
         DriversController,
@@ -53,5 +55,6 @@ import { DashboardService } from './dashboard/dashboard.service'
         PlanningSettingsService,
         DashboardService,
     ],
+    exports: [ShipmentsService],
 })
 export class ScmModule {}

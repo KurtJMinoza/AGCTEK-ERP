@@ -451,11 +451,17 @@ model WmPackage {
   height         Decimal?
   carrier        String?
   trackingNumber String?
+  /// Customer ship-to for SCM auto-release (required before READY_FOR_DISPATCH → shipment)
+  shipToName     String?
+  shipToAddress  String?
+  shipToLat      Float?
+  shipToLng      Float?
   status         String          @default("OPEN") // OPEN | VERIFIED | SEALED | READY_FOR_DISPATCH | DISPATCHED
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   items          WmPackageItem[]
   goodsIssues    MmGoodsIssue[]
+  shipment       Shipment?
 
   @@index([warehouseId, status])
   @@index([pickingTaskId])
@@ -3369,6 +3375,11 @@ model Shipment {
   materialCode        String?
   /// External MM / WMS order id ΓÇö warehouse release stub hand-off key
   externalOrderId     String?
+  /// MM packed package that released this shipment (outbound customer flow)
+  packageId           String?            @unique
+  package             WmPackage?         @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  /// Posted MM goods issue for this package (set on trip start)
+  goodsIssueId        String?
   /// Short cargo description for drivers / load lists
   description         String?
   isFragile           Boolean            @default(false)
@@ -3390,6 +3401,7 @@ model Shipment {
 
   @@index([status])
   @@index([movementType])
+  @@index([packageId])
 }
 
 model Trip {

@@ -38,10 +38,24 @@ export const packingService = {
             (r) => r.data,
         ),
 
-    readyForDispatch: (id: string) =>
-        ErpAxiosBase.post<WmPackage>(`${BASE}/${id}/ready-for-dispatch`).then(
-            (r) => r.data,
-        ),
+    readyForDispatch: (
+        id: string,
+        data?: {
+            shipToName?: string
+            shipToAddress?: string
+            shipToLat?: number
+            shipToLng?: number
+        },
+    ) =>
+        ErpAxiosBase.post<WmPackage>(
+            `${BASE}/${id}/ready-for-dispatch`,
+            data ?? {},
+        ).then((r) => r.data),
+
+    retryScmRelease: (id: string) =>
+        ErpAxiosBase.post<WmPackage>(
+            `${BASE}/${id}/retry-scm-release`,
+        ).then((r) => r.data),
 
     dispatch: (id: string) =>
         ErpAxiosBase.post<WmPackage>(`${BASE}/${id}/dispatch`).then(

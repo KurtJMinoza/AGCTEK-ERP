@@ -121,6 +121,8 @@ export type Shipment = {
     volumeM3: number
     materialCode: string | null
     externalOrderId: string | null
+    packageId: string | null
+    goodsIssueId: string | null
     description: string | null
     isFragile: boolean
     requiresColdChain: boolean

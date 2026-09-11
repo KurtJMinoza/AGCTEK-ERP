@@ -377,10 +377,17 @@ export interface WmPackage {
     height?: number
     carrier?: string
     trackingNumber?: string
+    shipToName?: string | null
+    shipToAddress?: string | null
+    shipToLat?: number | null
+    shipToLng?: number | null
     status: string
     createdAt: string
     updatedAt: string
     items?: WmPackageItem[]
+    /** Present on ready-for-dispatch / retry responses */
+    scmShipment?: { id: string; reference: string; status: string } | null
+    scmReleaseError?: string | null
 }
 
 export interface WmPackageItem {

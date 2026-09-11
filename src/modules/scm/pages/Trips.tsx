@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
+import { HiOutlineEye } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -14,6 +15,7 @@ import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
 import PlanTripWizard from '../components/trips/PlanTripWizard'
 import EditTripDialog from '../components/trips/EditTripDialog'
+import TripLoadManifestDialog from '../components/trips/TripLoadManifestDialog'
 import { useTrips } from '../hooks/useTrips'
 import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
@@ -64,6 +66,7 @@ export default function TripsPage() {
 
     const [wizardOpen, setWizardOpen] = useState(false)
     const [editingTrip, setEditingTrip] = useState<Trip | null>(null)
+    const [manifestTripId, setManifestTripId] = useState<string | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
         () => [
@@ -139,7 +142,16 @@ export default function TripsPage() {
                         row.original.status === 'DRAFT' ||
                         row.original.status === 'PLANNED'
                     return (
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                            <Button
+                                size="xs"
+                                variant="plain"
+                                icon={<HiOutlineEye />}
+                                aria-label={`View load manifest for ${row.original.code}`}
+                                onClick={() =>
+                                    setManifestTripId(row.original.id)
+                                }
+                            />
                             {canEdit ? (
                                 <Button
                                     size="xs"
@@ -153,7 +165,10 @@ export default function TripsPage() {
                                     size="xs"
                                     variant="solid"
                                     onClick={() =>
-                                        void updateStatus(row.original.id, advance)
+                                        void updateStatus(
+                                            row.original.id,
+                                            advance,
+                                        )
                                     }
                                 >
                                     {advanceLabel[row.original.status] ??
@@ -270,6 +285,12 @@ export default function TripsPage() {
                 onSave={async (id, body) => {
                     await update(id, body)
                 }}
+            />
+
+            <TripLoadManifestDialog
+                isOpen={Boolean(manifestTripId)}
+                tripId={manifestTripId}
+                onClose={() => setManifestTripId(null)}
             />
         </PageContainer>
     )
