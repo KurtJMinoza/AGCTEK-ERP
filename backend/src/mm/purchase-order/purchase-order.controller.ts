@@ -19,7 +19,9 @@ import {
     CreatePoFromPrDto,
     CreatePoAttachmentDto,
     UpsertPoToleranceDto,
+    RevisePurchaseOrderDto,
 } from './dto/po-actions.dto'
+import { MmMutation } from '../common/mm-mutation.decorator'
 
 class ActionBody {
     reason?: string
@@ -33,16 +35,19 @@ export class PurchaseOrderController {
     constructor(private service: PurchaseOrderService) {}
 
     @Post()
+    @MmMutation()
     create(@Body() dto: CreatePurchaseOrderDto) {
         return this.service.create(dto)
     }
 
     @Post('from-award')
+    @MmMutation()
     fromAward(@Body() dto: CreatePoFromAwardDto) {
         return this.service.createFromAward(dto)
     }
 
     @Post('from-pr')
+    @MmMutation()
     fromPr(@Body() dto: CreatePoFromPrDto) {
         return this.service.createFromPr(dto)
     }
@@ -58,41 +63,55 @@ export class PurchaseOrderController {
     }
 
     @Put(':id')
+    @MmMutation()
     update(@Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
         return this.service.update(id, dto, dto.buyerId ?? undefined)
     }
 
     @Post(':id/submit')
+    @MmMutation()
     submit(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.submit(id, body?.performedBy)
     }
 
     @Post(':id/approve')
+    @MmMutation()
     approve(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.approveViaWorkflow(id, body?.performedBy, body?.comment)
     }
 
     @Post(':id/reject')
+    @MmMutation()
     reject(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.rejectViaWorkflow(id, body?.reason ?? body?.comment, body?.performedBy)
     }
 
     @Post(':id/return')
+    @MmMutation()
     returnPo(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.returnViaWorkflow(id, body?.comment, body?.performedBy)
     }
 
+    @Post(':id/revise')
+    @MmMutation()
+    revise(@Param('id') id: string, @Body() dto: RevisePurchaseOrderDto) {
+        return this.service.revise(id, dto)
+    }
+
     @Post(':id/send')
+    @MmMutation()
     send(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.send(id, body?.performedBy)
     }
 
     @Post(':id/cancel')
+    @MmMutation()
     cancel(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.cancel(id, body?.reason, body?.performedBy)
     }
 
     @Post(':id/close')
+    @MmMutation()
     close(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.close(id, body?.performedBy)
     }
@@ -113,11 +132,13 @@ export class PurchaseOrderController {
     }
 
     @Post(':id/attachments')
+    @MmMutation()
     addAttachment(@Param('id') id: string, @Body() dto: CreatePoAttachmentDto) {
         return this.service.addAttachment(id, dto)
     }
 
     @Delete(':id/attachments/:attachmentId')
+    @MmMutation()
     deleteAttachment(
         @Param('id') id: string,
         @Param('attachmentId') attachmentId: string,

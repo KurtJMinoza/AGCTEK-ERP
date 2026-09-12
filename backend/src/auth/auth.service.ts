@@ -16,6 +16,9 @@ import {
 type SignUpInput = {
     email: string
     userName: string
+    firstName?: string
+    lastName?: string
+    jobPosition?: string
     password: string
     role: string
 }
@@ -33,6 +36,10 @@ export class AuthService {
         id: string
         email: string
         userName: string
+        firstName?: string | null
+        lastName?: string | null
+        jobPosition?: string | null
+        bio?: string | null
         role: string
         avatar: string
     }) {
@@ -42,6 +49,10 @@ export class AuthService {
             id: user.id,
             email: user.email,
             userName: user.userName,
+            firstName: user.firstName ?? '',
+            lastName: user.lastName ?? '',
+            jobPosition: user.jobPosition ?? '',
+            bio: user.bio ?? '',
             avatar: user.avatar,
             role,
             authority: ROLE_AUTHORITY[role],
@@ -94,6 +105,9 @@ export class AuthService {
             data: {
                 email,
                 userName,
+                firstName: input.firstName?.trim() ?? '',
+                lastName: input.lastName?.trim() ?? '',
+                jobPosition: input.jobPosition?.trim() ?? '',
                 passwordHash,
                 role,
             },
@@ -147,6 +161,10 @@ export class AuthService {
         userName: string
         email?: string
         newUserName?: string
+        firstName?: string
+        lastName?: string
+        jobPosition?: string
+        bio?: string
         avatar?: string
     }) {
         const currentUserName = input.userName.trim()
@@ -190,6 +208,16 @@ export class AuthService {
             data: {
                 ...(nextEmail ? { email: nextEmail } : {}),
                 ...(nextUserName ? { userName: nextUserName } : {}),
+                ...(input.firstName !== undefined
+                    ? { firstName: input.firstName.trim() }
+                    : {}),
+                ...(input.lastName !== undefined
+                    ? { lastName: input.lastName.trim() }
+                    : {}),
+                ...(input.jobPosition !== undefined
+                    ? { jobPosition: input.jobPosition.trim() }
+                    : {}),
+                ...(input.bio !== undefined ? { bio: input.bio.trim() } : {}),
                 ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
             },
         })

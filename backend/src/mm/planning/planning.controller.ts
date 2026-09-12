@@ -28,6 +28,11 @@ import {
     PlanningDashboardQueryDto,
 } from './dto/planning.dto'
 
+/**
+ * Planning / MRP API.
+ * Canonical Phase 10 aliases coexist with legacy paths.
+ * MRP never posts inventory.
+ */
 @Controller('mm/planning')
 export class PlanningController {
     constructor(
@@ -43,7 +48,25 @@ export class PlanningController {
         return this.dashboard.getDashboard(query)
     }
 
-    // ── Reorder rules ──────────────────────────────────────────────
+    // ── Planning parameters (canonical) / reorder rules (legacy) ───
+
+    @Get('planning-parameters')
+    listPlanningParameters(@Query() query: ReorderRuleQueryDto) {
+        return this.reorderRules.findAll(query)
+    }
+
+    @Post('planning-parameters')
+    createPlanningParameter(@Body() dto: CreateReorderRuleDto) {
+        return this.reorderRules.create(dto)
+    }
+
+    @Patch('planning-parameters/:id')
+    updatePlanningParameter(
+        @Param('id') id: string,
+        @Body() dto: UpdateReorderRuleDto,
+    ) {
+        return this.reorderRules.update(id, dto)
+    }
 
     @Get('reorder-rules')
     listRules(@Query() query: ReorderRuleQueryDto) {
@@ -92,6 +115,11 @@ export class PlanningController {
         return this.demand.update(id, dto)
     }
 
+    @Post('demand/:id/cancel')
+    cancelDemand(@Param('id') id: string) {
+        return this.demand.cancel(id)
+    }
+
     @Delete('demand/:id')
     deleteDemand(@Param('id') id: string) {
         return this.demand.remove(id)
@@ -119,17 +147,44 @@ export class PlanningController {
         return this.mrpRuns.execute(id)
     }
 
-    // ── Material requirements ──────────────────────────────────────
+    @Post('mrp-runs/:id/cancel')
+    cancelRun(@Param('id') id: string) {
+        return this.mrpRuns.cancel(id)
+    }
+
+    // ── Material / MRP requirements ───────────────────────────────
 
     @Get('material-requirements')
     listRequirements(@Query() query: MaterialRequirementQueryDto) {
         return this.mrpRuns.listRequirements(query)
     }
 
+    /** Canonical alias */
+    @Get('requirements')
+    listRequirementsCanonical(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listRequirements(query)
+    }
+
+    @Get('shortages')
+    listShortages(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listRequirements({ ...query, shortage: true })
+    }
+
+    @Get('planned-orders')
+    listPlannedOrders(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listPlannedOrders(query)
+    }
+
     // ── Suggestions ────────────────────────────────────────────────
 
     @Get('suggestions')
     listSuggestions(@Query() query: SuggestionQueryDto) {
+        return this.suggestions.findAll(query)
+    }
+
+    /** Canonical alias */
+    @Get('procurement-suggestions')
+    listProcurementSuggestions(@Query() query: SuggestionQueryDto) {
         return this.suggestions.findAll(query)
     }
 
@@ -140,6 +195,12 @@ export class PlanningController {
 
     @Post('suggestions/:id/convert-pr')
     convertPr(@Param('id') id: string, @Body() dto: ConvertSuggestionDto) {
+        return this.suggestions.convertToPr(id, dto)
+    }
+
+    /** Canonical alias */
+    @Post('suggestions/:id/create-pr')
+    createPr(@Param('id') id: string, @Body() dto: ConvertSuggestionDto) {
         return this.suggestions.convertToPr(id, dto)
     }
 

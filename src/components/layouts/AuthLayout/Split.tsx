@@ -5,9 +5,16 @@ import type { CommonProps } from '@/@types/common'
 
 interface SplitProps extends CommonProps {
     content?: ReactNode
+    /** Tailwind max-width class for the auth form column */
+    formMaxWidth?: string
 }
 
-const Split = ({ children, content, ...rest }: SplitProps) => {
+const Split = ({
+    children,
+    content,
+    formMaxWidth = 'max-w-[480px]',
+    ...rest
+}: SplitProps) => {
     return (
         <div className="grid h-full bg-gray-50 p-4 dark:bg-gray-950 lg:grid-cols-2 lg:p-6">
             <div className="relative hidden flex-col justify-between overflow-hidden rounded-3xl bg-primary px-12 py-10 lg:flex">
@@ -37,8 +44,8 @@ const Split = ({ children, content, ...rest }: SplitProps) => {
                 <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-white/10" />
             </div>
 
-            <div className="flex w-full flex-col items-center justify-center px-4 sm:px-8">
-                <div className="w-full max-w-[480px]">
+            <div className="flex w-full flex-col items-center justify-center overflow-y-auto px-4 py-6 sm:px-8 lg:py-10">
+                <div className={`w-full ${formMaxWidth}`}>
                     {content}
                     {children
                         ? cloneElement(children as ReactElement, {

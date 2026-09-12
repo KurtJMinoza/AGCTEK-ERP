@@ -65,9 +65,41 @@ export class CreateReorderRuleDto {
 
     @IsOptional()
     @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    minStock?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    maxStock?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    lotSize?: number
+
+    @IsOptional()
+    @Type(() => Number)
     @IsInt()
     @Min(0)
     leadTimeDays?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(0)
+    reviewPeriodDays?: number
+
+    @IsOptional()
+    @IsIn(['REORDER_POINT', 'TIME_PHASED', 'MIN_MAX'])
+    planningStrategy?: string
+
+    @IsOptional()
+    @IsIn(['BUY', 'MAKE', 'BOTH'])
+    procurementType?: string
 
     @IsOptional()
     @IsBoolean()
@@ -101,9 +133,41 @@ export class UpdateReorderRuleDto {
 
     @IsOptional()
     @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    minStock?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    maxStock?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    lotSize?: number
+
+    @IsOptional()
+    @Type(() => Number)
     @IsInt()
     @Min(0)
     leadTimeDays?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(0)
+    reviewPeriodDays?: number
+
+    @IsOptional()
+    @IsIn(['REORDER_POINT', 'TIME_PHASED', 'MIN_MAX'])
+    planningStrategy?: string
+
+    @IsOptional()
+    @IsIn(['BUY', 'MAKE', 'BOTH'])
+    procurementType?: string
 
     @IsOptional()
     @IsBoolean()
@@ -154,6 +218,10 @@ export class CreatePlanningDemandDto {
     @IsString()
     warehouseId?: string
 
+    @IsOptional()
+    @IsString()
+    plantId?: string
+
     @IsDateString()
     demandDate!: string
 
@@ -171,6 +239,10 @@ export class CreatePlanningDemandDto {
     sourceDocumentId?: string
 
     @IsOptional()
+    @IsIn(['OPEN', 'CANCELLED'])
+    status?: string
+
+    @IsOptional()
     @IsString()
     @MaxLength(500)
     remarks?: string
@@ -184,6 +256,10 @@ export class UpdatePlanningDemandDto {
     @IsOptional()
     @IsString()
     warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    plantId?: string
 
     @IsOptional()
     @IsDateString()
@@ -202,6 +278,10 @@ export class UpdatePlanningDemandDto {
     @IsOptional()
     @IsString()
     sourceDocumentId?: string
+
+    @IsOptional()
+    @IsIn(['OPEN', 'CANCELLED'])
+    status?: string
 
     @IsOptional()
     @IsString()
@@ -223,8 +303,16 @@ export class PlanningDemandQueryDto {
     warehouseId?: string
 
     @IsOptional()
+    @IsString()
+    plantId?: string
+
+    @IsOptional()
     @IsIn([...PLANNING_DEMAND_SOURCES])
     sourceType?: string
+
+    @IsOptional()
+    @IsIn(['OPEN', 'CANCELLED'])
+    status?: string
 
     @IsOptional()
     @IsDateString()
@@ -254,6 +342,10 @@ export class CreateMrpRunDto {
 
     @IsOptional()
     @IsString()
+    plantId?: string
+
+    @IsOptional()
+    @IsString()
     warehouseId?: string
 
     @IsOptional()
@@ -265,6 +357,10 @@ export class CreateMrpRunDto {
     @IsOptional()
     @IsBoolean()
     includeOpenReceipts?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    autoCreatePurchaseRequisitions?: boolean
 
     @IsOptional()
     @IsString()
@@ -282,10 +378,14 @@ export class MrpRunQueryDto {
 
     @IsOptional()
     @IsString()
+    plantId?: string
+
+    @IsOptional()
+    @IsString()
     warehouseId?: string
 
     @IsOptional()
-    @IsIn(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED'])
+    @IsIn(['QUEUED', 'PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED'])
     status?: string
 
     @IsOptional()

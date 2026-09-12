@@ -5,6 +5,8 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MaterialValuationService } from './material-valuation.service'
 import { CostLayerService, LayerConsumption } from './cost-layer.service'
+import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
+import { PriceVarianceService } from './price-variance.service'
 
 const COST_SCALE = 6
 
@@ -37,6 +39,8 @@ export class ValuationEngineService {
         @Inject(forwardRef(() => MaterialValuationService))
         private materialValuation: MaterialValuationService,
         private costLayers: CostLayerService,
+        private methodRegistry: ValuationMethodRegistry,
+        private priceVariances: PriceVarianceService,
         private events: EventEmitter2,
     ) {}
 
@@ -191,60 +195,27 @@ export class ValuationEngineService {
         method: string,
         qty: Decimal,
     ): Promise<ValuationApplyResult> {
-        const receiptCost = this.roundCost(input.receiptUnitCost)
-        let unitCost = receiptCost
-        let totalCost = this.roundCost(receiptCost.mul(qty))
-        let priceVariance = new Decimal(0)
-        let movingAvgBefore: Decimal | null = null
-        let movingAvgAfter: Decimal | null = null
-        let layerConsumptions: LayerConsumption[] | null = null
-
-        if (method === 'STANDARD_COST') {
-            unitCost = this.roundCost(new Decimal(valuation.standardCost))
-            totalCost = this.roundCost(unitCost.mul(qty))
-            priceVariance = this.roundCost(
-                receiptCost.minus(unitCost).mul(qty),
-            )
-        } else if (method === 'MOVING_AVERAGE') {
-            movingAvgBefore = new Decimal(valuation.movingAverageCost)
-            const onHand = await this.onHandQty(
-                tx,
-                input.companyId,
-                input.warehouseId,
-                input.materialId,
-            )
-            // onHand already includes this receipt (balance updated before valuation)
-            const qtyBefore = onHand.minus(qty)
-            if (qtyBefore.lte(0)) {
-                movingAvgAfter = receiptCost
-            } else {
-                movingAvgAfter = qtyBefore
-                    .mul(movingAvgBefore)
-                    .plus(qty.mul(receiptCost))
-                    .div(qtyBefore.plus(qty))
-            }
-            movingAvgAfter = this.roundCost(movingAvgAfter)
-            await tx.mmMaterialValuation.update({
-                where: { id: valuation.id },
-                data: { movingAverageCost: movingAvgAfter },
-            })
-            unitCost = receiptCost
-            totalCost = this.roundCost(receiptCost.mul(qty))
-        } else if (method === 'FIFO') {
-            await this.costLayers.createLayer(tx, {
-                companyId: input.companyId,
-                materialId: input.materialId,
-                warehouseId: input.warehouseId,
-                batchId: input.batchId,
-                receiptTxnId: input.inventoryTxnId,
-                receiptDocumentId: input.sourceDocumentId,
-                quantity: qty,
-                unitCost: receiptCost,
-                postingDate: input.postingDate,
-            })
-            unitCost = receiptCost
-            totalCost = this.roundCost(receiptCost.mul(qty))
-        }
+        const strategy = this.methodRegistry.get(method)
+        const onHand = await this.onHandQty(
+            tx,
+            input.companyId,
+            input.warehouseId,
+            input.materialId,
+        )
+        const result = await strategy.applyInbound({
+            tx,
+            companyId: input.companyId,
+            materialId: input.materialId,
+            warehouseId: input.warehouseId,
+            batchId: input.batchId,
+            inventoryTxnId: input.inventoryTxnId,
+            sourceDocumentId: input.sourceDocumentId,
+            quantity: qty,
+            receiptUnitCost: input.receiptUnitCost,
+            postingDate: input.postingDate,
+            valuation,
+            onHandQty: onHand,
+        })
 
         const valTxn = await this.createValTxn(tx, {
             inventoryTxnId: input.inventoryTxnId,
@@ -254,22 +225,43 @@ export class ValuationEngineService {
             valuationMethod: method,
             direction: 'IN',
             quantity: qty,
-            unitCost,
-            totalCost,
-            priceVariance,
-            movingAvgBefore,
-            movingAvgAfter,
-            layerConsumptions,
+            unitCost: result.unitCost,
+            totalCost: result.totalCost,
+            priceVariance: result.priceVariance,
+            movingAvgBefore: result.movingAvgBefore,
+            movingAvgAfter: result.movingAvgAfter,
+            layerConsumptions: result.layerConsumptions,
         })
 
         await tx.mmInventoryTransaction.update({
             where: { id: input.inventoryTxnId },
-            data: { unitCost, totalCost },
+            data: { unitCost: result.unitCost, totalCost: result.totalCost },
         })
 
-        await this.emitValuationAccounting(tx, valTxn, priceVariance)
+        await this.emitValuationAccounting(tx, valTxn, result.priceVariance)
 
-        return { unitCost, totalCost, valuationTxnId: valTxn.id }
+        if (!result.priceVariance.isZero()) {
+            await this.priceVariances.createInTransaction(tx, {
+                companyId: input.companyId,
+                materialId: input.materialId,
+                warehouseId: input.warehouseId,
+                valuationTxnId: valTxn.id,
+                inventoryTxnId: input.inventoryTxnId,
+                varianceType: method === 'STANDARD_COST' ? 'PPV' : 'IPV',
+                standardCost:
+                    method === 'STANDARD_COST'
+                        ? new Decimal(valuation.standardCost)
+                        : null,
+                actualUnitCost: this.roundCost(input.receiptUnitCost),
+                varianceAmount: result.priceVariance,
+            })
+        }
+
+        return {
+            unitCost: result.unitCost,
+            totalCost: result.totalCost,
+            valuationTxnId: valTxn.id,
+        }
     }
 
     private async applyOutbound(
@@ -279,33 +271,27 @@ export class ValuationEngineService {
         method: string,
         qty: Decimal,
     ): Promise<ValuationApplyResult> {
-        let unitCost = new Decimal(0)
-        let totalCost = new Decimal(0)
-        let movingAvgBefore: Decimal | null = null
-        let movingAvgAfter: Decimal | null = null
-        let layerConsumptions: LayerConsumption[] | null = null
-
-        if (method === 'STANDARD_COST') {
-            unitCost = this.roundCost(new Decimal(valuation.standardCost))
-            totalCost = this.roundCost(unitCost.mul(qty))
-        } else if (method === 'MOVING_AVERAGE') {
-            movingAvgBefore = new Decimal(valuation.movingAverageCost)
-            movingAvgAfter = movingAvgBefore
-            unitCost = this.roundCost(movingAvgBefore)
-            totalCost = this.roundCost(unitCost.mul(qty))
-            // MAP unchanged on issue (snapshots stored for reversal)
-        } else if (method === 'FIFO') {
-            const consumed = await this.costLayers.consumeFifo(tx, {
-                companyId: input.companyId,
-                materialId: input.materialId,
-                warehouseId: input.warehouseId,
-                batchId: input.batchId,
-                quantity: qty,
-            })
-            layerConsumptions = consumed.consumptions
-            unitCost = this.roundCost(consumed.unitCost)
-            totalCost = this.roundCost(consumed.totalCost)
-        }
+        const strategy = this.methodRegistry.get(method)
+        const onHand = await this.onHandQty(
+            tx,
+            input.companyId,
+            input.warehouseId,
+            input.materialId,
+        )
+        const result = await strategy.applyOutbound({
+            tx,
+            companyId: input.companyId,
+            materialId: input.materialId,
+            warehouseId: input.warehouseId,
+            batchId: input.batchId,
+            inventoryTxnId: input.inventoryTxnId,
+            sourceDocumentId: input.sourceDocumentId,
+            quantity: qty,
+            receiptUnitCost: input.receiptUnitCost,
+            postingDate: input.postingDate,
+            valuation,
+            onHandQty: onHand,
+        })
 
         const valTxn = await this.createValTxn(tx, {
             inventoryTxnId: input.inventoryTxnId,
@@ -315,22 +301,26 @@ export class ValuationEngineService {
             valuationMethod: method,
             direction: 'OUT',
             quantity: qty,
-            unitCost,
-            totalCost,
-            priceVariance: new Decimal(0),
-            movingAvgBefore,
-            movingAvgAfter,
-            layerConsumptions,
+            unitCost: result.unitCost,
+            totalCost: result.totalCost,
+            priceVariance: result.priceVariance,
+            movingAvgBefore: result.movingAvgBefore,
+            movingAvgAfter: result.movingAvgAfter,
+            layerConsumptions: result.layerConsumptions,
         })
 
         await tx.mmInventoryTransaction.update({
             where: { id: input.inventoryTxnId },
-            data: { unitCost, totalCost },
+            data: { unitCost: result.unitCost, totalCost: result.totalCost },
         })
 
-        await this.emitValuationAccounting(tx, valTxn, new Decimal(0))
+        await this.emitValuationAccounting(tx, valTxn, result.priceVariance)
 
-        return { unitCost, totalCost, valuationTxnId: valTxn.id }
+        return {
+            unitCost: result.unitCost,
+            totalCost: result.totalCost,
+            valuationTxnId: valTxn.id,
+        }
     }
 
     private async createValTxn(

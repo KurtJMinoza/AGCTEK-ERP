@@ -3,9 +3,13 @@ import { PutawayService } from './putaway/putaway.service'
 import { PickingService } from './picking/picking.service'
 import { PackingService } from './packing/packing.service'
 import { TransfersService } from './transfers/transfers.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { InventoryBalanceService } from './inventory-balance/inventory-balance.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { PrismaService } from '../../prisma/prisma.service'
+import { WarehouseTaskService } from './tasks/warehouse-task.service'
+import { PutawayStrategyRegistry } from './tasks/strategies/putaway-strategy.registry'
+import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
 import {
     NotFoundException,
     BadRequestException,
@@ -115,6 +119,38 @@ describe('Warehouse Operations', () => {
                         reverseTransaction: jest.fn(),
                     },
                 },
+                {
+                    provide: MmDomainEventsService,
+                    useValue: { inventoryTransferred: jest.fn() },
+                },
+                {
+                    provide: WarehouseTaskService,
+                    useValue: {
+                        create: jest.fn().mockResolvedValue({
+                            id: 'wt1',
+                            destinationBinId: 'bin-rec',
+                        }),
+                        assign: jest.fn(),
+                        start: jest.fn(),
+                        complete: jest.fn(),
+                        cancel: jest.fn(),
+                    },
+                },
+                {
+                    provide: PutawayStrategyRegistry,
+                    useValue: { recommend: jest.fn().mockResolvedValue(null) },
+                },
+                {
+                    provide: StockTransferOrderService,
+                    useValue: {
+                        create: jest.fn().mockResolvedValue({ id: 'sto-1' }),
+                        approve: jest.fn(),
+                        allocate: jest.fn(),
+                        dispatch: jest.fn(),
+                        receive: jest.fn(),
+                        cancel: jest.fn(),
+                    },
+                },
             ],
         }).compile()
 
@@ -128,6 +164,10 @@ describe('Warehouse Operations', () => {
 
     describe('PutawayService', () => {
         it('should create a putaway task with auto-generated code', async () => {
+            mockPrisma.warehouse.findUnique.mockResolvedValue({
+                id: 'wh1',
+                companyId: 'co1',
+            })
             mockPrisma.wmPutawayTask.findFirst.mockResolvedValueOnce(null)
             mockPrisma.wmStorageBin.findMany.mockResolvedValue([])
             mockPrisma.wmPutawayTask.create.mockResolvedValue({
@@ -148,6 +188,36 @@ describe('Warehouse Operations', () => {
 
             expect(result.taskNumber).toBe('PA-000001')
             expect(result.status).toBe('PENDING')
+        })
+
+        it('should delegate assign to engine when warehouseTaskId is set', async () => {
+            mockPrisma.wmPutawayTask.findUnique.mockResolvedValue({
+                id: '1',
+                status: 'PENDING',
+                warehouseTaskId: 'wt1',
+            })
+            mockPrisma.wmPutawayTask.findUnique.mockResolvedValueOnce({
+                id: '1',
+                status: 'ASSIGNED',
+                warehouseTaskId: 'wt1',
+                assignedWorker: 'worker1',
+            })
+
+            const moduleRef = await Test.createTestingModule({
+                providers: [
+                    PutawayService,
+                    { provide: PrismaService, useValue: mockPrisma },
+                    { provide: InventoryPostingService, useValue: { postTransaction: jest.fn() } },
+                    {
+                        provide: WarehouseTaskService,
+                        useValue: { assign: jest.fn().mockResolvedValue({}) },
+                    },
+                    { provide: PutawayStrategyRegistry, useValue: { recommend: jest.fn() } },
+                ],
+            }).compile()
+            const svc = moduleRef.get(PutawayService)
+            await svc.assign('1', 'worker1')
+            expect(moduleRef.get(WarehouseTaskService).assign).toHaveBeenCalledWith('wt1', 'worker1')
         })
 
         it('should reject confirming a COMPLETED task', async () => {
@@ -307,12 +377,20 @@ describe('Warehouse Operations', () => {
 
     describe('TransfersService', () => {
         it('should create transfer with auto-generated code', async () => {
+            mockPrisma.warehouse.findUnique.mockResolvedValue({
+                id: 'wh1',
+                companyId: 'co1',
+            })
+            mockPrisma.mmMaterial.findMany.mockResolvedValue([
+                { id: 'mat1', baseUomId: 'uom1' },
+            ])
             mockPrisma.wmWarehouseTransfer.findFirst.mockResolvedValueOnce(null)
             mockPrisma.wmWarehouseTransfer.create.mockResolvedValue({
                 id: '1',
                 transferNumber: 'TO-000001',
                 status: 'DRAFT',
                 lines: [],
+                stockTransferOrderId: 'sto-1',
             })
 
             const result = await transfersService.create({
@@ -323,6 +401,25 @@ describe('Warehouse Operations', () => {
 
             expect(result.transferNumber).toBe('TO-000001')
             expect(result.status).toBe('DRAFT')
+            expect(result.stockTransferOrderId).toBe('sto-1')
+        })
+
+        it('bridges approve to StockTransferOrderService when linked', async () => {
+            mockPrisma.wmWarehouseTransfer.findUnique.mockResolvedValue({
+                id: '1',
+                status: 'DRAFT',
+                stockTransferOrderId: 'sto-1',
+                lines: [],
+            })
+            mockPrisma.wmWarehouseTransfer.update.mockResolvedValue({
+                id: '1',
+                status: 'APPROVED',
+                stockTransferOrderId: 'sto-1',
+                lines: [],
+            })
+            const sto = (transfersService as any).sto
+            await transfersService.approve('1', 'user-1')
+            expect(sto.approve).toHaveBeenCalledWith('sto-1', { approvedBy: 'user-1' })
         })
 
         it('should only approve DRAFT transfers', async () => {

@@ -2,6 +2,8 @@ import {
     Injectable,
     BadRequestException,
     NotFoundException,
+    Inject,
+    forwardRef,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -13,10 +15,10 @@ import {
     postInterWarehouseDispatch,
     postInterWarehouseReceive,
 } from '../warehouse/transfers/inter-warehouse-posting'
+import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
 
 /**
- * Inventory hub WTO API — same lifecycle/ledger as WmWarehouseTransfer:
- * DRAFT (Request) → APPROVED → PICKED → IN_TRANSIT → COMPLETED (Close).
+ * Inventory hub WTO API — bridges to canonical MmStockTransferOrder when possible.
  * Physical posts via shared inter-warehouse InventoryPostingService helper.
  */
 @Injectable()
@@ -25,11 +27,34 @@ export class WarehouseTransferOrderService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private events: EventEmitter2,
+        @Inject(forwardRef(() => StockTransferOrderService))
+        private sto: StockTransferOrderService,
     ) {}
 
     async create(dto: CreateWarehouseTransferOrderDto) {
-        const docNumber = await this.generateDocNumber('WTO')
+        const sto = await this.sto.create({
+            companyId: dto.companyId,
+            transferType:
+                dto.sourceWarehouseId === dto.destinationWarehouseId
+                    ? 'BIN_TO_BIN'
+                    : 'WAREHOUSE_TO_WAREHOUSE',
+            sourceWarehouseId: dto.sourceWarehouseId,
+            destinationWarehouseId: dto.destinationWarehouseId,
+            postingDate: dto.postingDate,
+            requestedBy: dto.requestedBy,
+            notes: dto.notes,
+            lines: dto.lines.map((l) => ({
+                materialId: l.materialId,
+                quantity: l.quantity,
+                uomId: l.uomId,
+                sourceBinId: l.sourceBinId,
+                destinationBinId: l.destinationBinId,
+                batchId: l.batchId,
+                serialNumberId: l.serialNumberId,
+            })),
+        })
 
+        const docNumber = await this.generateDocNumber('WTO')
         const lines = dto.lines.map((l) => ({
             materialId: l.materialId,
             quantity: new Decimal(l.quantity),
@@ -53,6 +78,7 @@ export class WarehouseTransferOrderService {
                 requestedBy: dto.requestedBy ?? null,
                 notes: dto.notes ?? null,
                 status: 'DRAFT',
+                legacyStoId: sto.id,
                 lines: { create: lines },
             },
             include: { lines: true },
@@ -63,6 +89,9 @@ export class WarehouseTransferOrderService {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'DRAFT') {
             throw new BadRequestException(`Cannot approve: document is ${doc.status}`)
+        }
+        if (doc.legacyStoId) {
+            await this.sto.approve(doc.legacyStoId, { approvedBy })
         }
 
         return this.prisma.mmWarehouseTransferOrder.update({
@@ -101,6 +130,34 @@ export class WarehouseTransferOrderService {
             throw new BadRequestException(
                 `Cannot dispatch: document must be PICKED (status ${doc.status})`,
             )
+        }
+
+        if (doc.legacyStoId) {
+            let sto = await this.prisma.mmStockTransferOrder.findUnique({
+                where: { id: doc.legacyStoId },
+            })
+            if (sto?.status === 'APPROVED') {
+                await this.sto.allocate(doc.legacyStoId)
+                sto = await this.prisma.mmStockTransferOrder.findUnique({
+                    where: { id: doc.legacyStoId },
+                })
+            }
+            if (sto && ['ALLOCATED', 'PICKING'].includes(sto.status)) {
+                await this.sto.dispatch(doc.legacyStoId, {
+                    dispatchedBy: doc.requestedBy ?? undefined,
+                })
+            }
+            for (const line of doc.lines) {
+                await this.prisma.mmWarehouseTransferOrderLine.update({
+                    where: { id: line.id },
+                    data: { dispatchedQty: line.quantity, status: 'DISPATCHED' },
+                })
+            }
+            return this.prisma.mmWarehouseTransferOrder.update({
+                where: { id },
+                data: { status: 'IN_TRANSIT', dispatchedAt: new Date() },
+                include: { lines: true },
+            })
         }
 
         const createdBy = doc.requestedBy ?? 'system'
@@ -256,6 +313,9 @@ export class WarehouseTransferOrderService {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'DRAFT' && doc.status !== 'APPROVED') {
             throw new BadRequestException(`Cannot cancel: document is ${doc.status}`)
+        }
+        if (doc.legacyStoId) {
+            await this.sto.cancel(doc.legacyStoId)
         }
 
         return this.prisma.mmWarehouseTransferOrder.update({

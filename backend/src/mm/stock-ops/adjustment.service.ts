@@ -9,6 +9,8 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 
 @Injectable()
 export class AdjustmentService {
@@ -16,6 +18,7 @@ export class AdjustmentService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
     ) {}
 
     async create(dto: CreateAdjustmentDto) {
@@ -191,6 +194,11 @@ export class AdjustmentService {
                 sourceDocumentId: doc.id,
                 sourceDocumentLineId: line.id,
                 reasonCode: doc.adjustmentReason,
+                idempotencyKey: postingKey(
+                    fromCount ? 'count-adj' : 'adj',
+                    doc.id,
+                    line.id,
+                ),
                 createdBy: doc.createdBy ?? undefined,
             })
         }
@@ -208,21 +216,14 @@ export class AdjustmentService {
             })),
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: fromCount
-                    ? 'INVENTORY_COUNT_ADJUSTMENT_POSTED'
-                    : 'INVENTORY_ADJUSTMENT_POSTED',
-                sourceModule: payload.sourceModule,
-                documentType: payload.documentType,
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
+        void this.domainEvents.inventoryAdjusted({
+            companyId: doc.companyId,
+            documentId: doc.id,
+            payload: {
+                ...payload,
+                fromCount,
             },
         })
-
-        this.events.emit('accounting.entry.requested', payload)
     }
 
     private async syncCountAfterAdjustmentPosted(countId: string) {

@@ -14,6 +14,7 @@ function mockPrisma() {
         mmSupplierReturn: {
             create: jest.fn(),
             update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             findUnique: jest.fn(),
             findFirst: jest.fn(),
             findMany: jest.fn(),
@@ -24,6 +25,7 @@ function mockPrisma() {
         mmDisposal: {
             create: jest.fn(),
             update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             findUnique: jest.fn(),
             findFirst: jest.fn(),
             findMany: jest.fn(),
@@ -31,9 +33,11 @@ function mockPrisma() {
         },
         mmDisposalLine: { deleteMany: jest.fn(), createMany: jest.fn(), update: jest.fn() },
         mmDisposalAudit: { create: jest.fn() },
+        mmScrapTransaction: { upsert: jest.fn().mockResolvedValue({}), create: jest.fn() },
         mmCustomerReturn: {
             create: jest.fn(),
             update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             findUnique: jest.fn(),
             findFirst: jest.fn(),
             findMany: jest.fn(),
@@ -46,7 +50,19 @@ function mockPrisma() {
             findUnique: jest.fn(),
         },
         mmCustomerReturnAudit: { create: jest.fn() },
-        mmInventoryTransaction: { findMany: jest.fn() },
+        mmCustomerReturnIntake: { upsert: jest.fn().mockResolvedValue({}) },
+        mmReturnInspection: {
+            create: jest.fn().mockResolvedValue({}),
+            findFirst: jest.fn(),
+            update: jest.fn(),
+        },
+        mmReturnDisposition: {
+            create: jest.fn().mockResolvedValue({}),
+            findFirst: jest.fn(),
+            update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        mmInventoryTransaction: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
         mmInventoryBalance: { findMany: jest.fn(), count: jest.fn() },
         mmAccountingEvent: { create: jest.fn() },
         mmMaterial: {
@@ -54,6 +70,8 @@ function mockPrisma() {
                 { id: 'mat-1', batchManaged: false, serialManaged: false },
             ]),
         },
+        mmBatch: { findFirst: jest.fn(), findMany: jest.fn() },
+        mmSerialNumber: { findFirst: jest.fn() },
     }
 }
 
@@ -82,6 +100,7 @@ describe('MM-11 Returns & Disposal', () => {
     let prisma: any
     let postingService: any
     let events: EventEmitter2
+    let mockDomainEvents: { supplierReturnPosted: jest.Mock }
 
     beforeEach(() => {
         prisma = mockPrisma()
@@ -90,6 +109,7 @@ describe('MM-11 Returns & Disposal', () => {
             reverseTransaction: jest.fn().mockResolvedValue({ id: 'txn-rev-1' }),
         }
         events = new EventEmitter2()
+        mockDomainEvents = { supplierReturnPosted: jest.fn() }
 
         configService = new ReturnsDisposalConfigService(prisma)
         returnService = new SupplierReturnService(
@@ -97,6 +117,7 @@ describe('MM-11 Returns & Disposal', () => {
             postingService,
             configService,
             events,
+            mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
         )
         disposalService = new DisposalService(
             prisma,
@@ -154,9 +175,10 @@ describe('MM-11 Returns & Disposal', () => {
 
         it('ship posts RETURN_OUT + accounting', async () => {
             prisma.mmSupplierReturn.findUnique.mockResolvedValue(doc)
+            prisma.mmSupplierReturn.updateMany.mockResolvedValue({ count: 1 })
             prisma.mmSupplierReturn.update.mockResolvedValue({
                 ...doc,
-                status: 'SHIPPED',
+                status: 'CLOSED',
             })
 
             await returnService.ship('ret-1')
@@ -168,11 +190,10 @@ describe('MM-11 Returns & Disposal', () => {
                     quantity: 10,
                 }),
             )
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
+            expect(mockDomainEvents.supplierReturnPosted).toHaveBeenCalled()
+            expect(prisma.mmSupplierReturn.update).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'SUPPLIER_RETURN_POSTED',
-                    }),
+                    data: expect.objectContaining({ status: 'CLOSED' }),
                 }),
             )
         })
@@ -184,6 +205,14 @@ describe('MM-11 Returns & Disposal', () => {
             })
             await expect(returnService.ship('ret-1')).rejects.toThrow(
                 BadRequestException,
+            )
+        })
+
+        it('blocks duplicate post', async () => {
+            prisma.mmSupplierReturn.findUnique.mockResolvedValue(doc)
+            prisma.mmSupplierReturn.updateMany.mockResolvedValue({ count: 0 })
+            await expect(returnService.post('ret-1')).rejects.toThrow(
+                /Duplicate return posting/,
             )
         })
     })
@@ -251,6 +280,7 @@ describe('MM-11 Returns & Disposal', () => {
                 returnId: 'crt-1',
                 customerReturn: { status: 'INSPECTION' },
             })
+            prisma.mmReturnDisposition.findFirst.mockResolvedValue(null)
             await customerReturnService.setDisposition('crl-1', {
                 disposition: 'RESTOCK',
             })
@@ -258,6 +288,7 @@ describe('MM-11 Returns & Disposal', () => {
             const submitted = await customerReturnService.submit('crt-1')
             expect(submitted.status).toBe('APPROVED')
 
+            prisma.mmCustomerReturn.updateMany.mockResolvedValue({ count: 1 })
             await customerReturnService.complete('crt-1')
 
             expect(postingService.postTransaction).toHaveBeenCalledWith(
@@ -291,13 +322,15 @@ describe('MM-11 Returns & Disposal', () => {
                 lines: [makeLine({ quantity: new Decimal(5) })],
             }
             prisma.mmDisposal.findUnique.mockResolvedValue(doc)
-            prisma.mmDisposal.update.mockResolvedValue({ ...doc, status: 'POSTED' })
+            prisma.mmDisposal.updateMany.mockResolvedValue({ count: 1 })
+            prisma.mmDisposal.update.mockResolvedValue({ ...doc, status: 'CLOSED' })
 
             await disposalService.post('dsp-1')
 
             expect(postingService.postTransaction).toHaveBeenCalledWith(
                 expect.objectContaining({ movementType: 'SCRAP', quantity: 5 }),
             )
+            expect(prisma.mmScrapTransaction.upsert).toHaveBeenCalled()
             expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({

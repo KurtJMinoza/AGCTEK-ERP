@@ -1,14 +1,29 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { ExpiryControlService } from '../returns-disposal/expiry-control.service'
 
 @Injectable()
 export class BatchesService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private expiryControl: ExpiryControlService,
+    ) {}
+
+    private withExpiryMeta<T extends {
+        expiryDate?: Date | null
+        shelfLifeDays?: number | null
+        manufacturingDate?: Date | null
+    }>(batch: T) {
+        return {
+            ...batch,
+            ...this.expiryControl.computeExpiryInfo(batch),
+        }
+    }
 
     async findAll(materialId?: string) {
         const where: any = { deletedAt: null }
         if (materialId) where.materialId = materialId
-        return this.prisma.mmBatch.findMany({
+        const rows = await this.prisma.mmBatch.findMany({
             where,
             include: {
                 material: { select: { id: true, materialCode: true, materialName: true, batchManaged: true } },
@@ -17,6 +32,7 @@ export class BatchesService {
             },
             orderBy: { createdAt: 'desc' },
         })
+        return rows.map((b) => this.withExpiryMeta(b))
     }
 
     async findOne(id: string) {
@@ -29,7 +45,7 @@ export class BatchesService {
             },
         })
         if (!batch) throw new NotFoundException('Batch not found')
-        return batch
+        return this.withExpiryMeta(batch)
     }
 
     async create(data: {
@@ -37,6 +53,7 @@ export class BatchesService {
         batchNumber: string
         manufacturingDate?: string
         expiryDate?: string
+        shelfLifeDays?: number
         supplierId?: string
         status?: string
     }) {
@@ -53,12 +70,23 @@ export class BatchesService {
         })
         if (exists) throw new ConflictException('Batch number already exists for this material')
 
-        return this.prisma.mmBatch.create({
+        const manufacturingDate = data.manufacturingDate
+            ? new Date(data.manufacturingDate)
+            : null
+        const resolved = this.expiryControl.resolveExpiryDate({
+            manufacturingDate,
+            expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+            shelfLifeDays: data.shelfLifeDays ?? null,
+            defaultShelfLifeDays: material.defaultShelfLifeDays ?? null,
+        })
+
+        const created = await this.prisma.mmBatch.create({
             data: {
                 materialId: data.materialId,
                 batchNumber: data.batchNumber,
-                manufacturingDate: data.manufacturingDate ? new Date(data.manufacturingDate) : undefined,
-                expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
+                manufacturingDate: manufacturingDate ?? undefined,
+                expiryDate: resolved.expiryDate ?? undefined,
+                shelfLifeDays: resolved.shelfLifeDays ?? undefined,
                 supplierId: data.supplierId || null,
                 status: data.status || 'AVAILABLE',
             },
@@ -66,12 +94,14 @@ export class BatchesService {
                 supplier: { select: { id: true, supplierCode: true, supplierName: true } },
             },
         })
+        return this.withExpiryMeta(created)
     }
 
     async update(id: string, data: Partial<{
         batchNumber: string
         manufacturingDate: string | null
         expiryDate: string | null
+        shelfLifeDays: number | null
         supplierId: string | null
         status: string
     }>) {
@@ -87,23 +117,57 @@ export class BatchesService {
             })
             if (exists) throw new ConflictException('Batch number already exists for this material')
         }
-        return this.prisma.mmBatch.update({
+
+        const manufacturingDate =
+            data.manufacturingDate !== undefined
+                ? data.manufacturingDate
+                    ? new Date(data.manufacturingDate)
+                    : null
+                : batch.manufacturingDate
+        const shelfLifeDays =
+            data.shelfLifeDays !== undefined ? data.shelfLifeDays : batch.shelfLifeDays
+        const material = await this.prisma.mmMaterial.findFirst({
+            where: { id: batch.materialId },
+            select: { defaultShelfLifeDays: true },
+        })
+        const resolved =
+            data.expiryDate !== undefined ||
+            data.manufacturingDate !== undefined ||
+            data.shelfLifeDays !== undefined
+                ? this.expiryControl.resolveExpiryDate({
+                      manufacturingDate,
+                      expiryDate:
+                          data.expiryDate !== undefined
+                              ? data.expiryDate
+                                  ? new Date(data.expiryDate)
+                                  : null
+                              : batch.expiryDate,
+                      shelfLifeDays,
+                      defaultShelfLifeDays: material?.defaultShelfLifeDays ?? null,
+                  })
+                : null
+
+        const updated = await this.prisma.mmBatch.update({
             where: { id },
             data: {
                 ...(data.batchNumber !== undefined ? { batchNumber: data.batchNumber } : {}),
                 ...(data.status !== undefined ? { status: data.status } : {}),
                 ...(data.supplierId !== undefined ? { supplierId: data.supplierId } : {}),
                 ...(data.manufacturingDate !== undefined
-                    ? { manufacturingDate: data.manufacturingDate ? new Date(data.manufacturingDate) : null }
+                    ? { manufacturingDate: manufacturingDate }
                     : {}),
-                ...(data.expiryDate !== undefined
-                    ? { expiryDate: data.expiryDate ? new Date(data.expiryDate) : null }
+                ...(resolved
+                    ? {
+                          expiryDate: resolved.expiryDate,
+                          shelfLifeDays: resolved.shelfLifeDays,
+                      }
                     : {}),
             },
             include: {
                 supplier: { select: { id: true, supplierCode: true, supplierName: true } },
             },
         })
+        return this.withExpiryMeta(updated)
     }
 
     async softDelete(id: string) {

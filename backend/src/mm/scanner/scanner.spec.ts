@@ -27,6 +27,13 @@ function mockPrisma(overrides: any = {}) {
             findFirst: jest.fn().mockResolvedValue(null),
             findUnique: jest.fn(),
         },
+        wmPutawayTask: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            findUnique: jest.fn(),
+        },
+        wmWarehouseTask: { findFirst: jest.fn().mockResolvedValue(null) },
+        mmStockTransferOrder: { findFirst: jest.fn().mockResolvedValue(null) },
+        wmPackage: { findFirst: jest.fn().mockResolvedValue(null) },
         mmInventoryCount: { findFirst: jest.fn().mockResolvedValue(null) },
         mmInventoryCountLine: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn() },
         mmScannerEvent: {
@@ -36,8 +43,19 @@ function mockPrisma(overrides: any = {}) {
                 .mockImplementation(({ data }) =>
                     Promise.resolve({ id: 'ev-1', ...data }),
                 ),
+            update: jest.fn().mockResolvedValue({}),
             findMany: jest.fn(),
             count: jest.fn(),
+        },
+        mmMobileDevice: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn(),
+            update: jest.fn(),
+        },
+        mmMobileSyncQueue: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn(),
+            update: jest.fn(),
         },
         ...overrides,
     }

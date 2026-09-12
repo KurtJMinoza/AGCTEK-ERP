@@ -76,8 +76,6 @@ function ModuleMenuItem({
         </MenuItem>
     )
 
-    // Always wrap Tooltip so Floating UI useId count stays identical on
-    // server and client (collapsed vs expanded must not change the tree).
     return (
         <Tooltip title={label} placement="right" disabled={!collapsed}>
             {item}

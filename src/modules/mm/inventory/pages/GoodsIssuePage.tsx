@@ -27,6 +27,10 @@ import {
     HiOutlineRewind,
     HiOutlineLogout,
 } from 'react-icons/hi'
+import {
+    inventoryService,
+    type AvailabilityResult,
+} from '../services/inventoryService'
 import { goodsIssueService } from '../services/goodsIssueService'
 import { warehouseService } from '../../warehouse/services/warehouseService'
 import { materialService } from '../../material-master/services/materialService'
@@ -159,6 +163,30 @@ const GoodsIssuePage = () => {
     /* ── Detail dialog ── */
     const [detailOpen, setDetailOpen] = useState(false)
     const [detail, setDetail] = useState<GoodsIssue | null>(null)
+    const [postAtp, setPostAtp] = useState<AvailabilityResult[]>([])
+
+    useEffect(() => {
+        if (!detail || detail.status !== 'DRAFT' || !detail.companyId || !detail.warehouseId) {
+            setPostAtp([])
+            return
+        }
+        const lines = detail.lines ?? []
+        if (lines.length === 0) {
+            setPostAtp([])
+            return
+        }
+        Promise.all(
+            lines.map((line) =>
+                inventoryService.available({
+                    companyId: detail.companyId,
+                    warehouseId: detail.warehouseId,
+                    materialId: line.materialId,
+                }),
+            ),
+        )
+            .then(setPostAtp)
+            .catch(() => setPostAtp([]))
+    }, [detail])
 
     const openDetail = useCallback(async (id: string) => {
         setDetailOpen(true)
@@ -338,6 +366,26 @@ const GoodsIssuePage = () => {
                                 <p className="mt-0.5 text-sm">{detail.remarks}</p>
                             </AdaptiveCard>
                         ) : null}
+                        {detail.status === 'DRAFT' && postAtp.length > 0 && (
+                            <AdaptiveCard className="!p-3 bg-gray-50 dark:bg-gray-800/50">
+                                <p className="text-xs font-medium text-gray-600 mb-2">
+                                    ATP preview before post (backend)
+                                </p>
+                                <div className="space-y-1 text-sm">
+                                    {(detail.lines ?? []).map((line, idx) => {
+                                        const atp = postAtp[idx]
+                                        const qty = Number(line.quantity)
+                                        const ok = atp && qty <= atp.available
+                                        return (
+                                            <div key={line.id ?? idx} className={ok ? '' : 'text-danger'}>
+                                                {materialLabel(line)}: available {atp?.available ?? '—'}
+                                                {qty > (atp?.available ?? 0) ? ' — insufficient' : ''}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </AdaptiveCard>
+                        )}
                         <div>
                             <h6 className="mb-3 text-sm font-semibold heading-text">Line items</h6>
                             <DataTable

@@ -7,6 +7,9 @@ import axios from 'axios'
 export const onSignUpWithCredentials = async ({
     email,
     userName,
+    firstName,
+    lastName,
+    jobPosition,
     password,
     role,
 }: SignUpCredential) => {
@@ -14,6 +17,9 @@ export const onSignUpWithCredentials = async ({
         await ErpAxiosBase.post('/auth/sign-up', {
             email,
             userName,
+            firstName,
+            lastName,
+            jobPosition,
             password,
             role,
         })

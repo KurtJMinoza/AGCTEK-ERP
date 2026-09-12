@@ -6,14 +6,17 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
+import Input from '@/components/ui/Input'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlineRefresh } from 'react-icons/hi'
+import { HiOutlinePlus, HiOutlineRefresh } from 'react-icons/hi'
 import {
     inventoryService,
+    type BalanceSummary,
     type InventoryBalance,
 } from '../services/inventoryService'
 import { warehouseService } from '../../warehouse/services/warehouseService'
@@ -22,17 +25,6 @@ import { orgService } from '../../material-master/services/referenceService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
-
-const STATUS_OPTS = [
-    { value: '', label: 'All statuses' },
-    { value: 'UNRESTRICTED', label: 'Unrestricted' },
-    { value: 'QUALITY_INSPECTION', label: 'Quality inspection' },
-    { value: 'BLOCKED', label: 'Blocked' },
-    { value: 'QUARANTINE', label: 'Quarantine' },
-    { value: 'IN_TRANSIT', label: 'In transit' },
-    { value: 'EXPIRED', label: 'Expired' },
-    { value: 'DAMAGED', label: 'Damaged' },
-]
 
 type Opt = { value: string; label: string }
 
@@ -54,22 +46,39 @@ const InventoryStatusPage = () => {
     const [companies, setCompanies] = useState<Opt[]>([])
     const [warehouses, setWarehouses] = useState<Opt[]>([])
     const [materials, setMaterials] = useState<Opt[]>([])
+    const [statusOpts, setStatusOpts] = useState<Opt[]>([{ value: '', label: 'All statuses' }])
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
     const [stockStatus, setStockStatus] = useState('')
+    const [summary, setSummary] = useState<BalanceSummary | null>(null)
     const [rows, setRows] = useState<InventoryBalance[]>([])
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 50 })
     const [page, setPage] = useState(1)
     const [loading, setLoading] = useState(false)
+
+    const [changeOpen, setChangeOpen] = useState(false)
+    const [submitting, setSubmitting] = useState(false)
+    const [changeForm, setChangeForm] = useState({
+        companyId: '',
+        warehouseId: '',
+        materialId: '',
+        fromStatus: 'UNRESTRICTED',
+        toStatus: 'BLOCKED',
+        quantity: 1,
+        uomId: '',
+        postingDate: new Date().toISOString().slice(0, 10),
+        documentDate: new Date().toISOString().slice(0, 10),
+    })
 
     useEffect(() => {
         Promise.all([
             orgService.companies(),
             warehouseService.list({ limit: 200 }),
             materialService.list({ limit: 200 }),
+            inventoryService.stockStatuses(),
         ])
-            .then(([cos, wh, mats]: any[]) => {
+            .then(([cos, wh, mats, statuses]: any[]) => {
                 setCompanies(
                     (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
                         value: c.id,
@@ -86,8 +95,16 @@ const InventoryStatusPage = () => {
                     (mats?.data ?? []).map((m: any) => ({
                         value: m.id,
                         label: `${m.materialCode} — ${m.materialName}`,
+                        uomId: m.baseUomId,
                     })),
                 )
+                setStatusOpts([
+                    { value: '', label: 'All statuses' },
+                    ...(statuses ?? []).map((s: { code: string }) => ({
+                        value: s.code,
+                        label: s.code.replace(/_/g, ' '),
+                    })),
+                ])
             })
             .catch(() => undefined)
     }, [])
@@ -95,15 +112,18 @@ const InventoryStatusPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await inventoryService.balances({
+            const params = {
                 companyId: companyId || undefined,
                 warehouseId: warehouseId || undefined,
                 materialId: materialId || undefined,
                 stockStatus: stockStatus || undefined,
-                page,
-                limit: 50,
-            })
+            }
+            const [res, sum] = await Promise.all([
+                inventoryService.balances({ ...params, page, limit: 50 }),
+                inventoryService.balanceSummary(params),
+            ])
             setRows(res.data)
+            setSummary(sum)
             setMeta({
                 total: res.meta.total,
                 page: res.meta.page,
@@ -120,13 +140,32 @@ const InventoryStatusPage = () => {
         load()
     }, [load])
 
-    const byStatus = useMemo(() => {
-        const map = new Map<string, number>()
-        for (const r of rows) {
-            map.set(r.stockStatus, (map.get(r.stockStatus) ?? 0) + n(r.quantity))
+    const submitStatusChange = async () => {
+        const mat = materials.find((m) => m.value === changeForm.materialId) as Opt & {
+            uomId?: string
         }
-        return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    }, [rows])
+        if (!changeForm.companyId || !changeForm.warehouseId || !changeForm.materialId) {
+            pushToast('danger', 'Required', 'Company, warehouse, and material are required')
+            return
+        }
+        setSubmitting(true)
+        try {
+            await inventoryService.postStatusChange({
+                ...changeForm,
+                uomId: changeForm.uomId || mat?.uomId || '',
+                sourceModule: 'INVENTORY',
+                sourceDocumentType: 'STATUS_CHANGE',
+                sourceDocumentId: `sc-${Date.now()}`,
+            })
+            pushToast('success', 'Posted', 'Stock status change posted to ledger')
+            setChangeOpen(false)
+            load()
+        } catch (e: any) {
+            pushToast('danger', 'Failed', e?.response?.data?.message ?? e.message)
+        } finally {
+            setSubmitting(false)
+        }
+    }
 
     const columns: ColumnDef<InventoryBalance>[] = useMemo(
         () => [
@@ -159,21 +198,32 @@ const InventoryStatusPage = () => {
         [],
     )
 
+    const statusCodes = statusOpts.filter((o) => o.value)
+
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Inventory Status"
-                description="Balances grouped and filtered by stock status (unrestricted, QI, blocked, in transit, …)."
+                description="Balances by stock status. Post status changes through the ledger engine."
                 actions={
-                    <Button
-                        variant="solid"
-                        icon={<HiOutlineRefresh />}
-                        loading={loading}
-                        onClick={load}
-                    >
-                        Refresh
-                    </Button>
+                    <>
+                        <Button
+                            variant="plain"
+                            icon={<HiOutlineRefresh />}
+                            loading={loading}
+                            onClick={load}
+                        >
+                            Refresh
+                        </Button>
+                        <Button
+                            variant="solid"
+                            icon={<HiOutlinePlus />}
+                            onClick={() => setChangeOpen(true)}
+                        >
+                            Status Change
+                        </Button>
+                    </>
                 }
             />
 
@@ -214,8 +264,8 @@ const InventoryStatusPage = () => {
                     </FormItem>
                     <FormItem label="Stock status">
                         <Select
-                            options={STATUS_OPTS}
-                            value={STATUS_OPTS.find((o) => o.value === stockStatus)}
+                            options={statusOpts}
+                            value={statusOpts.find((o) => o.value === stockStatus)}
                             onChange={(o: any) => {
                                 setStockStatus(o?.value ?? '')
                                 setPage(1)
@@ -225,14 +275,15 @@ const InventoryStatusPage = () => {
                 </div>
             </AdaptiveCard>
 
-            {byStatus.length > 0 && (
+            {summary && summary.byStatus.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4 mb-4">
-                    {byStatus.map(([status, qty]) => (
-                        <AdaptiveCard key={status}>
-                            <div className="text-sm text-gray-500">{status}</div>
+                    {summary.byStatus.map((s) => (
+                        <AdaptiveCard key={s.status}>
+                            <div className="text-sm text-gray-500">{s.status}</div>
                             <div className="text-2xl font-semibold mt-1">
-                                {qty.toLocaleString()}
+                                {s.quantity.toLocaleString()}
                             </div>
+                            <div className="text-xs text-gray-400 mt-1">{s.rowCount} balance rows</div>
                         </AdaptiveCard>
                     ))}
                 </div>
@@ -251,6 +302,97 @@ const InventoryStatusPage = () => {
                     onPaginationChange={setPage}
                 />
             </AdaptiveCard>
+
+            <FormDialog
+                isOpen={changeOpen}
+                onClose={() => setChangeOpen(false)}
+                title="Post Status Change"
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setChangeOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={submitting}
+                            onClick={submitStatusChange}
+                        >
+                            Post
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <FormItem label="Company">
+                        <Select
+                            options={companies}
+                            value={companies.find((o) => o.value === changeForm.companyId)}
+                            onChange={(o: any) =>
+                                setChangeForm((f) => ({ ...f, companyId: o?.value ?? '' }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Warehouse">
+                        <Select
+                            options={warehouses}
+                            value={warehouses.find((o) => o.value === changeForm.warehouseId)}
+                            onChange={(o: any) =>
+                                setChangeForm((f) => ({ ...f, warehouseId: o?.value ?? '' }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Material">
+                        <Select
+                            options={materials}
+                            value={materials.find((o) => o.value === changeForm.materialId)}
+                            onChange={(o: any) => {
+                                const mat = materials.find((m) => m.value === o?.value) as Opt & {
+                                    uomId?: string
+                                }
+                                setChangeForm((f) => ({
+                                    ...f,
+                                    materialId: o?.value ?? '',
+                                    uomId: mat?.uomId ?? f.uomId,
+                                }))
+                            }}
+                        />
+                    </FormItem>
+                    <div className="grid grid-cols-2 gap-3">
+                        <FormItem label="From status">
+                            <Select
+                                options={statusCodes}
+                                value={statusCodes.find((o) => o.value === changeForm.fromStatus)}
+                                onChange={(o: any) =>
+                                    setChangeForm((f) => ({ ...f, fromStatus: o?.value ?? '' }))
+                                }
+                            />
+                        </FormItem>
+                        <FormItem label="To status">
+                            <Select
+                                options={statusCodes}
+                                value={statusCodes.find((o) => o.value === changeForm.toStatus)}
+                                onChange={(o: any) =>
+                                    setChangeForm((f) => ({ ...f, toStatus: o?.value ?? '' }))
+                                }
+                            />
+                        </FormItem>
+                    </div>
+                    <FormItem label="Quantity">
+                        <Input
+                            type="number"
+                            min={0.000001}
+                            value={changeForm.quantity}
+                            onChange={(e) =>
+                                setChangeForm((f) => ({
+                                    ...f,
+                                    quantity: Number(e.target.value),
+                                }))
+                            }
+                        />
+                    </FormItem>
+                </div>
+            </FormDialog>
         </PageContainer>
     )
 }

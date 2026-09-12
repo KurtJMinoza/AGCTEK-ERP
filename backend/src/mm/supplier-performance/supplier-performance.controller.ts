@@ -37,6 +37,12 @@ export class SupplierPerformanceController {
         private manual: SupplierManualAssessmentService,
     ) {}
 
+    /** Canonical list/rankings alias — same payload as dashboard. */
+    @Get()
+    listPerformance(@Query() query: DashboardQueryDto) {
+        return this.dashboard.getDashboard(query)
+    }
+
     @Get('weight-config')
     getWeights(@Query('companyId') companyId: string) {
         return this.config.getWeights(companyId)
@@ -151,5 +157,18 @@ export class SupplierPerformanceController {
     @Post('manual-assessments/:id/cancel')
     cancelManual(@Param('id') id: string) {
         return this.manual.cancel(id)
+    }
+
+    /** Canonical supplier detail alias — must be last among GETs. */
+    @Get(':supplierId')
+    supplierPerformanceDetail(
+        @Param('supplierId') supplierId: string,
+        @Query() query: SupplierDetailQueryDto,
+    ) {
+        return this.evaluations.getSupplierDetail(
+            supplierId,
+            query.companyId,
+            query.limit ?? 20,
+        )
     }
 }

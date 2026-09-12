@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { PurchaseRequisitionService } from './purchase-requisition.service'
 import { WorkflowService } from '../workflow/workflow.service'
+import { ProcurementBudgetService } from '../procurement/procurement-budget.service'
 
 let seq = 0
 function nextId() { return `id-${++seq}` }
@@ -119,6 +120,15 @@ beforeEach(async () => {
             PurchaseRequisitionService,
             { provide: PrismaService, useValue: mockPrisma },
             { provide: WorkflowService, useValue: mockWorkflow },
+            {
+                provide: ProcurementBudgetService,
+                useValue: {
+                    validatePrBudget: jest.fn().mockResolvedValue({
+                        validated: true,
+                        message: 'ok',
+                    }),
+                },
+            },
         ],
     }).compile()
 

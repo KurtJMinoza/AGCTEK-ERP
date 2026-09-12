@@ -102,7 +102,7 @@ const StockMovementsPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await inventoryService.transactions({
+            const res = await inventoryService.ledger({
                 companyId: companyId || undefined,
                 warehouseId: warehouseId || undefined,
                 materialId: materialId || undefined,
@@ -162,9 +162,20 @@ const StockMovementsPage = () => {
             {
                 header: 'Source',
                 cell: ({ row }) =>
-                    row.original.sourceDocumentType
-                        ? `${row.original.sourceDocumentType}`
+                    row.original.sourceDocumentType && row.original.sourceDocumentId
+                        ? `${row.original.sourceDocumentType}:${row.original.sourceDocumentId.slice(0, 8)}`
                         : '—',
+            },
+            {
+                header: 'Reversal',
+                cell: ({ row }) =>
+                    row.original.reversalOfId
+                        ? row.original.reversalOfId.slice(0, 8)
+                        : '—',
+            },
+            {
+                header: 'Idempotency',
+                cell: ({ row }) => row.original.idempotencyKey?.slice(0, 10) ?? '—',
             },
         ],
         [],

@@ -268,6 +268,16 @@ const AsnListPage = () => {
             cell: ({ row }) => row.original.shipmentNumber || '—',
         },
         {
+            header: 'Supplier ref',
+            accessorKey: 'supplierReference',
+            cell: ({ row }) => row.original.supplierReference || '—',
+        },
+        {
+            header: 'Packages',
+            accessorKey: 'packageCount',
+            cell: ({ row }) => row.original.packageCount ?? '—',
+        },
+        {
             header: 'Carrier / tracking',
             id: 'carrier',
             cell: ({ row }) => {

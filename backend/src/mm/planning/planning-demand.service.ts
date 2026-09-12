@@ -30,7 +30,9 @@ export class PlanningDemandService {
         if (query.companyId) where.companyId = query.companyId
         if (query.materialId) where.materialId = query.materialId
         if (query.warehouseId) where.warehouseId = query.warehouseId
+        if (query.plantId) where.plantId = query.plantId
         if (query.sourceType) where.sourceType = query.sourceType
+        if (query.status) where.status = query.status
         if (query.fromDate || query.toDate) {
             where.demandDate = {}
             if (query.fromDate) where.demandDate.gte = new Date(query.fromDate)
@@ -73,11 +75,13 @@ export class PlanningDemandService {
             data: {
                 companyId: dto.companyId,
                 materialId: dto.materialId,
+                plantId: dto.plantId ?? null,
                 warehouseId: dto.warehouseId ?? null,
                 demandDate: new Date(dto.demandDate),
                 quantity: new Decimal(dto.quantity),
                 sourceType: dto.sourceType ?? 'MANUAL_INTERNAL',
                 sourceDocumentId: dto.sourceDocumentId ?? null,
+                status: dto.status ?? 'OPEN',
                 remarks: dto.remarks ?? null,
                 createdBy: dto.createdBy ?? null,
             },
@@ -89,16 +93,30 @@ export class PlanningDemandService {
         await this.findOne(id)
         const data: any = {}
         if (dto.warehouseId !== undefined) data.warehouseId = dto.warehouseId || null
+        if (dto.plantId !== undefined) data.plantId = dto.plantId || null
         if (dto.demandDate !== undefined) data.demandDate = new Date(dto.demandDate)
         if (dto.quantity !== undefined) data.quantity = new Decimal(dto.quantity)
         if (dto.sourceType !== undefined) data.sourceType = dto.sourceType
         if (dto.sourceDocumentId !== undefined)
             data.sourceDocumentId = dto.sourceDocumentId
+        if (dto.status !== undefined) data.status = dto.status
         if (dto.remarks !== undefined) data.remarks = dto.remarks
 
         return this.prisma.mmPlanningDemand.update({
             where: { id },
             data,
+            include: DEMAND_INCLUDE,
+        })
+    }
+
+    async cancel(id: string) {
+        const row = await this.findOne(id)
+        if (row.status === 'CANCELLED') {
+            throw new BadRequestException('Demand is already cancelled')
+        }
+        return this.prisma.mmPlanningDemand.update({
+            where: { id },
+            data: { status: 'CANCELLED' },
             include: DEMAND_INCLUDE,
         })
     }

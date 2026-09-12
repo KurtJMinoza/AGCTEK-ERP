@@ -24,6 +24,10 @@ export type AtpResult = {
     companyId: string
     warehouseId: string
     materialId: string
+    onHand?: number
+    unrestrictedOnHand?: number
+    reserved?: number
+    restricted?: number
     unrestrictedStock: number
     existingReservations: number
     restrictedStock: number
@@ -39,7 +43,25 @@ export type AtpResult = {
 }
 
 const RSV = '/mm/reservations'
-const ATP = '/mm/available-stock'
+const ENGINE = '/mm/inventory'
+
+export type ReservationHeader = {
+    id: string
+    reservationNumber: string
+    companyId: string
+    warehouseId: string
+    status: string
+    demandReferenceType?: string
+    demandReferenceId?: string
+    lines?: Array<{
+        id: string
+        materialId: string
+        requestedQuantity: number
+        reservedQuantity: number
+        allocatedQuantity: number
+        status: string
+    }>
+}
 
 export const reservationService = {
     list: (params?: Record<string, unknown>) =>
@@ -54,6 +76,38 @@ export const reservationService = {
     cancel: (id: string) =>
         ErpAxiosBase.post<Reservation>(`${RSV}/${id}/cancel`).then((r) => r.data),
 
+    /** Phase 5 reservation engine (header + lines). */
+    listEngine: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: ReservationHeader[]; total: number }>(`${ENGINE}/reservations`, {
+            params,
+        }).then((r) => r.data),
+
+    createEngine: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post<ReservationHeader>(`${ENGINE}/reservations`, data).then((r) => r.data),
+
+    releaseEngine: (id: string) =>
+        ErpAxiosBase.post<ReservationHeader>(`${ENGINE}/reservations/${id}/release`).then(
+            (r) => r.data,
+        ),
+
+    allocate: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${ENGINE}/reservations/${id}/allocate`, data ?? {}).then((r) => r.data),
+
+    listAllocations: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get(`${ENGINE}/allocations`, { params }).then((r) => r.data),
+
+    releaseAllocation: (id: string) =>
+        ErpAxiosBase.post(`${ENGINE}/allocations/${id}/release`).then((r) => r.data),
+
+    /** Delegates to central MM-08 availability engine. */
     atp: (params: Record<string, string>) =>
-        ErpAxiosBase.get<AtpResult>(ATP, { params }).then((r) => r.data),
+        ErpAxiosBase.get<AtpResult>(`${ENGINE}/availability`, { params }).then((r) => {
+            const d = r.data
+            return {
+                ...d,
+                unrestrictedStock: d.unrestrictedOnHand ?? d.unrestrictedStock ?? 0,
+                existingReservations: d.reserved ?? d.existingReservations ?? 0,
+                restrictedStock: d.restricted ?? d.restrictedStock ?? 0,
+            }
+        }),
 }

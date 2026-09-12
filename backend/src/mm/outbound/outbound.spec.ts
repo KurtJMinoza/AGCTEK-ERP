@@ -4,7 +4,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ReservationService } from './reservation.service'
-import { InventoryAvailabilityService } from './inventory-availability.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { WarehouseTaskService } from '../warehouse/tasks/warehouse-task.service'
+import { PutawayStrategyRegistry } from '../warehouse/tasks/strategies/putaway-strategy.registry'
+import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
 import { PickingService } from '../warehouse/picking/picking.service'
 import { PackingService } from '../warehouse/packing/packing.service'
 import { GoodsIssueService } from '../stock-ops/goods-issue.service'
@@ -80,6 +84,12 @@ const mockPosting: any = {
 
 const mockEvents: any = { emit: jest.fn() }
 
+const mockDomainEvents = {
+    reservationCreated: jest.fn(),
+    reservationReleased: jest.fn(),
+    goodsIssuePosted: jest.fn(),
+}
+
 describe('MM-10 Outbound', () => {
     let availability: InventoryAvailabilityService
     let reservations: ReservationService
@@ -90,6 +100,9 @@ describe('MM-10 Outbound', () => {
     beforeEach(async () => {
         jest.resetAllMocks()
         mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma))
+        mockDomainEvents.reservationCreated.mockReset()
+        mockDomainEvents.reservationReleased.mockReset()
+        mockDomainEvents.goodsIssuePosted.mockReset()
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -101,6 +114,23 @@ describe('MM-10 Outbound', () => {
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: InventoryPostingService, useValue: mockPosting },
                 { provide: EventEmitter2, useValue: mockEvents },
+                {
+                    provide: MmDomainEventsService,
+                    useValue: mockDomainEvents,
+                },
+                {
+                    provide: WarehouseTaskService,
+                    useValue: {
+                        create: jest.fn().mockResolvedValue({ id: 'wt-1' }),
+                        assign: jest.fn(),
+                        complete: jest.fn(),
+                    },
+                },
+                { provide: PutawayStrategyRegistry, useValue: { recommend: jest.fn() } },
+                {
+                    provide: AllocationEngineService,
+                    useValue: { recordIssue: jest.fn() },
+                },
             ],
         }).compile()
 
@@ -478,13 +508,7 @@ describe('MM-10 Outbound', () => {
                     releaseReservedQuantity: 2,
                 }),
             )
-            expect(mockPrisma.mmAccountingEvent.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'GOODS_ISSUE_POSTED',
-                    }),
-                }),
-            )
+            expect(mockDomainEvents.goodsIssuePosted).toHaveBeenCalled()
         })
 
         it('rejects create when insufficient reservation open qty', async () => {

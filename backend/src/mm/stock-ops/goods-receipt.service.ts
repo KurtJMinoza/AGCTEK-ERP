@@ -8,7 +8,11 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
+import { InspectionLotService } from '../receiving/inspection-lot.service'
+import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
@@ -20,8 +24,12 @@ export class GoodsReceiptService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
         @Inject(forwardRef(() => QualityInspectionService))
         private qualityService: QualityInspectionService,
+        @Inject(forwardRef(() => InspectionLotService))
+        private inspectionLotService: InspectionLotService,
+        private inspectionRequirement: InspectionRequirementService,
         @Inject(forwardRef(() => PutawayService))
         private putawayService: PutawayService,
     ) {}
@@ -116,9 +124,15 @@ export class GoodsReceiptService {
 
         for (const line of doc.lines) {
             const material = line.material
-            const lineStatus =
-                line.stockStatus
-                ?? (material?.qualityInspectionRequired ? 'QUALITY_INSPECTION' : doc.stockStatus)
+            const needsQi =
+                line.stockStatus === 'QUALITY_INSPECTION' ||
+                (line.stockStatus == null &&
+                    (await this.inspectionRequirement.isInspectionRequired({
+                        materialId: line.materialId,
+                        supplierId: doc.supplierId,
+                        warehouseId: doc.warehouseId,
+                    })))
+            const lineStatus = line.stockStatus ?? (needsQi ? 'QUALITY_INSPECTION' : doc.stockStatus)
 
             // Good qty posts to inventory; damaged/rejected excluded from unrestricted/QI stock
             const goodQty = Math.max(
@@ -149,6 +163,7 @@ export class GoodsReceiptService {
                     sourceDocumentType: 'GOODS_RECEIPT',
                     sourceDocumentId: doc.id,
                     sourceDocumentLineId: line.id,
+                    idempotencyKey: postingKey('gr', doc.id, line.id, 'good'),
                     createdBy: doc.createdBy ?? undefined,
                 })
 
@@ -192,6 +207,7 @@ export class GoodsReceiptService {
                     sourceDocumentId: doc.id,
                     sourceDocumentLineId: line.id,
                     reasonCode: 'DAMAGED',
+                    idempotencyKey: postingKey('gr', doc.id, line.id, 'damaged'),
                     createdBy: doc.createdBy ?? undefined,
                 })
             }
@@ -216,7 +232,7 @@ export class GoodsReceiptService {
         })
 
         if (qiLines.length) {
-            await this.qualityService.createFromGoodsReceipt(doc.id, qiLines)
+            await this.inspectionLotService.createFromGoodsReceipt(doc.id, qiLines)
         }
         for (const pl of putawayLines) {
             await this.putawayService.createFromGoodsReceiptLine({
@@ -247,19 +263,12 @@ export class GoodsReceiptService {
                 totalCost: Number(l.totalCost),
             })),
         }
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'GOODS_RECEIPT_POSTED',
-                sourceModule: 'STOCK_OPS',
-                documentType: 'GOODS_RECEIPT',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', payload)
         this.events.emit('goods-receipt.posted', { goodsReceiptId: doc.id })
+        void this.domainEvents.goodsReceiptPosted({
+            companyId: doc.companyId,
+            goodsReceiptId: doc.id,
+            payload,
+        })
 
         return updated
     }

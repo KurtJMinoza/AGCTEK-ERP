@@ -7,6 +7,7 @@ import {
     ValidateNested,
     IsIn,
     Min,
+    IsBoolean,
 } from 'class-validator'
 import { Type } from 'class-transformer'
 
@@ -27,6 +28,8 @@ export class UpsertConfigDto {
     @IsString() @IsNotEmpty() companyId!: string
     @IsOptional() @IsNumber() approvalAmountThreshold?: number
     @IsOptional() @IsNumber() approvalQuantityThreshold?: number
+    @IsOptional() @IsBoolean() autoBlockExpired?: boolean
+    @IsOptional() @IsString() expiredBlockStockStatus?: string
 }
 
 // ─── Supplier Return ───────────────────────────────────────────────

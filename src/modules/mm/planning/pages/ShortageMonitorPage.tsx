@@ -64,10 +64,9 @@ const ShortageMonitorPage = () => {
         setLoading(true)
         try {
             const [req, dashboard] = await Promise.all([
-                planningService.listRequirements({
+                planningService.listShortages({
                     companyId,
                     warehouseId: warehouseId || undefined,
-                    shortage: true,
                     limit: 100,
                 }),
                 planningService.dashboard({
@@ -99,27 +98,34 @@ const ShortageMonitorPage = () => {
                 cell: ({ row }) => row.original.warehouse?.code ?? '—',
             },
             {
-                header: 'Available',
-                cell: ({ row }) => Number(row.original.availableQty),
-            },
-            {
-                header: 'Demand',
-                cell: ({ row }) => Number(row.original.demandQty),
-            },
-            {
-                header: 'Incoming',
-                cell: ({ row }) => Number(row.original.incomingQty),
-            },
-            {
-                header: 'Net req',
-                cell: ({ row }) => Number(row.original.netRequirement),
-            },
-            {
-                header: 'Stockout',
+                header: 'Projected avail.',
                 cell: ({ row }) =>
-                    row.original.projectedStockoutDate
-                        ? String(row.original.projectedStockoutDate).slice(0, 10)
+                    Number(
+                        row.original.projectedAvailable ??
+                            row.original.availableQty,
+                    ),
+            },
+            {
+                header: 'Required date',
+                cell: ({ row }) =>
+                    row.original.requiredDate
+                        ? String(row.original.requiredDate).slice(0, 10)
                         : '—',
+            },
+            {
+                header: 'Shortage qty',
+                cell: ({ row }) =>
+                    Number(
+                        row.original.shortageQty ?? row.original.netRequirement,
+                    ),
+            },
+            {
+                header: 'Source demand',
+                cell: ({ row }) => row.original.source ?? '—',
+            },
+            {
+                header: 'Recommended action',
+                cell: ({ row }) => row.original.recommendedAction ?? '—',
             },
             {
                 header: 'Status',

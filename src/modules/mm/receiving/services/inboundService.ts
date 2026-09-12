@@ -59,7 +59,7 @@ export const inboundService = {
         ).then((r) => r.data),
 
     // ── Receiving ───────────────────────────────────────────────────
-    receive: (data: ReceivePayload) =>
+    receive: (data: ReceivePayload & { autoPost?: boolean }) =>
         ErpAxiosBase.post<GoodsReceipt>(`${BASE}/receiving`, data).then((r) => r.data),
 
     // ── Quality ─────────────────────────────────────────────────────

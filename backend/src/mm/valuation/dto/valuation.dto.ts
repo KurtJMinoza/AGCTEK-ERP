@@ -6,8 +6,14 @@ import {
     IsArray,
     ValidateNested,
     Min,
+    IsBoolean,
 } from 'class-validator'
 import { Type } from 'class-transformer'
+import {
+    VALUATION_METHODS,
+    LANDED_COST_TYPES,
+    ALLOCATION_BASES,
+} from '../valuation.constants'
 
 export class UpsertMaterialValuationDto {
     @IsString()
@@ -19,7 +25,7 @@ export class UpsertMaterialValuationDto {
     @IsString()
     warehouseId!: string
 
-    @IsIn(['STANDARD_COST', 'MOVING_AVERAGE', 'FIFO'])
+    @IsIn([...VALUATION_METHODS])
     valuationMethod!: string
 
     @IsOptional()
@@ -34,11 +40,23 @@ export class UpsertMaterialValuationDto {
     @IsOptional()
     @IsString()
     effectiveDate?: string
+
+    @IsOptional()
+    @IsString()
+    code?: string
+
+    @IsOptional()
+    @IsString()
+    name?: string
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean
 }
 
 export class UpdateMaterialValuationDto {
     @IsOptional()
-    @IsIn(['STANDARD_COST', 'MOVING_AVERAGE', 'FIFO'])
+    @IsIn([...VALUATION_METHODS])
     valuationMethod?: string
 
     @IsOptional()
@@ -53,6 +71,18 @@ export class UpdateMaterialValuationDto {
     @IsOptional()
     @IsString()
     effectiveDate?: string
+
+    @IsOptional()
+    @IsString()
+    code?: string | null
+
+    @IsOptional()
+    @IsString()
+    name?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean
 }
 
 export class ReviseStandardCostDto {
@@ -125,6 +155,11 @@ export class CostLayerQueryDto {
     limit?: number
 }
 
+export class CreateCostLayerDto {
+    @IsString()
+    receiptTxnId!: string
+}
+
 export class ValuationTxnQueryDto {
     @IsOptional()
     @IsString()
@@ -189,8 +224,12 @@ export class InventoryValueQueryDto {
 }
 
 export class LandedCostLineDto {
-    @IsIn(['FREIGHT', 'CUSTOMS', 'INSURANCE', 'HANDLING', 'OTHER'])
+    @IsIn([...LANDED_COST_TYPES])
     costType!: string
+
+    @IsOptional()
+    @IsString()
+    costElementId?: string
 
     @IsOptional()
     @IsString()
@@ -228,7 +267,7 @@ export class CreateLandedCostDto {
     @IsString()
     warehouseId?: string
 
-    @IsIn(['QUANTITY', 'WEIGHT', 'VOLUME', 'VALUE', 'MANUAL'])
+    @IsIn([...ALLOCATION_BASES])
     allocationBase!: string
 
     @IsOptional()
@@ -292,4 +331,75 @@ export class AllocatePreviewDto {
         value?: number
         manualAmount?: number
     }>
+}
+
+export class UpsertCostElementDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    code!: string
+
+    @IsString()
+    name!: string
+
+    @IsIn([...LANDED_COST_TYPES])
+    costType!: string
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean
+}
+
+export class CostElementQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    costType?: string
+
+    @IsOptional()
+    @Type(() => Boolean)
+    @IsBoolean()
+    isActive?: boolean
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    page?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    limit?: number
+}
+
+export class PriceVarianceQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    materialId?: string
+
+    @IsOptional()
+    @IsString()
+    varianceType?: string
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    page?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    limit?: number
 }

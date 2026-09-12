@@ -3,6 +3,8 @@ import {
     NotFoundException,
     BadRequestException,
     ConflictException,
+    Inject,
+    forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -12,10 +14,15 @@ import {
     CountRuleQueryDto,
 } from './dto/inventory-control.dto'
 import { nextSequentialCode } from '../shared/next-code'
+import { CountPolicyService } from './count-policy.service'
 
 @Injectable()
 export class CountRuleService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        @Inject(forwardRef(() => CountPolicyService))
+        private policies: CountPolicyService,
+    ) {}
 
     async findAll(query: CountRuleQueryDto) {
         const page = query.page ?? 1
@@ -58,7 +65,7 @@ export class CountRuleService {
         })
         if (existing) throw new ConflictException('Count rule code already exists')
 
-        return this.prisma.mmCountRule.create({
+        const rule = await this.prisma.mmCountRule.create({
             data: {
                 code,
                 name: dto.name,
@@ -81,6 +88,33 @@ export class CountRuleService {
             },
             include: { warehouse: true, company: true },
         })
+
+        // Dual-write canonical policy
+        await this.policies.ensureFromLegacyRule(rule.id).catch(async () => {
+            await this.prisma.mmCountPolicy.create({
+                data: {
+                    code: `POL-${rule.code}`,
+                    name: rule.name,
+                    companyId: rule.companyId,
+                    warehouseId: rule.warehouseId,
+                    abcClass: rule.abcClass,
+                    velocityClass: rule.velocityClass,
+                    riskClass: rule.riskClass,
+                    materialCategoryId: rule.materialCategoryId,
+                    materialTypeId: rule.materialTypeId,
+                    frequencyDays: rule.frequencyDays,
+                    varianceQtyTolerance: rule.varianceQtyTolerance,
+                    varianceValueTolerance: rule.varianceValueTolerance,
+                    minUnitValue: rule.minUnitValue,
+                    maxUnitValue: rule.maxUnitValue,
+                    priority: rule.priority,
+                    isActive: rule.isActive,
+                    legacyCountRuleId: rule.id,
+                },
+            })
+        })
+
+        return rule
     }
 
     private async generateNextCode(): Promise<string> {

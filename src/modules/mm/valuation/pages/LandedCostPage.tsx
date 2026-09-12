@@ -26,10 +26,11 @@ type Opt = { value: string; label: string }
 
 const COST_TYPES = [
     { value: 'FREIGHT', label: 'Freight' },
-    { value: 'CUSTOMS', label: 'Customs' },
     { value: 'INSURANCE', label: 'Insurance' },
+    { value: 'CUSTOMS', label: 'Customs' },
+    { value: 'DUTY', label: 'Duty' },
     { value: 'HANDLING', label: 'Handling' },
-    { value: 'OTHER', label: 'Other' },
+    { value: 'OTHER', label: 'Other Charges' },
 ]
 
 const ALLOC_BASES = [
@@ -38,6 +39,7 @@ const ALLOC_BASES = [
     { value: 'VOLUME', label: 'Volume' },
     { value: 'VALUE', label: 'Value' },
     { value: 'MANUAL', label: 'Manual' },
+    { value: 'CUSTOM', label: 'Custom' },
 ]
 
 const LandedCostPage = () => {
@@ -140,7 +142,7 @@ const LandedCostPage = () => {
                                 variant="solid"
                                 onClick={async () => {
                                     try {
-                                        await valuationService.capitalizeLandedCost(
+                                        await valuationService.allocateLandedCost(
                                             row.original.id,
                                             row.original.warehouseId
                                                 ? { warehouseId: row.original.warehouseId }
@@ -207,7 +209,7 @@ const LandedCostPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Landed Cost"
-                description="Freight, customs, insurance, and handling — allocate and capitalize onto inventory valuation."
+                description="Freight, duty, customs, insurance, and handling — allocate and capitalize onto inventory valuation."
                 actions={
                     <Button
                         variant="solid"

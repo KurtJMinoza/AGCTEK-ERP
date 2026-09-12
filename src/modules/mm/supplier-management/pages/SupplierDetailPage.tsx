@@ -36,6 +36,7 @@ import {
     HiOutlineBan,
     HiOutlineClipboardCheck,
 } from 'react-icons/hi'
+import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
 import { supplierService } from '../services/supplierService'
 import { supplierMaterialService } from '../services/supplierMaterialService'
 import { supplierPricingService, type SupplierPrice } from '../services/supplierPricingService'
@@ -263,7 +264,10 @@ const SupplierDetailPage = () => {
                             />
                         </TabPanel>
                         <TabPanel active={tab === 'documents'}>
-                            <DocumentsTab supplierId={supplier.id} />
+                            <SupplierDocumentsPanel
+                                supplierId={supplier.id}
+                                compact
+                            />
                         </TabPanel>
                     </div>
                 </Tabs>
@@ -797,184 +801,6 @@ const PricingTab = ({ supplierId }: { supplierId: string }) => {
                         type="date"
                         value={form.effectiveTo}
                         onChange={(e) => setForm((p) => ({ ...p, effectiveTo: e.target.value }))}
-                    />
-                </FormItem>
-            </FormDialog>
-        </div>
-    )
-}
-
-// ─── Documents Tab ───────────────────────────────────────────────────
-
-type SupplierDocRow = {
-    id: string
-    fileName: string
-    fileUrl?: string | null
-    storageKey?: string | null
-    mimeType?: string | null
-    docType?: string | null
-    uploadedAt: string
-}
-
-const DOC_TYPES = [
-    { value: 'CONTRACT', label: 'Contract' },
-    { value: 'CERTIFICATE', label: 'Certificate' },
-    { value: 'TAX', label: 'Tax document' },
-    { value: 'OTHER', label: 'Other' },
-]
-
-const DocumentsTab = ({ supplierId }: { supplierId: string }) => {
-    const [items, setItems] = useState<SupplierDocRow[]>([])
-    const [loading, setLoading] = useState(true)
-    const [addOpen, setAddOpen] = useState(false)
-    const [form, setForm] = useState({
-        fileName: '',
-        fileUrl: '',
-        storageKey: '',
-        mimeType: '',
-        docType: 'OTHER',
-    })
-
-    const load = useCallback(async () => {
-        setLoading(true)
-        try {
-            setItems((await supplierService.listDocuments(supplierId)) as SupplierDocRow[])
-        } catch {
-            setItems([])
-        } finally {
-            setLoading(false)
-        }
-    }, [supplierId])
-
-    useEffect(() => { load() }, [load])
-
-    const resetForm = () =>
-        setForm({ fileName: '', fileUrl: '', storageKey: '', mimeType: '', docType: 'OTHER' })
-
-    const handleAdd = useCallback(async () => {
-        if (!form.fileName.trim()) {
-            pushToast('danger', 'Validation', 'File name is required.')
-            return
-        }
-        try {
-            await supplierService.addDocument(supplierId, {
-                fileName: form.fileName.trim(),
-                fileUrl: form.fileUrl || undefined,
-                storageKey: form.storageKey || undefined,
-                mimeType: form.mimeType || undefined,
-                docType: form.docType || undefined,
-            })
-            pushToast('success', 'Added', 'Document metadata saved.')
-            setAddOpen(false)
-            resetForm()
-            load()
-        } catch (err: any) {
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Failed to add document')
-        }
-    }, [supplierId, form, load])
-
-    const handleDelete = useCallback(async (docId: string) => {
-        try {
-            await supplierService.removeDocument(supplierId, docId)
-            pushToast('success', 'Deleted', 'Document removed.')
-            load()
-        } catch {
-            pushToast('danger', 'Error', 'Delete failed')
-        }
-    }, [supplierId, load])
-
-    const columns = useMemo<ColumnDef<SupplierDocRow>[]>(() => [
-        { header: 'File Name', accessorKey: 'fileName', cell: ({ row }) => <span className="text-sm font-medium">{row.original.fileName}</span> },
-        { header: 'Type', accessorKey: 'docType', cell: ({ row }) => <span className="text-sm">{row.original.docType || '—'}</span> },
-        { header: 'MIME', accessorKey: 'mimeType', cell: ({ row }) => <span className="text-sm">{row.original.mimeType || '—'}</span> },
-        {
-            header: 'Uploaded',
-            accessorKey: 'uploadedAt',
-            cell: ({ row }) => <span className="text-xs">{new Date(row.original.uploadedAt).toLocaleString()}</span>,
-        },
-        {
-            id: 'actions',
-            header: '',
-            cell: ({ row }) => (
-                <Button
-                    size="xs"
-                    variant="plain"
-                    icon={<HiOutlineTrash className="text-red-500" />}
-                    onClick={() => handleDelete(row.original.id)}
-                />
-            ),
-        },
-    ], [handleDelete])
-
-    return (
-        <div>
-            <div className="mb-4 flex items-center justify-between">
-                <h5 className="text-sm font-semibold">Documents</h5>
-                <Button
-                    size="sm"
-                    icon={<HiOutlinePlus />}
-                    variant="solid"
-                    onClick={() => { resetForm(); setAddOpen(true) }}
-                >
-                    Add Document
-                </Button>
-            </div>
-            <DataTable<SupplierDocRow>
-                columns={columns}
-                data={items}
-                compact
-                fit
-                loading={loading}
-                noData={!loading && items.length === 0}
-            />
-
-            <FormDialog
-                isOpen={addOpen}
-                onClose={() => setAddOpen(false)}
-                size="md"
-                title="Add Document"
-                description="Store document metadata for this supplier."
-                icon={<HiOutlinePlus />}
-                footer={
-                    <>
-                        <Button type="button" size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
-                        <Button type="button" size="sm" variant="solid" onClick={handleAdd}>Add</Button>
-                    </>
-                }
-            >
-                <FormItem label="File Name" asterisk>
-                    <Input
-                        placeholder="e.g. contract-2026.pdf"
-                        value={form.fileName}
-                        onChange={(e) => setForm((p) => ({ ...p, fileName: e.target.value }))}
-                    />
-                </FormItem>
-                <FormItem label="Document Type">
-                    <Select
-                        options={DOC_TYPES}
-                        value={DOC_TYPES.find((o) => o.value === form.docType) ?? null}
-                        onChange={(opt: any) => setForm((p) => ({ ...p, docType: opt?.value ?? 'OTHER' }))}
-                    />
-                </FormItem>
-                <FormItem label="File URL">
-                    <Input
-                        placeholder="https://…"
-                        value={form.fileUrl}
-                        onChange={(e) => setForm((p) => ({ ...p, fileUrl: e.target.value }))}
-                    />
-                </FormItem>
-                <FormItem label="Storage Key">
-                    <Input
-                        placeholder="Optional storage key"
-                        value={form.storageKey}
-                        onChange={(e) => setForm((p) => ({ ...p, storageKey: e.target.value }))}
-                    />
-                </FormItem>
-                <FormItem label="MIME Type">
-                    <Input
-                        placeholder="application/pdf"
-                        value={form.mimeType}
-                        onChange={(e) => setForm((p) => ({ ...p, mimeType: e.target.value }))}
                     />
                 </FormItem>
             </FormDialog>

@@ -7,9 +7,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { ReservationService } from '../outbound/reservation.service'
+import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
 import { CreateGoodsIssueDto } from './dto/create-goods-issue.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 
 /**
  * Goods Issue is the hard inventory deduction:
@@ -21,19 +24,12 @@ export class GoodsIssueService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private reservations: ReservationService,
+        private allocationEngine: AllocationEngineService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
     ) {}
 
     async create(dto: CreateGoodsIssueDto) {
-        if (dto.idempotencyKey) {
-            const existing = await this.prisma.mmGoodsIssue.findFirst({
-                where: { remarks: `idem:${dto.idempotencyKey}` },
-                include: { lines: true },
-            })
-            // Prefer a dedicated column if present later; remarks tag is transitional.
-            if (existing) return existing
-        }
-
         if (dto.packageId) {
             await this.validatePackageForIssue(dto.packageId)
         }
@@ -80,9 +76,7 @@ export class GoodsIssueService {
                 postingDate: new Date(dto.postingDate),
                 documentDate: new Date(dto.documentDate),
                 issuePurpose: dto.issuePurpose ?? 'INTERNAL',
-                remarks: dto.idempotencyKey
-                    ? `idem:${dto.idempotencyKey}${dto.remarks ? ` | ${dto.remarks}` : ''}`
-                    : (dto.remarks ?? null),
+                remarks: dto.remarks ?? null,
                 createdBy: dto.createdBy ?? null,
                 status: 'DRAFT',
                 lines: { create: lines },
@@ -205,10 +199,22 @@ export class GoodsIssueService {
                 releaseReservedQuantity: consumeReserved
                     ? Number(line.quantity)
                     : undefined,
-                idempotencyKey: `gi:${doc.id}:${line.id}`,
+                idempotencyKey: postingKey('gi', doc.id, line.id),
             })
 
-            if (reservationId) {
+            if (line.pickingTaskId) {
+                const pickTask = await this.prisma.wmPickingTask.findUnique({
+                    where: { id: line.pickingTaskId },
+                })
+                if (pickTask?.allocationLineId) {
+                    await this.allocationEngine.recordIssue(
+                        pickTask.allocationLineId,
+                        new Decimal(line.quantity),
+                    )
+                } else if (reservationId) {
+                    await this.reservations.fulfill(reservationId, line.quantity)
+                }
+            } else if (reservationId) {
                 await this.reservations.fulfill(reservationId, line.quantity)
             }
         }
@@ -234,19 +240,12 @@ export class GoodsIssueService {
                 totalCost: Number(l.totalCost),
             })),
         }
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'GOODS_ISSUE_POSTED',
-                sourceModule: 'STOCK_OPS',
-                documentType: 'GOODS_ISSUE',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', payload)
         this.events.emit('goods-issue.posted', { goodsIssueId: doc.id })
+        void this.domainEvents.goodsIssuePosted({
+            companyId: doc.companyId,
+            goodsIssueId: doc.id,
+            payload,
+        })
 
         return updated
     }

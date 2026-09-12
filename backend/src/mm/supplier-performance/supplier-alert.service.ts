@@ -7,6 +7,13 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import { AlertQueryDto } from './dto/supplier-performance.dto'
 
+export type SupplierAlertType =
+    | 'POOR_SCORE'
+    | 'LATE_DELIVERY'
+    | 'HIGH_REJECTION'
+    | 'REPEATED_SHORTAGE'
+    | 'HIGH_PRICE_VARIANCE'
+
 /**
  * Alerts only — never blocks or deactivates a supplier.
  */
@@ -18,27 +25,39 @@ export class SupplierAlertService {
         companyId: string
         supplierId: string
         evaluationId: string
+        alertType: SupplierAlertType
         score: number
         threshold: number
         supplierCode: string
+        message?: string
     }) {
         const existing = await this.prisma.mmSupplierAlert.findFirst({
             where: {
                 evaluationId: input.evaluationId,
+                alertType: input.alertType,
                 status: 'OPEN',
             },
         })
         if (existing) return existing
+
+        const defaultMsg: Record<SupplierAlertType, string> = {
+            POOR_SCORE: `Supplier ${input.supplierCode} score ${input.score.toFixed(1)} fell below threshold ${input.threshold}`,
+            LATE_DELIVERY: `Supplier ${input.supplierCode} late delivery rate ${input.score.toFixed(2)} exceeded threshold ${input.threshold}`,
+            HIGH_REJECTION: `Supplier ${input.supplierCode} rejection rate ${input.score.toFixed(2)} exceeded threshold ${input.threshold}`,
+            REPEATED_SHORTAGE: `Supplier ${input.supplierCode} shortage rate ${input.score.toFixed(2)} exceeded threshold ${input.threshold}`,
+            HIGH_PRICE_VARIANCE: `Supplier ${input.supplierCode} price variance ${input.score.toFixed(2)} exceeded threshold ${input.threshold}`,
+        }
 
         return this.prisma.mmSupplierAlert.create({
             data: {
                 companyId: input.companyId,
                 supplierId: input.supplierId,
                 evaluationId: input.evaluationId,
+                alertType: input.alertType,
                 score: new Decimal(input.score),
                 threshold: new Decimal(input.threshold),
                 status: 'OPEN',
-                message: `Supplier ${input.supplierCode} score ${input.score.toFixed(1)} fell below threshold ${input.threshold}`,
+                message: input.message ?? defaultMsg[input.alertType],
             },
         })
     }
@@ -50,6 +69,7 @@ export class SupplierAlertService {
         if (query.companyId) where.companyId = query.companyId
         if (query.supplierId) where.supplierId = query.supplierId
         if (query.status) where.status = query.status
+        if (query.alertType) where.alertType = query.alertType
 
         const [data, total] = await Promise.all([
             this.prisma.mmSupplierAlert.findMany({

@@ -109,6 +109,7 @@ export class SupplierEvaluationService {
                 periodEnd,
             )
             const computed = computeSupplierMetrics(metrics, weights)
+            const snapshot = this.toEvaluationSnapshot(computed, weights)
 
             const evaluation = await this.prisma.mmSupplierEvaluation.upsert({
                 where: {
@@ -124,65 +125,20 @@ export class SupplierEvaluationService {
                     supplierId,
                     periodStart,
                     periodEnd,
-                    onTimePct: toDecimal(computed.onTimePct),
-                    qualityAcceptanceRate: toDecimal(computed.qualityAcceptanceRate),
-                    returnRate: toDecimal(computed.returnRate),
-                    leadTimeAccuracyPct: toDecimal(computed.leadTimeAccuracyPct),
-                    priceVariancePct: toDecimal(computed.priceVariancePct),
-                    avgResponseHours: toDecimal(computed.avgResponseHours),
-                    complianceRate: toDecimal(computed.complianceRate),
-                    purchaseVolume: toDecimal(computed.purchaseVolume),
-                    deliveryScore: toDecimal(computed.deliveryScore),
-                    qualityScore: toDecimal(computed.qualityScore),
-                    priceScore: toDecimal(computed.priceScore),
-                    serviceScore: toDecimal(computed.serviceScore),
-                    complianceScore: toDecimal(computed.complianceScore),
-                    overallScore: toDecimal(computed.overallScore),
-                    deliveryWeight: weights.deliveryWeight,
-                    qualityWeight: weights.qualityWeight,
-                    priceWeight: weights.priceWeight,
-                    serviceWeight: weights.serviceWeight,
-                    complianceWeight: weights.complianceWeight,
-                    sampleSizes: computed.sampleSizes,
-                    computedAt: new Date(),
+                    ...snapshot,
                 },
-                update: {
-                    onTimePct: toDecimal(computed.onTimePct),
-                    qualityAcceptanceRate: toDecimal(computed.qualityAcceptanceRate),
-                    returnRate: toDecimal(computed.returnRate),
-                    leadTimeAccuracyPct: toDecimal(computed.leadTimeAccuracyPct),
-                    priceVariancePct: toDecimal(computed.priceVariancePct),
-                    avgResponseHours: toDecimal(computed.avgResponseHours),
-                    complianceRate: toDecimal(computed.complianceRate),
-                    purchaseVolume: toDecimal(computed.purchaseVolume),
-                    deliveryScore: toDecimal(computed.deliveryScore),
-                    qualityScore: toDecimal(computed.qualityScore),
-                    priceScore: toDecimal(computed.priceScore),
-                    serviceScore: toDecimal(computed.serviceScore),
-                    complianceScore: toDecimal(computed.complianceScore),
-                    overallScore: toDecimal(computed.overallScore),
-                    deliveryWeight: weights.deliveryWeight,
-                    qualityWeight: weights.qualityWeight,
-                    priceWeight: weights.priceWeight,
-                    serviceWeight: weights.serviceWeight,
-                    complianceWeight: weights.complianceWeight,
-                    sampleSizes: computed.sampleSizes,
-                    computedAt: new Date(),
-                },
+                update: snapshot,
                 include: EVAL_INCLUDE,
             })
 
-            if (
-                alertCfg.isActive &&
-                Number(evaluation.overallScore) < Number(alertCfg.scoreThreshold)
-            ) {
-                await this.alerts.createIfNeeded({
+            if (alertCfg.isActive) {
+                await this.raiseThresholdAlerts({
                     companyId: dto.companyId,
                     supplierId,
                     evaluationId: evaluation.id,
-                    score: Number(evaluation.overallScore),
-                    threshold: Number(alertCfg.scoreThreshold),
                     supplierCode: evaluation.supplier.supplierCode,
+                    computed,
+                    alertCfg,
                 })
             }
 
@@ -415,19 +371,114 @@ export class SupplierEvaluationService {
             supplierMaterials.map((m) => [m.materialId, Number(m.unitPrice)]),
         )
 
+        const supplierMaterialIds = [
+            ...new Set(
+                [
+                    ...supplierMaterials.map((m) => m.materialId),
+                    ...invoices.flatMap((inv) =>
+                        inv.lines
+                            .map((l) => l.purchaseOrderLine?.materialId)
+                            .filter(Boolean),
+                    ),
+                ].filter(Boolean) as string[],
+            ),
+        ]
+
+        const priceVariances =
+            supplierMaterialIds.length > 0
+                ? await this.prisma.mmPriceVariance.findMany({
+                      where: {
+                          companyId,
+                          materialId: { in: supplierMaterialIds },
+                          createdAt: { gte: periodStart, lte: periodEnd },
+                          OR: [
+                              { landedUnitCost: { not: null } },
+                              { varianceType: 'LANDED' },
+                          ],
+                      },
+                      select: {
+                          materialId: true,
+                          poPrice: true,
+                          invoicePrice: true,
+                          landedUnitCost: true,
+                      },
+                      take: 500,
+                  })
+                : []
+
+        const landedByMaterial = new Map<string, number>()
+        for (const pv of priceVariances) {
+            if (pv.landedUnitCost != null) {
+                landedByMaterial.set(pv.materialId, Number(pv.landedUnitCost))
+            }
+        }
+
         const prices: MetricInputs['prices'] = []
         for (const inv of invoices) {
             for (const line of inv.lines) {
                 const poPrice = line.purchaseOrderLine
                     ? Number(line.purchaseOrderLine.unitPrice)
-                    : 0
+                    : Number(priceVariances.find(
+                          (p) =>
+                              p.materialId === line.purchaseOrderLine?.materialId &&
+                              p.poPrice != null,
+                      )?.poPrice ?? 0)
                 const materialId = line.purchaseOrderLine?.materialId
+                const invPrice = Number(line.unitPrice)
                 prices.push({
-                    poUnitPrice: poPrice,
-                    invoiceUnitPrice: Number(line.unitPrice),
+                    poUnitPrice:
+                        poPrice ||
+                        (materialId
+                            ? Number(
+                                  priceVariances.find((p) => p.materialId === materialId)
+                                      ?.poPrice ?? 0,
+                              )
+                            : 0),
+                    invoiceUnitPrice: invPrice,
                     historicalUnitPrice: materialId
                         ? histByMaterial.get(materialId) ?? null
                         : null,
+                    landedUnitCost: materialId
+                        ? landedByMaterial.get(materialId) ?? null
+                        : null,
+                })
+            }
+        }
+
+        // Quantity accuracy: PO ordered vs GR received for supplier in period
+        const purchaseOrders = await this.prisma.mmPurchaseOrder.findMany({
+            where: {
+                companyId,
+                supplierId,
+                status: { notIn: ['CANCELLED', 'DRAFT'] },
+                OR: [
+                    { createdAt: { gte: periodStart, lte: periodEnd } },
+                    {
+                        goodsReceipts: {
+                            some: {
+                                status: 'POSTED',
+                                postingDate: { gte: periodStart, lte: periodEnd },
+                            },
+                        },
+                    },
+                ],
+            },
+            include: {
+                lines: {
+                    select: {
+                        quantity: true,
+                        receivedQuantity: true,
+                    },
+                },
+            },
+            take: 500,
+        })
+        const quantities: MetricInputs['quantities'] = []
+        for (const po of purchaseOrders) {
+            for (const line of po.lines) {
+                quantities.push({
+                    orderedQty: Number(line.quantity),
+                    receivedQty: Number(line.receivedQuantity || 0),
                 })
             }
         }
@@ -502,11 +553,121 @@ export class SupplierEvaluationService {
             grLines,
             leadTimes,
             prices,
+            quantities,
             rfqResponses,
             compliance,
             purchaseVolume,
             supplierReturnQty,
             receivingVarianceEvents,
+        }
+    }
+
+    private toEvaluationSnapshot(
+        computed: ReturnType<typeof computeSupplierMetrics>,
+        weights: ReturnType<SupplierScoreConfigService['toWeights']>,
+    ) {
+        return {
+            onTimePct: toDecimal(computed.onTimePct),
+            lateDeliveryRate: toDecimal(computed.lateDeliveryRate),
+            avgDelayDays: toDecimal(computed.avgDelayDays),
+            qualityAcceptanceRate: toDecimal(computed.qualityAcceptanceRate),
+            rejectionRate: toDecimal(computed.rejectionRate),
+            returnRate: toDecimal(computed.returnRate),
+            leadTimeAccuracyPct: toDecimal(computed.leadTimeAccuracyPct),
+            priceVariancePct: toDecimal(computed.priceVariancePct),
+            landedCostVariancePct: toDecimal(computed.landedCostVariancePct),
+            fillRate: toDecimal(computed.fillRate),
+            shortageRate: toDecimal(computed.shortageRate),
+            overDeliveryRate: toDecimal(computed.overDeliveryRate),
+            avgResponseHours: toDecimal(computed.avgResponseHours),
+            complianceRate: toDecimal(computed.complianceRate),
+            purchaseVolume: toDecimal(computed.purchaseVolume),
+            deliveryScore: toDecimal(computed.deliveryScore),
+            qualityScore: toDecimal(computed.qualityScore),
+            priceScore: toDecimal(computed.priceScore),
+            quantityScore: toDecimal(computed.quantityScore),
+            serviceScore: toDecimal(computed.serviceScore),
+            complianceScore: toDecimal(computed.complianceScore),
+            overallScore: toDecimal(computed.overallScore),
+            deliveryWeight: weights.deliveryWeight,
+            qualityWeight: weights.qualityWeight,
+            priceWeight: weights.priceWeight,
+            quantityWeight: weights.quantityWeight,
+            serviceWeight: weights.serviceWeight,
+            complianceWeight: weights.complianceWeight,
+            sampleSizes: computed.sampleSizes,
+            computedAt: new Date(),
+        }
+    }
+
+    /**
+     * Advisory alerts only — never updates MmSupplier.status / block flags.
+     */
+    private async raiseThresholdAlerts(input: {
+        companyId: string
+        supplierId: string
+        evaluationId: string
+        supplierCode: string
+        computed: ReturnType<typeof computeSupplierMetrics>
+        alertCfg: Awaited<ReturnType<SupplierScoreConfigService['getAlertConfig']>>
+    }) {
+        const { computed, alertCfg } = input
+        const base = {
+            companyId: input.companyId,
+            supplierId: input.supplierId,
+            evaluationId: input.evaluationId,
+            supplierCode: input.supplierCode,
+        }
+
+        if (computed.overallScore < Number(alertCfg.scoreThreshold)) {
+            await this.alerts.createIfNeeded({
+                ...base,
+                alertType: 'POOR_SCORE',
+                score: computed.overallScore,
+                threshold: Number(alertCfg.scoreThreshold),
+            })
+        }
+        if (
+            computed.lateDeliveryRate >
+            Number(alertCfg.lateDeliveryRateThreshold ?? 0.25)
+        ) {
+            await this.alerts.createIfNeeded({
+                ...base,
+                alertType: 'LATE_DELIVERY',
+                score: computed.lateDeliveryRate,
+                threshold: Number(alertCfg.lateDeliveryRateThreshold ?? 0.25),
+            })
+        }
+        if (
+            computed.rejectionRate > Number(alertCfg.rejectionRateThreshold ?? 0.1)
+        ) {
+            await this.alerts.createIfNeeded({
+                ...base,
+                alertType: 'HIGH_REJECTION',
+                score: computed.rejectionRate,
+                threshold: Number(alertCfg.rejectionRateThreshold ?? 0.1),
+            })
+        }
+        if (
+            computed.shortageRate > Number(alertCfg.shortageRateThreshold ?? 0.15)
+        ) {
+            await this.alerts.createIfNeeded({
+                ...base,
+                alertType: 'REPEATED_SHORTAGE',
+                score: computed.shortageRate,
+                threshold: Number(alertCfg.shortageRateThreshold ?? 0.15),
+            })
+        }
+        if (
+            computed.priceVariancePct >
+            Number(alertCfg.priceVarianceThreshold ?? 0.1)
+        ) {
+            await this.alerts.createIfNeeded({
+                ...base,
+                alertType: 'HIGH_PRICE_VARIANCE',
+                score: computed.priceVariancePct,
+                threshold: Number(alertCfg.priceVarianceThreshold ?? 0.1),
+            })
         }
     }
 
@@ -769,6 +930,7 @@ export class SupplierEvaluationService {
                 deliveryScore: Number(r.deliveryScore),
                 qualityScore: Number(r.qualityScore),
                 priceScore: Number(r.priceScore),
+                quantityScore: Number(r.quantityScore),
                 returnRate: Number(r.returnRate),
             })),
         )

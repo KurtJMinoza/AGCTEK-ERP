@@ -6,12 +6,16 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlineSearch, HiOutlineCalculator } from 'react-icons/hi'
-import { reservationService, type AtpResult } from '../services/reservationService'
+import {
+    inventoryService,
+    type AvailabilityResult,
+} from '../services/inventoryService'
 import { warehouseService } from '../../warehouse/services/warehouseService'
 import { materialService } from '../../material-master/services/materialService'
 import { orgService } from '../../material-master/services/referenceService'
@@ -33,8 +37,11 @@ const AvailableStockPage = () => {
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
+    const [storageBinId, setStorageBinId] = useState('')
+    const [batchId, setBatchId] = useState('')
+    const [serialNumberId, setSerialNumberId] = useState('')
     const [loading, setLoading] = useState(false)
-    const [result, setResult] = useState<AtpResult | null>(null)
+    const [result, setResult] = useState<AvailabilityResult | null>(null)
 
     useEffect(() => {
         Promise.all([
@@ -58,14 +65,21 @@ const AvailableStockPage = () => {
         }
         setLoading(true)
         try {
-            const atp = await reservationService.atp({ companyId, warehouseId, materialId })
+            const atp = await inventoryService.available({
+                companyId,
+                warehouseId,
+                materialId,
+                storageBinId: storageBinId || undefined,
+                batchId: batchId || undefined,
+                serialNumberId: serialNumberId || undefined,
+            })
             setResult(atp)
         } catch (e: any) {
             pushToast('danger', 'ATP failed', e?.response?.data?.message ?? e.message)
         } finally {
             setLoading(false)
         }
-    }, [companyId, warehouseId, materialId])
+    }, [companyId, warehouseId, materialId, storageBinId, batchId, serialNumberId])
 
     return (
         <PageContainer>
@@ -89,6 +103,15 @@ const AvailableStockPage = () => {
                         <Select options={materials} value={materials.find((o) => o.value === materialId)}
                             onChange={(o: any) => setMaterialId(o?.value ?? '')} />
                     </FormItem>
+                    <FormItem label="Bin ID (optional)">
+                        <Input value={storageBinId} onChange={(e) => setStorageBinId(e.target.value)} />
+                    </FormItem>
+                    <FormItem label="Batch ID (optional)">
+                        <Input value={batchId} onChange={(e) => setBatchId(e.target.value)} />
+                    </FormItem>
+                    <FormItem label="Serial ID (optional)">
+                        <Input value={serialNumberId} onChange={(e) => setSerialNumberId(e.target.value)} />
+                    </FormItem>
                     <div className="flex items-end">
                         <Button variant="solid" loading={loading} icon={<HiOutlineCalculator />} onClick={run}>
                             Calculate ATP
@@ -98,11 +121,12 @@ const AvailableStockPage = () => {
             </AdaptiveCard>
 
             {result && (
-                <div className="grid gap-4 md:grid-cols-4 mb-4">
+                <div className="grid gap-4 md:grid-cols-5 mb-4">
                     {[
-                        { label: 'Unrestricted Stock', value: result.unrestrictedStock },
-                        { label: 'Existing Reservations', value: result.existingReservations },
-                        { label: 'Restricted Stock', value: result.restrictedStock },
+                        { label: 'On Hand (total)', value: result.onHand },
+                        { label: 'Unrestricted', value: result.unrestrictedOnHand },
+                        { label: 'Reserved', value: result.reserved },
+                        { label: 'Restricted', value: result.restricted },
                         { label: 'Available', value: result.available },
                     ].map((card) => (
                         <AdaptiveCard key={card.label}>

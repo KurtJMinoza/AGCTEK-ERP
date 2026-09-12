@@ -13,6 +13,7 @@ import {
     AllocatePreviewDto,
 } from './dto/valuation.dto'
 import { ValuationEngineService } from './valuation-engine.service'
+import { normalizeAllocationBase } from './valuation.constants'
 
 @Injectable()
 export class LandedCostService {
@@ -85,6 +86,7 @@ export class LandedCostService {
                 lines: {
                     create: dto.lines.map((l) => ({
                         costType: l.costType,
+                        costElementId: l.costElementId ?? null,
                         description: l.description ?? null,
                         amount: new Decimal(l.amount),
                         materialId: l.materialId ?? null,
@@ -101,6 +103,11 @@ export class LandedCostService {
             },
             include: { lines: true, allocations: true },
         })
+    }
+
+    /** Canonical allocate = allocateAndCapitalize. */
+    async allocate(id: string, dto: AllocatePreviewDto = {}) {
+        return this.allocateAndCapitalize(id, dto)
     }
 
     /**
@@ -213,7 +220,7 @@ export class LandedCostService {
             )
         }
 
-        const base = doc.allocationBase as string
+        const base = normalizeAllocationBase(doc.allocationBase as string)
         const weights: Decimal[] = targets.map((t: any) => {
             if (base === 'MANUAL') return new Decimal(t.manualAmount ?? 0)
             if (base === 'QUANTITY') return new Decimal(t.quantity ?? 0)

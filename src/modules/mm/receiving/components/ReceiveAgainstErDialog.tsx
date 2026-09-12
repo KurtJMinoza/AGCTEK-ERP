@@ -8,9 +8,10 @@ import { FormItem } from '@/components/ui/Form'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { HiOutlineInboxIn } from 'react-icons/hi'
-import { inboundService } from '../services/inboundService'
-import type { MmExpectedReceipt, MmExpectedReceiptLine } from '../types'
+import { receivingService } from '../services/receivingService'
+import type { MmExpectedReceipt, MmExpectedReceiptLine, MmReceivingDocument } from '../types'
 import type { GoodsReceipt } from '@/modules/mm/inventory/types'
+import Tag from '@/components/ui/Tag'
 import {
     firstError,
     nonNegativeNumber,
@@ -75,12 +76,16 @@ const ReceiveAgainstErDialog = ({
     const [submitting, setSubmitting] = useState(false)
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
+    const [receivingDoc, setReceivingDoc] = useState<MmReceivingDocument | null>(null)
+    const [step, setStep] = useState<'scan' | 'validated' | 'posted'>('scan')
 
     useEffect(() => {
         if (isOpen && expectedReceipt) {
             setDrafts(buildDrafts(expectedReceipt.lines ?? []))
             setTouched({})
             setForceValidate(false)
+            setReceivingDoc(null)
+            setStep('scan')
         }
     }, [isOpen, expectedReceipt])
 
@@ -132,7 +137,21 @@ const ReceiveAgainstErDialog = ({
         setDrafts((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)))
     }, [])
 
-    const handleSubmit = useCallback(async () => {
+    const buildLines = useCallback(() =>
+        drafts
+            .filter((d) => Number(d.receivedQuantity) > 0)
+            .map((d) => ({
+                expectedReceiptLineId: d.expectedReceiptLineId,
+                receivedQuantity: Number(d.receivedQuantity),
+                damagedQuantity: Number(d.damagedQuantity) || 0,
+                rejectedQuantity: Number(d.rejectedQuantity) || 0,
+                barcode: d.barcode.trim() || undefined,
+                batchId: d.batchId.trim() || undefined,
+                serialNumberId: d.serialNumberId.trim() || undefined,
+                unitCost: d.unitCost !== '' ? Number(d.unitCost) : undefined,
+            })), [drafts])
+
+    const handleCreateAndValidate = useCallback(async () => {
         if (!expectedReceipt) return
         setForceValidate(true)
         if (Object.values(errors).some(Boolean)) {
@@ -141,38 +160,43 @@ const ReceiveAgainstErDialog = ({
         }
         setSubmitting(true)
         try {
-            const lines = drafts
-                .filter((d) => Number(d.receivedQuantity) > 0)
-                .map((d) => ({
-                    expectedReceiptLineId: d.expectedReceiptLineId,
-                    receivedQuantity: Number(d.receivedQuantity),
-                    damagedQuantity: Number(d.damagedQuantity) || 0,
-                    rejectedQuantity: Number(d.rejectedQuantity) || 0,
-                    barcode: d.barcode.trim() || undefined,
-                    batchId: d.batchId.trim() || undefined,
-                    serialNumberId: d.serialNumberId.trim() || undefined,
-                    unitCost: d.unitCost !== '' ? Number(d.unitCost) : undefined,
-                }))
-            const gr = await inboundService.receive({
+            const doc = await receivingService.create({
                 expectedReceiptId: expectedReceipt.id,
-                lines,
-            })
-            pushToast(
-                'success',
-                'Received',
-                `Draft goods receipt ${gr.documentNumber} created.`,
-            )
-            onSuccess?.(gr)
-            onClose()
+                autoPost: false,
+                lines: buildLines(),
+            }) as MmReceivingDocument
+            const validated = await receivingService.validate(doc.id)
+            setReceivingDoc(validated)
+            setStep('validated')
+            pushToast('success', 'Validated', `${validated.documentNumber} — ${validated.variances?.length ?? 0} variance(s).`)
         } catch (err: unknown) {
             const msg =
                 (err as { response?: { data?: { message?: string | string[] } } })?.response
-                    ?.data?.message || 'Receive failed'
+                    ?.data?.message || 'Validate failed'
             pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
         } finally {
             setSubmitting(false)
         }
-    }, [expectedReceipt, drafts, errors, onClose, onSuccess])
+    }, [expectedReceipt, errors, buildLines])
+
+    const handlePost = useCallback(async () => {
+        if (!receivingDoc) return
+        setSubmitting(true)
+        try {
+            const result = await receivingService.post(receivingDoc.id)
+            setStep('posted')
+            pushToast('success', 'Posted', `GR ${result.goodsReceipt.documentNumber} posted.`)
+            onSuccess?.(result.goodsReceipt as unknown as GoodsReceipt)
+            onClose()
+        } catch (err: unknown) {
+            const msg =
+                (err as { response?: { data?: { message?: string | string[] } } })?.response
+                    ?.data?.message || 'Post failed'
+            pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
+        } finally {
+            setSubmitting(false)
+        }
+    }, [receivingDoc, onClose, onSuccess])
 
     return (
         <FormDialog
@@ -191,18 +215,39 @@ const ReceiveAgainstErDialog = ({
                     <Button size="sm" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button
-                        size="sm"
-                        variant="solid"
-                        loading={submitting}
-                        onClick={handleSubmit}
-                        disabled={!drafts.length}
-                    >
-                        Create draft GR
-                    </Button>
+                    {step === 'validated' ? (
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={submitting}
+                            onClick={handlePost}
+                        >
+                            Post goods receipt
+                        </Button>
+                    ) : (
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={submitting}
+                            onClick={handleCreateAndValidate}
+                            disabled={!drafts.length || step === 'posted'}
+                        >
+                            Validate receiving
+                        </Button>
+                    )}
                 </>
             }
         >
+            {receivingDoc?.variances?.length ? (
+                <div className="mb-3 flex flex-wrap gap-2">
+                    {receivingDoc.variances.map((v) => (
+                        <Tag key={v.id} className="text-xs">
+                            {v.varianceType.replace(/_/g, ' ')} ({Number(v.quantity)})
+                        </Tag>
+                    ))}
+                </div>
+            ) : null}
+
             {visibleError(errors, touched, 'lines', forceValidate) ? (
                 <p className="mb-3 text-sm text-red-500">
                     {visibleError(errors, touched, 'lines', forceValidate)}

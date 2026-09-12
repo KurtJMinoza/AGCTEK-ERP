@@ -10,6 +10,8 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 
 let seq = 0
 function nextId() {
@@ -110,6 +112,7 @@ function makePo(overrides: any = {}) {
 }
 
 const mockPrisma: any = {
+    mmSupplier: { findFirst: jest.fn() },
     mmPurchaseOrder: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -214,6 +217,20 @@ beforeEach(async () => {
                     createFromGoodsReceiptLine: jest.fn().mockResolvedValue(null),
                 },
             },
+            {
+                provide: PurchaseCommitmentService,
+                useValue: {
+                    recordCommitment: jest.fn().mockResolvedValue({ id: 'commit-1' }),
+                    cancelCommitment: jest.fn().mockResolvedValue(undefined),
+                },
+            },
+            {
+                provide: MmDomainEventsService,
+                useValue: {
+                    emit: jest.fn(),
+                    goodsReceiptPosted: jest.fn(),
+                },
+            },
         ],
     }).compile()
 
@@ -244,6 +261,13 @@ beforeEach(async () => {
     })
     mockPrisma.mmPurchaseOrderAudit.create.mockResolvedValue({})
     mockPrisma.notification.create.mockResolvedValue({})
+    mockPrisma.mmSupplier.findFirst.mockResolvedValue({
+        id: 'sup-1',
+        status: 'ACTIVE',
+        companyId: 'co-1',
+        sourcingType: 'APPROVED',
+        documents: [],
+    })
 })
 
 describe('MM-07 PurchaseOrderService lifecycle', () => {

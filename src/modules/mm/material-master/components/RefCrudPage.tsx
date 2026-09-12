@@ -18,6 +18,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { getApiErrorMessage } from '@/modules/mm/shared/apiError'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 import {
     firstError,
@@ -188,8 +189,8 @@ export default function RefCrudPage<T extends { id: string }>({
             }
             setFormOpen(false)
             load()
-        } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message || 'Operation failed')
+        } catch (e: unknown) {
+            pushToast('danger', 'Error', getApiErrorMessage(e, 'Operation failed'))
         }
     }
 
@@ -200,8 +201,8 @@ export default function RefCrudPage<T extends { id: string }>({
             pushToast('success', 'Deleted', `${getItemLabel?.(deleting) ?? title} removed.`)
             setDeleting(null)
             load()
-        } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message || 'Delete failed')
+        } catch (e: unknown) {
+            pushToast('danger', 'Error', getApiErrorMessage(e, 'Delete failed'))
         }
     }
 
@@ -234,8 +235,8 @@ export default function RefCrudPage<T extends { id: string }>({
             setSelectedRows(new Set())
             setBulkDeleteOpen(false)
             load()
-        } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message || 'Some deletions failed')
+        } catch (e: unknown) {
+            pushToast('danger', 'Error', getApiErrorMessage(e, 'Some deletions failed'))
         } finally {
             setBulkDeleting(false)
         }

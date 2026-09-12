@@ -10,12 +10,51 @@ import type {
 
 const BASE = '/mm/valuation'
 
+export type PriceVarianceRow = {
+    id: string
+    varianceNumber: string
+    varianceType: string
+    materialId: string
+    warehouseId: string
+    poPrice?: number | string | null
+    standardCost?: number | string | null
+    invoicePrice?: number | string | null
+    landedUnitCost?: number | string | null
+    actualUnitCost?: number | string | null
+    varianceAmount: number | string
+    status: string
+    createdAt: string
+    material?: { materialCode?: string; materialName?: string }
+    warehouse?: { code?: string; name?: string }
+}
+
+export type CostElement = {
+    id: string
+    companyId: string
+    code: string
+    name: string
+    costType: string
+    isActive: boolean
+}
+
 export const valuationService = {
     listMaterialValuations: (params?: Record<string, unknown>) =>
         ErpAxiosBase.get<{ data: MaterialValuation[]; meta: ListMeta }>(
             `${BASE}/material-valuations`,
             { params },
         ).then((r) => r.data),
+
+    /** Canonical profile alias */
+    listProfiles: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: MaterialValuation[]; meta: ListMeta }>(
+            `${BASE}/profiles`,
+            { params },
+        ).then((r) => r.data),
+
+    upsertProfile: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post<MaterialValuation>(`${BASE}/profiles`, data).then(
+            (r) => r.data,
+        ),
 
     upsertMaterialValuation: (data: Record<string, unknown>) =>
         ErpAxiosBase.post<MaterialValuation>(
@@ -41,6 +80,11 @@ export const valuationService = {
             { params },
         ).then((r) => r.data),
 
+    createCostLayer: (data: { receiptTxnId: string }) =>
+        ErpAxiosBase.post<CostLayer>(`${BASE}/cost-layers`, data).then(
+            (r) => r.data,
+        ),
+
     listValuationTransactions: (params?: Record<string, unknown>) =>
         ErpAxiosBase.get<{ data: ValuationTransaction[]; meta: ListMeta }>(
             `${BASE}/valuation-transactions`,
@@ -49,9 +93,31 @@ export const valuationService = {
 
     getInventoryValue: (params: Record<string, unknown>) =>
         ErpAxiosBase.get<{ data: InventoryValueRow[]; meta: ListMeta }>(
-            `${BASE}/inventory-value`,
+            `${BASE}/inventory`,
             { params },
         ).then((r) => r.data),
+
+    listPriceVariance: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: PriceVarianceRow[]; meta: ListMeta }>(
+            `${BASE}/price-variance`,
+            { params },
+        ).then((r) => r.data),
+
+    listCostElements: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: CostElement[]; meta: ListMeta }>(
+            `${BASE}/cost-elements`,
+            { params },
+        ).then((r) => r.data),
+
+    upsertCostElement: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post<CostElement>(`${BASE}/cost-elements`, data).then(
+            (r) => r.data,
+        ),
+
+    ensureCostElementDefaults: (companyId: string) =>
+        ErpAxiosBase.post(`${BASE}/cost-elements/ensure-defaults`, {
+            companyId,
+        }).then((r) => r.data),
 
     listLandedCosts: (params?: Record<string, unknown>) =>
         ErpAxiosBase.get<{ data: LandedCost[]; meta: ListMeta }>(
@@ -59,8 +125,13 @@ export const valuationService = {
             { params },
         ).then((r) => r.data),
 
+    getLandedCost: (id: string) =>
+        ErpAxiosBase.get<LandedCost>(`${BASE}/landed-costs/${id}`).then(
+            (r) => r.data,
+        ),
+
     createLandedCost: (data: Record<string, unknown>) =>
-        ErpAxiosBase.post<LandedCost>(`${BASE}/landed-costs`, data).then(
+        ErpAxiosBase.post<LandedCost>(`${BASE}/landed-cost`, data).then(
             (r) => r.data,
         ),
 
@@ -73,6 +144,13 @@ export const valuationService = {
     capitalizeLandedCost: (id: string, data?: Record<string, unknown>) =>
         ErpAxiosBase.post<LandedCost>(
             `${BASE}/landed-costs/${id}/capitalize`,
+            data ?? {},
+        ).then((r) => r.data),
+
+    /** Canonical allocate = capitalize */
+    allocateLandedCost: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post<LandedCost>(
+            `${BASE}/landed-cost/${id}/allocate`,
             data ?? {},
         ).then((r) => r.data),
 }

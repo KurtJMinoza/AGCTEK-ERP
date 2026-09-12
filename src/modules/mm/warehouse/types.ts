@@ -490,3 +490,86 @@ export interface CreateTransferPayload {
         sourceBinId?: string
     }[]
 }
+
+// Unified warehouse task engine
+export type WarehouseTaskType =
+    | 'PUTAWAY'
+    | 'PICK'
+    | 'TRANSFER'
+    | 'REPLENISHMENT'
+    | 'RELOCATION'
+    | 'COUNT'
+
+export type WarehouseTaskStatus =
+    | 'PENDING'
+    | 'ASSIGNED'
+    | 'IN_PROGRESS'
+    | 'PARTIALLY_COMPLETED'
+    | 'COMPLETED'
+    | 'CANCELLED'
+    | 'EXCEPTION'
+
+export interface WarehouseTask {
+    id: string
+    taskNumber: string
+    companyId: string
+    plantId: string
+    warehouseId: string
+    warehouse?: { id: string; code: string; name: string }
+    taskType: WarehouseTaskType
+    priority: number
+    status: WarehouseTaskStatus
+    sourceBinId?: string
+    destinationBinId?: string
+    materialId?: string
+    material?: { id: string; materialCode: string; materialName: string }
+    batchId?: string
+    serialId?: string
+    quantity: number
+    completedQuantity: number
+    uomId?: string
+    stockStatus?: string
+    assignedUserId?: string
+    referenceType?: string
+    referenceId?: string
+    startedAt?: string
+    completedAt?: string
+    cancelledAt?: string
+    exceptionReason?: string
+    metadata?: Record<string, unknown>
+    createdAt: string
+    updatedAt: string
+}
+
+export interface WarehouseTaskListResponse {
+    data: WarehouseTask[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export interface WarehouseTaskQueryParams {
+    taskType?: WarehouseTaskType
+    status?: WarehouseTaskStatus
+    warehouseId?: string
+    companyId?: string
+    assignedUserId?: string
+    search?: string
+    page?: number
+    pageSize?: number
+}
+
+export interface PackingSession {
+    id: string
+    sessionNumber: string
+    warehouseId: string
+    warehouse?: Warehouse
+    warehouseTaskId?: string
+    pickingTaskId?: string
+    status: string
+    createdBy?: string
+    completedAt?: string
+    createdAt: string
+    updatedAt: string
+    packages?: WmPackage[]
+}

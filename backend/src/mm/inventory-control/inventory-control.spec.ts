@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { AdjustmentService } from '../stock-ops/adjustment.service'
 import { CountRuleService } from './count-rule.service'
 import { InventoryCountService } from './inventory-count.service'
+import { CountPolicyService } from './count-policy.service'
 
 const mockPrisma: any = {
     mmCountRule: {
@@ -14,6 +15,11 @@ const mockPrisma: any = {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        findFirst: jest.fn(),
+    },
+    mmCountPolicy: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'pol-1' }),
     },
     mmInventoryCount: {
         findMany: jest.fn(),
@@ -119,6 +125,12 @@ describe('MM-10 Inventory Control', () => {
                 InventoryCountService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: AdjustmentService, useValue: mockAdjustments },
+                {
+                    provide: CountPolicyService,
+                    useValue: {
+                        ensureFromLegacyRule: jest.fn().mockResolvedValue({ id: 'pol-1' }),
+                    },
+                },
             ],
         }).compile()
         rules = module.get(CountRuleService)

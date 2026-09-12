@@ -8,6 +8,8 @@ export type ScannerOperation =
 
 export interface ResolveHit {
     type: string
+    entityType?: string
+    entityId?: string
     barcode: string
     materialId?: string
     material?: {
@@ -23,6 +25,11 @@ export interface ResolveHit {
     warehouse?: { id: string; code: string; name: string; companyId: string }
     storageBinId?: string
     storageBin?: { id: string; code: string; barcode?: string | null }
+    location?: {
+        warehouseId?: string
+        storageBinId?: string
+        binCode?: string
+    } | null
     batchId?: string
     batch?: { id: string; batchNumber: string; materialId: string }
     serialNumberId?: string
@@ -31,11 +38,17 @@ export interface ResolveHit {
     expectedReceiptId?: string
     purchaseOrderId?: string
     pickingTaskId?: string
+    putawayTaskId?: string
+    warehouseTaskId?: string
+    transferOrderId?: string
+    packageId?: string
     countId?: string
     countLineId?: string
     documentType?: string
     documentId?: string
     documentNumber?: string
+    status?: string | null
+    allowedActions?: string[]
 }
 
 export interface ScannerEventPayload {

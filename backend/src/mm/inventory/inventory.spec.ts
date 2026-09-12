@@ -4,6 +4,8 @@ import { InventoryPostingService } from './inventory-posting.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ValuationEngineService } from '../valuation/valuation-engine.service'
 import { UomConversionsService } from '../uom-conversions/uom-conversions.service'
+import { MmScopeService } from '../common/mm-scope.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import {
     BadRequestException,
     NotFoundException,
@@ -21,7 +23,13 @@ const activeMaterial = (overrides: any = {}) => ({
     ...overrides,
 })
 
-const activeWarehouse = { id: 'wh-1', status: 'ACTIVE', deletedAt: null, plantId: 'plant-1' }
+const activeWarehouse = {
+    id: 'wh-1',
+    companyId: 'co-1',
+    status: 'ACTIVE',
+    deletedAt: null,
+    plantId: 'plant-1',
+}
 const activeBin = {
     id: 'bin-1',
     status: 'ACTIVE',
@@ -116,6 +124,17 @@ describe('Inventory Ledger Engine', () => {
                     },
                 },
                 { provide: UomConversionsService, useValue: uomConversions },
+                {
+                    provide: MmScopeService,
+                    useValue: { assertPostingScope: jest.fn().mockResolvedValue(undefined) },
+                },
+                {
+                    provide: MmDomainEventsService,
+                    useValue: {
+                        inventoryTransactionPosted: jest.fn(),
+                        inventoryTransactionReversed: jest.fn(),
+                    },
+                },
             ],
         }).compile()
 
@@ -449,9 +468,14 @@ describe('Inventory Ledger Engine', () => {
         }
 
         it('should create a reversal transaction', async () => {
-            mockPrisma.mmInventoryTransaction.findUnique
-                .mockResolvedValueOnce(originalTxn)
-                .mockResolvedValueOnce(null)
+            mockPrisma.mmInventoryTransaction.findUnique.mockImplementation(
+                ({ where }: any) => {
+                    if (where?.idempotencyKey) return Promise.resolve(null)
+                    if (where?.id === 'txn-orig') return Promise.resolve(originalTxn)
+                    if (where?.reversalOfId === 'txn-orig') return Promise.resolve(null)
+                    return Promise.resolve(null)
+                },
+            )
 
             mockPrisma.mmInventoryBalance.findFirst.mockResolvedValue({
                 quantity: new Decimal(100),
@@ -467,8 +491,9 @@ describe('Inventory Ledger Engine', () => {
                         ),
                         findFirst: jest.fn().mockResolvedValue(null),
                         findUnique: jest.fn().mockImplementation(({ where }) => {
-                            if (where?.reversalOfId) return null
-                            return mockTxn({ id: where?.id ?? 'txn-x' })
+                            if (where?.idempotencyKey) return Promise.resolve(null)
+                            if (where?.reversalOfId) return Promise.resolve(null)
+                            return Promise.resolve(null)
                         }),
                     },
                     mmInventoryBalance: {
@@ -503,15 +528,37 @@ describe('Inventory Ledger Engine', () => {
         })
     })
 
-    describe('Double reversal rejected', () => {
-        it('should reject reversal of already-reversed transaction', async () => {
-            mockPrisma.mmInventoryTransaction.findUnique
-                .mockResolvedValueOnce({ id: 'txn-orig' })
-                .mockResolvedValueOnce({ id: 'txn-rev', reversalOfId: 'txn-orig' })
+    describe('Double reversal idempotent', () => {
+        it('should return existing reversal when transaction already reversed', async () => {
+            const existingReversal = { id: 'txn-rev', reversalOfId: 'txn-orig' }
+            mockPrisma.mmInventoryTransaction.findUnique.mockImplementation(
+                ({ where }: any) => {
+                    if (where?.idempotencyKey) return Promise.resolve(null)
+                    if (where?.reversalOfId === 'txn-orig') {
+                        return Promise.resolve(existingReversal)
+                    }
+                    if (where?.id === 'txn-orig') {
+                        return Promise.resolve({
+                            id: 'txn-orig',
+                            movementType: 'RECEIPT',
+                            baseQuantity: 10,
+                            quantity: 10,
+                            totalCost: 0,
+                            companyId: 'co-1',
+                            warehouseId: 'wh-1',
+                            materialId: 'mat-1',
+                            stockStatus: 'UNRESTRICTED',
+                            uomId: 'uom-1',
+                            documentDate: new Date(),
+                        })
+                    }
+                    return Promise.resolve(null)
+                },
+            )
 
-            await expect(
-                service.reverseTransaction('txn-orig', {}),
-            ).rejects.toThrow(ConflictException)
+            const result = await service.reverseTransaction('txn-orig', {})
+            expect(result).toBe(existingReversal)
+            expect(mockPrisma.$transaction).not.toHaveBeenCalled()
         })
     })
 
@@ -572,7 +619,14 @@ describe('Inventory Ledger Engine', () => {
                 transactionNumber: 'TXN-20260115-00001',
                 idempotencyKey: 'idem-123',
             }
-            mockPrisma.mmInventoryTransaction.findUnique.mockResolvedValue(existingTxn)
+            mockPrisma.mmInventoryTransaction.findUnique.mockImplementation(
+                ({ where }: any) => {
+                    if (where?.idempotencyKey === 'idem-123') {
+                        return Promise.resolve(existingTxn)
+                    }
+                    return Promise.resolve(null)
+                },
+            )
 
             const result = await service.postTransaction(
                 baseDto({ idempotencyKey: 'idem-123' }),
@@ -583,12 +637,19 @@ describe('Inventory Ledger Engine', () => {
         })
 
         it('should re-check idempotencyKey inside the transaction', async () => {
-            mockPrisma.mmInventoryTransaction.findUnique.mockResolvedValue(null)
             const existingInside = {
                 id: 'txn-race',
                 transactionNumber: 'TXN-20260115-00099',
                 idempotencyKey: 'idem-race',
             }
+            mockPrisma.mmInventoryTransaction.findUnique.mockImplementation(
+                ({ where }: any) => {
+                    if (where?.idempotencyKey === 'idem-race') {
+                        return Promise.resolve(null)
+                    }
+                    return Promise.resolve(null)
+                },
+            )
 
             mockPrisma.$transaction.mockImplementation(async (fn: any) => {
                 const txClient = {

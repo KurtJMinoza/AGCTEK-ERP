@@ -16,6 +16,7 @@ import ContentOverlay from './components/ContentOverlay'
 import Blank from './components/Blank'
 import PageContainer from '@/components/template/PageContainer'
 import { UserAvatarProvider } from '@/modules/account/hooks/useUserAvatar'
+import MmWarmCache from '@/modules/mm/shared/MmWarmCache'
 import queryRoute from '@/utils/queryRoute'
 import useTheme from '@/utils/hooks/useTheme'
 import { usePathname } from 'next/navigation'
@@ -54,6 +55,7 @@ const PostLoginLayout = ({ children }: CommonProps) => {
 
     return (
         <UserAvatarProvider>
+            <MmWarmCache />
             <Layout
                 layoutType={
                     route?.meta?.layout ? route?.meta?.layout : layoutType

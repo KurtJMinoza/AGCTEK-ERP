@@ -1,7 +1,7 @@
-import { Injectable, BadRequestException } from '@nestjs/common'
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
-import { CostLayerQueryDto } from './dto/valuation.dto'
+import { CostLayerQueryDto, CreateCostLayerDto } from './dto/valuation.dto'
 import { Prisma } from '@prisma/client'
 
 export type LayerConsumption = {
@@ -40,6 +40,53 @@ export class CostLayerService {
         }
     }
 
+    /**
+     * Controlled create: layer must be tied to an existing inbound inventory txn.
+     * Idempotent per receiptTxnId.
+     */
+    async createFromReceiptTxn(dto: CreateCostLayerDto) {
+        const txn = await this.prisma.mmInventoryTransaction.findUnique({
+            where: { id: dto.receiptTxnId },
+        })
+        if (!txn) throw new NotFoundException('Receipt inventory transaction not found')
+        const inboundTypes = new Set([
+            'RECEIPT',
+            'RETURN_IN',
+            'TRANSFER_IN',
+            'ADJUSTMENT_IN',
+            'COUNT_GAIN',
+        ])
+        if (!inboundTypes.has(txn.movementType) && Number(txn.signedQuantity) <= 0) {
+            throw new BadRequestException(
+                'Cost layers require an inbound inventory transaction',
+            )
+        }
+
+        const existing = await this.prisma.mmCostLayer.findFirst({
+            where: { receiptTxnId: dto.receiptTxnId, status: { not: 'REVERSED' } },
+        })
+        if (existing) return existing
+
+        const qty = new Decimal(txn.baseQuantity || txn.quantity).abs()
+        const unitCost = new Decimal(txn.unitCost ?? 0)
+        return this.prisma.mmCostLayer.create({
+            data: {
+                companyId: txn.companyId,
+                materialId: txn.materialId,
+                warehouseId: txn.warehouseId,
+                batchId: txn.batchId,
+                receiptTxnId: txn.id,
+                receiptDocumentId: txn.sourceDocumentId,
+                originalQuantity: qty,
+                remainingQuantity: qty,
+                unitCost,
+                postingDate: txn.postingDate,
+                status: 'OPEN',
+            },
+            include: { material: true, warehouse: true },
+        })
+    }
+
     async createLayer(
         tx: Prisma.TransactionClient,
         data: {
@@ -54,6 +101,14 @@ export class CostLayerService {
             postingDate: Date
         },
     ) {
+        const existing = await tx.mmCostLayer.findFirst({
+            where: {
+                receiptTxnId: data.receiptTxnId,
+                status: { not: 'REVERSED' },
+            },
+        })
+        if (existing) return existing
+
         return tx.mmCostLayer.create({
             data: {
                 companyId: data.companyId,

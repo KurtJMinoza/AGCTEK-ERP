@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsNotEmpty, IsNumber, IsDateString } from 'class-validator'
-import { Type } from 'class-transformer'
+import { IsString, IsOptional, IsNotEmpty, IsNumber, IsDateString, IsBoolean } from 'class-validator'
+import { Type, Transform } from 'class-transformer'
 
 export class DashboardQueryDto {
     @IsString()
@@ -47,6 +47,12 @@ export class DashboardQueryDto {
     @IsOptional()
     @IsString()
     authority?: string
+
+    /** When false, skip heavy analytics summaries (KPIs + alerts only). */
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === 'true' || value === '1')
+    @IsBoolean()
+    includeAnalytics?: boolean
 }
 
 export class DashboardRefreshDto {

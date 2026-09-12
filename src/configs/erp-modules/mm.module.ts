@@ -56,6 +56,30 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'barChart',
             ),
             mmHub(
+                'organization',
+                'Organization',
+                'Companies, plants, and branches that scope warehouses and MM transactions.',
+                'building',
+                'Organization',
+                [
+                    {
+                        code: 'companies',
+                        title: 'Companies',
+                        icon: 'building',
+                    },
+                    {
+                        code: 'plants',
+                        title: 'Plants',
+                        icon: 'warehouse',
+                    },
+                    {
+                        code: 'branches',
+                        title: 'Branches',
+                        icon: 'gitBranch',
+                    },
+                ],
+            ),
+            mmHub(
                 'material-master',
                 'Material Master',
                 'Materials, SKUs, units, barcodes, batches, and serial tracking.',
@@ -229,8 +253,13 @@ export const MM_CATEGORIES: ErpCategory[] = [
                     },
                     {
                         code: 'receiving-inspection',
-                        title: 'Receiving Inspection',
+                        title: 'Receiving Workbench',
                         icon: 'clipboard',
+                    },
+                    {
+                        code: 'inspection-queue',
+                        title: 'Inspection Queue',
+                        icon: 'clipboardList',
                     },
                     {
                         code: 'receiving-variances',
@@ -241,6 +270,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'quality-quarantine',
                         title: 'Quality / Quarantine',
                         icon: 'layers',
+                    },
+                    {
+                        code: 'quality-holds',
+                        title: 'Quality Holds',
+                        icon: 'lock',
                     },
                     {
                         code: 'supplier-returns',
@@ -309,6 +343,13 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'Inventory Ledger',
                         icon: 'fileSpreadsheet',
                     },
+                    {
+                        code: 'traceability',
+                        title: 'Traceability',
+                        icon: 'gitBranch',
+                        description:
+                            'Ledger, batch forward/backward genealogy, where-used, and serial history',
+                    },
                 ],
             ),
             mmHub(
@@ -322,6 +363,21 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'overview',
                         title: 'Overview',
                         icon: 'barChart',
+                    },
+                    {
+                        code: 'task-queue',
+                        title: 'Task Queue',
+                        icon: 'clipboard',
+                    },
+                    {
+                        code: 'my-tasks',
+                        title: 'My Tasks',
+                        icon: 'user',
+                    },
+                    {
+                        code: 'exceptions',
+                        title: 'Exceptions',
+                        icon: 'alertTriangle',
                     },
                     {
                         code: 'warehouses',
@@ -352,6 +408,31 @@ export const MM_CATEGORIES: ErpCategory[] = [
                     { code: 'picking', title: 'Picking', icon: 'clipboard' },
                     { code: 'packing', title: 'Packing', icon: 'package' },
                     {
+                        code: 'transfer-orders',
+                        title: 'Transfer Orders',
+                        icon: 'truck',
+                    },
+                    {
+                        code: 'transfer-queue',
+                        title: 'Transfer Queue',
+                        icon: 'clipboard',
+                    },
+                    {
+                        code: 'in-transit',
+                        title: 'In Transit',
+                        icon: 'truck',
+                    },
+                    {
+                        code: 'transfer-receipts',
+                        title: 'Transfer Receipts',
+                        icon: 'package',
+                    },
+                    {
+                        code: 'transfer-history',
+                        title: 'Transfer History',
+                        icon: 'fileSpreadsheet',
+                    },
+                    {
                         code: 'warehouse-transfers',
                         title: 'Warehouse Transfers',
                         icon: 'truck',
@@ -365,6 +446,16 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'clipboard',
                 'Inventory Control',
                 [
+                    {
+                        code: 'count-planning',
+                        title: 'Count Planning',
+                        icon: 'clipboard',
+                    },
+                    {
+                        code: 'count-sessions',
+                        title: 'Count Sessions',
+                        icon: 'layers',
+                    },
                     {
                         code: 'cycle-counting',
                         title: 'Cycle Counting',
@@ -390,6 +481,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'adjustment-approval',
                         title: 'Adjustment Approval',
                         icon: 'fileText',
+                    },
+                    {
+                        code: 'count-history',
+                        title: 'Count History',
+                        icon: 'fileSpreadsheet',
                     },
                 ],
             ),
@@ -440,6 +536,8 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'inventory-valuation',
                         title: 'Inventory Valuation',
                         icon: 'calculator',
+                        description:
+                            'On-hand inventory value by valuation method (FIFO / MAP / standard)',
                     },
                     {
                         code: 'cost-layers',
@@ -461,11 +559,15 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'landed-cost',
                         title: 'Landed Cost',
                         icon: 'truck',
+                        description:
+                            'Freight, duty, insurance and other charges allocated onto acquisition cost',
                     },
                     {
                         code: 'price-variance',
                         title: 'Price Variance',
                         icon: 'barChart',
+                        description:
+                            'Auditable PPV / IPV / landed / revaluation variances for FICO',
                     },
                 ],
             ),

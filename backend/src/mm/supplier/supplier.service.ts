@@ -8,6 +8,13 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { CreateSupplierDto } from './dto/create-supplier.dto'
 import { UpdateSupplierDto } from './dto/update-supplier.dto'
 import { SupplierQueryDto } from './dto/supplier-query.dto'
+import {
+    SUPPLIER_DOCUMENT_MAX_BYTES,
+    buildSupplierDocumentStorageKey,
+    deleteSupplierDocumentFile,
+    readSupplierDocumentFile,
+    saveSupplierDocumentFile,
+} from './supplier-document-storage'
 
 const SUPPLIER_INCLUDES = {
     category: true,
@@ -15,6 +22,11 @@ const SUPPLIER_INCLUDES = {
     paymentTerms: true,
     defaultWarehouse: true,
     company: true,
+}
+
+const SUPPLIER_LIST_INCLUDES = {
+    category: { select: { id: true, code: true, name: true } },
+    company: { select: { id: true, code: true, name: true } },
 }
 
 @Injectable()
@@ -124,10 +136,10 @@ export class SupplierService {
         const [data, total] = await Promise.all([
             this.prisma.mmSupplier.findMany({
                 where,
-                include: SUPPLIER_INCLUDES,
+                include: SUPPLIER_LIST_INCLUDES,
                 orderBy: { createdAt: 'desc' },
                 skip: (page - 1) * pageSize,
-                take: pageSize,
+                take: Math.min(pageSize, 200),
             }),
             this.prisma.mmSupplier.count({ where }),
         ])
@@ -238,10 +250,18 @@ export class SupplierService {
 
     async listDocuments(supplierId: string) {
         await this.findOneOrFail(supplierId)
-        return this.prisma.mmSupplierDocument.findMany({
+        const docs = await this.prisma.mmSupplierDocument.findMany({
             where: { supplierId },
             orderBy: { uploadedAt: 'desc' },
         })
+        return docs.map((doc) => ({
+            ...doc,
+            fileUrl:
+                doc.fileUrl ??
+                (doc.storageKey
+                    ? this.buildDocumentFileUrl(supplierId, doc.id)
+                    : null),
+        }))
     }
 
     async addDocument(
@@ -272,12 +292,98 @@ export class SupplierService {
         })
     }
 
+    async uploadDocumentFile(
+        supplierId: string,
+        data: {
+            buffer: Buffer
+            fileName: string
+            mimeType?: string
+            docType?: string
+            uploadedBy?: string
+        },
+    ) {
+        await this.findOneOrFail(supplierId)
+
+        if (!data.fileName?.trim()) {
+            throw new BadRequestException('fileName is required')
+        }
+        if (!data.buffer?.length) {
+            throw new BadRequestException('File is empty')
+        }
+        if (data.buffer.length > SUPPLIER_DOCUMENT_MAX_BYTES) {
+            throw new BadRequestException('File exceeds 10 MB limit')
+        }
+
+        let storageKey: string
+        try {
+            storageKey = buildSupplierDocumentStorageKey(
+                supplierId,
+                data.fileName.trim(),
+            )
+        } catch (err) {
+            throw new BadRequestException(
+                err instanceof Error ? err.message : 'Unsupported file type',
+            )
+        }
+
+        saveSupplierDocumentFile(storageKey, data.buffer)
+
+        const doc = await this.prisma.mmSupplierDocument.create({
+            data: {
+                supplierId,
+                fileName: data.fileName.trim(),
+                storageKey,
+                mimeType: data.mimeType ?? null,
+                docType: data.docType ?? 'OTHER',
+                uploadedBy: data.uploadedBy ?? null,
+            },
+        })
+
+        return {
+            ...doc,
+            fileUrl: this.buildDocumentFileUrl(supplierId, doc.id),
+        }
+    }
+
+    async getDocumentFile(supplierId: string, documentId: string) {
+        await this.findOneOrFail(supplierId)
+        const doc = await this.prisma.mmSupplierDocument.findFirst({
+            where: { id: documentId, supplierId },
+        })
+        if (!doc) throw new NotFoundException('Document not found')
+
+        if (doc.storageKey) {
+            try {
+                return {
+                    stream: readSupplierDocumentFile(doc.storageKey),
+                    fileName: doc.fileName,
+                    mimeType: doc.mimeType ?? 'application/octet-stream',
+                }
+            } catch {
+                throw new NotFoundException('File not found on disk')
+            }
+        }
+
+        if (doc.fileUrl) {
+            throw new BadRequestException(
+                'This document is stored externally. Open the URL instead.',
+            )
+        }
+
+        throw new NotFoundException('No file content available for this document')
+    }
+
+    buildDocumentFileUrl(supplierId: string, documentId: string) {
+        return `/api/v1/mm/suppliers/${supplierId}/documents/${documentId}/file`
+    }
+
     async removeDocument(supplierId: string, documentId: string) {
         await this.findOneOrFail(supplierId)
         const doc = await this.prisma.mmSupplierDocument.findFirst({
             where: { id: documentId, supplierId },
         })
         if (!doc) throw new NotFoundException('Document not found')
+        deleteSupplierDocumentFile(doc.storageKey)
         return this.prisma.mmSupplierDocument.delete({ where: { id: documentId } })
     }
 

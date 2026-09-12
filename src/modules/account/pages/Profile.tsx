@@ -20,11 +20,19 @@ import { apiGetProfile, apiUpdateProfile } from '@/services/AuthService'
 import axios from 'axios'
 
 type ProfileFormSchema = {
+    firstName: string
+    lastName: string
+    jobPosition: string
+    bio: string
     userName: string
     email: string
 }
 
 const validationSchema = z.object({
+    firstName: z.string().min(1, { message: 'First name is required' }),
+    lastName: z.string().min(1, { message: 'Last name is required' }),
+    jobPosition: z.string().min(1, { message: 'Job position is required' }),
+    bio: z.string().max(500, { message: 'Bio must be 500 characters or less' }),
     userName: z.string().min(1, { message: 'Username is required' }),
     email: z.string().email({ message: 'Please enter a valid email' }),
 })
@@ -48,6 +56,10 @@ const Profile = () => {
         formState: { errors },
     } = useForm<ProfileFormSchema>({
         defaultValues: {
+            firstName: '',
+            lastName: '',
+            jobPosition: '',
+            bio: '',
             userName: '',
             email: '',
         },
@@ -69,12 +81,20 @@ const Profile = () => {
                 setAvatar(profile.avatar)
                 setCurrentUserName(profile.userName)
                 reset({
+                    firstName: profile.firstName ?? '',
+                    lastName: profile.lastName ?? '',
+                    jobPosition: profile.jobPosition ?? '',
+                    bio: profile.bio ?? '',
                     userName: profile.userName,
                     email: profile.email,
                 })
             } catch {
                 setCurrentUserName(initialUserName)
                 reset({
+                    firstName: '',
+                    lastName: '',
+                    jobPosition: '',
+                    bio: '',
                     userName: initialUserName,
                     email: session?.user?.email || '',
                 })
@@ -154,9 +174,17 @@ const Profile = () => {
                 userName: currentUserName,
                 email: values.email,
                 newUserName: values.userName,
+                firstName: values.firstName,
+                lastName: values.lastName,
+                jobPosition: values.jobPosition,
+                bio: values.bio,
             })
 
             reset({
+                firstName: result.user.firstName,
+                lastName: result.user.lastName,
+                jobPosition: result.user.jobPosition,
+                bio: result.user.bio,
                 userName: result.user.userName,
                 email: result.user.email,
             })
@@ -201,7 +229,7 @@ const Profile = () => {
     return (
         <AccountSection
             title="Profile"
-            description="Manage your profile picture and personal account details."
+            description="Manage your profile picture, bio, job details, and account information."
             footer={
                 <Button
                     variant="solid"
@@ -222,7 +250,7 @@ const Profile = () => {
                 />
 
                 {role ? (
-                    <div>
+                    <div className="flex flex-wrap items-center gap-2">
                         <Tag className="border-0 bg-primary-subtle text-primary">
                             {role === 'super_admin' ? 'Super Admin' : 'Admin'}
                         </Tag>
@@ -230,6 +258,80 @@ const Profile = () => {
                 ) : null}
 
                 <Form onSubmit={handleSubmit(onSubmit)}>
+                    <div className="grid gap-x-4 sm:grid-cols-2">
+                        <FormItem
+                            label="First name"
+                            invalid={Boolean(errors.firstName)}
+                            errorMessage={errors.firstName?.message}
+                        >
+                            <Controller
+                                name="firstName"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        placeholder="First name"
+                                        autoComplete="given-name"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                        <FormItem
+                            label="Last name"
+                            invalid={Boolean(errors.lastName)}
+                            errorMessage={errors.lastName?.message}
+                        >
+                            <Controller
+                                name="lastName"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        placeholder="Last name"
+                                        autoComplete="family-name"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                    </div>
+
+                    <FormItem
+                        label="Job position"
+                        invalid={Boolean(errors.jobPosition)}
+                        errorMessage={errors.jobPosition?.message}
+                    >
+                        <Controller
+                            name="jobPosition"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    placeholder="e.g. Warehouse Manager"
+                                    autoComplete="organization-title"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+
+                    <FormItem
+                        label="Bio"
+                        invalid={Boolean(errors.bio)}
+                        errorMessage={errors.bio?.message}
+                    >
+                        <Controller
+                            name="bio"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    textArea
+                                    rows={4}
+                                    placeholder="Tell us a little about yourself…"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+
                     <FormItem
                         label="Username"
                         invalid={Boolean(errors.userName)}

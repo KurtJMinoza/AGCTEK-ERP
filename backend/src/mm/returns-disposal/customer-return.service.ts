@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { postingKey } from '../common/idempotency.util'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { DisposalService } from './disposal.service'
 import {
@@ -153,6 +154,19 @@ export class CustomerReturnService {
             data: { status: 'INTAKE' },
             include: DETAIL_INCLUDE,
         })
+        await this.prisma.mmCustomerReturnIntake.upsert({
+            where: { legacyCustomerReturnId: id },
+            create: {
+                legacyCustomerReturnId: id,
+                companyId: doc.companyId,
+                warehouseId: doc.warehouseId,
+                receivedBy: actor ?? null,
+            },
+            update: {
+                receivedBy: actor ?? null,
+                receivedAt: new Date(),
+            },
+        })
         await this.audit(id, 'INTAKE', 'status', 'DRAFT', 'INTAKE', actor)
         return updated
     }
@@ -169,8 +183,56 @@ export class CustomerReturnService {
             data: { status: 'INSPECTION' },
             include: DETAIL_INCLUDE,
         })
+        await this.prisma.mmReturnInspection.create({
+            data: {
+                legacyCustomerReturnId: id,
+                inspectedBy: actor ?? null,
+                result: null,
+            },
+        })
         await this.audit(id, 'INSPECTION', 'status', 'INTAKE', 'INSPECTION', actor)
         return updated
+    }
+
+    /** Canonical inspect: create/update MmReturnInspection notes/result. */
+    async inspect(
+        id: string,
+        dto?: ActionDto & { result?: string; lotNotes?: string; decisionNotes?: string },
+    ) {
+        const doc = await this.findOneOrFail(id)
+        if (!['INTAKE', 'INSPECTION'].includes(doc.status)) {
+            throw new BadRequestException(`Cannot inspect: status is ${doc.status}`)
+        }
+        if (doc.status === 'INTAKE') {
+            await this.startInspection(id, dto?.performedBy)
+        }
+        const latest = await this.prisma.mmReturnInspection.findFirst({
+            where: { legacyCustomerReturnId: id },
+            orderBy: { createdAt: 'desc' },
+        })
+        if (latest) {
+            await this.prisma.mmReturnInspection.update({
+                where: { id: latest.id },
+                data: {
+                    inspectedBy: dto?.performedBy ?? latest.inspectedBy,
+                    inspectedAt: new Date(),
+                    result: dto?.result ?? latest.result,
+                    lotNotes: dto?.lotNotes ?? latest.lotNotes,
+                    decisionNotes: dto?.decisionNotes ?? latest.decisionNotes,
+                },
+            })
+        } else {
+            await this.prisma.mmReturnInspection.create({
+                data: {
+                    legacyCustomerReturnId: id,
+                    inspectedBy: dto?.performedBy ?? null,
+                    result: dto?.result ?? null,
+                    lotNotes: dto?.lotNotes ?? null,
+                    decisionNotes: dto?.decisionNotes ?? null,
+                },
+            })
+        }
+        return this.findOneOrFail(id)
     }
 
     async setDisposition(lineId: string, dto: SetDispositionDto) {
@@ -188,11 +250,46 @@ export class CustomerReturnService {
             throw new BadRequestException('Disposition already posted')
         }
 
+        const stockStatus = DISPOSITION_STOCK[dto.disposition] ?? null
         const updated = await this.prisma.mmCustomerReturnLine.update({
             where: { id: lineId },
             data: { disposition: dto.disposition },
             include: { material: true, customerReturn: true },
         })
+
+        const existing = await this.prisma.mmReturnDisposition.findFirst({
+            where: {
+                legacyCustomerReturnId: line.returnId,
+                customerReturnLineId: lineId,
+            },
+        })
+        if (existing) {
+            await this.prisma.mmReturnDisposition.update({
+                where: { id: existing.id },
+                data: {
+                    disposition: dto.disposition,
+                    stockStatus,
+                    quantity: line.quantity,
+                },
+            })
+        } else {
+            await this.prisma.mmReturnDisposition.create({
+                data: {
+                    legacyCustomerReturnId: line.returnId,
+                    customerReturnLineId: lineId,
+                    lineNumber: line.lineNumber,
+                    materialId: line.materialId,
+                    quantity: line.quantity,
+                    uomId: line.uomId,
+                    batchId: line.batchId,
+                    serialNumberId: line.serialNumberId,
+                    disposition: dto.disposition,
+                    stockStatus,
+                    remarks: dto.performedBy ? `by ${dto.performedBy}` : null,
+                },
+            })
+        }
+
         await this.audit(
             line.returnId,
             'DISPOSITION_SET',
@@ -203,6 +300,23 @@ export class CustomerReturnService {
             { lineId },
         )
         return updated
+    }
+
+    /** Canonical disposition: set dispositions for all provided lines. */
+    async disposition(
+        id: string,
+        dto: { lines: Array<{ lineId: string; disposition: string }>; performedBy?: string },
+    ) {
+        const results = []
+        for (const line of dto.lines ?? []) {
+            results.push(
+                await this.setDisposition(line.lineId, {
+                    disposition: line.disposition as any,
+                    performedBy: dto.performedBy,
+                }),
+            )
+        }
+        return { returnId: id, lines: results }
     }
 
     async submit(id: string, actor?: string) {
@@ -300,6 +414,19 @@ export class CustomerReturnService {
             throw new BadRequestException('All lines need dispositions')
         }
 
+        const claimed = await this.prisma.mmCustomerReturn.updateMany({
+            where: { id, status: 'APPROVED' },
+            data: {
+                status: 'COMPLETED',
+                completedBy: dto?.performedBy ?? null,
+                completedAt: new Date(),
+                closedAt: new Date(),
+            },
+        })
+        if (claimed.count === 0) {
+            throw new BadRequestException('Duplicate customer return posting blocked')
+        }
+
         const now = new Date().toISOString()
 
         for (const line of doc.lines) {
@@ -331,6 +458,7 @@ export class CustomerReturnService {
                 sourceDocumentId: doc.id,
                 sourceDocumentLineId: line.id,
                 reasonCode: disposition,
+                idempotencyKey: postingKey('cust-ret', doc.id, line.id),
                 createdBy: dto?.performedBy ?? undefined,
             })
 
@@ -371,12 +499,27 @@ export class CustomerReturnService {
                         dispositionStatus: 'LINKED_DISPOSAL',
                     },
                 })
+                await this.prisma.mmReturnDisposition.updateMany({
+                    where: { customerReturnLineId: line.id },
+                    data: {
+                        inventoryTxnId: txn.id,
+                        disposalId: disposal.id,
+                        stockStatus,
+                    },
+                })
             } else {
                 await this.prisma.mmCustomerReturnLine.update({
                     where: { id: line.id },
                     data: {
                         inventoryTxnId: txn.id,
                         dispositionStatus: 'POSTED',
+                    },
+                })
+                await this.prisma.mmReturnDisposition.updateMany({
+                    where: { customerReturnLineId: line.id },
+                    data: {
+                        inventoryTxnId: txn.id,
+                        stockStatus,
                     },
                 })
             }
@@ -409,11 +552,7 @@ export class CustomerReturnService {
 
         const updated = await this.prisma.mmCustomerReturn.update({
             where: { id },
-            data: {
-                status: 'COMPLETED',
-                completedBy: dto?.performedBy ?? null,
-                completedAt: new Date(),
-            },
+            data: { status: 'CLOSED' },
             include: DETAIL_INCLUDE,
         })
         await this.audit(
@@ -421,7 +560,7 @@ export class CustomerReturnService {
             'COMPLETED',
             'status',
             'APPROVED',
-            'COMPLETED',
+            'CLOSED',
             dto?.performedBy,
         )
         return updated
@@ -443,7 +582,7 @@ export class CustomerReturnService {
 
     async reverse(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'COMPLETED') {
+        if (!['COMPLETED', 'CLOSED'].includes(doc.status)) {
             throw new BadRequestException(`Cannot reverse: status is ${doc.status}`)
         }
 

@@ -5,6 +5,10 @@ export type AuthProfile = {
     id: string
     email: string
     userName: string
+    firstName: string
+    lastName: string
+    jobPosition: string
+    bio: string
     avatar: string
     role: string
     authority: string[]
@@ -31,6 +35,10 @@ export async function apiUpdateProfile(data: {
     userName: string
     email?: string
     newUserName?: string
+    firstName?: string
+    lastName?: string
+    jobPosition?: string
+    bio?: string
     avatar?: string
 }) {
     const response = await ErpAxiosBase.patch<{

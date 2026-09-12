@@ -19,7 +19,6 @@ import toast from '@/components/ui/toast'
 import { HiOutlineRefresh } from 'react-icons/hi'
 import { dashboardService } from '../services/dashboardService'
 import { orgService, materialCategoryService } from '../../material-master/services/referenceService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
 import { supplierService } from '../../supplier-management/services/supplierService'
 import type { MmDashboard } from '../types'
 import { DashboardAnalyticsTab } from '../components/DashboardAnalyticsTab'
@@ -75,19 +74,27 @@ const OverviewPage = () => {
                 setCategories(list.map((x: any) => ({ value: x.id, label: x.name || x.code })))
             })
             .catch(() => {})
-        warehouseService
-            .list({ limit: 500 })
-            .then((r: any) => {
-                const list = Array.isArray(r) ? r : r?.data ?? []
-                setWarehouses(list.map((w: any) => ({ value: w.id, label: `${w.code} — ${w.name}` })))
+        // Thin option lists for filters (cached via orgService)
+        orgService
+            .warehouses()
+            .then((list: any) => {
+                const rows = Array.isArray(list) ? list : list?.data ?? []
+                setWarehouses(
+                    rows
+                        .slice(0, 100)
+                        .map((w: any) => ({
+                            value: w.id,
+                            label: `${w.code} — ${w.name}`,
+                        })),
+                )
             })
             .catch(() => {})
         supplierService
-            .list({ pageSize: 500 } as any)
+            .list({ pageSize: 100, status: 'ACTIVE' } as any)
             .then((r: any) => {
                 const list = Array.isArray(r) ? r : r?.data ?? []
                 setSuppliers(
-                    list.map((s: any) => ({
+                    list.slice(0, 100).map((s: any) => ({
                         value: s.id,
                         label: `${s.supplierCode} — ${s.supplierName}`,
                     })),
@@ -113,10 +120,21 @@ const OverviewPage = () => {
         if (!companyId) return
         setLoading(true)
         try {
-            setDash(await dashboardService.get(params))
+            // Phase 1: KPIs + alerts only (~fast)
+            const lite = await dashboardService.get({
+                ...params,
+                includeAnalytics: false,
+            } as any)
+            setDash(lite)
+            setLoading(false)
+            // Phase 2: heavy analytics in background
+            const full = await dashboardService.get({
+                ...params,
+                includeAnalytics: true,
+            } as any)
+            setDash(full)
         } catch (e: any) {
             pushToast('danger', 'Error', e?.response?.data?.message || 'Failed to load dashboard')
-        } finally {
             setLoading(false)
         }
     }, [companyId, params])

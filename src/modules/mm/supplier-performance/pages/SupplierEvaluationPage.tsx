@@ -62,15 +62,20 @@ const SupplierEvaluationPage = () => {
     const [period, setPeriod] = useState(monthBounds)
     const [weights, setWeights] = useState<ScoreWeightConfig>({
         companyId: '',
-        deliveryWeight: 30,
-        qualityWeight: 30,
+        deliveryWeight: 25,
+        qualityWeight: 25,
         priceWeight: 20,
+        quantityWeight: 15,
         serviceWeight: 10,
-        complianceWeight: 10,
+        complianceWeight: 5,
     })
     const [alertCfg, setAlertCfg] = useState<AlertConfig>({
         companyId: '',
         scoreThreshold: 70,
+        lateDeliveryRateThreshold: 0.25,
+        rejectionRateThreshold: 0.1,
+        shortageRateThreshold: 0.15,
+        priceVarianceThreshold: 0.1,
         isActive: true,
     })
     const [runOpen, setRunOpen] = useState(false)
@@ -108,6 +113,12 @@ const SupplierEvaluationPage = () => {
             setAlertCfg({
                 companyId,
                 scoreThreshold: Number(a.scoreThreshold),
+                lateDeliveryRateThreshold: Number(
+                    a.lateDeliveryRateThreshold ?? 0.25,
+                ),
+                rejectionRateThreshold: Number(a.rejectionRateThreshold ?? 0.1),
+                shortageRateThreshold: Number(a.shortageRateThreshold ?? 0.15),
+                priceVarianceThreshold: Number(a.priceVarianceThreshold ?? 0.1),
                 isActive: a.isActive,
                 id: a.id,
             })
@@ -203,6 +214,16 @@ const SupplierEvaluationPage = () => {
                 cell: ({ row }) => Number(row.original.priceScore).toFixed(1),
             },
             {
+                header: 'Quantity',
+                cell: ({ row }) =>
+                    Number(row.original.quantityScore ?? 0).toFixed(1),
+            },
+            {
+                header: 'Fill %',
+                cell: ({ row }) =>
+                    `${(Number(row.original.fillRate ?? 0) * 100).toFixed(0)}%`,
+            },
+            {
                 header: 'Service',
                 cell: ({ row }) => Number(row.original.serviceScore).toFixed(1),
             },
@@ -219,6 +240,10 @@ const SupplierEvaluationPage = () => {
             {
                 header: 'Supplier',
                 cell: ({ row }) => row.original.supplier?.supplierCode ?? '—',
+            },
+            {
+                header: 'Type',
+                cell: ({ row }) => row.original.alertType ?? 'POOR_SCORE',
             },
             {
                 header: 'Score',
@@ -274,6 +299,7 @@ const SupplierEvaluationPage = () => {
         Number(weights.deliveryWeight) +
         Number(weights.qualityWeight) +
         Number(weights.priceWeight) +
+        Number(weights.quantityWeight ?? 0) +
         Number(weights.serviceWeight) +
         Number(weights.complianceWeight)
 
@@ -324,7 +350,8 @@ const SupplierEvaluationPage = () => {
                                 [
                                     ['deliveryWeight', 'Delivery %'],
                                     ['qualityWeight', 'Quality %'],
-                                    ['priceWeight', 'Price %'],
+                                    ['priceWeight', 'Cost %'],
+                                    ['quantityWeight', 'Quantity %'],
                                     ['serviceWeight', 'Service %'],
                                     ['complianceWeight', 'Compliance %'],
                                 ] as const
@@ -357,22 +384,100 @@ const SupplierEvaluationPage = () => {
                         >
                             Save Weights
                         </Button>
-                        <div className="mt-8 border-t pt-6 max-w-md space-y-3">
-                            <h5 className="font-semibold">Alert threshold</h5>
-                            <FormItem label="Score below">
-                                <Input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={Number(alertCfg.scoreThreshold)}
-                                    onChange={(e) =>
-                                        setAlertCfg((a) => ({
-                                            ...a,
-                                            scoreThreshold: Number(e.target.value),
-                                        }))
-                                    }
-                                />
-                            </FormItem>
+                        <div className="mt-8 border-t pt-6 max-w-2xl space-y-3">
+                            <h5 className="font-semibold">Alert thresholds (advisory only)</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FormItem label="Score below">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={Number(alertCfg.scoreThreshold)}
+                                        onChange={(e) =>
+                                            setAlertCfg((a) => ({
+                                                ...a,
+                                                scoreThreshold: Number(e.target.value),
+                                            }))
+                                        }
+                                    />
+                                </FormItem>
+                                <FormItem label="Late delivery rate above">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={Number(
+                                            alertCfg.lateDeliveryRateThreshold ?? 0.25,
+                                        )}
+                                        onChange={(e) =>
+                                            setAlertCfg((a) => ({
+                                                ...a,
+                                                lateDeliveryRateThreshold: Number(
+                                                    e.target.value,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </FormItem>
+                                <FormItem label="Rejection rate above">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={Number(
+                                            alertCfg.rejectionRateThreshold ?? 0.1,
+                                        )}
+                                        onChange={(e) =>
+                                            setAlertCfg((a) => ({
+                                                ...a,
+                                                rejectionRateThreshold: Number(
+                                                    e.target.value,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </FormItem>
+                                <FormItem label="Shortage rate above">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={Number(
+                                            alertCfg.shortageRateThreshold ?? 0.15,
+                                        )}
+                                        onChange={(e) =>
+                                            setAlertCfg((a) => ({
+                                                ...a,
+                                                shortageRateThreshold: Number(
+                                                    e.target.value,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </FormItem>
+                                <FormItem label="Price variance above">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={Number(
+                                            alertCfg.priceVarianceThreshold ?? 0.1,
+                                        )}
+                                        onChange={(e) =>
+                                            setAlertCfg((a) => ({
+                                                ...a,
+                                                priceVarianceThreshold: Number(
+                                                    e.target.value,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </FormItem>
+                            </div>
                             <Checkbox
                                 checked={alertCfg.isActive}
                                 onChange={(v) =>

@@ -6,6 +6,7 @@ import {
     ReservationQueryDto,
     AtpQueryDto,
 } from './dto/reservation.dto'
+import { MmMutation } from '../common/mm-mutation.decorator'
 
 @Controller('mm')
 export class ReservationController {
@@ -24,16 +25,19 @@ export class ReservationController {
         return this.reservations.findOne(id)
     }
 
+    @MmMutation()
     @Post('reservations')
     create(@Body() dto: CreateReservationDto) {
         return this.reservations.create(dto)
     }
 
+    @MmMutation()
     @Post('reservations/:id/cancel')
     cancel(@Param('id') id: string) {
         return this.reservations.cancel(id)
     }
 
+    @MmMutation()
     @Post('reservations/expire-due')
     expireDue() {
         return this.reservations.expireDue()

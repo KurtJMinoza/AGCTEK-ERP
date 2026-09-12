@@ -17,6 +17,9 @@ const SignUpClient = () => {
 
         onSignUpWithCredentials({
             userName: values.userName,
+            firstName: values.firstName,
+            lastName: values.lastName,
+            jobPosition: values.jobPosition,
             email: values.email,
             password: values.password,
             role: values.role,

@@ -11,6 +11,7 @@ import { UpdatePurchaseRequisitionDto } from './dto/update-purchase-requisition.
 import { PurchaseRequisitionQueryDto } from './dto/purchase-requisition-query.dto'
 import { ConvertPurchaseRequisitionDto } from './dto/convert-pr-line.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { ProcurementBudgetService } from '../procurement/procurement-budget.service'
 
 const PR_INCLUDES = {
     lines: {
@@ -33,6 +34,7 @@ export class PurchaseRequisitionService {
     constructor(
         private prisma: PrismaService,
         private workflowService: WorkflowService,
+        private budgetService: ProcurementBudgetService,
     ) {}
 
     async create(dto: CreatePurchaseRequisitionDto) {
@@ -201,6 +203,13 @@ export class PurchaseRequisitionService {
             ),
         ]
 
+        await this.budgetService.validatePrBudget({
+            companyId: pr.companyId,
+            costCenterId: pr.costCenterId,
+            projectId: pr.projectId,
+            amount: total,
+        })
+
         const wf = await this.workflowService.start('PURCHASE_REQUISITION', id, {
             amount: total,
             initiatedBy: performedBy ?? pr.requesterId,
@@ -219,6 +228,7 @@ export class PurchaseRequisitionService {
             data: {
                 status: 'SUBMITTED',
                 submittedAt: new Date(),
+                budgetValidatedAt: new Date(),
                 workflowInstanceId: wf.instance.id,
             },
             include: PR_INCLUDES,

@@ -14,6 +14,9 @@ import {
     postInterWarehouseDispatch,
     postInterWarehouseReceive,
 } from './inter-warehouse-posting'
+import { MmDomainEventsService } from '../../common/mm-domain-events.service'
+import { WarehouseTaskService } from '../tasks/warehouse-task.service'
+import { StockTransferOrderService } from '../../stock-transfer/stock-transfer-order.service'
 
 @Injectable()
 export class TransfersService {
@@ -21,6 +24,11 @@ export class TransfersService {
         private prisma: PrismaService,
         @Inject(forwardRef(() => InventoryPostingService))
         private posting: InventoryPostingService,
+        private domainEvents: MmDomainEventsService,
+        @Inject(forwardRef(() => WarehouseTaskService))
+        private warehouseTasks: WarehouseTaskService,
+        @Inject(forwardRef(() => StockTransferOrderService))
+        private sto: StockTransferOrderService,
     ) {}
 
     private readonly listIncludes = {
@@ -90,8 +98,42 @@ export class TransfersService {
     }
 
     async create(dto: CreateTransferDto) {
-        const transferNumber = await this.generateNextCode()
+        const sourceWh = await this.prisma.warehouse.findUnique({
+            where: { id: dto.sourceWarehouseId },
+        })
+        if (!sourceWh?.companyId) {
+            throw new BadRequestException('Source warehouse company is required')
+        }
 
+        const materialIds = [...new Set(dto.lines.map((l) => l.materialId))]
+        const materials = await this.prisma.mmMaterial.findMany({
+            where: { id: { in: materialIds } },
+            select: { id: true, baseUomId: true },
+        })
+        const uomByMaterial = new Map(materials.map((m) => [m.id, m.baseUomId]))
+
+        const sto = await this.sto.create({
+            companyId: sourceWh.companyId,
+            transferType:
+                dto.sourceWarehouseId === dto.destinationWarehouseId
+                    ? 'BIN_TO_BIN'
+                    : 'WAREHOUSE_TO_WAREHOUSE',
+            sourceWarehouseId: dto.sourceWarehouseId,
+            destinationWarehouseId: dto.destinationWarehouseId,
+            requestedBy: dto.requestedBy,
+            notes: dto.notes,
+            lines: dto.lines.map((line) => ({
+                materialId: line.materialId,
+                quantity: line.quantity,
+                uomId: uomByMaterial.get(line.materialId)!,
+                sourceBinId: line.sourceBinId,
+                destinationBinId: line.destinationBinId,
+                batchId: line.batchId,
+                serialNumberId: line.serialId,
+            })),
+        })
+
+        const transferNumber = await this.generateNextCode()
         return this.prisma.wmWarehouseTransfer.create({
             data: {
                 transferNumber,
@@ -100,6 +142,7 @@ export class TransfersService {
                 requestedBy: dto.requestedBy ?? null,
                 notes: dto.notes ?? null,
                 status: 'DRAFT',
+                stockTransferOrderId: sto.id,
                 lines: {
                     create: dto.lines.map((line) => ({
                         materialId: line.materialId,
@@ -121,6 +164,9 @@ export class TransfersService {
         if (transfer.status !== 'DRAFT') {
             throw new BadRequestException('Only DRAFT transfers can be approved')
         }
+        if (transfer.stockTransferOrderId) {
+            await this.sto.approve(transfer.stockTransferOrderId, { approvedBy })
+        }
         return this.prisma.wmWarehouseTransfer.update({
             where: { id },
             data: { status: 'APPROVED', approvedBy: approvedBy ?? null },
@@ -136,6 +182,17 @@ export class TransfersService {
 
         const line = transfer.lines.find((l) => l.id === lineId)
         if (!line) throw new NotFoundException('Transfer line not found')
+
+        if (transfer.stockTransferOrderId) {
+            const sto = await this.prisma.mmStockTransferOrder.findUnique({
+                where: { id: transfer.stockTransferOrderId },
+            })
+            if (sto?.status === 'APPROVED') {
+                await this.sto.allocate(transfer.stockTransferOrderId)
+            }
+        }
+
+        await this.ensureTransferTask(transfer, line, pickedQty)
 
         const newPickedQty = new Decimal(line.pickedQty).plus(pickedQty)
         await this.prisma.wmWarehouseTransferLine.update({
@@ -163,6 +220,45 @@ export class TransfersService {
      * Dispatch: require PICKED. Source UNRESTRICTED OUT + dest IN_TRANSIT IN.
      */
     async dispatch(id: string) {
+        const transfer = await this.findOne(id)
+        if (transfer.stockTransferOrderId) {
+            const sto = await this.prisma.mmStockTransferOrder.findUnique({
+                where: { id: transfer.stockTransferOrderId },
+                include: { lines: true },
+            })
+            if (sto && ['APPROVED', 'ALLOCATED', 'PICKING'].includes(sto.status)) {
+                if (sto.status === 'APPROVED') {
+                    await this.sto.allocate(sto.id)
+                }
+                await this.sto.dispatch(sto.id, {
+                    dispatchedBy: transfer.requestedBy ?? undefined,
+                })
+            }
+            await this.prisma.wmWarehouseTransfer.update({
+                where: { id },
+                data: { status: 'IN_TRANSIT' },
+            })
+            const sourceWh = await this.prisma.warehouse.findUnique({
+                where: { id: transfer.sourceWarehouseId },
+            })
+            if (sourceWh) {
+                void this.domainEvents.inventoryTransferred({
+                    companyId: sourceWh.companyId,
+                    documentId: transfer.id,
+                    payload: {
+                        sourceModule: 'WAREHOUSE',
+                        documentType: 'WM_TRANSFER',
+                        phase: 'DISPATCH',
+                        sourceWarehouseId: transfer.sourceWarehouseId,
+                        destinationWarehouseId: transfer.destinationWarehouseId,
+                        lineCount: transfer.lines.length,
+                        stoId: transfer.stockTransferOrderId,
+                    },
+                })
+            }
+            return this.findOne(id)
+        }
+
         const claimed = await this.prisma.wmWarehouseTransfer.updateMany({
             where: {
                 id,
@@ -171,13 +267,11 @@ export class TransfersService {
             data: { status: 'IN_TRANSIT' },
         })
         if (claimed.count === 0) {
-            const transfer = await this.findOne(id)
             throw new BadRequestException(
                 `Cannot dispatch: transfer must be PICKED (status ${transfer.status})`,
             )
         }
 
-        const transfer = await this.findOne(id)
         const sourceWh = await this.prisma.warehouse.findUnique({
             where: { id: transfer.sourceWarehouseId },
         })
@@ -223,6 +317,19 @@ export class TransfersService {
             idempotencyPrefix: `wm-xfer:${transfer.id}`,
         })
 
+        void this.domainEvents.inventoryTransferred({
+            companyId: sourceWh.companyId,
+            documentId: transfer.id,
+            payload: {
+                sourceModule: 'WAREHOUSE',
+                documentType: 'WM_TRANSFER',
+                phase: 'DISPATCH',
+                sourceWarehouseId: transfer.sourceWarehouseId,
+                destinationWarehouseId: transfer.destinationWarehouseId,
+                lineCount: lines.length,
+            },
+        })
+
         return this.findOne(id)
     }
 
@@ -238,6 +345,46 @@ export class TransfersService {
 
         const line = transfer.lines.find((l) => l.id === lineId)
         if (!line) throw new NotFoundException('Transfer line not found')
+
+        if (transfer.stockTransferOrderId) {
+            const sto = await this.prisma.mmStockTransferOrder.findUnique({
+                where: { id: transfer.stockTransferOrderId },
+                include: { lines: true },
+            })
+            const idx = transfer.lines.findIndex((l) => l.id === lineId)
+            const stoLine = sto?.lines[idx]
+            if (sto && stoLine) {
+                await this.sto.receive(sto.id, {
+                    lines: [
+                        {
+                            orderLineId: stoLine.id,
+                            quantity: receivedQty,
+                            destinationBinId: line.destinationBinId ?? undefined,
+                        },
+                    ],
+                })
+            }
+            const newReceivedQty = new Decimal(line.receivedQty).plus(receivedQty)
+            await this.prisma.wmWarehouseTransferLine.update({
+                where: { id: lineId },
+                data: {
+                    receivedQty: newReceivedQty,
+                    status: newReceivedQty.gte(line.quantity) ? 'RECEIVED' : 'PENDING',
+                },
+            })
+            const updated = await this.findOne(id)
+            const allReceived = updated.lines.every((l) =>
+                new Decimal(l.receivedQty).gte(l.quantity),
+            )
+            if (allReceived) {
+                return this.prisma.wmWarehouseTransfer.update({
+                    where: { id },
+                    data: { status: 'RECEIVED' },
+                    include: this.detailIncludes,
+                })
+            }
+            return updated
+        }
 
         const prevReceived = new Decimal(line.receivedQty)
         const newReceivedQty = prevReceived.plus(receivedQty)
@@ -343,11 +490,62 @@ export class TransfersService {
         if (transfer.status !== 'DRAFT' && transfer.status !== 'APPROVED') {
             throw new BadRequestException('Can only cancel DRAFT or APPROVED transfers')
         }
+        if (transfer.stockTransferOrderId) {
+            await this.sto.cancel(transfer.stockTransferOrderId)
+        }
         return this.prisma.wmWarehouseTransfer.update({
             where: { id },
             data: { status: 'CANCELLED' },
             include: this.detailIncludes,
         })
+    }
+
+    private async ensureTransferTask(
+        transfer: Awaited<ReturnType<typeof this.findOne>>,
+        line: (typeof transfer.lines)[number],
+        pickedQty: number,
+    ) {
+        const sourceWh = await this.prisma.warehouse.findUnique({
+            where: { id: transfer.sourceWarehouseId },
+            select: { id: true, companyId: true, plantId: true },
+        })
+        if (!sourceWh?.companyId) {
+            throw new BadRequestException('Source warehouse company is required for transfer tasks')
+        }
+
+        let task = await this.prisma.wmWarehouseTask.findFirst({
+            where: {
+                referenceType: 'TRANSFER_LINE',
+                referenceId: line.id,
+                status: { notIn: ['COMPLETED', 'CANCELLED'] },
+            },
+        })
+
+        if (!task) {
+            const material = await this.prisma.mmMaterial.findUnique({
+                where: { id: line.materialId },
+                select: { baseUomId: true },
+            })
+            task = await this.warehouseTasks.create({
+                companyId: sourceWh.companyId,
+                warehouseId: transfer.sourceWarehouseId,
+                plantId: sourceWh.plantId ?? undefined,
+                taskType: 'TRANSFER',
+                quantity: Number(line.quantity),
+                sourceBinId: line.sourceBinId ?? undefined,
+                destinationBinId: line.destinationBinId ?? undefined,
+                materialId: line.materialId,
+                batchId: line.batchId ?? undefined,
+                serialId: line.serialId ?? undefined,
+                uomId: material?.baseUomId ?? undefined,
+                referenceType: 'TRANSFER_LINE',
+                referenceId: line.id,
+                metadata: { transferId: transfer.id, transferNumber: transfer.transferNumber },
+            })
+            await this.warehouseTasks.start(task.id)
+        }
+
+        await this.warehouseTasks.complete(task.id, { quantity: pickedQty })
     }
 
     private async generateNextCode(): Promise<string> {

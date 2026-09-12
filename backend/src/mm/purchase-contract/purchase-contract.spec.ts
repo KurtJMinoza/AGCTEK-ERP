@@ -16,6 +16,9 @@ describe('MM-07 Purchase Contracts', () => {
         mmPurchaseContractLine: {
             deleteMany: jest.fn(),
         },
+        mmPurchaseContractAudit: {
+            create: jest.fn().mockResolvedValue({}),
+        },
         mmPurchaseOrder: {
             findUnique: jest.fn(),
         },
@@ -35,6 +38,9 @@ describe('MM-07 Purchase Contracts', () => {
             status: 'ACTIVE',
             deletedAt: null,
             supplierCode: 'SUP-1',
+            companyId: 'co-1',
+            sourcingType: 'APPROVED',
+            documents: [],
         })
         mockPrisma.mmMaterial.findMany.mockResolvedValue([
             {

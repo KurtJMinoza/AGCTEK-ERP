@@ -22,6 +22,9 @@ export type SignUpResponse = {
 
 export type SignUpCredential = {
     userName: string
+    firstName: string
+    lastName: string
+    jobPosition: string
     email: string
     password: string
     role: 'super_admin' | 'admin'

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
@@ -32,7 +33,7 @@ import { warehouseService } from '../services/warehouseService'
 import { useWarehouses } from '../hooks/useWarehouses'
 import { orgService } from '../../material-master/services/referenceService'
 import type { Warehouse, CreateWarehousePayload } from '../types'
-import type { MmCompany } from '../../material-master/types'
+import type { MmBranch, MmCompany, MmPlant } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
@@ -107,8 +108,8 @@ const WarehousesPage = () => {
 
     const [formData, setFormData] = useState<Partial<CreateWarehousePayload>>({})
     const [companies, setCompanies] = useState<MmCompany[]>([])
-    const [plants, setPlants] = useState<{ id: string; code: string; name: string; companyId: string }[]>([])
-    const [branches, setBranches] = useState<{ id: string; code: string; name: string; companyId: string; plantId?: string }[]>([])
+    const [plants, setPlants] = useState<MmPlant[]>([])
+    const [branches, setBranches] = useState<MmBranch[]>([])
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
@@ -150,10 +151,22 @@ const WarehousesPage = () => {
     }
 
     useEffect(() => {
-        orgService.companies().then((list) => setCompanies(Array.isArray(list) ? list : [])).catch(() => {})
-        orgService.plants().then((list) => setPlants(Array.isArray(list) ? list : [])).catch(() => {})
-        orgService.branches().then((list) => setBranches(Array.isArray(list) ? list : [])).catch(() => {})
+        // Companies only on mount — plants/branches load when form opens
+        orgService
+            .companies()
+            .then((list) => setCompanies(Array.isArray(list) ? list : []))
+            .catch(() => {})
     }, [])
+
+    const ensureFormRefs = useCallback(async () => {
+        if (plants.length && branches.length) return
+        const [p, b] = await Promise.all([
+            orgService.plants({ activeOnly: true }),
+            orgService.branches({ activeOnly: true }),
+        ])
+        setPlants(Array.isArray(p) ? p : [])
+        setBranches(Array.isArray(b) ? b : [])
+    }, [plants.length, branches.length])
 
     const stats = useMemo(() => {
         const total = meta.total
@@ -162,7 +175,8 @@ const WarehousesPage = () => {
         return { total, active, inactive }
     }, [warehouses, meta.total])
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await ensureFormRefs()
         setFormMode('create')
         setEditing(null)
         setFormData({
@@ -174,9 +188,10 @@ const WarehousesPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-    }, [companies])
+    }, [companies, ensureFormRefs])
 
-    const openEdit = useCallback((wh: Warehouse) => {
+    const openEdit = useCallback(async (wh: Warehouse) => {
+        await ensureFormRefs()
         setFormMode('edit')
         setEditing(wh)
         setFormData({
@@ -194,7 +209,7 @@ const WarehousesPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-    }, [])
+    }, [ensureFormRefs])
 
     const handleSave = useCallback(async () => {
         setForceValidate(true)
@@ -401,7 +416,13 @@ const WarehousesPage = () => {
                 </FormItem>
                 <FormItem label="Company" asterisk invalid={Boolean(err('companyId'))} errorMessage={err('companyId')}>
                     {companyOptions.length === 0 ? (
-                        <p className="text-sm text-amber-600 dark:text-amber-400">No companies found. Seed or create a company first.</p>
+                        <p className="text-sm text-amber-600 dark:text-amber-400">
+                            No companies found.{' '}
+                            <Link href="/modules/mm/organization/companies" className="font-medium underline hover:text-amber-700 dark:hover:text-amber-300">
+                                Add a company
+                            </Link>{' '}
+                            first.
+                        </p>
                     ) : (
                         <Select<FilterOption>
                             placeholder="Select company"
@@ -467,7 +488,7 @@ const WarehousesPage = () => {
                             menuPosition="fixed"
                             styles={{ menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 9999 }) }}
                         />
-                    </FormItem>
+                    </FormItem> 
                     <FormItem label="Timezone">
                         <Input value={formData.timezone ?? 'UTC'} onChange={(e) => setField('timezone', e.target.value)} placeholder="UTC" />
                     </FormItem>

@@ -124,10 +124,25 @@ const ProcurementSuggestionsPage = () => {
                         : '—',
             },
             {
+                header: 'Demand source',
+                cell: ({ row }) => row.original.demandSource ?? '—',
+            },
+            {
+                header: 'MOQ',
+                cell: ({ row }) =>
+                    row.original.moq != null ? Number(row.original.moq) : '—',
+            },
+            {
                 header: 'Reason',
                 cell: ({ row }) =>
-                    row.original.reason ? (
-                        <StatusBadge status={row.original.reason} />
+                    row.original.shortageReason || row.original.reason ? (
+                        <StatusBadge
+                            status={
+                                row.original.shortageReason ||
+                                row.original.reason ||
+                                ''
+                            }
+                        />
                     ) : (
                         '—'
                     ),

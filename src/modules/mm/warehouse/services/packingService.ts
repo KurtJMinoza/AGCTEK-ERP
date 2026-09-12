@@ -4,9 +4,11 @@ import type {
     PackageListResponse,
     PackageQueryParams,
     CreatePackagePayload,
+    PackingSession,
 } from '../types'
 
 const BASE = '/mm/packages'
+const SESSION_BASE = '/mm/packing-sessions'
 
 export const packingService = {
     list: (params?: PackageQueryParams) =>
@@ -52,4 +54,21 @@ export const packingService = {
         ErpAxiosBase.post<WmPackage>(`${BASE}/from-picking/${pickingTaskId}`).then(
             (r) => r.data,
         ),
+
+    listSessions: (params?: { warehouseId?: string; status?: string }) =>
+        ErpAxiosBase.get<PackingSession[]>(SESSION_BASE, { params }).then((r) => r.data),
+
+    getSession: (id: string) =>
+        ErpAxiosBase.get<PackingSession>(`${SESSION_BASE}/${id}`).then((r) => r.data),
+
+    openSession: (data: { warehouseId: string; pickingTaskId?: string; warehouseTaskId?: string }) =>
+        ErpAxiosBase.post<PackingSession>(SESSION_BASE, data).then((r) => r.data),
+
+    openSessionFromPicking: (pickingTaskId: string) =>
+        ErpAxiosBase.post<PackingSession>(`${SESSION_BASE}/from-picking/${pickingTaskId}`).then(
+            (r) => r.data,
+        ),
+
+    completeSession: (id: string) =>
+        ErpAxiosBase.post<PackingSession>(`${SESSION_BASE}/${id}/complete`).then((r) => r.data),
 }

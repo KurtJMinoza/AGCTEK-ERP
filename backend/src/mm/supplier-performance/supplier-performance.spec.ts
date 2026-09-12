@@ -3,6 +3,7 @@ import {
     computeOnTimePct,
     computeQualityAcceptance,
     computePriceVariance,
+    computeQuantityAccuracy,
     computeSupplierMetrics,
     applyWeights,
     aggregateTrend,
@@ -12,15 +13,16 @@ import { SupplierAlertService } from './supplier-alert.service'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const DEFAULT_WEIGHTS = {
-    deliveryWeight: 30,
-    qualityWeight: 30,
+    deliveryWeight: 25,
+    qualityWeight: 25,
     priceWeight: 20,
+    quantityWeight: 15,
     serviceWeight: 10,
-    complianceWeight: 10,
+    complianceWeight: 5,
 }
 
 describe('MM-13 supplier score engine', () => {
-    it('computes on-time % from promised vs actual dates', () => {
+    it('computes on-time % and late rate from promised vs actual dates', () => {
         const r = computeOnTimePct([
             {
                 promisedDate: new Date('2026-09-10'),
@@ -38,9 +40,11 @@ describe('MM-13 supplier score engine', () => {
         expect(r.withPromise).toBe(2)
         expect(r.onTime).toBe(1)
         expect(r.onTimePct).toBe(0.5)
+        expect(r.lateDeliveryRate).toBe(0.5)
+        expect(r.avgDelayDays).toBe(1)
     })
 
-    it('quality = accepted / received', () => {
+    it('quality = accepted / received with rejection rate', () => {
         const r = computeQualityAcceptance(
             [
                 { quantity: 100, passQuantity: 90, failQuantity: 10 },
@@ -49,7 +53,7 @@ describe('MM-13 supplier score engine', () => {
             [{ quantity: 150, damagedQuantity: 5 }],
         )
         expect(r.acceptanceRate).toBeCloseTo(140 / 150, 5)
-        // Fail/damage do not inflate return rate — only supplier returns do
+        expect(r.rejectionRate).toBeCloseTo(10 / 150, 5)
         expect(r.returnRate).toBe(0)
     })
 
@@ -63,25 +67,51 @@ describe('MM-13 supplier score engine', () => {
         expect(r.acceptanceRate).toBeCloseTo(90 / 100, 5)
     })
 
-    it('weighted overall with default and custom weights', () => {
+    it('quantity accuracy: fill / shortage / over-delivery', () => {
+        const r = computeQuantityAccuracy([
+            { orderedQty: 100, receivedQty: 90 },
+            { orderedQty: 50, receivedQty: 40 },
+        ])
+        // totals: ordered 150, received 130
+        expect(r.fillRate).toBeCloseTo(130 / 150, 5)
+        expect(r.shortageRate).toBeCloseTo(20 / 150, 5)
+        expect(r.overDeliveryRate).toBe(0)
+        expect(r.quantityScore).toBeGreaterThan(0)
+
+        const over = computeQuantityAccuracy([
+            { orderedQty: 100, receivedQty: 120 },
+        ])
+        expect(over.fillRate).toBe(1)
+        expect(over.overDeliveryRate).toBeCloseTo(0.2, 5)
+    })
+
+    it('weighted overall includes quantityWeight and sums to 100', () => {
         const scores = {
             deliveryScore: 100,
             qualityScore: 80,
             priceScore: 60,
+            quantityScore: 50,
             serviceScore: 40,
             complianceScore: 20,
         }
         const def = applyWeights(scores, DEFAULT_WEIGHTS)
-        expect(def).toBeCloseTo(72, 5)
+        expect(def).toBeCloseTo(
+            (100 * 25 + 80 * 25 + 60 * 20 + 50 * 15 + 40 * 10 + 20 * 5) / 100,
+            5,
+        )
 
         const custom = applyWeights(scores, {
             deliveryWeight: 20,
             qualityWeight: 20,
             priceWeight: 20,
-            serviceWeight: 20,
-            complianceWeight: 20,
+            quantityWeight: 20,
+            serviceWeight: 10,
+            complianceWeight: 10,
         })
-        expect(custom).toBeCloseTo(60, 5)
+        expect(custom).toBeCloseTo(
+            (100 * 20 + 80 * 20 + 60 * 20 + 50 * 20 + 40 * 10 + 20 * 10) / 100,
+            5,
+        )
     })
 
     it('rejects weights that do not sum to 100', () => {
@@ -91,6 +121,7 @@ describe('MM-13 supplier score engine', () => {
                     deliveryScore: 1,
                     qualityScore: 1,
                     priceScore: 1,
+                    quantityScore: 1,
                     serviceScore: 1,
                     complianceScore: 1,
                 },
@@ -98,6 +129,7 @@ describe('MM-13 supplier score engine', () => {
                     deliveryWeight: 50,
                     qualityWeight: 50,
                     priceWeight: 0,
+                    quantityWeight: 0,
                     serviceWeight: 0,
                     complianceWeight: 10,
                 },
@@ -105,17 +137,18 @@ describe('MM-13 supplier score engine', () => {
         ).toThrow(/sum to 100/)
     })
 
-    it('price variance PO vs invoice → price score', () => {
+    it('price variance PO vs invoice → price score + landed cost variance', () => {
         const r = computePriceVariance([
-            { poUnitPrice: 100, invoiceUnitPrice: 110 },
+            { poUnitPrice: 100, invoiceUnitPrice: 110, landedUnitCost: 120 },
             { poUnitPrice: 50, invoiceUnitPrice: 50 },
         ])
         expect(r.avgAbsVariancePct).toBeCloseTo((0.1 + 0) / 2, 5)
+        expect(r.landedCostVariancePct).toBeCloseTo(0.2, 5)
         expect(r.priceScore).toBeLessThan(100)
         expect(r.priceScore).toBeGreaterThan(0)
     })
 
-    it('full metrics include lead-time blended delivery score', () => {
+    it('full metrics include quantity and late-delivery fields', () => {
         const m = computeSupplierMetrics(
             {
                 deliveries: [
@@ -130,6 +163,7 @@ describe('MM-13 supplier score engine', () => {
                 grLines: [{ quantity: 100, damagedQuantity: 0 }],
                 leadTimes: [{ actualLeadDays: 10, promisedLeadDays: 10 }],
                 prices: [{ poUnitPrice: 100, invoiceUnitPrice: 100 }],
+                quantities: [{ orderedQty: 100, receivedQty: 100 }],
                 rfqResponses: [],
                 compliance: { totalEvents: 10, exceptionEvents: 0 },
                 purchaseVolume: 1000,
@@ -138,8 +172,13 @@ describe('MM-13 supplier score engine', () => {
             DEFAULT_WEIGHTS,
         )
         expect(m.onTimePct).toBe(1)
+        expect(m.lateDeliveryRate).toBe(0)
         expect(m.qualityAcceptanceRate).toBeCloseTo(0.95)
+        expect(m.rejectionRate).toBeCloseTo(0.05)
         expect(m.returnRate).toBeCloseTo(0.05)
+        expect(m.fillRate).toBe(1)
+        expect(m.shortageRate).toBe(0)
+        expect(m.quantityScore).toBeGreaterThan(0)
         expect(m.overallScore).toBeGreaterThan(0)
     })
 
@@ -152,6 +191,7 @@ describe('MM-13 supplier score engine', () => {
                 deliveryScore: 70,
                 qualityScore: 70,
                 priceScore: 70,
+                quantityScore: 70,
                 serviceScore: 70,
                 complianceScore: 70,
                 purchaseVolume: 100,
@@ -163,6 +203,7 @@ describe('MM-13 supplier score engine', () => {
                 deliveryScore: 60,
                 qualityScore: 60,
                 priceScore: 60,
+                quantityScore: 60,
                 serviceScore: 60,
                 complianceScore: 60,
                 purchaseVolume: 80,
@@ -171,6 +212,7 @@ describe('MM-13 supplier score engine', () => {
         expect(trend).toHaveLength(2)
         expect(trend[0].overallScore).toBe(60)
         expect(trend[1].overallScore).toBe(70)
+        expect(trend[1].quantityScore).toBe(70)
     })
 
     it('compares suppliers by overall score rank', () => {
@@ -221,47 +263,46 @@ describe('MM-13 alerts never auto-block', () => {
             companyId: 'co-1',
             supplierId: 'sup-1',
             evaluationId: 'ev-1',
+            alertType: 'POOR_SCORE',
             score: 55,
             threshold: 70,
-            supplierCode: 'SUP-001',
+            supplierCode: 'SUP01',
         })
         expect(alert.status).toBe('OPEN')
-        expect(mockPrisma.mmSupplierAlert.create).toHaveBeenCalled()
+        expect(alert.alertType).toBe('POOR_SCORE')
         expect(mockPrisma.mmSupplier.update).not.toHaveBeenCalled()
+        expect(mockPrisma.mmSupplierAlert.create).toHaveBeenCalled()
     })
-})
 
-describe('MM-13 manual assessment isolation', () => {
-    it('manual assessment service does not touch mmSupplierEvaluation', async () => {
-        const mockPrisma: any = {
-            mmSupplier: {
-                findFirst: jest.fn().mockResolvedValue({ id: 'sup-1' }),
-            },
-            mmSupplierManualAssessment: {
-                create: jest.fn().mockImplementation(async ({ data }) => ({
-                    id: 'ma-1',
-                    ...data,
-                    status: data.status ?? 'DRAFT',
-                })),
-            },
-            mmSupplierEvaluation: {
-                update: jest.fn(),
-                upsert: jest.fn(),
-            },
-        }
-        const { SupplierManualAssessmentService } = await import(
-            './supplier-manual-assessment.service'
-        )
-        const svc = new SupplierManualAssessmentService(mockPrisma)
-        await svc.create({
+    it('creates multi-threshold alert types independently', async () => {
+        await service.createIfNeeded({
             companyId: 'co-1',
             supplierId: 'sup-1',
-            assessedBy: 'user-1',
-            overallScore: 75,
-            notes: 'Site visit',
-        } as any)
-        expect(mockPrisma.mmSupplierManualAssessment.create).toHaveBeenCalled()
-        expect(mockPrisma.mmSupplierEvaluation.update).not.toHaveBeenCalled()
-        expect(mockPrisma.mmSupplierEvaluation.upsert).not.toHaveBeenCalled()
+            evaluationId: 'ev-1',
+            alertType: 'LATE_DELIVERY',
+            score: 0.4,
+            threshold: 0.25,
+            supplierCode: 'SUP01',
+        })
+        await service.createIfNeeded({
+            companyId: 'co-1',
+            supplierId: 'sup-1',
+            evaluationId: 'ev-1',
+            alertType: 'REPEATED_SHORTAGE',
+            score: 0.2,
+            threshold: 0.15,
+            supplierCode: 'SUP01',
+        })
+        expect(mockPrisma.mmSupplierAlert.create).toHaveBeenCalledTimes(2)
+        expect(mockPrisma.mmSupplier.update).not.toHaveBeenCalled()
+        const types = mockPrisma.mmSupplierAlert.create.mock.calls.map(
+            (c: any) => c[0].data.alertType,
+        )
+        expect(types).toEqual(['LATE_DELIVERY', 'REPEATED_SHORTAGE'])
+    })
+
+    it('does not expose a blockSupplier API', () => {
+        expect((service as any).blockSupplier).toBeUndefined()
+        expect((service as any).deactivateSupplier).toBeUndefined()
     })
 })

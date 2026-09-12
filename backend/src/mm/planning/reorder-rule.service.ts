@@ -17,6 +17,12 @@ export type ResolvedPlanningParams = {
     safetyStock: Decimal
     reorderQuantity: Decimal
     minimumOrderQuantity: Decimal
+    minStock: Decimal
+    maxStock: Decimal
+    lotSize: Decimal
+    reviewPeriodDays: number
+    planningStrategy: string
+    procurementType: string
     leadTimeDays: number
     source: 'RULE' | 'MATERIAL'
 }
@@ -109,7 +115,13 @@ export class ReorderRuleService {
                 safetyStock: new Decimal(dto.safetyStock ?? 0),
                 reorderQuantity: new Decimal(dto.reorderQuantity ?? 0),
                 minimumOrderQuantity: new Decimal(dto.minimumOrderQuantity ?? 0),
+                minStock: new Decimal(dto.minStock ?? 0),
+                maxStock: new Decimal(dto.maxStock ?? 0),
+                lotSize: new Decimal(dto.lotSize ?? 0),
                 leadTimeDays: dto.leadTimeDays ?? 0,
+                reviewPeriodDays: dto.reviewPeriodDays ?? 0,
+                planningStrategy: dto.planningStrategy ?? 'REORDER_POINT',
+                procurementType: dto.procurementType ?? 'BUY',
                 isActive: dto.isActive ?? true,
             },
             include: RULE_INCLUDE,
@@ -125,7 +137,16 @@ export class ReorderRuleService {
             data.reorderQuantity = new Decimal(dto.reorderQuantity)
         if (dto.minimumOrderQuantity !== undefined)
             data.minimumOrderQuantity = new Decimal(dto.minimumOrderQuantity)
+        if (dto.minStock !== undefined) data.minStock = new Decimal(dto.minStock)
+        if (dto.maxStock !== undefined) data.maxStock = new Decimal(dto.maxStock)
+        if (dto.lotSize !== undefined) data.lotSize = new Decimal(dto.lotSize)
         if (dto.leadTimeDays !== undefined) data.leadTimeDays = dto.leadTimeDays
+        if (dto.reviewPeriodDays !== undefined)
+            data.reviewPeriodDays = dto.reviewPeriodDays
+        if (dto.planningStrategy !== undefined)
+            data.planningStrategy = dto.planningStrategy
+        if (dto.procurementType !== undefined)
+            data.procurementType = dto.procurementType
         if (dto.isActive !== undefined) data.isActive = dto.isActive
 
         return this.prisma.mmReorderRule.update({
@@ -173,6 +194,12 @@ export class ReorderRuleService {
                 safetyStock: new Decimal(rule.safetyStock),
                 reorderQuantity: new Decimal(rule.reorderQuantity),
                 minimumOrderQuantity: new Decimal(rule.minimumOrderQuantity),
+                minStock: new Decimal(rule.minStock ?? 0),
+                maxStock: new Decimal(rule.maxStock ?? 0),
+                lotSize: new Decimal(rule.lotSize ?? 0),
+                reviewPeriodDays: rule.reviewPeriodDays ?? 0,
+                planningStrategy: rule.planningStrategy ?? 'REORDER_POINT',
+                procurementType: rule.procurementType ?? 'BUY',
                 leadTimeDays: rule.leadTimeDays,
                 source: 'RULE',
             }
@@ -199,6 +226,12 @@ export class ReorderRuleService {
             safetyStock: new Decimal(mat.safetyStock),
             reorderQuantity: new Decimal(mat.reorderQuantity),
             minimumOrderQuantity: new Decimal(mat.minimumOrderQuantity),
+            minStock: new Decimal(0),
+            maxStock: new Decimal(0),
+            lotSize: new Decimal(0),
+            reviewPeriodDays: 0,
+            planningStrategy: 'REORDER_POINT',
+            procurementType: 'BUY',
             leadTimeDays: mat.leadTimeDays,
             source: 'MATERIAL',
         }

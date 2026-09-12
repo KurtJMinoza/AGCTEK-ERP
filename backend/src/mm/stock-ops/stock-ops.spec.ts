@@ -4,14 +4,19 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { GoodsReceiptService } from './goods-receipt.service'
 import { GoodsIssueService } from './goods-issue.service'
 import { BinTransferService } from './bin-transfer.service'
 import { WarehouseTransferOrderService } from './warehouse-transfer-order.service'
 import { AdjustmentService } from './adjustment.service'
 import { ReservationService } from '../outbound/reservation.service'
+import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
+import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
+import { InspectionLotService } from '../receiving/inspection-lot.service'
+import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 
 let seq = 0
 function nextId() { return `id-${++seq}` }
@@ -158,10 +163,21 @@ let giService: GoodsIssueService
 let btService: BinTransferService
 let wtoService: WarehouseTransferOrderService
 let adjService: AdjustmentService
+let mockDomainEvents: {
+    goodsReceiptPosted: jest.Mock
+    goodsIssuePosted: jest.Mock
+    inventoryAdjusted: jest.Mock
+}
 
 beforeEach(async () => {
     seq = 0
     jest.clearAllMocks()
+
+    mockDomainEvents = {
+        goodsReceiptPosted: jest.fn(),
+        goodsIssuePosted: jest.fn(),
+        inventoryAdjusted: jest.fn(),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -176,6 +192,29 @@ beforeEach(async () => {
             { provide: ReservationService, useValue: mockReservations },
             { provide: PutawayService, useValue: mockPutaway },
             { provide: QualityInspectionService, useValue: mockQi },
+            { provide: MmDomainEventsService, useValue: mockDomainEvents },
+            { provide: AllocationEngineService, useValue: { recordIssue: jest.fn() } },
+            {
+                provide: InspectionLotService,
+                useValue: {
+                    createFromGoodsReceipt: jest.fn(),
+                    cancelForGoodsReceipt: jest.fn(),
+                },
+            },
+            {
+                provide: InspectionRequirementService,
+                useValue: { isInspectionRequired: jest.fn().mockResolvedValue(false) },
+            },
+            {
+                provide: StockTransferOrderService,
+                useValue: {
+                    create: jest.fn().mockResolvedValue({ id: 'sto-bridge-1' }),
+                    approve: jest.fn(),
+                    allocate: jest.fn(),
+                    dispatch: jest.fn(),
+                    cancel: jest.fn(),
+                },
+            },
         ],
     }).compile()
 
@@ -209,7 +248,7 @@ describe('GoodsReceiptService', () => {
                 sourceModule: 'STOCK_OPS',
             }),
         )
-        expect(mockEvents.emit).toHaveBeenCalledWith('accounting.entry.requested', expect.anything())
+        expect(mockDomainEvents.goodsReceiptPosted).toHaveBeenCalled()
     })
 
     it('reverse: POSTED -> REVERSED, ledger + ER + QI + accounting', async () => {
@@ -303,7 +342,7 @@ describe('GoodsIssueService', () => {
         expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
             expect.objectContaining({ movementType: 'ISSUE', sourceDocumentType: 'GOODS_ISSUE' }),
         )
-        expect(mockPrisma.mmAccountingEvent.create).toHaveBeenCalled()
+        expect(mockDomainEvents.goodsIssuePosted).toHaveBeenCalled()
     })
 
     it('GI insufficient stock: rejects when posting service throws', async () => {
@@ -406,6 +445,7 @@ describe('WarehouseTransferOrderService', () => {
             dispatchedAt: null,
             receivedAt: null,
             notes: null,
+            legacyStoId: null,
             createdAt: new Date(),
             updatedAt: new Date(),
             sourceWarehouse: { id: 'wh-1', name: 'Source' },
@@ -485,6 +525,7 @@ describe('WarehouseTransferOrderService', () => {
             id: 'wto-c',
             status: 'DRAFT',
             lines: [],
+            legacyStoId: null,
             sourceWarehouse: { id: 'wh-1', name: 'S' },
             destinationWarehouse: { id: 'wh-2', name: 'D' },
         }
@@ -494,6 +535,26 @@ describe('WarehouseTransferOrderService', () => {
         const cancelled = await wtoService.cancel('wto-c')
         expect(cancelled.status).toBe('CANCELLED')
         expect(mockPostingService.postTransaction).not.toHaveBeenCalled()
+    })
+
+    it('create dual-writes canonical STO via bridge', async () => {
+        mockPrisma.mmWarehouseTransferOrder.findFirst.mockResolvedValue(null)
+        mockPrisma.mmWarehouseTransferOrder.create.mockResolvedValue({
+            id: 'wto-new',
+            documentNumber: 'WTO-NEW',
+            status: 'DRAFT',
+            legacyStoId: 'sto-bridge-1',
+            lines: [],
+        })
+        const created = await wtoService.create({
+            companyId: 'co-1',
+            sourceWarehouseId: 'wh-1',
+            destinationWarehouseId: 'wh-2',
+            postingDate: new Date().toISOString(),
+            lines: [{ materialId: 'mat-1', quantity: 5, uomId: 'uom-1' }],
+        } as any)
+        expect(created.legacyStoId).toBe('sto-bridge-1')
+        expect((wtoService as any).sto.create).toHaveBeenCalled()
     })
 })
 

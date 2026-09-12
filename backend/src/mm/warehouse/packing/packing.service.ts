@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service'
 import { CreatePackageDto } from './dto/create-package.dto'
 import { PackageQueryDto } from './dto/package-query.dto'
+import { OpenPackingSessionDto, PackingSessionQueryDto } from './dto/packing-session.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 
 /**
@@ -28,6 +29,95 @@ export class PackingService {
         warehouse: true,
         pickingTask: true,
         reservation: true,
+        packingSession: true,
+    }
+
+    private readonly sessionIncludes = {
+        warehouse: true,
+        pickingTask: true,
+        warehouseTask: true,
+        packages: { include: { items: true } },
+    }
+
+    async findAllSessions(query: PackingSessionQueryDto) {
+        const where: Record<string, string> = {}
+        if (query.warehouseId) where.warehouseId = query.warehouseId
+        if (query.status) where.status = query.status
+        return this.prisma.wmPackingSession.findMany({
+            where,
+            include: this.sessionIncludes,
+            orderBy: { createdAt: 'desc' },
+        })
+    }
+
+    async findSession(id: string) {
+        const session = await this.prisma.wmPackingSession.findUnique({
+            where: { id },
+            include: this.sessionIncludes,
+        })
+        if (!session) throw new NotFoundException('Packing session not found')
+        return session
+    }
+
+    private async nextSessionNumber() {
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+        const pfx = `PS-${today}-`
+        const last = await this.prisma.wmPackingSession.findFirst({
+            where: { sessionNumber: { startsWith: pfx } },
+            orderBy: { sessionNumber: 'desc' },
+        })
+        let seq = 1
+        if (last) {
+            const n = parseInt(last.sessionNumber.replace(pfx, ''), 10)
+            if (!isNaN(n)) seq = n + 1
+        }
+        return `${pfx}${String(seq).padStart(5, '0')}`
+    }
+
+    async openSession(dto: OpenPackingSessionDto) {
+        const sessionNumber = await this.nextSessionNumber()
+        return this.prisma.wmPackingSession.create({
+            data: {
+                sessionNumber,
+                warehouseId: dto.warehouseId,
+                pickingTaskId: dto.pickingTaskId ?? null,
+                warehouseTaskId: dto.warehouseTaskId ?? null,
+                createdBy: dto.createdBy ?? null,
+                status: 'OPEN',
+            },
+            include: this.sessionIncludes,
+        })
+    }
+
+    async openSessionFromPicking(pickingTaskId: string) {
+        const task = await this.prisma.wmPickingTask.findUnique({
+            where: { id: pickingTaskId },
+        })
+        if (!task) throw new NotFoundException('Picking task not found')
+
+        const existing = await this.prisma.wmPackingSession.findFirst({
+            where: { pickingTaskId, status: 'OPEN' },
+            include: this.sessionIncludes,
+        })
+        if (existing) return existing
+
+        return this.openSession({
+            warehouseId: task.warehouseId,
+            pickingTaskId: task.id,
+            warehouseTaskId: task.warehouseTaskId ?? undefined,
+        })
+    }
+
+    async completeSession(id: string) {
+        const session = await this.findSession(id)
+        if (session.status !== 'OPEN') {
+            throw new BadRequestException(`Cannot complete session in status ${session.status}`)
+        }
+        return this.prisma.wmPackingSession.update({
+            where: { id },
+            data: { status: 'COMPLETED', completedAt: new Date() },
+            include: this.sessionIncludes,
+        })
     }
 
     async findAll(query: PackageQueryDto) {
@@ -89,6 +179,7 @@ export class PackingService {
                 warehouseId: dto.warehouseId,
                 orderNumber: dto.orderNumber ?? null,
                 pickingTaskId: dto.pickingTaskId ?? null,
+                packingSessionId: dto.packingSessionId ?? null,
                 reservationId: dto.reservationId ?? null,
                 packageType: dto.packageType ?? null,
                 weight: dto.weight ?? null,
@@ -122,10 +213,13 @@ export class PackingService {
             throw new BadRequestException('Cannot pack: nothing has been picked yet')
         }
 
+        const session = await this.openSessionFromPicking(pickingTaskId)
+
         return this.create({
             warehouseId: task.warehouseId,
             orderNumber: task.sourceDocument ?? task.taskNumber,
             pickingTaskId: task.id,
+            packingSessionId: session.id,
             reservationId: task.reservationId ?? undefined,
             items: [
                 {

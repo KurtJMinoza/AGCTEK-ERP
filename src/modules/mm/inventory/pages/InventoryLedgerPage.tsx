@@ -95,7 +95,7 @@ const InventoryLedgerPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await inventoryService.transactions({
+            const res = await inventoryService.ledger({
                 companyId: companyId || undefined,
                 warehouseId: warehouseId || undefined,
                 materialId: materialId || undefined,
@@ -154,11 +154,22 @@ const InventoryLedgerPage = () => {
                 cell: ({ row }) => n(row.original.signedQuantity ?? row.original.quantity),
             },
             {
+                header: 'Source',
+                cell: ({ row }) =>
+                    row.original.sourceDocumentType && row.original.sourceDocumentId
+                        ? `${row.original.sourceDocumentType}:${row.original.sourceDocumentId.slice(0, 8)}`
+                        : '—',
+            },
+            {
                 header: 'Reversal of',
                 cell: ({ row }) =>
                     row.original.reversalOfId
                         ? row.original.reversalOfId.slice(0, 8)
                         : '—',
+            },
+            {
+                header: 'Idempotency',
+                cell: ({ row }) => row.original.idempotencyKey?.slice(0, 10) ?? '—',
             },
             {
                 header: 'Performed by',

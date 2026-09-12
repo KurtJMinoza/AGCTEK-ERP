@@ -2,7 +2,7 @@
 
 Canonical dependency map for Materials Management: **build order**, **document ownership**, **consumers**, and **update authority**. Use this before designing or implementing any MM feature.
 
-Related: [Materials Management skill](../.cursor/skills/materials-management/SKILL.md) · [Full contract](../.cursor/skills/materials-management/reference.md) · [Component catalog](./COMPONENT_CATALOG.md)
+Related: [Materials Management skill](../.cursor/skills/materials-management/SKILL.md) · [Full contract](../.cursor/skills/materials-management/reference.md) · [Component catalog](./COMPONENT_CATALOG.md) · [MM Architecture](./MM_ARCHITECTURE.md) · [Domain boundaries](./MM_DOMAIN_BOUNDARIES.md) · [Transaction rules](./MM_TRANSACTION_RULES.md) · [Integration events](./MM_INTEGRATION_EVENTS.md)
 
 ---
 

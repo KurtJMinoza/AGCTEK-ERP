@@ -257,7 +257,7 @@ const QualityQuarantinePage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Quality / Quarantine"
-                description="QI stock stays in QUALITY_INSPECTION until decide. PARTIAL_PASS: pass qty → unrestricted (+ putaway); fail qty → blocked. No direct balance edits."
+                description="Legacy quality inspections and usage decisions. Pass → ACCEPT (unrestricted + putaway event); fail-only → REJECT (quarantine). For full 5-code decisions use Inspection Queue."
             />
 
             <AdaptiveCard>

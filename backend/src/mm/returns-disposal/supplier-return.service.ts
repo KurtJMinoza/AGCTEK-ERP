@@ -6,6 +6,8 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import {
     CreateSupplierReturnDto,
@@ -34,6 +36,7 @@ export class SupplierReturnService {
         private postingService: InventoryPostingService,
         private configService: ReturnsDisposalConfigService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
     ) {}
 
     async create(dto: CreateSupplierReturnDto) {
@@ -210,9 +213,29 @@ export class SupplierReturnService {
     }
 
     async ship(id: string, dto?: ActionDto) {
+        return this.post(id, dto)
+    }
+
+    /** Canonical post: RETURN_OUT + status CLOSED (legacy SHIPPED mapped). */
+    async post(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'APPROVED') {
-            throw new BadRequestException(`Cannot ship: status is ${doc.status}`)
+            if (['SHIPPED', 'POSTED', 'CLOSED'].includes(doc.status)) {
+                throw new BadRequestException('Duplicate return posting blocked')
+            }
+            throw new BadRequestException(`Cannot post: status is ${doc.status}`)
+        }
+
+        const claimed = await this.prisma.mmSupplierReturn.updateMany({
+            where: { id, status: 'APPROVED' },
+            data: {
+                status: 'POSTED',
+                shippedBy: dto?.performedBy ?? null,
+                shippedAt: new Date(),
+            },
+        })
+        if (claimed.count === 0) {
+            throw new BadRequestException('Duplicate return posting blocked')
         }
 
         const now = new Date().toISOString()
@@ -237,6 +260,7 @@ export class SupplierReturnService {
                 sourceDocumentId: doc.id,
                 sourceDocumentLineId: line.id,
                 reasonCode: line.reason,
+                idempotencyKey: postingKey('sup-ret', doc.id, line.id),
                 createdBy: dto?.performedBy ?? undefined,
             })
 
@@ -246,44 +270,30 @@ export class SupplierReturnService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'SUPPLIER_RETURN_POSTED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'SUPPLIER_RETURN',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: {
-                    returnNumber: doc.returnNumber,
-                    supplierId: doc.supplierId,
-                    lines: doc.lines.map((l) => ({
-                        materialId: l.materialId,
-                        quantity: Number(l.quantity),
-                        unitCost: Number(l.unitCost),
-                    })),
-                },
-                status: 'PENDING',
-            },
-        })
-
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'SUPPLIER_RETURN',
-            documentId: doc.id,
+        void this.domainEvents.supplierReturnPosted({
             companyId: doc.companyId,
+            returnId: doc.id,
+            payload: {
+                returnNumber: doc.returnNumber,
+                supplierId: doc.supplierId,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                })),
+            },
         })
 
         const updated = await this.prisma.mmSupplierReturn.update({
             where: { id },
             data: {
-                status: 'SHIPPED',
-                shippedBy: dto?.performedBy ?? null,
-                shippedAt: new Date(),
+                status: 'CLOSED',
+                closedAt: new Date(),
             },
             include: DETAIL_INCLUDE,
         })
 
-        await this.audit(id, 'SHIPPED', 'status', 'APPROVED', 'SHIPPED', dto?.performedBy)
+        await this.audit(id, 'POSTED', 'status', 'APPROVED', 'CLOSED', dto?.performedBy)
         return updated
     }
 
@@ -305,7 +315,7 @@ export class SupplierReturnService {
 
     async reverse(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'SHIPPED') {
+        if (!['SHIPPED', 'POSTED', 'CLOSED'].includes(doc.status)) {
             throw new BadRequestException(`Cannot reverse: status is ${doc.status}`)
         }
 
@@ -347,7 +357,7 @@ export class SupplierReturnService {
             include: DETAIL_INCLUDE,
         })
 
-        await this.audit(id, 'REVERSED', 'status', 'SHIPPED', 'REVERSED', dto?.performedBy)
+        await this.audit(id, 'REVERSED', 'status', doc.status, 'REVERSED', dto?.performedBy)
         return updated
     }
 

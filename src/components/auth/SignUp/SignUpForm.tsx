@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import { FormItem, Form } from '@/components/ui/Form'
 import PasswordInput from '@/components/shared/PasswordInput'
+import AuthFormSection from '@/components/auth/AuthFormSection'
 import { ROLE_OPTIONS, type RoleOption, type UserRole } from '@/constants/roles.constant'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -13,6 +14,9 @@ import { z } from 'zod'
 import type { CommonProps } from '@/@types/common'
 
 type SignUpFormSchema = {
+    firstName: string
+    lastName: string
+    jobPosition: string
     userName: string
     email: string
     password: string
@@ -35,7 +39,10 @@ interface SignUpFormProps extends CommonProps {
 
 const validationSchema = z
     .object({
-        userName: z.string().min(1, { message: 'Please enter your name' }),
+        firstName: z.string().min(1, { message: 'First name is required' }),
+        lastName: z.string().min(1, { message: 'Last name is required' }),
+        jobPosition: z.string().min(1, { message: 'Job position is required' }),
+        userName: z.string().min(1, { message: 'Username is required' }),
         email: z
             .string()
             .min(1, { message: 'Please enter your email' })
@@ -65,6 +72,9 @@ const SignUpForm = (props: SignUpFormProps) => {
         control,
     } = useForm<SignUpFormSchema>({
         defaultValues: {
+            firstName: '',
+            lastName: '',
+            jobPosition: '',
             userName: '',
             email: '',
             password: '',
@@ -82,113 +92,207 @@ const SignUpForm = (props: SignUpFormProps) => {
 
     return (
         <div className={className}>
-            <Form onSubmit={handleSubmit(handleSignUp)}>
-                <FormItem
-                    label="User name"
-                    invalid={Boolean(errors.userName)}
-                    errorMessage={errors.userName?.message}
+            <Form
+                containerClassName="flex flex-col gap-8"
+                onSubmit={handleSubmit(handleSignUp)}
+            >
+                <AuthFormSection
+                    title="Personal information"
+                    description="Your name and role within the organization."
                 >
-                    <Controller
-                        name="userName"
-                        control={control}
-                        render={({ field }) => (
-                            <Input
-                                type="text"
-                                placeholder="Enter your name"
-                                autoComplete="username"
-                                {...field}
-                            />
-                        )}
-                    />
-                </FormItem>
-
-                <FormItem
-                    label="Email"
-                    invalid={Boolean(errors.email)}
-                    errorMessage={errors.email?.message}
-                >
-                    <Controller
-                        name="email"
-                        control={control}
-                        render={({ field }) => (
-                            <Input
-                                type="email"
-                                placeholder="Enter your email"
-                                autoComplete="email"
-                                {...field}
-                            />
-                        )}
-                    />
-                </FormItem>
-
-                <FormItem
-                    label="Role"
-                    invalid={Boolean(errors.role)}
-                    errorMessage={errors.role?.message}
-                >
-                    <Controller
-                        name="role"
-                        control={control}
-                        render={({ field }) => (
-                            <Select<RoleOption>
-                                placeholder="Select role"
-                                options={ROLE_OPTIONS}
-                                value={ROLE_OPTIONS.find(
-                                    (option) => option.value === field.value,
+                    <div className="grid gap-x-4 sm:grid-cols-2">
+                        <FormItem
+                            label="First name"
+                            asterisk
+                            invalid={Boolean(errors.firstName)}
+                            errorMessage={errors.firstName?.message}
+                        >
+                            <Controller
+                                name="firstName"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        type="text"
+                                        placeholder="First name"
+                                        autoComplete="given-name"
+                                        {...field}
+                                    />
                                 )}
-                                onChange={(option) =>
-                                    field.onChange(option?.value)
-                                }
                             />
-                        )}
-                    />
-                </FormItem>
+                        </FormItem>
 
-                <FormItem
-                    label="Password"
-                    invalid={Boolean(errors.password)}
-                    errorMessage={errors.password?.message}
-                >
-                    <Controller
-                        name="password"
-                        control={control}
-                        render={({ field }) => (
-                            <PasswordInput
-                                placeholder="Enter your password"
-                                autoComplete="new-password"
-                                {...field}
+                        <FormItem
+                            label="Last name"
+                            asterisk
+                            invalid={Boolean(errors.lastName)}
+                            errorMessage={errors.lastName?.message}
+                        >
+                            <Controller
+                                name="lastName"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        type="text"
+                                        placeholder="Last name"
+                                        autoComplete="family-name"
+                                        {...field}
+                                    />
+                                )}
                             />
-                        )}
-                    />
-                </FormItem>
+                        </FormItem>
+                    </div>
 
-                <FormItem
-                    label="Confirm password"
-                    invalid={Boolean(errors.confirmPassword)}
-                    errorMessage={errors.confirmPassword?.message}
-                    className="mb-6"
+                    <FormItem
+                        label="Job position"
+                        asterisk
+                        invalid={Boolean(errors.jobPosition)}
+                        errorMessage={errors.jobPosition?.message}
+                    >
+                        <Controller
+                            name="jobPosition"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    type="text"
+                                    placeholder="e.g. Warehouse Manager, Procurement Lead"
+                                    autoComplete="organization-title"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+                </AuthFormSection>
+
+                <AuthFormSection
+                    title="Account details"
+                    description="Credentials used to sign in to AGCTEK ERP."
                 >
-                    <Controller
-                        name="confirmPassword"
-                        control={control}
-                        render={({ field }) => (
-                            <PasswordInput
-                                placeholder="Confirm your password"
-                                autoComplete="new-password"
-                                {...field}
+                    <div className="grid gap-x-4 sm:grid-cols-2">
+                        <FormItem
+                            label="Username"
+                            asterisk
+                            invalid={Boolean(errors.userName)}
+                            errorMessage={errors.userName?.message}
+                        >
+                            <Controller
+                                name="userName"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        type="text"
+                                        placeholder="Unique login username"
+                                        autoComplete="username"
+                                        {...field}
+                                    />
+                                )}
                             />
-                        )}
-                    />
-                </FormItem>
+                        </FormItem>
 
-                <Button
-                    block
-                    loading={isSubmitting}
-                    variant="solid"
-                    type="submit"
+                        <FormItem
+                            label="Email"
+                            asterisk
+                            invalid={Boolean(errors.email)}
+                            errorMessage={errors.email?.message}
+                        >
+                            <Controller
+                                name="email"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        type="email"
+                                        placeholder="name@company.com"
+                                        autoComplete="email"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                    </div>
+
+                    <FormItem
+                        label="System role"
+                        asterisk
+                        invalid={Boolean(errors.role)}
+                        errorMessage={errors.role?.message}
+                    >
+                        <Controller
+                            name="role"
+                            control={control}
+                            render={({ field }) => (
+                                <Select<RoleOption>
+                                    placeholder="Select access level"
+                                    options={ROLE_OPTIONS}
+                                    value={ROLE_OPTIONS.find(
+                                        (option) => option.value === field.value,
+                                    )}
+                                    onChange={(option) =>
+                                        field.onChange(option?.value)
+                                    }
+                                />
+                            )}
+                        />
+                    </FormItem>
+                </AuthFormSection>
+
+                <AuthFormSection
+                    title="Security"
+                    description="Choose a strong password for your account."
                 >
-                    {isSubmitting ? 'Creating account...' : 'Sign up'}
-                </Button>
+                    <div className="grid gap-x-4 sm:grid-cols-2">
+                        <FormItem
+                            label="Password"
+                            asterisk
+                            invalid={Boolean(errors.password)}
+                            errorMessage={errors.password?.message}
+                        >
+                            <Controller
+                                name="password"
+                                control={control}
+                                render={({ field }) => (
+                                    <PasswordInput
+                                        placeholder="At least 6 characters"
+                                        autoComplete="new-password"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+
+                        <FormItem
+                            label="Confirm password"
+                            asterisk
+                            invalid={Boolean(errors.confirmPassword)}
+                            errorMessage={errors.confirmPassword?.message}
+                        >
+                            <Controller
+                                name="confirmPassword"
+                                control={control}
+                                render={({ field }) => (
+                                    <PasswordInput
+                                        placeholder="Re-enter password"
+                                        autoComplete="new-password"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                    </div>
+                </AuthFormSection>
+
+                <div className="border-t border-gray-200 pt-6 dark:border-gray-700">
+                    <Button
+                        block
+                        loading={isSubmitting}
+                        variant="solid"
+                        type="submit"
+                        size="lg"
+                    >
+                        {isSubmitting ? 'Creating account…' : 'Create account'}
+                    </Button>
+                    <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
+                        By creating an account, you agree to use AGCTEK ERP for authorized business purposes only.
+                    </p>
+                </div>
             </Form>
         </div>
     )

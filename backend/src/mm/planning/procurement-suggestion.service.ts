@@ -126,6 +126,16 @@ export class ProcurementSuggestionService {
             include: SUGGESTION_INCLUDE,
         })
 
+        if (suggestion.plannedOrderId) {
+            await this.prisma.mmPlannedOrder.update({
+                where: { id: suggestion.plannedOrderId },
+                data: {
+                    status: 'CONVERTED',
+                    purchaseRequisitionId: pr.id,
+                },
+            })
+        }
+
         return { suggestion: updated, purchaseRequisition: pr }
     }
 }

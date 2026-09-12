@@ -11,7 +11,7 @@ export type EntityOpt = { value: string; label: string; meta?: Record<string, an
  */
 export function useMaterialOptions(params?: { limit?: number; enabled?: boolean }) {
     const enabled = params?.enabled !== false
-    const limit = params?.limit ?? 500
+    const limit = params?.limit ?? 100
     const [options, setOptions] = useState<EntityOpt[]>([])
     const [loading, setLoading] = useState(false)
 
@@ -49,7 +49,7 @@ export function useMaterialOptions(params?: { limit?: number; enabled?: boolean 
 
 export function useSupplierOptions(params?: { limit?: number; enabled?: boolean }) {
     const enabled = params?.enabled !== false
-    const limit = params?.limit ?? 500
+    const limit = params?.limit ?? 100
     const [options, setOptions] = useState<EntityOpt[]>([])
     const [loading, setLoading] = useState(false)
 

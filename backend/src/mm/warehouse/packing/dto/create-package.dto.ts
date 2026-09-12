@@ -42,6 +42,10 @@ export class CreatePackageDto {
 
     @IsOptional()
     @IsString()
+    packingSessionId?: string
+
+    @IsOptional()
+    @IsString()
     reservationId?: string
 
     @IsOptional()

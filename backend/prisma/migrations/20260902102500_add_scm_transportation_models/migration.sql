@@ -256,7 +256,7 @@ CREATE INDEX "MaintenanceRecord_scheduledAt_idx" ON "MaintenanceRecord"("schedul
 CREATE INDEX "DemandForecast_productCode_locationCode_periodStart_idx" ON "DemandForecast"("productCode", "locationCode", "periodStart");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_userName_key" ON "User"("userName");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_userName_key" ON "User"("userName");
 
 -- AddForeignKey
 ALTER TABLE "Driver" ADD CONSTRAINT "Driver_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
