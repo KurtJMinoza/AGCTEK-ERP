@@ -91,6 +91,45 @@ export class GoodsIssueService {
         })
     }
 
+    /**
+     * Create + post GI from package for SCM trip start (idempotent).
+     * Returns existing posted GI for the package when already issued.
+     */
+    async issueAndPostFromPackage(
+        packageId: string,
+        opts?: { createdBy?: string },
+    ) {
+        const posted = await this.prisma.mmGoodsIssue.findFirst({
+            where: { packageId, status: 'POSTED' },
+            include: { lines: true },
+        })
+        if (posted) return posted
+
+        const draft = await this.prisma.mmGoodsIssue.findFirst({
+            where: { packageId, status: 'DRAFT' },
+            include: { lines: true },
+        })
+        if (draft) {
+            return this.post(draft.id)
+        }
+
+        const pkg = await this.prisma.wmPackage.findUnique({
+            where: { id: packageId },
+            include: { warehouse: true },
+        })
+        if (!pkg) throw new NotFoundException('Package not found')
+
+        const today = new Date().toISOString().slice(0, 10)
+        const created = await this.createFromPackage(packageId, {
+            companyId: pkg.warehouse.companyId,
+            postingDate: today,
+            documentDate: today,
+            issuePurpose: 'SALES',
+            createdBy: opts?.createdBy,
+        })
+        return this.post(created.id)
+    }
+
     async createFromPackage(packageId: string, opts: {
         companyId: string
         postingDate: string

@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { NotificationsModule } from '../notifications/notifications.module'
+import { ScmModule } from '../scm/scm.module'
 import { MaterialsController } from './materials/materials.controller'
 import { MaterialsService } from './materials/materials.service'
 import { MaterialTypesController } from './material-types/material-types.controller'
@@ -132,7 +133,7 @@ import { ProcurementHistoryController } from './procurement-history/procurement-
 import { ProcurementHistoryService } from './procurement-history/procurement-history.service'
 
 @Module({
-    imports: [NotificationsModule],
+    imports: [NotificationsModule, forwardRef(() => ScmModule)],
     controllers: [
         MaterialsController,
         MaterialTypesController,
@@ -268,5 +269,6 @@ import { ProcurementHistoryService } from './procurement-history/procurement-his
         StockVarianceReportService,
         WarehousePerformanceReportService,
     ],
+    exports: [GoodsIssueService],
 })
 export class MmModule {}

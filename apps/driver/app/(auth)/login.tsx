@@ -74,8 +74,8 @@ export default function LoginScreen() {
                 </View>
 
                 <Text style={styles.hint}>
-                    Uses Nest `POST /auth/sign-in`, then `GET /scm/drivers/me`.
-                    {'\n'}API: {API_BASE}
+                    Demo: driver01 / 123Qwe (run backend seed if needed).
+                    {'\n'}API: {API_BASE}/api/v1
                 </Text>
             </KeyboardAvoidingView>
         </SafeAreaView>

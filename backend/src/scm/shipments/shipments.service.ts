@@ -274,4 +274,106 @@ export class ShipmentsService {
         await this.prisma.shipment.delete({ where: { id } })
         return { ok: true }
     }
+
+    /**
+     * Idempotent MM → SCM release: READY shipment linked to a packed package.
+     */
+    async createFromPackage(packageId: string) {
+        const existing = await this.prisma.shipment.findUnique({
+            where: { packageId },
+        })
+        if (existing) return existing
+
+        const pkg = await this.prisma.wmPackage.findUnique({
+            where: { id: packageId },
+            include: {
+                items: { include: { material: true } },
+                warehouse: true,
+            },
+        })
+        if (!pkg) {
+            throw new BadRequestException('Package not found')
+        }
+        if (
+            pkg.status !== 'READY_FOR_DISPATCH' &&
+            pkg.status !== 'DISPATCHED'
+        ) {
+            throw new BadRequestException(
+                `Package must be READY_FOR_DISPATCH to release to SCM (current: ${pkg.status})`,
+            )
+        }
+
+        const destAddress = pkg.shipToAddress?.trim()
+        if (!destAddress) {
+            throw new BadRequestException(
+                'Package shipToAddress is required before SCM release',
+            )
+        }
+
+        const quantity = Math.max(
+            1,
+            Math.round(
+                pkg.items.reduce(
+                    (sum, item) => sum + Number(item.scannedQty),
+                    0,
+                ),
+            ),
+        )
+
+        const materialCodes = [
+            ...new Set(
+                pkg.items
+                    .map((item) => item.material?.materialCode)
+                    .filter((code): code is string => Boolean(code)),
+            ),
+        ]
+        const materialCode =
+            materialCodes.length === 1 ? materialCodes[0] : null
+        const description =
+            materialCodes.length > 1
+                ? `Package ${pkg.packageNumber}: ${materialCodes.join(', ')}`
+                : materialCodes.length === 1
+                  ? `Package ${pkg.packageNumber}: ${materialCodes[0]}`
+                  : `Package ${pkg.packageNumber}`
+
+        const weightKg = pkg.weight != null ? Number(pkg.weight) : 0
+        const originAddress =
+            pkg.warehouse.address?.trim() ||
+            `${pkg.warehouse.code} — ${pkg.warehouse.name}`
+
+        const reference = `MM-${pkg.packageNumber}`
+        const clash = await this.prisma.shipment.findUnique({
+            where: { reference },
+        })
+        const finalRef = clash
+            ? `MM-${pkg.packageNumber}-${Date.now().toString(36).slice(-4)}`
+            : reference
+
+        return this.prisma.shipment.create({
+            data: {
+                reference: finalRef,
+                customerName: pkg.shipToName?.trim() || null,
+                externalOrderId: pkg.orderNumber?.trim() || pkg.packageNumber,
+                materialCode,
+                description,
+                packageId: pkg.id,
+                originAddress,
+                destAddress,
+                destLat: pkg.shipToLat ?? null,
+                destLng: pkg.shipToLng ?? null,
+                quantity,
+                weightKg: Number.isFinite(weightKg) ? weightKg : 0,
+                volumeM3: 0,
+                movementType: ShipmentMovementType.DELIVERY,
+                status: ShipmentStatus.READY,
+                notes: pkg.carrier
+                    ? `Carrier: ${pkg.carrier}${
+                          pkg.trackingNumber
+                              ? ` · ${pkg.trackingNumber}`
+                              : ''
+                      }`
+                    : null,
+            },
+        })
+    }
 }
