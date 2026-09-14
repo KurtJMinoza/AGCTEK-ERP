@@ -15,12 +15,12 @@ import { useVehicleDetail } from '../hooks/useVehicleDetail'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { VehicleStatus, VehicleType } from '../types'
 import {
-    VehicleMaintenancePanel,
     VehicleOverviewPanel,
     VehicleTelematicsPanel,
     VehicleTripsPanel,
 } from './VehicleDetailPanels'
 import CurrentCargoPanel from './vehicles/CurrentCargoPanel'
+import VehicleMaintenanceSection from './vehicles/VehicleMaintenanceSection'
 
 const { TabList, TabNav, TabContent } = Tabs
 
@@ -400,8 +400,14 @@ export default function VehicleViewDialog({
                                     />
                                 </TabContent>
                                 <TabContent value="maintenance">
-                                    <VehicleMaintenancePanel
-                                        records={maintenance}
+                                    <VehicleMaintenanceSection
+                                        vehicleId={vehicle.id}
+                                        maintenanceRecords={maintenance}
+                                        defaultPane={
+                                            vehicle.complianceAlert
+                                                ? 'docs'
+                                                : 'service'
+                                        }
                                     />
                                 </TabContent>
                                 <TabContent value="trips">

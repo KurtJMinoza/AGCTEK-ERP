@@ -84,6 +84,50 @@ export type Vehicle = {
     notes: string | null
     createdAt: string
     updatedAt: string
+    /** Derived from OR/CR/insurance — EXPIRING_SOON warns; EXPIRED also sets routingBlocked */
+    complianceAlert?: 'EXPIRED' | 'EXPIRING_SOON' | null
+}
+
+export type VehicleDocumentKind =
+    | 'OR'
+    | 'CR'
+    | 'INSURANCE_CTPL'
+    | 'INSURANCE_COMPREHENSIVE'
+    | 'INSURANCE_OTHER'
+
+export type VehicleDocumentStatus =
+    | 'VALID'
+    | 'EXPIRING_SOON'
+    | 'EXPIRED'
+    | 'CANCELLED'
+
+export type VehicleDocument = {
+    id: string
+    vehicleId: string
+    kind: VehicleDocumentKind
+    documentNo: string
+    issuer: string | null
+    issuedAt: string | null
+    expiresAt: string
+    coverageNote: string | null
+    fileUrl: string | null
+    remindDaysBefore: number
+    blocksVehicle: boolean
+    status: VehicleDocumentStatus
+    notes: string | null
+    createdAt: string
+    updatedAt: string
+    vehicle?: Pick<
+        Vehicle,
+        'id' | 'code' | 'plateNumber' | 'status' | 'routingBlocked'
+    >
+}
+
+export type ComplianceSummary = {
+    expired: number
+    expiring: number
+    valid: number
+    cancelled: number
 }
 
 export type Driver = {
