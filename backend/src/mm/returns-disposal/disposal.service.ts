@@ -3,10 +3,11 @@ import {
     BadRequestException,
     NotFoundException,
 } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import {
     CreateDisposalDto,
@@ -32,7 +33,8 @@ export class DisposalService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private configService: ReturnsDisposalConfigService,
-        private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateDisposalDto) {
@@ -239,6 +241,8 @@ export class DisposalService {
             throw new BadRequestException('Duplicate disposal posting blocked')
         }
 
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
         const now = new Date().toISOString()
         const txnIds: string[] = []
 
@@ -292,32 +296,40 @@ export class DisposalService {
             },
         })
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'DISPOSAL_POSTED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'DISPOSAL',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: {
-                    disposalNumber: doc.disposalNumber,
-                    disposalType: doc.disposalType,
-                    lines: doc.lines.map((l) => ({
-                        materialId: l.materialId,
-                        quantity: Number(l.quantity),
-                        unitCost: Number(l.unitCost),
-                    })),
-                },
-                status: 'PENDING',
-            },
-        })
-
-        this.events.emit('accounting.entry.requested', {
+        const eventPayload = {
             sourceModule: 'RETURNS_DISPOSAL',
             documentType: 'DISPOSAL',
             documentId: doc.id,
             companyId: doc.companyId,
-        })
+            postingDate: now,
+            warehouseId: doc.warehouseId,
+            disposalNumber: doc.disposalNumber,
+            disposalType: doc.disposalType,
+            lines: doc.lines.map((l) => ({
+                materialId: l.materialId,
+                warehouseId: doc.warehouseId,
+                movementType: 'SCRAP',
+                quantity: Number(l.quantity),
+                unitCost: Number(l.unitCost),
+                totalCost: Number(l.unitCost) * Number(l.quantity),
+            })),
+        }
+
+        if (doc.disposalType === 'SCRAP') {
+            void this.domainEvents.scrapPosted({
+                companyId: doc.companyId,
+                scrapId: doc.id,
+                plantId: doc.warehouse?.plantId ?? null,
+                payload: eventPayload,
+            })
+        } else {
+            void this.domainEvents.disposalPosted({
+                companyId: doc.companyId,
+                disposalId: doc.id,
+                plantId: doc.warehouse?.plantId ?? null,
+                payload: eventPayload,
+            })
+        }
 
         const updated = await this.prisma.mmDisposal.update({
             where: { id },
@@ -366,24 +378,28 @@ export class DisposalService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'DISPOSAL_REVERSED',
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
+        void this.domainEvents.disposalReversed({
+            companyId: doc.companyId,
+            disposalId: doc.id,
+            payload: {
                 sourceModule: 'RETURNS_DISPOSAL',
                 documentType: 'DISPOSAL',
                 documentId: doc.id,
                 companyId: doc.companyId,
-                payload: { disposalNumber: doc.disposalNumber },
-                status: 'PENDING',
+                postingDate: new Date().toISOString(),
+                warehouseId: doc.warehouseId,
+                disposalNumber: doc.disposalNumber,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'SCRAP_REVERSAL',
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                    totalCost: Number(l.unitCost) * Number(l.quantity),
+                })),
             },
-        })
-
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'DISPOSAL',
-            documentId: doc.id,
-            companyId: doc.companyId,
-            eventHint: 'REVERSAL',
         })
 
         const updated = await this.prisma.mmDisposal.update({

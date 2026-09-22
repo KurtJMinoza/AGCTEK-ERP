@@ -16,8 +16,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import { orgService } from '../../material-master/services/referenceService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { inventoryControlService } from '../services/inventoryControlService'
 import type { CountPlan, CountPolicy } from '../types'
 
@@ -44,8 +43,7 @@ const CountPlanningPage = () => {
     const [policies, setPolicies] = useState<CountPolicy[]>([])
     const [plans, setPlans] = useState<CountPlan[]>([])
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
     const [policyOpen, setPolicyOpen] = useState(false)
     const [planOpen, setPlanOpen] = useState(false)
     const [busy, setBusy] = useState(false)
@@ -84,26 +82,25 @@ const CountPlanningPage = () => {
 
     useEffect(() => {
         load()
-        Promise.all([orgService.companies(), warehouseService.list({ limit: 200 })]).then(
-            ([cos, wh]: any[]) => {
-                const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: x.name || x.code,
-                }))
-                setCompanies(c)
-                setWarehouses(
-                    (wh?.data ?? []).map((x: any) => ({
-                        value: x.id,
-                        label: `${x.code} — ${x.name}`,
-                    })),
-                )
-                if (c[0]) {
-                    setPolicyForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
-                    setPlanForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
-                }
-            },
-        )
     }, [load])
+
+    const openPolicy = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        if (c[0]) {
+            setPolicyForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
+        }
+        setPolicyOpen(true)
+    }, [ensureFormRefs])
+
+    const openPlan = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        if (c[0]) {
+            setPlanForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
+        }
+        setPlanOpen(true)
+    }, [ensureFormRefs])
 
     const policyOpts = useMemo(
         () => [
@@ -253,14 +250,14 @@ const CountPlanningPage = () => {
                 description="Configure ABC count policies and generate count plans by warehouse and cycle."
                 actions={
                     <div className="flex gap-2">
-                        <Button size="sm" icon={<HiOutlinePlus />} onClick={() => setPolicyOpen(true)}>
+                        <Button size="sm" icon={<HiOutlinePlus />} onClick={openPolicy}>
                             Policy
                         </Button>
                         <Button
                             size="sm"
                             variant="solid"
                             icon={<HiOutlinePlus />}
-                            onClick={() => setPlanOpen(true)}
+                            onClick={openPlan}
                         >
                             Plan
                         </Button>

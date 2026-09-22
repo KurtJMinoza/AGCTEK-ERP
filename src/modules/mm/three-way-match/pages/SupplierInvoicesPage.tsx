@@ -16,7 +16,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { threeWayMatchService } from '../services/threeWayMatchService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { SupplierInvoice } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
@@ -37,7 +37,7 @@ const SupplierInvoicesPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<SupplierInvoice[]>([])
     const [loading, setLoading] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies } = useLazyMmRefs()
     const [open, setOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const [form, setForm] = useState({
@@ -70,15 +70,14 @@ const SupplierInvoicesPage = () => {
 
     useEffect(() => {
         load()
-        orgService.companies().then((cos: any) =>
-            setCompanies(
-                (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.name || c.code,
-                })),
-            ),
-        )
     }, [load])
+
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies')
+        const c = refs.companies ?? []
+        setForm((f) => ({ ...f, companyId: c[0]?.value || '' }))
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const loadPoDefaults = async (poId: string) => {
         if (!poId) return
@@ -230,7 +229,7 @@ const SupplierInvoicesPage = () => {
                     <Button
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         New Invoice
                     </Button>

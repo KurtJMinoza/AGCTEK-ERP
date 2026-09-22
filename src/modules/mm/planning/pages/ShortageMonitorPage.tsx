@@ -13,8 +13,7 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { planningService } from '../services/planningService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialRequirement, PlanningDashboard } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -35,29 +34,13 @@ const ShortageMonitorPage = () => {
     const [rows, setRows] = useState<MaterialRequirement[]>([])
     const [dash, setDash] = useState<PlanningDashboard | null>(null)
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-        ]).then(([cos, wh]: any[]) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            setWarehouses(
-                (wh?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: `${x.code} — ${x.name}`,
-                })),
-            )
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -85,7 +68,9 @@ const ShortageMonitorPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<MaterialRequirement>[] = useMemo(
         () => [
@@ -110,6 +95,20 @@ const ShortageMonitorPage = () => {
                 cell: ({ row }) =>
                     row.original.requiredDate
                         ? String(row.original.requiredDate).slice(0, 10)
+                        : '—',
+            },
+            {
+                header: 'Violation date',
+                cell: ({ row }) =>
+                    row.original.shortageDate
+                        ? String(row.original.shortageDate).slice(0, 10)
+                        : '—',
+            },
+            {
+                header: 'Safety deficit',
+                cell: ({ row }) =>
+                    row.original.safetyStockViolationQty != null
+                        ? Number(row.original.safetyStockViolationQty)
                         : '—',
             },
             {

@@ -30,18 +30,18 @@ import {
     HiOutlineSwitchHorizontal,
 } from 'react-icons/hi'
 import { transferService } from '../services/transferService'
-import { warehouseService } from '../services/warehouseService'
-import { storageBinService } from '../services/storageBinService'
-import { materialService } from '../../material-master/services/materialService'
+import {
+    useDeferredFilterRefs,
+    useLazyBinsForWarehouse,
+    useLazyMaterialEntities,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     WarehouseTransfer,
     WarehouseTransferLine,
     TransferQueryParams,
     CreateTransferPayload,
-    Warehouse,
-    StorageBin,
 } from '../types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 
@@ -126,30 +126,25 @@ const TransfersPage = () => {
         }
     }, [queryParams])
 
-    useEffect(() => { fetchList() }, [fetchList])
+    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
+    const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
 
-    /* ── warehouses for filters / selects ── */
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
     useEffect(() => {
-        warehouseService.list({ limit: 500 }).then((r) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+        fetchList()
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [fetchList, loadFilterRefs])
 
     const warehouseOpts = useMemo<FilterOption[]>(
-        () => [{ value: '', label: 'All warehouses' }, ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))],
-        [warehouses],
+        () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],
+        [warehouseFilterOpts],
     )
     const warehouseSelectOpts = useMemo<FilterOption[]>(
         () => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
         [warehouses],
     )
-
-    /* ── materials / bins for create dialog ── */
-    const [materials, setMaterials] = useState<Material[]>([])
-    const [bins, setBins] = useState<StorageBin[]>([])
-    useEffect(() => {
-        materialService.list({ limit: 500 }).then((r) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        storageBinService.list({ limit: 500 }).then((r) => setBins(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
 
     const materialOpts = useMemo<FilterOption[]>(
         () => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })),
@@ -196,11 +191,12 @@ const TransfersPage = () => {
     const [createLines, setCreateLines] = useState<NewTransferLine[]>([{ materialId: '', quantity: 1, sourceBinId: '' }])
     const [creating, setCreating] = useState(false)
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
         setCreateForm({ sourceWarehouseId: '', destinationWarehouseId: '', requestedBy: '', notes: '' })
         setCreateLines([{ materialId: '', quantity: 1, sourceBinId: '' }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials])
 
     const updateLine = useCallback((idx: number, patch: Partial<NewTransferLine>) => {
         setCreateLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)))
@@ -568,7 +564,11 @@ const TransfersPage = () => {
                             placeholder="Select source…"
                             options={warehouseSelectOpts}
                             value={warehouseSelectOpts.find((o) => o.value === createForm.sourceWarehouseId)}
-                            onChange={(opt) => setCreateForm({ ...createForm, sourceWarehouseId: opt?.value ?? '' })}
+                            onChange={(opt) => {
+                                const whId = opt?.value ?? ''
+                                setCreateForm({ ...createForm, sourceWarehouseId: whId })
+                                if (whId) void loadForWarehouse(whId)
+                            }}
                         />
                     </FormItem>
                     <FormItem label="Destination warehouse" asterisk>

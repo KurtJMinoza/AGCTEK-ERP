@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -259,6 +260,19 @@ const QualityQuarantinePage = () => {
                 title="Quality / Quarantine"
                 description="Legacy quality inspections and usage decisions. Pass → ACCEPT (unrestricted + putaway event); fail-only → REJECT (quarantine). For full 5-code decisions use Inspection Queue."
             />
+
+            <AdaptiveCard className="mb-4 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                    Legacy inspection records only
+                </p>
+                <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
+                    New goods receipts create inspection lots in the{' '}
+                    <Link href="/modules/mm/receiving/inspection-queue" className="underline font-medium">
+                        Inspection Queue
+                    </Link>
+                    . Use this page for historical quarantine data created before Phase 1A.
+                </p>
+            </AdaptiveCard>
 
             <AdaptiveCard>
                 <div className="mb-4 flex flex-wrap items-center gap-4">

@@ -85,9 +85,11 @@ export class RecordInspectionResultsDto {
 export class UsageDecisionDto {
     @IsString() @IsNotEmpty() decisionCode!: string
     @IsNumber() @Min(0.000001) quantity!: number
+    @IsOptional() @IsString() reason?: string
     @IsOptional() @IsString() deviationReason?: string
     @IsOptional() @IsString() decidedBy?: string
     @IsOptional() @IsString() notes?: string
+    @IsOptional() @IsString() idempotencyKey?: string
 }
 
 export class CreateQualityHoldDto {
@@ -97,6 +99,8 @@ export class CreateQualityHoldDto {
     @IsOptional() @IsString() goodsReceiptLineId?: string
     @IsOptional() @IsString() materialId?: string
     @IsOptional() @IsString() warehouseId?: string
+    @IsOptional() @IsString() holdType?: string
+    @IsOptional() @IsString() targetStockStatus?: string
     @IsOptional() @IsString() heldBy?: string
 }
 

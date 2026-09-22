@@ -15,7 +15,7 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { supplierPerformanceService } from '../services/supplierPerformanceService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PerformanceDashboard, SupplierEvaluation } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -33,20 +33,14 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const SupplierPerformancePage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
+    const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
     const [companyId, setCompanyId] = useState('')
     const [dash, setDash] = useState<PerformanceDashboard | null>(null)
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        orgService.companies().then((cos: any) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -63,7 +57,9 @@ const SupplierPerformancePage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const s = dash?.summary
     const columns: ColumnDef<SupplierEvaluation>[] = useMemo(

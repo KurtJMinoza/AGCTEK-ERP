@@ -7,6 +7,8 @@ import type {
     MaterialRequirement,
     ProcurementSuggestion,
     PlanningDashboard,
+    ProjectedStockRow,
+    BomExplosionTrace,
 } from '../types'
 
 const BASE = '/mm/planning'
@@ -24,9 +26,15 @@ export const planningService = {
         ).then((r) => r.data),
 
     createDemand: (data: Record<string, unknown>) =>
-        ErpAxiosBase.post<PlanningDemand>(`${BASE}/demand`, data).then(
+        ErpAxiosBase.post<PlanningDemand>(`${BASE}/demands`, data).then(
             (r) => r.data,
         ),
+
+    listDemands: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: PlanningDemand[]; meta: ListMeta }>(
+            `${BASE}/demands`,
+            { params },
+        ).then((r) => r.data),
 
     updateDemand: (id: string, data: Record<string, unknown>) =>
         ErpAxiosBase.patch<PlanningDemand>(`${BASE}/demand/${id}`, data).then(
@@ -76,6 +84,24 @@ export const planningService = {
     listRequirements: (params?: Record<string, unknown>) =>
         ErpAxiosBase.get<{ data: MaterialRequirement[]; meta: ListMeta }>(
             `${BASE}/material-requirements`,
+            { params },
+        ).then((r) => r.data),
+
+    listShortages: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: MaterialRequirement[]; meta: ListMeta }>(
+            `${BASE}/shortages`,
+            { params },
+        ).then((r) => r.data),
+
+    listBomExplosionTraces: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: BomExplosionTrace[]; meta: ListMeta }>(
+            `${BASE}/bom-explosion-traces`,
+            { params },
+        ).then((r) => r.data),
+
+    listProjectedStock: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: ProjectedStockRow[]; meta: ListMeta }>(
+            `${BASE}/projected-stock`,
             { params },
         ).then((r) => r.data),
 

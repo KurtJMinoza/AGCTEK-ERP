@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { MmCommonModule } from './common/mm-common.module'
 import { ProcurementCommonModule } from './procurement/procurement-common.module'
@@ -127,7 +127,15 @@ import { MrpEngineService } from './planning/mrp-engine.service'
 import { MrpRunService } from './planning/mrp-run.service'
 import { ProcurementSuggestionService } from './planning/procurement-suggestion.service'
 import { PlanningDashboardService } from './planning/planning-dashboard.service'
-import { BOM_PROVIDER, NullBomProvider } from './planning/bom-provider'
+import { ProjectedStockService } from './planning/projected-stock.service'
+import { MrpScopeLoaderService } from './planning/mrp-scope-loader.service'
+import { PlanningCalendarService } from './planning/planning-calendar.service'
+import { BOM_PROVIDER } from './planning/bom-provider'
+import { BomExplosionService } from './planning/bom-explosion.service'
+import {
+    DefaultBomQuantityCalculator,
+    BOM_QUANTITY_CALCULATOR,
+} from './planning/bom-quantity.calculator'
 import { SupplierPerformanceController } from './supplier-performance/supplier-performance.controller'
 import { SupplierScoreConfigService } from './supplier-performance/supplier-score-config.service'
 import { SupplierEvaluationService } from './supplier-performance/supplier-evaluation.service'
@@ -178,6 +186,18 @@ import { InspectionRequirementService } from './receiving/inspection-requirement
 import { InspectionLotService } from './receiving/inspection-lot.service'
 import { QualityDecisionService } from './receiving/quality-decision.service'
 import { QualityHoldService } from './receiving/quality-hold.service'
+import { QualityController } from './quality/quality.controller'
+import { InspectionPlanService } from './quality/inspection-plan.service'
+import { DefectCodeService } from './quality/defect-code.service'
+import { SamplingService } from './quality/sampling.service'
+import { InspectionLotLifecycleService } from './quality/inspection-lot-lifecycle.service'
+import { NonconformanceService } from './quality/nonconformance.service'
+import { CorrectiveActionService } from './quality/corrective-action.service'
+import { QualityAttachmentService } from './quality/quality-attachment.service'
+import { QualityWorkflowService } from './quality/quality-workflow.service'
+import { QualityReportingService } from './quality/quality-reporting.service'
+import { QualityMetricsService } from './quality/quality-metrics.service'
+import { QualityRuleService } from './quality/quality-rule.service'
 import { WarehouseTaskController } from './warehouse/tasks/warehouse-task.controller'
 import { WarehouseTaskService } from './warehouse/tasks/warehouse-task.service'
 import { TaskAssignmentService } from './warehouse/tasks/task-assignment.service'
@@ -205,9 +225,30 @@ import { StockTransferAllocationService } from './stock-transfer/stock-transfer-
 import { StockTransferShipmentService } from './stock-transfer/stock-transfer-shipment.service'
 import { StockTransferReceiptService } from './stock-transfer/stock-transfer-receipt.service'
 import { StockTransferWarehouseBridgeService } from './stock-transfer/stock-transfer-warehouse-bridge.service'
+import { SdIntegrationModule } from './integration/sd/sd-integration.module'
+import { ProductionIntegrationModule } from './integration/production/production-integration.module'
+import { FicoIntegrationModule } from './integration/fico/fico-integration.module'
+import { DemandIntegrationModule } from './integration/demand/demand-integration.module'
+import { DocumentFlowModule } from './document-flow/document-flow.module'
+import { ExceptionCenterModule } from './exception-center/exception-center.module'
+import { FicoModule } from '../fico/fico.module'
+import { PpModule } from '../pp/pp.module'
+import { ProductionBomProvider } from '../pp/production-bom.provider'
 
 @Module({
-    imports: [NotificationsModule, MmCommonModule, ProcurementCommonModule],
+    imports: [
+        NotificationsModule,
+        MmCommonModule,
+        ProcurementCommonModule,
+        forwardRef(() => SdIntegrationModule),
+        forwardRef(() => ProductionIntegrationModule),
+        FicoIntegrationModule,
+        DemandIntegrationModule,
+        DocumentFlowModule,
+        ExceptionCenterModule,
+        forwardRef(() => PpModule),
+        forwardRef(() => FicoModule),
+    ],
     controllers: [
         MaterialsController,
         MaterialTypesController,
@@ -257,6 +298,7 @@ import { StockTransferWarehouseBridgeService } from './stock-transfer/stock-tran
         ReceivingController,
         InspectionLotController,
         QualityHoldController,
+        QualityController,
         ReservationController,
         InventoryControlController,
         ValuationController,
@@ -356,6 +398,17 @@ import { StockTransferWarehouseBridgeService } from './stock-transfer/stock-tran
         InspectionLotService,
         QualityDecisionService,
         QualityHoldService,
+        InspectionPlanService,
+        DefectCodeService,
+        SamplingService,
+        InspectionLotLifecycleService,
+        NonconformanceService,
+        CorrectiveActionService,
+        QualityAttachmentService,
+        QualityWorkflowService,
+        QualityReportingService,
+        QualityMetricsService,
+        QualityRuleService,
         ReservationService,
         InventoryAvailabilityService,
         CountRuleService,
@@ -390,7 +443,16 @@ import { StockTransferWarehouseBridgeService } from './stock-transfer/stock-tran
         MrpRunService,
         ProcurementSuggestionService,
         PlanningDashboardService,
-        { provide: BOM_PROVIDER, useClass: NullBomProvider },
+        ProjectedStockService,
+        MrpScopeLoaderService,
+        PlanningCalendarService,
+        BomExplosionService,
+        DefaultBomQuantityCalculator,
+        { provide: BOM_PROVIDER, useExisting: ProductionBomProvider },
+        {
+            provide: BOM_QUANTITY_CALCULATOR,
+            useClass: DefaultBomQuantityCalculator,
+        },
         SupplierScoreConfigService,
         SupplierAlertService,
         SupplierEvaluationService,
@@ -415,6 +477,19 @@ import { StockTransferWarehouseBridgeService } from './stock-transfer/stock-tran
         StockVarianceReportService,
         WarehousePerformanceReportService,
         AnalyticsService,
+    ],
+    exports: [
+        SdIntegrationModule,
+        ProductionIntegrationModule,
+        FicoIntegrationModule,
+        DemandIntegrationModule,
+        DocumentFlowModule,
+        ExceptionCenterModule,
+        GoodsIssueService,
+        GoodsReceiptService,
+        InventoryAvailabilityService,
+        ReservationEngineService,
+        AllocationEngineService,
     ],
 })
 export class MmModule {}

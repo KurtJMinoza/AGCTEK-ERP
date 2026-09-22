@@ -55,6 +55,12 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'Charts and reports across Materials Management.',
                 'barChart',
             ),
+            mmPage(
+                'exception-center',
+                'Exception Center',
+                'Centralized read-only MM operational exceptions across all domains.',
+                'alertTriangle',
+            ),
             mmHub(
                 'organization',
                 'Organization',
@@ -257,9 +263,39 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         icon: 'clipboard',
                     },
                     {
+                        code: 'quality-dashboard',
+                        title: 'Quality Dashboard',
+                        icon: 'barChart',
+                    },
+                    {
                         code: 'inspection-queue',
                         title: 'Inspection Queue',
                         icon: 'clipboardList',
+                    },
+                    {
+                        code: 'inspection-plans',
+                        title: 'Inspection Plans',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'inspection-rules',
+                        title: 'Inspection Rules',
+                        icon: 'settings',
+                    },
+                    {
+                        code: 'defect-codes',
+                        title: 'Defect Codes',
+                        icon: 'alertTriangle',
+                    },
+                    {
+                        code: 'nonconformances',
+                        title: 'Nonconformances',
+                        icon: 'alertCircle',
+                    },
+                    {
+                        code: 'usage-decisions',
+                        title: 'Usage Decisions',
+                        icon: 'checkCircle',
                     },
                     {
                         code: 'receiving-variances',
@@ -499,6 +535,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                     { code: 'demand', title: 'Demand', icon: 'lineChart' },
                     { code: 'mrp-runs', title: 'MRP Runs', icon: 'factory' },
                     {
+                        code: 'projected-stock',
+                        title: 'Projected Stock',
+                        icon: 'lineChart',
+                    },
+                    {
                         code: 'material-requirements',
                         title: 'Material Requirements',
                         icon: 'clipboard',
@@ -692,6 +733,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'stock-variance',
                         title: 'Stock Variance',
                         icon: 'barChart',
+                    },
+                    {
+                        code: 'quality-analytics',
+                        title: 'Quality Analytics',
+                        icon: 'checkCircle',
                     },
                 ],
             ),

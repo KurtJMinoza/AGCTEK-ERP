@@ -9,14 +9,14 @@ import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
 import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
+import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 
 const ROUTE = '/modules/mm/supplier-management/supplier-documents'
 
 const SupplierDocumentsPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
     const [supplierId, setSupplierId] = useState('')
-    const { options: supplierOpts } = useSupplierOptions({ enabled: true })
+    const { suppliers: supplierOpts } = useMmFilterRefs('suppliers')
 
     return (
         <PageContainer>

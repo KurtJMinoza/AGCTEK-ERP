@@ -11,7 +11,9 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import Input from '@/components/ui/Input'
 import Tabs from '@/components/ui/Tabs'
 import { HiOutlineClipboardList, HiOutlineSearch } from 'react-icons/hi'
+import Button from '@/components/ui/Button'
 import { inspectionService } from '../services/inspectionService'
+import { qualityService, type QualityDashboard } from '../services/qualityService'
 import type { MmInspectionLot } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -19,8 +21,13 @@ const ROUTE = '/modules/mm/receiving/inspection-queue'
 const DETAIL_ROUTE = '/modules/mm/receiving/inspection-queue'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
+    CREATED: 'warning',
+    READY: 'warning',
     PENDING: 'warning',
     IN_PROGRESS: 'info',
+    PENDING_DECISION: 'warning',
+    DECIDED: 'success',
+    CLOSED: 'success',
     COMPLETED: 'success',
     CANCELLED: 'danger',
     PASS: 'success',
@@ -42,6 +49,7 @@ const InspectionQueuePage = () => {
     const [pageSize, setPageSize] = useState(20)
     const [search, setSearch] = useState('')
     const [statusTab, setStatusTab] = useState('PENDING')
+    const [kpis, setKpis] = useState<QualityDashboard | null>(null)
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -64,8 +72,17 @@ const InspectionQueuePage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
+    useEffect(() => {
+        qualityService.dashboard().then(setKpis).catch(() => setKpis(null))
+    }, [])
+
     const pendingCount = useMemo(
-        () => data.filter((l) => l.status === 'PENDING' || l.status === 'IN_PROGRESS').length,
+        () =>
+            data.filter((l) =>
+                ['CREATED', 'READY', 'PENDING', 'IN_PROGRESS', 'PENDING_DECISION'].includes(
+                    l.status,
+                ),
+            ).length,
         [data],
     )
 
@@ -135,16 +152,29 @@ const InspectionQueuePage = () => {
                 title="Inspection Queue"
                 description="Pending inspection lots created at goods receipt post. Record samples and usage decisions from lot detail."
                 icon={<HiOutlineClipboardList />}
+                actions={
+                    <Link href="/modules/mm/receiving/quality-dashboard">
+                        <Button size="sm">Quality dashboard</Button>
+                    </Link>
+                }
             />
 
-            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <AdaptiveCard>
-                    <p className="text-sm text-gray-500">Pending / in progress (page)</p>
-                    <p className="text-2xl font-semibold">{pendingCount}</p>
+                    <p className="text-sm text-gray-500">Open lots (company)</p>
+                    <p className="text-2xl font-semibold">{kpis?.pendingLots ?? '—'}</p>
                 </AdaptiveCard>
                 <AdaptiveCard>
-                    <p className="text-sm text-gray-500">Total lots (page)</p>
-                    <p className="text-2xl font-semibold">{total}</p>
+                    <p className="text-sm text-gray-500">In progress</p>
+                    <p className="text-2xl font-semibold">{kpis?.inProgressLots ?? '—'}</p>
+                </AdaptiveCard>
+                <AdaptiveCard>
+                    <p className="text-sm text-gray-500">Pending decision</p>
+                    <p className="text-2xl font-semibold">{kpis?.pendingDecision ?? '—'}</p>
+                </AdaptiveCard>
+                <AdaptiveCard>
+                    <p className="text-sm text-gray-500">On this page</p>
+                    <p className="text-2xl font-semibold">{pendingCount} / {total}</p>
                 </AdaptiveCard>
             </div>
 
@@ -161,9 +191,10 @@ const InspectionQueuePage = () => {
 
                 <Tabs value={statusTab} onChange={(val) => { setStatusTab(val as string); setPage(1) }}>
                     <Tabs.TabList>
-                        <Tabs.TabNav value="PENDING">Pending</Tabs.TabNav>
+                        <Tabs.TabNav value="PENDING">Open</Tabs.TabNav>
                         <Tabs.TabNav value="IN_PROGRESS">In Progress</Tabs.TabNav>
-                        <Tabs.TabNav value="COMPLETED">Completed</Tabs.TabNav>
+                        <Tabs.TabNav value="PENDING_DECISION">Pending decision</Tabs.TabNav>
+                        <Tabs.TabNav value="COMPLETED">Decided</Tabs.TabNav>
                         <Tabs.TabNav value="">All</Tabs.TabNav>
                     </Tabs.TabList>
                 </Tabs>

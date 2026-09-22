@@ -34,7 +34,40 @@ export class ReservationEngineService {
         allocations: { include: { lines: true } },
     }
 
-    async create(dto: CreateReservationHeaderDto) {
+    async createIdempotent(
+        dto: CreateReservationHeaderDto,
+        opts?: { correlationId?: string; causationId?: string | null },
+    ) {
+        if (dto.idempotencyKey) {
+            const existing = await this.prisma.mmInventoryReservationHeader.findFirst({
+                where: {
+                    sourceModule: dto.sourceModule,
+                    sourceDocumentType: dto.sourceDocumentType,
+                    sourceDocumentId: dto.sourceDocumentId,
+                    idempotencyKey: dto.idempotencyKey,
+                },
+                include: this.includes,
+            })
+            if (existing) return existing
+        }
+
+        const active = await this.findBySourceDocument({
+            sourceModule: dto.sourceModule,
+            sourceDocumentType: dto.sourceDocumentType,
+            sourceDocumentId: dto.sourceDocumentId,
+            activeOnly: true,
+        })
+        if (active.length > 0 && dto.idempotencyKey) {
+            return active[0]
+        }
+
+        return this.create(dto, opts)
+    }
+
+    async create(
+        dto: CreateReservationHeaderDto,
+        opts?: { correlationId?: string; causationId?: string | null },
+    ) {
         if (!dto.lines?.length) {
             throw new BadRequestException('At least one reservation line is required')
         }
@@ -71,6 +104,7 @@ export class ReservationEngineService {
                     sourceModule: dto.sourceModule,
                     sourceDocumentType: dto.sourceDocumentType,
                     sourceDocumentId: dto.sourceDocumentId,
+                    idempotencyKey: dto.idempotencyKey ?? null,
                     allowPartialReservation: dto.allowPartialReservation ?? false,
                     validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
                     createdBy: dto.createdBy ?? null,
@@ -78,6 +112,7 @@ export class ReservationEngineService {
                     lines: {
                         create: dto.lines.map((line, idx) => ({
                             lineNumber: idx + 1,
+                            demandReferenceLineId: line.demandReferenceLineId ?? null,
                             materialId: line.materialId,
                             batchId: line.batchId ?? null,
                             serialNumberId: line.serialNumberId ?? null,
@@ -180,16 +215,184 @@ export class ReservationEngineService {
             })
         })
 
+        const eventLines = header.lines.map((l) => ({
+            lineId: l.id,
+            demandReferenceLineId: l.demandReferenceLineId,
+            materialId: l.materialId,
+            requestedQuantity: l.requestedQuantity.toString(),
+            reservedQuantity: l.reservedQuantity.toString(),
+            integrationStatus: l.status,
+        }))
+
         void this.domainEvents.reservationCreated({
             companyId: dto.companyId,
             reservationId: header.id,
+            sourceModule: dto.sourceModule,
+            sourceEntityType: dto.sourceDocumentType,
+            sourceEntityId: dto.sourceDocumentId,
+            correlationId: opts?.correlationId,
+            causationId: opts?.causationId,
             payload: {
+                reservationHeaderId: header.id,
                 reservationNumber,
                 sourceDocumentId: dto.sourceDocumentId,
+                sourceDocumentType: dto.sourceDocumentType,
+                headerStatus: header.status,
+                lines: eventLines,
             },
         })
 
+        if (header.status === 'SHORT') {
+            void this.domainEvents.shortageDetected({
+                companyId: dto.companyId,
+                sourceModule: dto.sourceModule,
+                sourceEntityType: dto.sourceDocumentType,
+                sourceEntityId: dto.sourceDocumentId,
+                correlationId: opts?.correlationId,
+                causationId: opts?.causationId,
+                payload: {
+                    reservationHeaderId: header.id,
+                    sourceDocumentId: dto.sourceDocumentId,
+                    lines: eventLines,
+                },
+            })
+        }
+
         return header
+    }
+
+    async findBySourceDocument(args: {
+        sourceModule: string
+        sourceDocumentType: string
+        sourceDocumentId: string
+        activeOnly?: boolean
+    }) {
+        const where: Record<string, unknown> = {
+            sourceModule: args.sourceModule,
+            sourceDocumentType: args.sourceDocumentType,
+            sourceDocumentId: args.sourceDocumentId,
+        }
+        if (args.activeOnly) {
+            where.status = { in: [...ACTIVE_RESERVATION_STATUSES, 'SHORT'] }
+        }
+        return this.prisma.mmInventoryReservationHeader.findMany({
+            where,
+            include: this.includes,
+            orderBy: { createdAt: 'desc' },
+        })
+    }
+
+    async releaseBySourceDocument(args: {
+        sourceModule: string
+        sourceDocumentType: string
+        sourceDocumentId: string
+        reason?: string
+    }) {
+        const headers = await this.findBySourceDocument({
+            ...args,
+            activeOnly: true,
+        })
+        const released = []
+        for (const header of headers) {
+            released.push(await this.cancel(header.id))
+        }
+        return released
+    }
+
+    async adjustLineQuantityBySource(args: {
+        sourceModule: string
+        sourceDocumentType: string
+        sourceDocumentId: string
+        demandReferenceLineId: string
+        newQuantity: number
+    }) {
+        const headers = await this.findBySourceDocument({
+            sourceModule: args.sourceModule,
+            sourceDocumentType: args.sourceDocumentType,
+            sourceDocumentId: args.sourceDocumentId,
+            activeOnly: true,
+        })
+        const header = headers[0]
+        if (!header) {
+            throw new NotFoundException('No active reservation for source document')
+        }
+
+        const line = header.lines.find(
+            (l) => l.demandReferenceLineId === args.demandReferenceLineId,
+        )
+        if (!line) {
+            throw new NotFoundException('Reservation line not found for demand reference')
+        }
+
+        const newQty = new Decimal(args.newQuantity)
+        if (newQty.lt(line.issuedQuantity)) {
+            throw new BadRequestException(
+                'New quantity cannot be less than issued quantity',
+            )
+        }
+
+        const currentReserved = new Decimal(line.reservedQuantity)
+        if (newQty.gte(currentReserved)) {
+            await this.prisma.mmInventoryReservationLine.update({
+                where: { id: line.id },
+                data: { requestedQuantity: newQty },
+            })
+            return {
+                lineId: line.id,
+                releasedQty: '0',
+                newReservedQuantity: currentReserved.toString(),
+            }
+        }
+
+        const releaseQty = currentReserved.minus(newQty)
+        await this.prisma.$transaction(async (tx) => {
+            await releaseWarehouseQuantity(tx, {
+                companyId: header.companyId,
+                warehouseId: header.warehouseId,
+                materialId: line.materialId,
+                quantity: releaseQty,
+                stockStatus: line.stockStatus,
+                batchId: line.batchId,
+                serialNumberId: line.serialNumberId,
+            })
+            await tx.mmInventoryReservationLine.update({
+                where: { id: line.id },
+                data: {
+                    requestedQuantity: newQty,
+                    reservedQuantity: newQty,
+                    status: newQty.lte(0) ? 'RELEASED' : 'RESERVED',
+                },
+            })
+            await tx.mmInventoryReservation.updateMany({
+                where: { reservationLineId: line.id },
+                data: {
+                    quantity: newQty,
+                    reservedQuantity: newQty,
+                    status: newQty.lte(0) ? 'CANCELLED' : 'OPEN',
+                },
+            })
+        })
+
+        void this.domainEvents.reservationReleased({
+            companyId: header.companyId,
+            reservationId: header.id,
+            sourceModule: header.sourceModule,
+            sourceEntityType: header.sourceDocumentType,
+            sourceEntityId: header.sourceDocumentId,
+            payload: {
+                reason: 'DEMAND_CHANGED',
+                partialLineId: line.demandReferenceLineId,
+                releasedQty: releaseQty.toString(),
+                newReservedQuantity: newQty.toString(),
+                sourceDocumentId: header.sourceDocumentId,
+            },
+        })
+
+        return {
+            lineId: line.id,
+            releasedQty: releaseQty.toString(),
+            newReservedQuantity: newQty.toString(),
+        }
     }
 
     async findAll(query: ReservationQueryDto) {
@@ -273,7 +476,14 @@ export class ReservationEngineService {
         void this.domainEvents.reservationReleased({
             companyId: header.companyId,
             reservationId: id,
-            payload: { reason: 'RELEASED' },
+            sourceModule: header.sourceModule,
+            sourceEntityType: header.sourceDocumentType,
+            sourceEntityId: header.sourceDocumentId,
+            payload: {
+                reason: 'RELEASED',
+                reservationHeaderId: id,
+                sourceDocumentId: header.sourceDocumentId,
+            },
         })
         return updated
     }

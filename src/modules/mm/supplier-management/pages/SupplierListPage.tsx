@@ -34,7 +34,7 @@ import {
 import { supplierService } from '../services/supplierService'
 import { supplierCategoryService } from '../services/supplierCategoryService'
 import { paymentTermsService } from '../services/paymentTermsService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { Supplier, SupplierCategory, PaymentTerms, SupplierListResponse } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
@@ -94,7 +94,7 @@ const SupplierListPage = () => {
 
     const [categories, setCategories] = useState<SupplierCategory[]>([])
     const [paymentTermsList, setPaymentTermsList] = useState<PaymentTerms[]>([])
-    const [companies, setCompanies] = useState<FilterOption[]>([])
+    const { ensure: ensureFormRefs, companies } = useLazyMmRefs()
 
     const [formOpen, setFormOpen] = useState(false)
     const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -120,9 +120,6 @@ const SupplierListPage = () => {
     useEffect(() => {
         supplierCategoryService.list().then(setCategories).catch(() => {})
         paymentTermsService.list().then(setPaymentTermsList).catch(() => {})
-        orgService.companies()
-            .then((list) => setCompanies(list.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` }))))
-            .catch(() => {})
     }, [])
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
@@ -161,17 +158,20 @@ const SupplierListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies')
+        const c = refs.companies ?? []
         setFormMode('create')
         setEditingSupplier(null)
-        setFormValues({ companyId: companies[0]?.value || '' })
+        setFormValues({ companyId: c[0]?.value || '' })
         setTouched({})
         setForceValidate(false)
         setWizardStep(0)
         setFormOpen(true)
-    }, [companies])
+    }, [ensureFormRefs])
 
-    const openEdit = useCallback((s: Supplier) => {
+    const openEdit = useCallback(async (s: Supplier) => {
+        await ensureFormRefs('companies')
         setFormMode('edit')
         setEditingSupplier(s)
         setFormValues({
@@ -199,7 +199,7 @@ const SupplierListPage = () => {
         setForceValidate(false)
         setWizardStep(0)
         setFormOpen(true)
-    }, [])
+    }, [ensureFormRefs])
 
     const buildPayload = useCallback(() => {
         const lead = formValues.leadTimeDays !== '' && formValues.leadTimeDays != null

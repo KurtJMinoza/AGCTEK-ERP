@@ -17,9 +17,7 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineTrash, HiOutlineTruck } from 'react-icons/hi'
 import { inboundService } from '../services/inboundService'
 import { purchaseOrderService } from '@/modules/mm/procurement/services/purchaseOrderService'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
-import { uomService, orgService } from '@/modules/mm/material-master/services/referenceService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmAsn } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
@@ -106,11 +104,14 @@ const AsnListPage = () => {
     const [forceValidate, setForceValidate] = useState(false)
     const [actionId, setActionId] = useState<string | null>(null)
 
-    const [companies, setCompanies] = useState<FilterOption[]>([])
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
-    const [warehouses, setWarehouses] = useState<FilterOption[]>([])
-    const [materials, setMaterials] = useState<FilterOption[]>([])
-    const [uoms, setUoms] = useState<FilterOption[]>([])
+    const {
+        ensure: ensureFormRefs,
+        companies,
+        suppliers,
+        warehouses,
+        materials,
+        uoms,
+    } = useLazyMmRefs()
     const [pos, setPos] = useState<FilterOption[]>([])
 
     const fetchData = useCallback(async () => {
@@ -134,31 +135,15 @@ const AsnListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    useEffect(() => {
-        orgService.companies().then((list) =>
-            setCompanies(list.map((c) => ({ value: c.id, label: c.name }))),
-        ).catch(() => {})
-        orgService.warehouses().then((list) =>
-            setWarehouses(list.map((w: { id: string; name: string }) => ({ value: w.id, label: w.name }))),
-        ).catch(() => {})
-        uomService.list().then((list) =>
-            setUoms(list.map((u: { id: string; code: string }) => ({ value: u.id, label: u.code }))),
-        ).catch(() => {})
-        materialService.list({ page: 1, limit: 200, status: 'ACTIVE' } as never).then((res) => {
-            setMaterials(res.data.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })))
-        }).catch(() => {})
-        supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }).then((res) => {
-            setSuppliers(res.data.map((s) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })))
-        }).catch(() => {})
-        purchaseOrderService.list({ page: 1, pageSize: 100 }).then((res) => {
+    const openCreate = useCallback(async () => {
+        await ensureFormRefs('companies', 'suppliers', 'warehouses', 'materials', 'uoms')
+        if (!pos.length) {
+            const res = await purchaseOrderService.list({ page: 1, pageSize: 100 })
             setPos(res.data.map((p) => ({
                 value: p.id,
                 label: `${p.poNumber} — ${p.supplier?.supplierName ?? ''}`,
             })))
-        }).catch(() => {})
-    }, [])
-
-    const openCreate = useCallback(() => {
+        }
         setHeader({
             companyId: companies[0]?.value || '',
             supplierId: '',
@@ -174,7 +159,7 @@ const AsnListPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-    }, [companies])
+    }, [companies, ensureFormRefs, pos.length])
 
     const errors = useMemo<FieldErrors>(() => {
         const e: FieldErrors = {

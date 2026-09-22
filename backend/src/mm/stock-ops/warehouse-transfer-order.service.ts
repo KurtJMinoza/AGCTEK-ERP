@@ -5,9 +5,9 @@ import {
     Inject,
     forwardRef,
 } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { CreateWarehouseTransferOrderDto } from './dto/create-warehouse-transfer-order.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -26,7 +26,7 @@ export class WarehouseTransferOrderService {
     constructor(
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
-        private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
         @Inject(forwardRef(() => StockTransferOrderService))
         private sto: StockTransferOrderService,
     ) {}
@@ -296,14 +296,26 @@ export class WarehouseTransferOrderService {
             include: { lines: true },
         })
 
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'STOCK_OPS',
-            documentType: 'WAREHOUSE_TRANSFER',
+        void this.domainEvents.inventoryTransferred({
+            companyId: doc.companyId,
             documentId: doc.id,
-            lines: doc.lines.map((l) => ({
-                materialId: l.materialId,
-                quantity: Number(l.quantity),
-            })),
+            payload: {
+                sourceModule: 'STOCK_OPS',
+                documentType: 'WAREHOUSE_TRANSFER',
+                documentId: doc.id,
+                postingDate: new Date().toISOString(),
+                financiallyRelevant: true,
+                sourceWarehouseId: doc.sourceWarehouseId,
+                destinationWarehouseId: doc.destinationWarehouseId,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.sourceWarehouseId,
+                    movementType: 'TRANSFER',
+                    quantity: Number(l.quantity),
+                    unitCost: 0,
+                    totalCost: 0,
+                })),
+            },
         })
 
         return updated

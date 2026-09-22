@@ -10,8 +10,10 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { InspectionLotService } from '../receiving/inspection-lot.service'
+import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
 import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
@@ -29,12 +31,15 @@ export class GoodsReceiptService {
         private qualityService: QualityInspectionService,
         @Inject(forwardRef(() => InspectionLotService))
         private inspectionLotService: InspectionLotService,
+        private lotLifecycle: InspectionLotLifecycleService,
         private inspectionRequirement: InspectionRequirementService,
         @Inject(forwardRef(() => PutawayService))
         private putawayService: PutawayService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateGoodsReceiptDto) {
+        this.assertProductionReceiptContract(dto)
         const docNumber = await this.generateDocNumber('GR')
 
         if (dto.purchaseOrderId) {
@@ -90,6 +95,9 @@ export class GoodsReceiptService {
                 stockStatus: dto.stockStatus ?? 'UNRESTRICTED',
                 remarks: dto.remarks ?? null,
                 createdBy: dto.createdBy ?? null,
+                sourceDocumentType: dto.sourceDocumentType ?? null,
+                sourceDocumentId: dto.sourceDocumentId ?? null,
+                receiptPurpose: dto.receiptPurpose ?? 'PROCUREMENT',
                 status: 'DRAFT',
                 lines: { create: lines },
             },
@@ -101,7 +109,10 @@ export class GoodsReceiptService {
         })
     }
 
-    async post(id: string) {
+    async post(
+        id: string,
+        opts?: { productionOrderId?: string; outputId?: string },
+    ) {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'DRAFT') {
             throw new BadRequestException(`Cannot post: document is ${doc.status}`)
@@ -111,7 +122,16 @@ export class GoodsReceiptService {
             await this.applyPoReceiptTolerances(doc)
         }
 
-        const qiLines: Array<{ goodsReceiptLineId: string; materialId: string; quantity: number }> = []
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
+        const lineTxnIds: string[] = []
+
+        const qiLines: Array<{
+            goodsReceiptLineId: string
+            materialId: string
+            quantity: number
+            samplingOverride?: 'FULL' | 'FIXED' | 'PERCENTAGE'
+        }> = []
         const putawayLines: Array<{
             goodsReceiptLineId: string
             materialId: string
@@ -123,16 +143,19 @@ export class GoodsReceiptService {
         }> = []
 
         for (const line of doc.lines) {
-            const material = line.material
-            const needsQi =
-                line.stockStatus === 'QUALITY_INSPECTION' ||
-                (line.stockStatus == null &&
-                    (await this.inspectionRequirement.isInspectionRequired({
-                        materialId: line.materialId,
-                        supplierId: doc.supplierId,
-                        warehouseId: doc.warehouseId,
-                    })))
-            const lineStatus = line.stockStatus ?? (needsQi ? 'QUALITY_INSPECTION' : doc.stockStatus)
+            const inspection = await this.inspectionRequirement.resolveInspectionRequirement({
+                companyId: doc.companyId,
+                materialId: line.materialId,
+                supplierId: doc.supplierId,
+                warehouseId: doc.warehouseId,
+                expectedReceiptId: doc.expectedReceiptId ?? undefined,
+                purchaseOrderId: doc.purchaseOrderId ?? undefined,
+            })
+
+            const lineStatus =
+                line.stockStatus ??
+                (inspection.inspectionRequired ? 'QUALITY_INSPECTION' : doc.stockStatus)
+            const samplingOverride = inspection.samplingOverride
 
             // Good qty posts to inventory; damaged/rejected excluded from unrestricted/QI stock
             const goodQty = Math.max(
@@ -144,7 +167,7 @@ export class GoodsReceiptService {
             const damagedQty = Number(line.damagedQuantity ?? 0)
 
             if (goodQty > 0) {
-                await this.postingService.postTransaction({
+                const txn = await this.postingService.postTransaction({
                     companyId: doc.companyId,
                     warehouseId: doc.warehouseId,
                     storageBinId: line.storageBinId ?? undefined,
@@ -166,12 +189,14 @@ export class GoodsReceiptService {
                     idempotencyKey: postingKey('gr', doc.id, line.id, 'good'),
                     createdBy: doc.createdBy ?? undefined,
                 })
+                if (txn?.id) lineTxnIds.push(txn.id)
 
                 if (lineStatus === 'QUALITY_INSPECTION') {
                     qiLines.push({
                         goodsReceiptLineId: line.id,
                         materialId: line.materialId,
                         quantity: goodQty,
+                        samplingOverride,
                     })
                 } else if (lineStatus === 'UNRESTRICTED') {
                     putawayLines.push({
@@ -251,13 +276,26 @@ export class GoodsReceiptService {
             })
         }
 
+        const productionOrderId =
+            opts?.productionOrderId ??
+            (doc.sourceDocumentType === 'PRODUCTION_ORDER'
+                ? doc.sourceDocumentId ?? undefined
+                : undefined)
+
         const payload = {
             sourceModule: 'STOCK_OPS',
             documentType: 'GOODS_RECEIPT',
             documentId: doc.id,
             companyId: doc.companyId,
+            postingDate: doc.postingDate.toISOString(),
+            warehouseId: doc.warehouseId,
+            receiptPurpose: doc.receiptPurpose,
+            productionOrderId,
+            outputId: opts?.outputId,
             lines: doc.lines.map((l) => ({
                 materialId: l.materialId,
+                warehouseId: doc.warehouseId,
+                movementType: 'RECEIPT',
                 quantity: Number(l.quantity),
                 unitCost: Number(l.unitCost),
                 totalCost: Number(l.totalCost),
@@ -268,6 +306,24 @@ export class GoodsReceiptService {
             companyId: doc.companyId,
             goodsReceiptId: doc.id,
             payload,
+            plantId: doc.warehouse?.plantId ?? null,
+            documentReferences:
+                productionOrderId
+                    ? [
+                          {
+                              entityType: 'PRODUCTION_ORDER',
+                              entityId: productionOrderId,
+                          },
+                          {
+                              entityType: 'GOODS_RECEIPT',
+                              entityId: doc.id,
+                          },
+                          ...lineTxnIds.map((txnId) => ({
+                              entityType: 'INVENTORY_TRANSACTION',
+                              entityId: txnId,
+                          })),
+                      ]
+                    : undefined,
         })
 
         return updated
@@ -340,6 +396,8 @@ export class GoodsReceiptService {
             }
         }
 
+        await this.lotLifecycle.cancelOpenLotsForGr(id, `GR ${doc.documentNumber} reversed`)
+
         // Cancel open putaway tasks for this GR
         await this.prisma.wmPutawayTask.updateMany({
             where: {
@@ -407,32 +465,28 @@ export class GoodsReceiptService {
             data: { status: 'CANCELLED' },
         })
 
-        const payload = {
-            sourceModule: 'STOCK_OPS',
-            documentType: 'GOODS_RECEIPT',
-            documentId: doc.id,
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
+        void this.domainEvents.goodsReceiptReversed({
             companyId: doc.companyId,
-            lines: doc.lines.map((l) => ({
-                materialId: l.materialId,
-                quantity: Number(l.quantity),
-                unitCost: Number(l.unitCost),
-                totalCost: Number(l.totalCost),
-            })),
-        }
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'GOODS_RECEIPT_REVERSED',
+            goodsReceiptId: doc.id,
+            plantId: doc.warehouse?.plantId ?? null,
+            payload: {
                 sourceModule: 'STOCK_OPS',
                 documentType: 'GOODS_RECEIPT',
                 documentId: doc.id,
                 companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
+                postingDate: doc.postingDate.toISOString(),
+                warehouseId: doc.warehouseId,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'RECEIPT_REVERSAL',
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                    totalCost: Number(l.totalCost),
+                })),
             },
-        })
-        this.events.emit('accounting.entry.requested', {
-            ...payload,
-            eventType: 'GOODS_RECEIPT_REVERSED',
         })
 
         return this.prisma.mmGoodsReceipt.update({
@@ -623,6 +677,26 @@ export class GoodsReceiptService {
             quantityTolerancePct: po.quantityTolerancePctOverride != null
                 ? Number(po.quantityTolerancePctOverride)
                 : cfg ? Number(cfg.quantityTolerancePct) : 0,
+        }
+    }
+
+    private assertProductionReceiptContract(dto: CreateGoodsReceiptDto) {
+        const productionPath =
+            dto.receiptPurpose === 'PRODUCTION_OUTPUT' ||
+            dto.sourceDocumentType === 'PRODUCTION_ORDER'
+        if (!productionPath) return
+        if (dto.receiptPurpose !== 'PRODUCTION_OUTPUT') {
+            throw new BadRequestException(
+                'Production output receipt requires receiptPurpose=PRODUCTION_OUTPUT',
+            )
+        }
+        if (
+            dto.sourceDocumentType !== 'PRODUCTION_ORDER' ||
+            !dto.sourceDocumentId
+        ) {
+            throw new BadRequestException(
+                'Production output receipt requires sourceDocumentType=PRODUCTION_ORDER and sourceDocumentId',
+            )
         }
     }
 

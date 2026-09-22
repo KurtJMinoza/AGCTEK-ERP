@@ -1,48 +1,35 @@
 import { Injectable } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
+import {
+    QualityRuleService,
+    type InspectionRequirementResult,
+} from '../quality/quality-rule.service'
 
+/** Thin delegator — receiving must not contain rule logic. */
 @Injectable()
 export class InspectionRequirementService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private qualityRuleService: QualityRuleService) {}
 
-    /** OR logic: material, supplier, warehouse, or supplier-material triggers inspection. */
-    async isInspectionRequired(params: {
+    async resolveInspectionRequirement(params: {
+        companyId: string
         materialId: string
         supplierId?: string | null
         warehouseId: string
-    }): Promise<boolean> {
-        const [material, warehouse, supplier, supplierMaterial] = await Promise.all([
-            this.prisma.mmMaterial.findUnique({
-                where: { id: params.materialId },
-                select: { qualityInspectionRequired: true },
-            }),
-            this.prisma.warehouse.findUnique({
-                where: { id: params.warehouseId },
-                select: { qualityInspectionRequired: true },
-            }),
-            params.supplierId
-                ? this.prisma.mmSupplier.findUnique({
-                      where: { id: params.supplierId },
-                      select: { qualityInspectionRequired: true },
-                  })
-                : Promise.resolve(null),
-            params.supplierId
-                ? this.prisma.mmSupplierMaterial.findFirst({
-                      where: {
-                          supplierId: params.supplierId,
-                          materialId: params.materialId,
-                          status: 'ACTIVE',
-                      },
-                      select: { inspectionRequired: true },
-                  })
-                : Promise.resolve(null),
-        ])
+        expectedReceiptId?: string | null
+        purchaseOrderId?: string | null
+    }): Promise<InspectionRequirementResult> {
+        return this.qualityRuleService.resolveInspectionRequirement(params)
+    }
 
-        return (
-            material?.qualityInspectionRequired === true ||
-            warehouse?.qualityInspectionRequired === true ||
-            supplier?.qualityInspectionRequired === true ||
-            supplierMaterial?.inspectionRequired === true
-        )
+    /** @deprecated Use resolveInspectionRequirement for full result. */
+    async isInspectionRequired(params: {
+        companyId: string
+        materialId: string
+        supplierId?: string | null
+        warehouseId: string
+        expectedReceiptId?: string | null
+        purchaseOrderId?: string | null
+    }): Promise<boolean> {
+        const result = await this.resolveInspectionRequirement(params)
+        return result.inspectionRequired
     }
 }

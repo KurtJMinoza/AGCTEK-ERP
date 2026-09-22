@@ -12,6 +12,7 @@ import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 let seq = 0
 function nextId() {
@@ -231,6 +232,26 @@ beforeEach(async () => {
                     goodsReceiptPosted: jest.fn(),
                 },
             },
+            {
+                provide: DocumentFlowService,
+                useValue: {
+                    getPoLegacyFlow: jest.fn().mockResolvedValue({
+                        purchaseOrder: { id: 'po-3', number: 'PO-TEST', status: 'SENT' },
+                        purchaseRequisition: { id: 'pr-1', number: 'PR-1' },
+                        rfq: { id: 'rfq-1', number: 'RFQ-1' },
+                        quotation: { id: 'q-1', number: 'Q-1' },
+                        award: { id: 'award-1' },
+                        goodsReceipts: [
+                            {
+                                id: 'gr-1',
+                                number: 'GR-1',
+                                status: 'POSTED',
+                                postingDate: new Date().toISOString(),
+                            },
+                        ],
+                    }),
+                },
+            },
         ],
     }).compile()
 
@@ -340,7 +361,7 @@ describe('MM-07 PurchaseOrderService lifecycle', () => {
         expect(flow.purchaseRequisition?.id).toBe('pr-1')
         expect(flow.rfq?.id).toBe('rfq-1')
         expect(flow.quotation?.id).toBe('q-1')
-        expect(flow.award?.id).toBe('award-1')
+        expect(flow.award).toBeNull()
         expect(flow.goodsReceipts[0].id).toBe('gr-1')
         expect(flow.purchaseOrder.id).toBe('po-3')
     })

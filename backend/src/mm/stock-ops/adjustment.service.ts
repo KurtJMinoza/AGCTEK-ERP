@@ -11,6 +11,7 @@ import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { postingKey } from '../common/idempotency.util'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 @Injectable()
 export class AdjustmentService {
@@ -19,6 +20,7 @@ export class AdjustmentService {
         private postingService: InventoryPostingService,
         private events: EventEmitter2,
         private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateAdjustmentDto) {
@@ -162,6 +164,8 @@ export class AdjustmentService {
     private async postAdjustment(doc: any) {
         const fromCount = !!doc.sourceCountId
 
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
         for (const line of doc.lines) {
             const qty = new Decimal(line.quantity)
             const isPositive = qty.gte(0)
@@ -208,11 +212,16 @@ export class AdjustmentService {
             documentType: fromCount ? 'INVENTORY_COUNT_ADJUSTMENT' : 'ADJUSTMENT',
             documentId: doc.id,
             companyId: doc.companyId,
-            eventHint: 'INVENTORY_ADJUSTMENT',
+            postingDate: doc.postingDate.toISOString(),
+            warehouseId: doc.warehouseId,
+            adjustmentReason: doc.adjustmentReason,
             lines: doc.lines.map((l: any) => ({
                 materialId: l.materialId,
+                warehouseId: doc.warehouseId,
+                movementType: Number(l.quantity) >= 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
                 quantity: Number(l.quantity),
                 unitCost: Number(l.unitCost),
+                totalCost: Number(l.unitCost) * Number(l.quantity),
             })),
         }
 

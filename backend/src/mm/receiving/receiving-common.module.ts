@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common'
+import { QualityCommonModule } from '../quality/quality-common.module'
 import { ReceivingDocumentService } from './receiving-document.service'
 import { ReceivingVarianceService } from './receiving-variance.service'
 import { InspectionRequirementService } from './inspection-requirement.service'
@@ -10,6 +11,7 @@ import { InspectionLotController } from './inspection-lot.controller'
 import { QualityHoldController } from './quality-hold.controller'
 
 @Module({
+    imports: [forwardRef(() => QualityCommonModule)],
     controllers: [ReceivingController, InspectionLotController, QualityHoldController],
     providers: [
         ReceivingDocumentService,

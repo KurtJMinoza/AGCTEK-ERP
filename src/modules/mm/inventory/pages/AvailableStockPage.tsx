@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -16,14 +16,10 @@ import {
     inventoryService,
     type AvailabilityResult,
 } from '../services/inventoryService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/available-stock'
-
-type Opt = { value: string; label: string }
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
@@ -31,9 +27,11 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const AvailableStockPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, warehouses, materials } = useMmFilterRefs(
+        'companies',
+        'warehouses',
+        'materials',
+    )
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
@@ -42,21 +40,6 @@ const AvailableStockPage = () => {
     const [serialNumberId, setSerialNumberId] = useState('')
     const [loading, setLoading] = useState(false)
     const [result, setResult] = useState<AvailabilityResult | null>(null)
-
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-            materialService.list({ limit: 200 }),
-        ]).then(([cos, wh, mats]: any[]) => {
-            setCompanies((Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({ value: c.id, label: c.name || c.code })))
-            setWarehouses((wh?.data ?? []).map((w: any) => ({ value: w.id, label: `${w.code} — ${w.name}` })))
-            setMaterials((mats?.data ?? []).map((m: any) => ({
-                value: m.id,
-                label: `${m.materialCode} — ${m.materialName}`,
-            })))
-        }).catch(() => undefined)
-    }, [])
 
     const run = useCallback(async () => {
         if (!companyId || !warehouseId || !materialId) {

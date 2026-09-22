@@ -2,249 +2,52 @@ import { forwardRef, Inject, Injectable, Optional } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import { ReorderRuleService } from './reorder-rule.service'
-import { BomProvider, BOM_PROVIDER, NullBomProvider } from './bom-provider'
+import { BomExplosionService } from './bom-explosion.service'
+import { atpPairKey } from '../inventory/inventory-availability.service'
 import { ProcurementSuggestionService } from './procurement-suggestion.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
+import {
+    ProjectedStockService,
+    type DemandEvent,
+    type SupplyEvent,
+    type ReservationEvent,
+} from './projected-stock.service'
+import { MrpScopeLoaderService } from './mrp-scope-loader.service'
+import { PlanningCalendarService } from './planning-calendar.service'
+import { runNettingPipeline } from './mrp-netting.pipeline'
+import {
+    buildMrpExplanation,
+    renderExplanationSummary,
+} from './mrp-explanation.builder'
+import type { MrpRecommendationExplanation } from './mrp-explanation.types'
+import {
+    aggregateDemandSource,
+    suggestionReason,
+} from './mrp-netting.pure'
 
-export type NettingInput = {
-    unrestrictedQty: Decimal
-    reservedQty: Decimal
-    qualityQty: Decimal
-    blockedQty: Decimal
-    incomingQty: Decimal
-    plannedSupplyQty?: Decimal
-    productionSupplyQty?: Decimal
-    demandQty: Decimal
-    safetyStock: Decimal
-    reorderPoint: Decimal
-    reorderQuantity: Decimal
-    minimumOrderQuantity: Decimal
-    lotSize?: Decimal
-    minStock?: Decimal
-    maxStock?: Decimal
-    leadTimeDays: number
-    includeOpenReceipts: boolean
-    asOf?: Date
-    /** Earliest planning demand date in horizon (for stockout projection). */
-    earliestDemandDate?: Date | null
-    procurementType?: string
-}
-
-export type NettingResult = {
-    availableQty: Decimal
-    grossDemand: Decimal
-    projectedAvailable: Decimal
-    netRequirement: Decimal
-    recommendedQty: Decimal
-    shortageQty: Decimal
-    belowReorderPoint: boolean
-    shortage: boolean
-    expectedProcurementDate: Date | null
-    projectedStockoutDate: Date | null
-    recommendedAction: string
-}
-
-/** Normalize legacy demand source aliases to canonical labels. */
-export function canonicalizeDemandSource(sourceType: string): string {
-    switch (sourceType) {
-        case 'MANUAL':
-            return 'MANUAL_INTERNAL'
-        case 'SALES_ORDER':
-            return 'SALES'
-        case 'OTHER':
-            return 'MANUAL_INTERNAL'
-        default:
-            return sourceType
-    }
-}
-
-export function aggregateDemandSource(sourceTypes: string[]): string | null {
-    if (!sourceTypes.length) return null
-    const unique = [
-        ...new Set(sourceTypes.map(canonicalizeDemandSource)),
-    ]
-    if (unique.length === 1) return unique[0]
-    return 'MIXED'
-}
-
-export function suggestionReason(net: NettingResult): string {
-    if (net.shortage) return 'SHORTAGE'
-    if (net.belowReorderPoint) return 'BELOW_REORDER_POINT'
-    return 'NET_REQUIREMENT'
-}
-
-export function buildSuggestionExplanation(opts: {
-    demandSource: string | null
-    reason: string
-    requiredDate: Date
-    quantity: Decimal
-    leadTimeDays: number
-    moq: Decimal
-    warehouseId: string
-    preferredSupplierId: string | null
-}): string {
-    const parts = [
-        `Demand source: ${opts.demandSource ?? 'REORDER'}`,
-        `Shortage reason: ${opts.reason}`,
-        `Required date: ${opts.requiredDate.toISOString().slice(0, 10)}`,
-        `Suggested qty: ${opts.quantity.toString()}`,
-        `Lead time: ${opts.leadTimeDays} day(s)`,
-        `MOQ: ${opts.moq.toString()}`,
-        `Target warehouse: ${opts.warehouseId}`,
-        `Suggested supplier: ${opts.preferredSupplierId ?? 'none'}`,
-    ]
-    return parts.join(' | ')
-}
-
-/**
- * Pure MRP netting helpers — unit-tested independently of Prisma.
- *
- * GrossDemand        = planning demand (OPEN only; reservations are NOT demand)
- * ProjectedAvailable = (Unrestricted − Reserved) + Incoming + PlannedSupply + ProductionSupply
- * NetRequirement     = max(0, GrossDemand + SafetyStock − ProjectedAvailable)
- *
- * Do not double-count on-hand, reserved, incoming, or planned supply.
- */
-export function computeNetting(input: NettingInput): NettingResult {
-    const availableNow = input.unrestrictedQty.minus(input.reservedQty)
-    const incoming = input.includeOpenReceipts
-        ? input.incomingQty
-        : new Decimal(0)
-    const planned = input.plannedSupplyQty ?? new Decimal(0)
-    const production = input.productionSupplyQty ?? new Decimal(0)
-    const projectedAvailable = availableNow.plus(incoming).plus(planned).plus(production)
-
-    const grossDemand = input.demandQty
-    const need = grossDemand.plus(input.safetyStock)
-    let netRequirement = need.minus(projectedAvailable)
-    if (netRequirement.lt(0)) netRequirement = new Decimal(0)
-
-    const belowReorderPoint =
-        input.reorderPoint.gt(0) && availableNow.lte(input.reorderPoint)
-    const shortage =
-        netRequirement.gt(0) || availableNow.lt(input.safetyStock)
-    let shortageQty = new Decimal(0)
-    if (shortage) {
-        shortageQty = netRequirement
-        const safetyGap = input.safetyStock.minus(availableNow)
-        if (safetyGap.gt(shortageQty)) shortageQty = safetyGap
-    }
-
-    let recommended = netRequirement
-    const minStock = input.minStock ?? new Decimal(0)
-    const maxStock = input.maxStock ?? new Decimal(0)
-    const lotSize = input.lotSize ?? new Decimal(0)
-
-    // Min-stock floor
-    if (minStock.gt(0) && availableNow.lt(minStock)) {
-        const minGap = minStock.minus(availableNow)
-        if (minGap.gt(recommended)) recommended = minGap
-    }
-
-    if (belowReorderPoint) {
-        const safetyGap = input.safetyStock.minus(availableNow)
-        const gap = safetyGap.gt(0) ? safetyGap : new Decimal(0)
-        let ropFloor = input.reorderQuantity
-        if (input.minimumOrderQuantity.gt(ropFloor))
-            ropFloor = input.minimumOrderQuantity
-        if (gap.gt(ropFloor)) ropFloor = gap
-        if (ropFloor.gt(recommended)) recommended = ropFloor
-    }
-
-    if (recommended.gt(0)) {
-        if (input.minimumOrderQuantity.gt(recommended)) {
-            recommended = input.minimumOrderQuantity
-        }
-        const lot = lotSize.gt(0) ? lotSize : input.reorderQuantity
-        if (lot.gt(0)) {
-            const ratio = recommended.div(lot)
-            const ceil = new Decimal(Math.ceil(Number(ratio)))
-            recommended = ceil.mul(lot)
-        }
-        // Cap at max stock gap when configured
-        if (maxStock.gt(0)) {
-            const maxGap = maxStock.minus(projectedAvailable)
-            if (maxGap.lte(0)) {
-                recommended = new Decimal(0)
-            } else if (recommended.gt(maxGap)) {
-                recommended = maxGap
-                if (
-                    input.minimumOrderQuantity.gt(0) &&
-                    input.minimumOrderQuantity.lte(maxGap) &&
-                    recommended.lt(input.minimumOrderQuantity)
-                ) {
-                    recommended = input.minimumOrderQuantity
-                }
-                if (lot.gt(0) && recommended.gt(0)) {
-                    const steps = Math.floor(Number(maxGap.div(lot)))
-                    if (steps > 0) {
-                        recommended = new Decimal(steps).mul(lot)
-                    }
-                }
-            }
-        }
-    }
-
-    const asOf = input.asOf ?? new Date()
-    let expectedProcurementDate: Date | null = null
-    if (recommended.gt(0)) {
-        expectedProcurementDate = new Date(asOf)
-        expectedProcurementDate.setDate(
-            expectedProcurementDate.getDate() + (input.leadTimeDays || 0),
-        )
-    }
-
-    let projectedStockoutDate: Date | null = null
-    if (shortage) {
-        if (input.demandQty.gt(0) && input.earliestDemandDate) {
-            projectedStockoutDate = new Date(input.earliestDemandDate)
-        } else {
-            projectedStockoutDate = new Date(asOf)
-        }
-    }
-
-    const procurementType = (input.procurementType ?? 'BUY').toUpperCase()
-    let recommendedAction = 'NONE'
-    if (recommended.gt(0)) {
-        if (procurementType === 'MAKE') {
-            recommendedAction = 'CREATE_PLANNED_PRODUCTION'
-        } else {
-            recommendedAction = 'CREATE_PR'
-        }
-    } else if (shortage || belowReorderPoint) {
-        recommendedAction = 'MONITOR'
-    }
-
-    return {
-        availableQty: availableNow,
-        grossDemand,
-        projectedAvailable,
-        netRequirement,
-        recommendedQty: recommended,
-        shortageQty,
-        belowReorderPoint,
-        shortage,
-        expectedProcurementDate,
-        projectedStockoutDate,
-        recommendedAction,
-    }
-}
+export type { NettingInput, NettingResult } from './mrp-netting.pure'
+export {
+    computeNetting,
+    canonicalizeDemandSource,
+    aggregateDemandSource,
+    suggestionReason,
+    buildSuggestionExplanation,
+} from './mrp-netting.pure'
 
 @Injectable()
 export class MrpEngineService {
-    private bomProvider: BomProvider
-
     constructor(
         private prisma: PrismaService,
         private reorderRules: ReorderRuleService,
-        @Optional()
-        @Inject(BOM_PROVIDER)
-        bomProvider: BomProvider | null,
+        private availability: InventoryAvailabilityService,
+        private projectedStock: ProjectedStockService,
+        private scopeLoader: MrpScopeLoaderService,
+        private planningCalendar: PlanningCalendarService,
+        private bomExplosion: BomExplosionService,
         @Optional()
         @Inject(forwardRef(() => ProcurementSuggestionService))
         private suggestions?: ProcurementSuggestionService,
-    ) {
-        this.bomProvider = bomProvider ?? new NullBomProvider()
-    }
+    ) {}
 
     async executeRun(runId: string) {
         const run = await this.prisma.mmMrpRun.findUnique({ where: { id: runId } })
@@ -276,6 +79,10 @@ export class MrpEngineService {
             await this.prisma.mmMaterialRequirement.deleteMany({
                 where: { mrpRunId: runId },
             })
+            await this.projectedStock.clearForRun(runId)
+            await this.prisma.mmBomExplosionTrace.deleteMany({
+                where: { mrpRunId: runId },
+            })
 
             const companyId = run.companyId
             const horizonDays = run.planningHorizonDays
@@ -291,9 +98,12 @@ export class MrpEngineService {
                     ...(run.plantId ? { plantId: run.plantId } : {}),
                     status: 'ACTIVE',
                 },
-                select: { id: true, plantId: true },
+                select: { id: true, plantId: true, code: true },
             })
             const warehouseIds = warehouses.map((w) => w.id)
+            const warehouseCodeById = new Map(
+                warehouses.map((w) => [w.id, w.code]),
+            )
             if (warehouseIds.length === 0) {
                 await this.prisma.mmMrpRun.update({
                     where: { id: runId },
@@ -313,144 +123,291 @@ export class MrpEngineService {
                 asOf,
                 horizonEnd,
             )
+            const initialMaterialIds = materials.map((m) => m.id)
 
-            const requirementRows: any[] = []
-            let plannedSeq = 0
-            let proposalSeq = 0
+            const initialScope = await this.scopeLoader.loadScope({
+                companyId,
+                warehouseIds,
+                materialIds: initialMaterialIds,
+                asOf,
+                horizonEnd,
+                includeOpenReceipts,
+                currentRunId: runId,
+            })
 
-            for (const material of materials) {
-                // BOM boundary prepared for multi-level explosion (no-op stub today)
-                await this.bomProvider.explode({
+            const explosion = await this.bomExplosion.explodeFromDemands({
+                companyId,
+                plantId: run.plantId,
+                warehouseIds,
+                demands: initialScope.planningDemands.map((d) => ({
+                    materialId: d.materialId,
+                    warehouseId: d.warehouseId,
+                    demandDate: d.demandDate,
+                    quantity: d.quantity,
+                })),
+                asOf,
+                mode: 'multiLevel',
+            })
+
+            const expandedMaterialIdSet = new Set([
+                ...initialMaterialIds,
+                ...explosion.componentMaterialIds,
+            ])
+            const expandedMaterialIds = [...expandedMaterialIdSet]
+
+            let scopeSnapshot = initialScope
+            let allMaterials = materials
+            if (expandedMaterialIds.length > initialMaterialIds.length) {
+                allMaterials = await this.resolveMaterials(
                     companyId,
-                    plantId: run.plantId,
-                    materialId: material.id,
-                    quantity: 1,
+                    warehouseIds,
                     asOf,
+                    horizonEnd,
+                    expandedMaterialIds,
+                )
+                scopeSnapshot = await this.scopeLoader.loadScope({
+                    companyId,
+                    warehouseIds,
+                    materialIds: expandedMaterialIds,
+                    asOf,
+                    horizonEnd,
+                    includeOpenReceipts,
+                    currentRunId: runId,
                 })
+            }
 
+            const calendar = this.planningCalendar.resolve({
+                companyId,
+                plantId: run.plantId,
+                warehouseId: run.warehouseId,
+            })
+
+            const materialCodeById = new Map(
+                allMaterials.map((m) => [m.id, m.materialCode]),
+            )
+            const supplierIdSet = new Set<string>()
+            for (const supplierId of scopeSnapshot.preferredSupplierByMaterial.values()) {
+                supplierIdSet.add(supplierId)
+            }
+            for (const material of allMaterials) {
+                if (material.preferredSupplierId) {
+                    supplierIdSet.add(material.preferredSupplierId)
+                }
+            }
+            const suppliers = supplierIdSet.size
+                ? await this.prisma.mmSupplier.findMany({
+                      where: { id: { in: [...supplierIdSet] } },
+                      select: { id: true, supplierCode: true },
+                  })
+                : []
+            const supplierCodeById = new Map(
+                suppliers.map((s) => [s.id, s.supplierCode]),
+            )
+
+            type PairWork = {
+                material: (typeof allMaterials)[0]
+                warehouseId: string
+                plantId: string | null
+            }
+            const pairs: PairWork[] = []
+            for (const material of allMaterials) {
                 for (const warehouseId of warehouseIds) {
-                    const snap = await this.snapshotPair(
-                        companyId,
-                        warehouseId,
-                        material.id,
-                        asOf,
-                        horizonEnd,
-                        includeOpenReceipts,
-                        runId,
-                    )
-                    const params = await this.reorderRules.resolveParams(
-                        companyId,
-                        material.id,
-                        warehouseId,
+                    pairs.push({
                         material,
-                    )
-
-                    const net = computeNetting({
-                        unrestrictedQty: snap.unrestrictedQty,
-                        reservedQty: snap.reservedQty,
-                        qualityQty: snap.qualityQty,
-                        blockedQty: snap.blockedQty,
-                        incomingQty: snap.incomingQty,
-                        plannedSupplyQty: snap.plannedSupplyQty,
-                        productionSupplyQty: snap.productionSupplyQty,
-                        demandQty: snap.demandQty,
-                        safetyStock: params.safetyStock,
-                        reorderPoint: params.reorderPoint,
-                        reorderQuantity: params.reorderQuantity,
-                        minimumOrderQuantity: params.minimumOrderQuantity,
-                        lotSize: params.lotSize,
-                        minStock: params.minStock,
-                        maxStock: params.maxStock,
-                        leadTimeDays: params.leadTimeDays,
-                        includeOpenReceipts,
-                        asOf,
-                        earliestDemandDate: snap.earliestDemandDate,
-                        procurementType: params.procurementType,
-                    })
-
-                    const hasSignal =
-                        snap.unrestrictedQty.gt(0) ||
-                        snap.reservedQty.gt(0) ||
-                        snap.qualityQty.gt(0) ||
-                        snap.blockedQty.gt(0) ||
-                        snap.incomingQty.gt(0) ||
-                        snap.plannedSupplyQty.gt(0) ||
-                        snap.demandQty.gt(0) ||
-                        params.reorderPoint.gt(0) ||
-                        params.safetyStock.gt(0) ||
-                        net.recommendedQty.gt(0) ||
-                        net.belowReorderPoint ||
-                        net.shortage
-
-                    if (!hasSignal) continue
-
-                    let source = aggregateDemandSource(snap.demandSourceTypes)
-                    if (!source && net.recommendedQty.gt(0)) {
-                        source = 'REORDER'
-                    }
-
-                    const requiredDate = snap.earliestDemandDate ?? asOf
-
-                    const preferredSupplierId =
-                        await this.resolvePreferredSupplier(
-                            companyId,
-                            material.id,
-                            material.preferredSupplierId,
-                        )
-
-                    let reason: string | null = null
-                    if (net.recommendedQty.gt(0)) {
-                        reason = suggestionReason(net)
-                    }
-
-                    requirementRows.push({
-                        mrpRunId: runId,
-                        companyId,
                         warehouseId,
-                        materialId: material.id,
-                        unrestrictedQty: snap.unrestrictedQty,
-                        reservedQty: snap.reservedQty,
-                        qualityQty: snap.qualityQty,
-                        blockedQty: snap.blockedQty,
-                        availableQty: net.availableQty,
-                        incomingQty: snap.incomingQty,
-                        plannedSupplyQty: snap.plannedSupplyQty,
-                        productionSupplyQty: snap.productionSupplyQty,
-                        demandQty: snap.demandQty,
-                        grossDemand: net.grossDemand,
-                        projectedAvailable: net.projectedAvailable,
-                        safetyStock: params.safetyStock,
-                        reorderPoint: params.reorderPoint,
-                        moq: params.minimumOrderQuantity,
-                        lotSize: params.lotSize.gt(0)
-                            ? params.lotSize
-                            : params.reorderQuantity,
-                        minStock: params.minStock,
-                        maxStock: params.maxStock,
-                        leadTimeDays: params.leadTimeDays,
-                        netRequirement: net.netRequirement,
-                        recommendedQty: net.recommendedQty,
-                        shortageQty: net.shortageQty,
-                        recommendedAction: net.recommendedAction,
-                        procurementType: params.procurementType,
-                        planningStrategy: params.planningStrategy,
-                        requiredDate,
-                        source,
-                        expectedProcurementDate: net.expectedProcurementDate,
-                        projectedStockoutDate: net.projectedStockoutDate,
-                        belowReorderPoint: net.belowReorderPoint,
-                        shortage: net.shortage,
-                        uomId: material.baseUomId,
-                        purchasable: material.purchasable,
-                        preferredSupplierId,
-                        reason,
-                        demandIds: snap.demandIds,
                         plantId:
                             warehouses.find((w) => w.id === warehouseId)
                                 ?.plantId ?? run.plantId,
-                        params,
                     })
                 }
+            }
+            pairs.sort(
+                (a, b) =>
+                    a.material.id.localeCompare(b.material.id) ||
+                    a.warehouseId.localeCompare(b.warehouseId),
+            )
+
+            const requirementRows: any[] = []
+            const projectedStockBuckets: {
+                warehouseId: string
+                materialId: string
+                buckets: any[]
+            }[] = []
+            let plannedSeq = 0
+            let proposalSeq = 0
+            let timePhasedCount = 0
+            let aggregateCount = 0
+
+            for (const { material, warehouseId, plantId } of pairs) {
+                const pairKey = atpPairKey(warehouseId, material.id)
+                const additionalDemandEvents =
+                    explosion.dependentDemandByPair.get(pairKey) ?? []
+
+                const params = this.scopeLoader.resolveParams(
+                    scopeSnapshot,
+                    material.id,
+                    warehouseId,
+                    asOf,
+                )
+                const pairHorizonDays =
+                    params.planningHorizonDays ?? horizonDays
+                const pairHorizonEnd = new Date(asOf)
+                pairHorizonEnd.setDate(
+                    pairHorizonEnd.getDate() + pairHorizonDays,
+                )
+
+                const snap = this.scopeLoader.buildPairSnapshot(
+                    scopeSnapshot,
+                    companyId,
+                    warehouseId,
+                    material.id,
+                    asOf,
+                    pairHorizonEnd,
+                    includeOpenReceipts,
+                    { additionalDemandEvents },
+                )
+
+                const pipelineResult = runNettingPipeline({
+                    snap,
+                    params,
+                    asOf,
+                    horizonEnd: pairHorizonEnd,
+                    includeOpenReceipts,
+                    calendar,
+                })
+                const net = pipelineResult.net
+
+                if (params.planningStrategy === 'TIME_PHASED') {
+                    timePhasedCount += 1
+                } else {
+                    aggregateCount += 1
+                }
+
+                const hasSignal =
+                    snap.unrestrictedQty.gt(0) ||
+                    snap.reservedQty.gt(0) ||
+                    snap.qualityQty.gt(0) ||
+                    snap.blockedQty.gt(0) ||
+                    snap.incomingQty.gt(0) ||
+                    snap.plannedSupplyQty.gt(0) ||
+                    snap.demandQty.gt(0) ||
+                    params.reorderPoint.gt(0) ||
+                    params.safetyStock.gt(0) ||
+                    net.recommendedQty.gt(0) ||
+                    net.belowReorderPoint ||
+                    net.shortage
+
+                if (!hasSignal) continue
+
+                projectedStockBuckets.push({
+                    warehouseId,
+                    materialId: material.id,
+                    buckets: pipelineResult.buckets,
+                })
+
+                let source = aggregateDemandSource(snap.demandSourceTypes)
+                if (!source && net.recommendedQty.gt(0)) {
+                    source = 'REORDER'
+                }
+
+                const requiredDate =
+                    pipelineResult.shortageDate ??
+                    snap.earliestDemandDate ??
+                    asOf
+
+                const preferredSupplierId =
+                    this.scopeLoader.resolvePreferredSupplier(
+                        scopeSnapshot,
+                        material.id,
+                    )
+
+                let reason: string | null = null
+                if (net.recommendedQty.gt(0)) {
+                    reason = suggestionReason(net)
+                }
+
+                const reasonCode = reason ?? 'NET_REQUIREMENT'
+                const bomExplosionLines = explosion.lines.filter(
+                    (line) =>
+                        line.componentMaterialId === material.id &&
+                        line.warehouseId === warehouseId &&
+                        !line.warningCode,
+                )
+                const explanationJson = buildMrpExplanation({
+                    materialCode: material.materialCode,
+                    materialName: material.materialName,
+                    warehouseCode: warehouseCodeById.get(warehouseId),
+                    warehouseId,
+                    snap,
+                    net,
+                    params,
+                    reasonCode,
+                    demandSource: source,
+                    planningDate:
+                        pipelineResult.shortageDate ?? requiredDate,
+                    expectedProcurementDate: net.expectedProcurementDate,
+                    preferredSupplierId: preferredSupplierId ?? null,
+                    preferredSupplierCode: preferredSupplierId
+                        ? (supplierCodeById.get(preferredSupplierId) ?? null)
+                        : null,
+                    independentDemandLines: snap.independentDemandLines,
+                    bomExplosionLines,
+                    parentMaterialCodes: materialCodeById,
+                    timePhased: pipelineResult.explanationContext,
+                })
+
+                requirementRows.push({
+                    mrpRunId: runId,
+                    companyId,
+                    warehouseId,
+                    materialId: material.id,
+                    unrestrictedQty: snap.unrestrictedQty,
+                    reservedQty: snap.reservedQty,
+                    qualityQty: snap.qualityQty,
+                    blockedQty: snap.blockedQty,
+                    availableQty: net.availableQty,
+                    incomingQty: snap.incomingQty,
+                    plannedSupplyQty: snap.plannedSupplyQty,
+                    productionSupplyQty: snap.productionSupplyQty,
+                    demandQty: snap.demandQty,
+                    independentDemandQty: snap.independentDemandQty,
+                    bomDependentDemandQty: snap.bomDependentDemandQty,
+                    grossDemand: net.grossDemand,
+                    projectedAvailable: net.projectedAvailable,
+                    safetyStock: params.safetyStock,
+                    reorderPoint: params.reorderPoint,
+                    moq: params.minimumOrderQuantity,
+                    lotSize: params.lotSize.gt(0)
+                        ? params.lotSize
+                        : params.reorderQuantity,
+                    minStock: params.minStock,
+                    maxStock: params.maxStock,
+                    leadTimeDays: params.leadTimeDays,
+                    netRequirement: net.netRequirement,
+                    recommendedQty: net.recommendedQty,
+                    shortageQty: net.shortageQty,
+                    recommendedAction: net.recommendedAction,
+                    procurementType: params.procurementType,
+                    planningStrategy: params.planningStrategy,
+                    requiredDate,
+                    source,
+                    expectedProcurementDate: net.expectedProcurementDate,
+                    projectedStockoutDate: net.projectedStockoutDate,
+                    shortageDate: pipelineResult.shortageDate,
+                    safetyStockViolationQty: pipelineResult.safetyStockViolationQty,
+                    belowReorderPoint: net.belowReorderPoint,
+                    shortage: net.shortage,
+                    explanationJson:
+                        explanationJson as unknown as MrpRecommendationExplanation,
+                    uomId: material.baseUomId,
+                    purchasable: material.purchasable,
+                    preferredSupplierId,
+                    reason,
+                    demandIds: snap.demandIds,
+                    plantId,
+                    params,
+                    pipelineResult,
+                })
             }
 
             const suggestionRows: any[] = []
@@ -465,10 +422,15 @@ export class MrpEngineService {
                     demandIds,
                     plantId,
                     params,
+                    pipelineResult,
+                    explanationJson,
                     ...data
                 } = row
                 const created = await this.prisma.mmMaterialRequirement.create({
-                    data,
+                    data: {
+                        ...data,
+                        explanationJson: explanationJson ?? undefined,
+                    },
                 })
 
                 let plannedOrderId: string | null = null
@@ -526,19 +488,12 @@ export class MrpEngineService {
                     })
 
                     const demandSource = created.source
-                    const explanation = buildSuggestionExplanation({
-                        demandSource,
-                        reason: reason ?? 'NET_REQUIREMENT',
-                        requiredDate:
-                            created.requiredDate ??
-                            created.expectedProcurementDate ??
-                            asOf,
-                        quantity: new Decimal(created.recommendedQty),
-                        leadTimeDays: created.leadTimeDays,
-                        moq: new Decimal(created.moq),
-                        warehouseId: created.warehouseId,
-                        preferredSupplierId: preferredSupplierId ?? null,
-                    })
+                    const explanation =
+                        explanationJson != null
+                            ? renderExplanationSummary(
+                                  explanationJson as MrpRecommendationExplanation,
+                              )
+                            : null
 
                     suggestionRows.push({
                         mrpRunId: runId,
@@ -570,8 +525,61 @@ export class MrpEngineService {
                         shortageReason: reason ?? null,
                         moq: created.moq,
                         lotSize: created.lotSize,
+                        availableQuantity: created.availableQty,
+                        safetyStockQty: created.safetyStock,
+                        incomingSupplyQty: created.incomingQty,
+                        grossDemandQty: created.grossDemand,
+                        planningRule: created.planningStrategy ?? 'REORDER_POINT',
+                        shortageDate: created.shortageDate ?? null,
+                        projectedClosingQty:
+                            pipelineResult?.projectedClosingQty ?? null,
                         explanation,
+                        explanationJson: explanationJson ?? undefined,
                         status: 'OPEN',
+                    })
+                }
+            }
+
+            if (explosion.lines.length) {
+                await this.prisma.mmBomExplosionTrace.createMany({
+                    data: explosion.lines.map((line) => ({
+                        mrpRunId: runId,
+                        companyId,
+                        warehouseId: line.warehouseId,
+                        parentMaterialId: line.parentMaterialId,
+                        componentMaterialId: line.componentMaterialId,
+                        level: line.level,
+                        demandDate: line.demandDate,
+                        parentDemandQty: line.parentDemandQty,
+                        quantityPer: line.quantityPer,
+                        grossComponentQty: line.grossComponentQty,
+                        uomId: line.uomId,
+                        yieldFactor: line.yieldFactor ?? null,
+                        scrapFactor: line.scrapFactor ?? null,
+                        explosionReason: line.explosionReason,
+                        warningCode: line.warningCode ?? null,
+                    })),
+                })
+            }
+
+            if (projectedStockBuckets.length) {
+                const allBucketRows = projectedStockBuckets.flatMap((row) =>
+                    row.buckets.map((b: any) => ({
+                        mrpRunId: runId,
+                        companyId,
+                        warehouseId: row.warehouseId,
+                        materialId: row.materialId,
+                        bucketDate: b.bucketDate,
+                        openingQty: b.openingQty,
+                        demandQty: b.demandQty,
+                        supplyQty: b.supplyQty,
+                        reservationQty: b.reservationQty,
+                        closingQty: b.closingQty,
+                    })),
+                )
+                if (allBucketRows.length) {
+                    await this.prisma.mmProjectedStock.createMany({
+                        data: allBucketRows,
                     })
                 }
             }
@@ -582,7 +590,7 @@ export class MrpEngineService {
                 })
             }
 
-            // Optional auto-PR when configured on the run
+            // Optional auto-PR when configured on the run (dedup by run+material+warehouse)
             if (run.autoCreatePurchaseRequisitions && this.suggestions) {
                 const open = await this.prisma.mmProcurementSuggestion.findMany({
                     where: {
@@ -590,9 +598,26 @@ export class MrpEngineService {
                         status: 'OPEN',
                         suggestionType: 'PR_RECOMMENDATION',
                     },
-                    select: { id: true },
+                    select: {
+                        id: true,
+                        materialId: true,
+                        warehouseId: true,
+                    },
                 })
                 for (const s of open) {
+                    const existingPr =
+                        await this.prisma.mmPurchaseRequisitionLine.findFirst({
+                            where: {
+                                materialId: s.materialId,
+                                warehouseId: s.warehouseId,
+                                requisition: {
+                                    sourceMrpRunId: runId,
+                                    status: { notIn: ['CANCELLED', 'REJECTED'] },
+                                },
+                            },
+                            select: { id: true },
+                        })
+                    if (existingPr) continue
                     try {
                         await this.suggestions.convertToPr(s.id, {
                             requesterId: run.createdBy ?? 'mrp-auto',
@@ -621,7 +646,17 @@ export class MrpEngineService {
                         autoCreatePurchaseRequisitions:
                             run.autoCreatePurchaseRequisitions,
                         warehouseCount: warehouseIds.length,
-                        materialCount: materials.length,
+                        materialCount: allMaterials.length,
+                        nettingEngine: '2D',
+                        explainability: true,
+                        bomExplosion: true,
+                        explosionLineCount: explosion.lines.length,
+                        explosionWarningCount: explosion.warnings.length,
+                        calendarMode: calendar.mode,
+                        strategyBranches: {
+                            timePhased: timePhasedCount,
+                            aggregate: aggregateCount,
+                        },
                     },
                 },
             })
@@ -698,6 +733,7 @@ export class MrpEngineService {
         warehouseIds: string[],
         asOf: Date,
         horizonEnd: Date,
+        extraMaterialIds?: string[],
     ) {
         const [balanced, reserved, demanded, ruled] = await Promise.all([
             this.prisma.mmInventoryBalance.findMany({
@@ -745,6 +781,9 @@ export class MrpEngineService {
         for (const r of [...balanced, ...reserved, ...demanded, ...ruled]) {
             ids.add(r.materialId)
         }
+        for (const id of extraMaterialIds ?? []) {
+            ids.add(id)
+        }
 
         return this.prisma.mmMaterial.findMany({
             where: {
@@ -759,6 +798,8 @@ export class MrpEngineService {
             },
             select: {
                 id: true,
+                materialCode: true,
+                materialName: true,
                 baseUomId: true,
                 purchasable: true,
                 preferredSupplierId: true,
@@ -780,22 +821,21 @@ export class MrpEngineService {
         includeOpenReceipts: boolean,
         currentRunId: string,
     ) {
-        const balances = await this.prisma.mmInventoryBalance.findMany({
-            where: { companyId, warehouseId, materialId },
+        const atp = await this.availability.getAvailability({
+            companyId,
+            warehouseId,
+            materialId,
         })
 
-        let unrestrictedQty = new Decimal(0)
-        let reservedQty = new Decimal(0)
+        const unrestrictedQty = new Decimal(atp.unrestrictedOnHand)
+        const reservedQty = new Decimal(atp.reserved)
+        const openingAvailable = new Decimal(atp.available)
+
         let qualityQty = new Decimal(0)
         let blockedQty = new Decimal(0)
-
-        for (const b of balances) {
+        for (const b of atp.balances) {
             const qty = new Decimal(b.quantity)
-            const reserved = new Decimal(b.reservedQuantity)
-            if (b.stockStatus === 'UNRESTRICTED') {
-                unrestrictedQty = unrestrictedQty.plus(qty)
-                reservedQty = reservedQty.plus(reserved)
-            } else if (
+            if (
                 b.stockStatus === 'QUALITY_INSPECTION' ||
                 b.stockStatus === 'QI'
             ) {
@@ -819,10 +859,13 @@ export class MrpEngineService {
         let earliestDemandDate: Date | null = null
         const demandSourceTypes: string[] = []
         const demandIds: string[] = []
+        const demandEvents: DemandEvent[] = []
         for (const d of planningDemands) {
-            planningDemand = planningDemand.plus(new Decimal(d.quantity))
+            const qty = new Decimal(d.quantity)
+            planningDemand = planningDemand.plus(qty)
             demandSourceTypes.push(d.sourceType)
             demandIds.push(d.id)
+            demandEvents.push({ date: d.demandDate, quantity: qty })
             if (
                 !earliestDemandDate ||
                 d.demandDate.getTime() < earliestDemandDate.getTime()
@@ -832,8 +875,8 @@ export class MrpEngineService {
         }
 
         let incomingQty = new Decimal(0)
+        const supplyEvents: SupplyEvent[] = []
         if (includeOpenReceipts) {
-            // Open PO remaining — exclude POs already represented by open ERs
             const erLinkedPoIds = new Set<string>()
             const erLines = await this.prisma.mmExpectedReceiptLine.findMany({
                 where: {
@@ -843,6 +886,7 @@ export class MrpEngineService {
                         companyId,
                         warehouseId,
                         status: { in: ['OPEN', 'IN_PROGRESS'] },
+                        expectedDate: { gte: asOf, lte: horizonEnd },
                     },
                 },
                 include: {
@@ -861,6 +905,9 @@ export class MrpEngineService {
                 )
                 if (remaining.gt(0)) {
                     incomingQty = incomingQty.plus(remaining)
+                    const supplyDate =
+                        line.expectedReceipt.expectedDate ?? asOf
+                    supplyEvents.push({ date: supplyDate, quantity: remaining })
                     if (line.expectedReceipt.purchaseOrderId) {
                         erLinkedPoIds.add(line.expectedReceipt.purchaseOrderId)
                     }
@@ -878,7 +925,14 @@ export class MrpEngineService {
                             : {}),
                     },
                 },
-                include: { purchaseOrder: { select: { warehouseId: true } } },
+                include: {
+                    purchaseOrder: {
+                        select: {
+                            warehouseId: true,
+                            expectedDeliveryDate: true,
+                        },
+                    },
+                },
             })
 
             for (const line of poLines) {
@@ -887,12 +941,23 @@ export class MrpEngineService {
                 const remaining = new Decimal(line.quantity).minus(
                     line.receivedQuantity,
                 )
-                if (remaining.gt(0)) incomingQty = incomingQty.plus(remaining)
+                if (remaining.gt(0)) {
+                    incomingQty = incomingQty.plus(remaining)
+                    const supplyDate =
+                        line.requiredDate ??
+                        line.purchaseOrder.expectedDeliveryDate ??
+                        asOf
+                    if (
+                        supplyDate.getTime() >= asOf.getTime() &&
+                        supplyDate.getTime() <= horizonEnd.getTime()
+                    ) {
+                        supplyEvents.push({ date: supplyDate, quantity: remaining })
+                    }
+                }
             }
         }
 
-        // Prior OPEN planned supply from other completed runs (not this run)
-        const priorPlanned = await this.prisma.mmSupplyProposal.aggregate({
+        const priorPlanned = await this.prisma.mmSupplyProposal.findMany({
             where: {
                 companyId,
                 warehouseId,
@@ -900,21 +965,53 @@ export class MrpEngineService {
                 status: 'OPEN',
                 supplyType: 'PLANNED_ORDER',
                 mrpRunId: { not: currentRunId },
+                availableDate: { gte: asOf, lte: horizonEnd },
             },
-            _sum: { quantity: true },
+            select: { quantity: true, availableDate: true },
         })
-        const plannedSupplyQty = new Decimal(
-            priorPlanned._sum.quantity ?? 0,
-        )
+        let plannedSupplyQty = new Decimal(0)
+        for (const p of priorPlanned) {
+            const qty = new Decimal(p.quantity)
+            plannedSupplyQty = plannedSupplyQty.plus(qty)
+            supplyEvents.push({ date: p.availableDate, quantity: qty })
+        }
 
-        // Production supply reserved for future integration
         const productionSupplyQty = new Decimal(0)
+
+        const reservationEvents: ReservationEvent[] = []
+        const openReservations =
+            await this.prisma.mmInventoryReservation.findMany({
+                where: {
+                    companyId,
+                    warehouseId,
+                    materialId,
+                    status: { in: ['OPEN', 'PARTIAL'] },
+                },
+                select: {
+                    quantity: true,
+                    reservedQuantity: true,
+                    validUntil: true,
+                    createdAt: true,
+                },
+            })
+        for (const r of openReservations) {
+            const openQty = new Decimal(r.reservedQuantity || r.quantity)
+            if (openQty.lte(0)) continue
+            const bucketDate = r.validUntil ?? r.createdAt ?? asOf
+            if (
+                bucketDate.getTime() >= asOf.getTime() &&
+                bucketDate.getTime() <= horizonEnd.getTime()
+            ) {
+                reservationEvents.push({ date: bucketDate, quantity: openQty })
+            }
+        }
 
         return {
             unrestrictedQty,
             reservedQty,
             qualityQty,
             blockedQty,
+            openingAvailable,
             demandQty: planningDemand,
             incomingQty,
             plannedSupplyQty,
@@ -922,6 +1019,9 @@ export class MrpEngineService {
             earliestDemandDate,
             demandSourceTypes,
             demandIds,
+            demandEvents,
+            supplyEvents,
+            reservationEvents,
         }
     }
 }

@@ -4,41 +4,50 @@
  * Production owns the BOM master. MM Planning must NOT create a duplicate
  * Production BOM. Wire a real provider when the Production module is available.
  */
-export type BomComponent = {
-    materialId: string
-    quantityPer: number
-    scrapFactor?: number
-    level: number
+export type BomHeader = {
+    bomId: string
+    parentMaterialId: string
+    plantId?: string | null
+    status: 'ACTIVE' | 'INACTIVE'
+    effectiveFrom?: Date | null
+    effectiveTo?: Date | null
+    yieldFactor?: number
+    baseQuantity?: number
 }
 
-export type BomExplosionRequest = {
+export type BomComponentLine = {
+    lineId: string
+    componentMaterialId: string
+    quantityPer: number
+    uomId: string
+    scrapFactor?: number
+    validFrom?: Date | null
+    validTo?: Date | null
+    status?: 'ACTIVE' | 'INACTIVE'
+}
+
+export type BomLookupRequest = {
     companyId: string
     plantId?: string | null
     materialId: string
-    quantity: number
     asOf?: Date
 }
 
-export type BomExplosionResult = {
-    parentMaterialId: string
-    components: BomComponent[]
-    source: 'NONE' | 'PRODUCTION' | 'EXTERNAL'
-}
-
 export interface BomProvider {
-    explode(request: BomExplosionRequest): Promise<BomExplosionResult>
+    getBomHeader(req: BomLookupRequest): Promise<BomHeader | null>
+    listComponents(req: BomLookupRequest): Promise<BomComponentLine[]>
 }
 
 /**
- * Default stub — returns no components. Safe for Phase 10 (no Production module).
+ * Default stub — returns no BOM. Safe when Production module is unavailable.
  */
 export class NullBomProvider implements BomProvider {
-    async explode(request: BomExplosionRequest): Promise<BomExplosionResult> {
-        return {
-            parentMaterialId: request.materialId,
-            components: [],
-            source: 'NONE',
-        }
+    async getBomHeader(_req: BomLookupRequest): Promise<BomHeader | null> {
+        return null
+    }
+
+    async listComponents(_req: BomLookupRequest): Promise<BomComponentLine[]> {
+        return []
     }
 }
 

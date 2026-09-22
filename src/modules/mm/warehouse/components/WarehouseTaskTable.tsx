@@ -13,8 +13,8 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlay, HiOutlineUserAdd, HiOutlineCheckCircle, HiOutlineExclamation } from 'react-icons/hi'
 import { warehouseTaskService } from '../services/warehouseTaskService'
-import { warehouseService } from '../services/warehouseService'
-import type { Warehouse, WarehouseTask, WarehouseTaskQueryParams, WarehouseTaskStatus, WarehouseTaskType } from '../types'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import type { WarehouseTask, WarehouseTaskQueryParams, WarehouseTaskStatus, WarehouseTaskType } from '../types'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     PENDING: 'warning',
@@ -48,7 +48,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
     const [taskType, setTaskType] = useState('')
     const [status, setStatus] = useState(mode === 'exceptions' ? 'EXCEPTION' : '')
     const [warehouseId, setWarehouseId] = useState('')
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
 
     const [assignOpen, setAssignOpen] = useState(false)
     const [assignUserId, setAssignUserId] = useState('')
@@ -60,10 +60,6 @@ export default function WarehouseTaskTable({ mode }: Props) {
     const [exceptionCode, setExceptionCode] = useState('WRONG_BIN')
     const [exceptionDetails, setExceptionDetails] = useState('')
     const [actionLoading, setActionLoading] = useState(false)
-
-    useEffect(() => {
-        warehouseService.list({ status: 'ACTIVE', limit: 100 }).then((r) => setWarehouses(r.data)).catch(() => {})
-    }, [])
 
     const fetchTasks = useCallback(async () => {
         setLoading(true)
@@ -109,7 +105,9 @@ export default function WarehouseTaskTable({ mode }: Props) {
 
     useEffect(() => {
         fetchTasks()
-    }, [fetchTasks])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [fetchTasks, loadFilterRefs])
 
     const runAction = async (fn: () => Promise<unknown>, success: string) => {
         setActionLoading(true)
@@ -261,7 +259,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
         [],
     )
 
-    const warehouseOptions = [{ value: '', label: 'All warehouses' }, ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))]
+    const warehouseOptions = [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts]
     const typeOptions = [{ value: '', label: 'All types' }, ...TASK_TYPES.map((t) => ({ value: t, label: t }))]
     const statusOptions = [{ value: '', label: 'All open' }, ...OPEN_STATUSES.map((s) => ({ value: s, label: s }))]
 

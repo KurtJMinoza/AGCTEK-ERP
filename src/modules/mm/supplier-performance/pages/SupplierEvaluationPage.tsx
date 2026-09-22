@@ -19,7 +19,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlay, HiOutlineSave } from 'react-icons/hi'
 import { supplierPerformanceService } from '../services/supplierPerformanceService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     SupplierEvaluation,
     SupplierPerfAlert,
@@ -53,7 +53,7 @@ function monthBounds() {
 const SupplierEvaluationPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [tab, setTab] = useState('run')
-    const [companies, setCompanies] = useState<Opt[]>([])
+    const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
     const [companyId, setCompanyId] = useState('')
     const [evaluations, setEvaluations] = useState<SupplierEvaluation[]>([])
     const [alerts, setAlerts] = useState<SupplierPerfAlert[]>([])
@@ -81,14 +81,8 @@ const SupplierEvaluationPage = () => {
     const [runOpen, setRunOpen] = useState(false)
 
     useEffect(() => {
-        orgService.companies().then((cos: any) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -131,7 +125,9 @@ const SupplierEvaluationPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const runEval = async () => {
         setSubmitting(true)

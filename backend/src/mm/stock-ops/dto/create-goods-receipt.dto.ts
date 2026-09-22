@@ -47,6 +47,10 @@ export class CreateGoodsReceiptDto {
     @IsOptional() @IsIn(STOCK_STATUSES) stockStatus?: string
     @IsOptional() @IsString() remarks?: string
     @IsOptional() @IsString() createdBy?: string
+    @IsOptional() @IsString() sourceDocumentType?: string
+    @IsOptional() @IsString() sourceDocumentId?: string
+    @IsOptional() @IsIn(['PROCUREMENT', 'PRODUCTION_OUTPUT', 'OTHER'])
+    receiptPurpose?: string
     @IsArray() @ValidateNested({ each: true }) @Type(() => GoodsReceiptLineDto)
     lines!: GoodsReceiptLineDto[]
 }

@@ -2,6 +2,16 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { AnalyticsService } from './analytics.service'
 import { buildCacheKey } from '../dashboard/dashboard.helpers'
+import { QualityMetricsService } from '../quality/quality-metrics.service'
+
+const mockQualityMetrics = {
+    getDefectTrend: jest.fn().mockResolvedValue({ buckets: [], topDefects: [], period: {} }),
+    getSupplierQualityMetrics: jest.fn().mockResolvedValue([]),
+    getMaterialQualityMetrics: jest.fn().mockResolvedValue([]),
+    getQualityHoldAging: jest.fn().mockResolvedValue({ activeCount: 0, buckets: {}, releasedCount: 0, avgHoldDurationHours: 0 }),
+    getInspectionTurnaround: jest.fn().mockResolvedValue({ sampleSize: 0, avgHours: 0, medianHours: 0, p90Hours: 0, byPriority: {} }),
+    getNonconformanceMetric: jest.fn().mockResolvedValue({ total: 0, byStatus: {}, bySeverity: {}, openCount: 0, resolvedCount: 0, avgResolutionDays: 0, openCapaCount: 0, period: {} }),
+} as unknown as QualityMetricsService
 
 describe('MM-14 analytics facade', () => {
     const filters = {
@@ -48,7 +58,7 @@ describe('MM-14 analytics facade', () => {
         const dashboardAnalytics: any = {
             getAnalytics: jest.fn(),
         }
-        const service = new AnalyticsService(prisma, reports, dashboardAnalytics)
+        const service = new AnalyticsService(prisma, reports, dashboardAnalytics, mockQualityMetrics)
 
         const result = await service.getInventory(filters as any)
         expect(result.cached).toBe(true)
@@ -78,7 +88,7 @@ describe('MM-14 analytics facade', () => {
         const dashboardAnalytics: any = {
             getAnalytics: jest.fn().mockResolvedValue({ ok: true }),
         }
-        const service = new AnalyticsService(prisma, reports, dashboardAnalytics)
+        const service = new AnalyticsService(prisma, reports, dashboardAnalytics, mockQualityMetrics)
         const result = await service.getInventory({ companyId: 'co-1' } as any)
         expect(result.cached).toBe(false)
         expect(result.type).toBe('INVENTORY')
@@ -104,7 +114,7 @@ describe('MM-14 analytics facade', () => {
         const dashboardAnalytics: any = {
             getAnalytics: jest.fn().mockResolvedValue({ spend: 1 }),
         }
-        const service = new AnalyticsService(prisma, {} as any, dashboardAnalytics)
+        const service = new AnalyticsService(prisma, {} as any, dashboardAnalytics, mockQualityMetrics)
         const result = await service.getProcurement({ companyId: 'co-1' } as any)
         expect(result.type).toBe('PROCUREMENT')
         expect(result.overduePos).toBe(3)
@@ -127,7 +137,7 @@ describe('MM-14 analytics facade', () => {
         const reports: any = {
             getWarehousePerformance: jest.fn().mockResolvedValue({ putaway: 1 }),
         }
-        const service = new AnalyticsService(prisma, reports, {} as any)
+        const service = new AnalyticsService(prisma, reports, {} as any, mockQualityMetrics)
         const result = await service.getWarehouse({ companyId: 'co-1' } as any)
         expect(result.pickingAccuracy.taskCount).toBe(2)
         expect(result.pickingAccuracy.exact).toBe(1)
@@ -135,7 +145,7 @@ describe('MM-14 analytics facade', () => {
         expect(result.pickingAccuracy.accuracyRate).toBe(0.5)
     })
 
-    it('quality facade includes receiving accuracy', async () => {
+    it('quality facade includes receiving accuracy and Phase 1C metrics', async () => {
         const findUnique = jest.fn().mockResolvedValue(null)
         const upsert = jest.fn().mockResolvedValue({})
         const prisma: any = {
@@ -153,22 +163,41 @@ describe('MM-14 analytics facade', () => {
                     },
                 ]),
             },
-            mmQualityInspection: {
+            mmInspectionLot: {
                 findMany: jest.fn().mockResolvedValue([
                     {
-                        status: 'COMPLETED',
-                        lines: [
-                            { quantity: 100, passQuantity: 95, failQuantity: 5 },
+                        quantity: 100,
+                        status: 'DECIDED',
+                        result: 'PASS',
+                        decisions: [
+                            { decisionCode: 'ACCEPT', quantity: 95, decidedAt: new Date() },
+                            { decisionCode: 'BLOCK', quantity: 5, decidedAt: new Date() },
                         ],
                     },
                 ]),
             },
+            mmQualityDecision: {
+                findMany: jest.fn().mockResolvedValue([
+                    { decisionCode: 'ACCEPT', quantity: 95 },
+                    { decisionCode: 'BLOCK', quantity: 5 },
+                ]),
+            },
+            mmQualityHold: { count: jest.fn().mockResolvedValue(0) },
+            mmNonconformance: { count: jest.fn().mockResolvedValue(0) },
         }
-        const service = new AnalyticsService(prisma, {} as any, {} as any)
+        const service = new AnalyticsService(prisma, {} as any, {} as any, mockQualityMetrics)
         const result = await service.getQuality({ companyId: 'co-1' } as any)
         expect(result.receivingAccuracy.accuracyRate).toBe(1)
         expect(result.qualityInspection.acceptanceRate).toBeCloseTo(0.95)
         expect(result.qualityInspection.rejectionRate).toBeCloseTo(0.05)
+        expect(result.readOnly).toBe(true)
+        expect(result).toHaveProperty('defectTrend')
+        expect(result).toHaveProperty('supplierQualityMetric')
+        expect(result).toHaveProperty('materialQualityMetric')
+        expect(result).toHaveProperty('qualityHoldAging')
+        expect(result).toHaveProperty('inspectionTurnaround')
+        expect(result).toHaveProperty('nonconformanceMetric')
+        expect(result.drillDown.qualityAnalytics).toContain('quality-analytics')
     })
 
     it('valuation facade stays read-only and delegates to reports', async () => {
@@ -181,7 +210,7 @@ describe('MM-14 analytics facade', () => {
             getInventoryValuation: jest.fn().mockResolvedValue({ readOnly: true }),
             getStockVariance: jest.fn().mockResolvedValue({ data: [] }),
         }
-        const service = new AnalyticsService(prisma, reports, {} as any)
+        const service = new AnalyticsService(prisma, reports, {} as any, mockQualityMetrics)
         const result = await service.getValuation({
             companyId: 'co-1',
             warehouseId: 'wh-1',

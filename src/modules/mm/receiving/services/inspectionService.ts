@@ -26,4 +26,10 @@ export const inspectionService = {
             `${BASE}/${id}/usage-decision`,
             data,
         ).then((r) => r.data),
+
+    start: (id: string, data?: { inspector?: string }) =>
+        ErpAxiosBase.post(`${BASE}/${id}/start`, data ?? {}).then((r) => r.data),
+
+    complete: (id: string, data?: { completedBy?: string; remarks?: string }) =>
+        ErpAxiosBase.post(`${BASE}/${id}/complete`, data ?? {}).then((r) => r.data),
 }

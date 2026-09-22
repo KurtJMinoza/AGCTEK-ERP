@@ -18,9 +18,7 @@ import {
     procurementHistoryService,
     type ProcurementHistoryRow,
 } from '../services/procurementHistoryService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/procurement-history'
@@ -41,9 +39,11 @@ const ProcurementHistoryPage = () => {
     const [rows, setRows] = useState<ProcurementHistoryRow[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [suppliers, setSuppliers] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, suppliers, materials, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'suppliers',
+        'materials',
+    )
     const [filters, setFilters] = useState({
         companyId: '',
         supplierId: '',
@@ -59,30 +59,10 @@ const ProcurementHistoryPage = () => {
     })
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            supplierService.list({ page: 1, pageSize: 200 }),
-            materialService.list({ page: 1, limit: 200 } as never),
-        ]).then(([cos, sup, mats]: any[]) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            setSuppliers(
-                (sup?.data ?? []).map((s: any) => ({
-                    value: s.id,
-                    label: `${s.supplierCode} — ${s.supplierName}`,
-                })),
-            )
-            setMaterials(
-                (mats?.data ?? mats ?? []).map((m: any) => ({
-                    value: m.id,
-                    label: `${m.materialCode} — ${m.materialName}`,
-                })),
-            )
-            if (c[0]) setFilters((p) => ({ ...p, companyId: c[0].value }))
-        })
-    }, [])
+        if (!filters.companyId && companies[0]) {
+            setFilters((p) => ({ ...p, companyId: companies[0].value }))
+        }
+    }, [companies, filters.companyId])
 
     const load = useCallback(async () => {
         setLoading(true)
@@ -113,6 +93,11 @@ const ProcurementHistoryPage = () => {
             setLoading(false)
         }
     }, [filters])
+
+    useEffect(() => {
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [loadFilterRefs])
 
     useEffect(() => {
         if (filters.companyId) load()

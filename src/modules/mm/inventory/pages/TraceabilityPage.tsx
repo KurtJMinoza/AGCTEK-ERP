@@ -23,8 +23,7 @@ import {
     traceabilityService,
     type TraceChainNode,
 } from '../services/traceabilityService'
-import { materialService } from '../../material-master/services/materialService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const { TabList, TabNav, TabContent } = Tabs
@@ -46,8 +45,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const TraceabilityPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, materials } = useMmFilterRefs('companies', 'materials')
     const [companyId, setCompanyId] = useState('')
     const [materialId, setMaterialId] = useState('')
     const [batchId, setBatchId] = useState('')
@@ -63,28 +61,6 @@ const TraceabilityPage = () => {
     const [page, setPage] = useState(1)
     const [hasSearched, setHasSearched] = useState(false)
     const [loading, setLoading] = useState(false)
-
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            materialService.list({ limit: 200 }),
-        ])
-            .then(([cos, mats]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setMaterials(
-                    (mats?.data ?? []).map((m: any) => ({
-                        value: m.id,
-                        label: `${m.materialCode} — ${m.materialName}`,
-                    })),
-                )
-            })
-            .catch(() => undefined)
-    }, [])
 
     const searchLedger = useCallback(async () => {
         if (!materialId && !batchId && !serialNumberId && !sourceDocumentId && !transactionId) {

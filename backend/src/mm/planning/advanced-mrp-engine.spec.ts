@@ -10,6 +10,7 @@ import {
     canonicalizeDemandSource,
 } from './mrp-engine.service'
 import { NullBomProvider } from './bom-provider'
+import { buildProjectedStockBuckets } from './projected-stock.service'
 
 describe('Advanced MRP Engine (Phase 10)', () => {
     const asOf = new Date('2026-09-11T00:00:00.000Z')
@@ -210,15 +211,18 @@ describe('Advanced MRP Engine (Phase 10)', () => {
         expect(text).toContain('Suggested supplier: sup-1')
     })
 
-    it('BOMProvider stub returns no components (no duplicate Production BOM)', async () => {
+    it('BOMProvider stub returns no BOM (no duplicate Production BOM)', async () => {
         const bom = new NullBomProvider()
-        const result = await bom.explode({
+        const header = await bom.getBomHeader({
             companyId: 'co-1',
             materialId: 'mat-1',
-            quantity: 10,
         })
-        expect(result.source).toBe('NONE')
-        expect(result.components).toEqual([])
+        const components = await bom.listComponents({
+            companyId: 'co-1',
+            materialId: 'mat-1',
+        })
+        expect(header).toBeNull()
+        expect(components).toEqual([])
     })
 
     it('MAKE procurement recommends planned production action', () => {
@@ -229,6 +233,26 @@ describe('Advanced MRP Engine (Phase 10)', () => {
             procurementType: 'MAKE',
         })
         expect(r.recommendedAction).toBe('CREATE_PLANNED_PRODUCTION')
+    })
+
+    it('Phase 2A projected stock buckets carry closing forward', () => {
+        const asOf = new Date('2026-09-11T00:00:00.000Z')
+        const horizonEnd = new Date('2026-09-13T00:00:00.000Z')
+        const buckets = buildProjectedStockBuckets({
+            asOf,
+            horizonEnd,
+            openingAvailable: new Decimal(100),
+            demands: [
+                { date: new Date('2026-09-11T00:00:00.000Z'), quantity: new Decimal(20) },
+                { date: new Date('2026-09-12T00:00:00.000Z'), quantity: new Decimal(10) },
+            ],
+            supplies: [
+                { date: new Date('2026-09-12T00:00:00.000Z'), quantity: new Decimal(5) },
+            ],
+        })
+        expect(Number(buckets[0].closingQty)).toBe(80)
+        expect(Number(buckets[1].closingQty)).toBe(75)
+        expect(Number(buckets[2].closingQty)).toBe(75)
     })
 
     it('engine source does not import inventory posting', () => {

@@ -9,15 +9,25 @@ import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Tabs from '@/components/ui/Tabs'
-import { HiOutlineLockClosed, HiOutlineSearch } from 'react-icons/hi'
+import FormDialog from '@/components/shared/FormDialog'
+import { FormItem } from '@/components/ui/Form'
+import { HiOutlineLockClosed, HiOutlinePlus, HiOutlineSearch } from 'react-icons/hi'
 import { qualityHoldService } from '../services/qualityHoldService'
+import { qualityService } from '../services/qualityService'
 import type { MmQualityHold } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/receiving/quality-holds'
+
+const HOLD_TYPE_OPTIONS = [
+    { value: 'QUALITY_HOLD', label: 'Quality hold' },
+    { value: 'QUARANTINE', label: 'Quarantine' },
+    { value: 'BLOCKED', label: 'Blocked' },
+]
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     ACTIVE: 'warning',
@@ -46,6 +56,15 @@ const QualityHoldsPage = () => {
     const [search, setSearch] = useState('')
     const [statusTab, setStatusTab] = useState('ACTIVE')
     const [releasingId, setReleasingId] = useState<string | null>(null)
+    const [createOpen, setCreateOpen] = useState(false)
+    const [creating, setCreating] = useState(false)
+    const [holdForm, setHoldForm] = useState({
+        companyId: '',
+        inspectionLotId: '',
+        holdType: 'QUALITY_HOLD',
+        reason: '',
+        heldBy: '',
+    })
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -70,6 +89,40 @@ const QualityHoldsPage = () => {
 
     const activeCount = useMemo(() => data.filter((h) => h.status === 'ACTIVE').length, [data])
 
+    const createHold = async () => {
+        if (!holdForm.companyId.trim() || !holdForm.reason.trim()) {
+            pushToast('danger', 'Validation', 'Company and reason are required.')
+            return
+        }
+        setCreating(true)
+        try {
+            await qualityService.createHold({
+                companyId: holdForm.companyId.trim(),
+                reason: holdForm.reason.trim(),
+                inspectionLotId: holdForm.inspectionLotId.trim() || undefined,
+                holdType: holdForm.holdType,
+                heldBy: holdForm.heldBy.trim() || undefined,
+            })
+            pushToast('success', 'Hold created', 'Quality hold is active.')
+            setCreateOpen(false)
+            setHoldForm({
+                companyId: '',
+                inspectionLotId: '',
+                holdType: 'QUALITY_HOLD',
+                reason: '',
+                heldBy: '',
+            })
+            fetchData()
+        } catch (err: unknown) {
+            const msg =
+                (err as { response?: { data?: { message?: string | string[] } } })?.response?.data
+                    ?.message || 'Create hold failed'
+            pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : String(msg))
+        } finally {
+            setCreating(false)
+        }
+    }
+
     const releaseHold = async (row: MmQualityHold) => {
         setReleasingId(row.id)
         try {
@@ -90,6 +143,11 @@ const QualityHoldsPage = () => {
             header: 'Inspection lot',
             accessorKey: 'inspectionLot.lotNumber',
             cell: ({ row }) => row.original.inspectionLot?.lotNumber ?? '—',
+        },
+        {
+            header: 'Type',
+            accessorKey: 'holdType',
+            cell: ({ row }) => row.original.holdType ?? 'QUALITY_HOLD',
         },
         {
             header: 'Reason',
@@ -134,6 +192,11 @@ const QualityHoldsPage = () => {
                 title="Quality Holds"
                 description="Active holds block usage decisions until released."
                 icon={<HiOutlineLockClosed />}
+                actions={
+                    <Button size="sm" icon={<HiOutlinePlus />} onClick={() => setCreateOpen(true)}>
+                        Create hold
+                    </Button>
+                }
             />
 
             <AdaptiveCard className="mb-4">
@@ -169,6 +232,59 @@ const QualityHoldsPage = () => {
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
                 />
             </AdaptiveCard>
+
+            <FormDialog
+                isOpen={createOpen}
+                title="Create quality hold"
+                onClose={() => setCreateOpen(false)}
+                icon={<HiOutlineLockClosed />}
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                        <Button size="sm" variant="solid" loading={creating} onClick={createHold}>
+                            Create hold
+                        </Button>
+                    </>
+                }
+            >
+                <FormItem label="Company ID" asterisk>
+                    <Input
+                        value={holdForm.companyId}
+                        onChange={(e) => setHoldForm((f) => ({ ...f, companyId: e.target.value }))}
+                        placeholder="Company UUID"
+                    />
+                </FormItem>
+                <FormItem label="Inspection lot ID">
+                    <Input
+                        value={holdForm.inspectionLotId}
+                        onChange={(e) =>
+                            setHoldForm((f) => ({ ...f, inspectionLotId: e.target.value }))
+                        }
+                        placeholder="Optional lot UUID"
+                    />
+                </FormItem>
+                <FormItem label="Hold type">
+                    <Select
+                        options={HOLD_TYPE_OPTIONS}
+                        value={HOLD_TYPE_OPTIONS.find((o) => o.value === holdForm.holdType) ?? null}
+                        onChange={(opt) =>
+                            setHoldForm((f) => ({ ...f, holdType: opt?.value ?? 'QUALITY_HOLD' }))
+                        }
+                    />
+                </FormItem>
+                <FormItem label="Reason" asterisk>
+                    <Input
+                        value={holdForm.reason}
+                        onChange={(e) => setHoldForm((f) => ({ ...f, reason: e.target.value }))}
+                    />
+                </FormItem>
+                <FormItem label="Held by">
+                    <Input
+                        value={holdForm.heldBy}
+                        onChange={(e) => setHoldForm((f) => ({ ...f, heldBy: e.target.value }))}
+                    />
+                </FormItem>
+            </FormDialog>
         </PageContainer>
     )
 }

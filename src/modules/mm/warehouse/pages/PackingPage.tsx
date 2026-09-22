@@ -31,16 +31,17 @@ import {
     HiOutlineQrcode,
 } from 'react-icons/hi'
 import { packingService } from '../services/packingService'
-import { warehouseService } from '../services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
+import {
+    useDeferredFilterRefs,
+    useLazyMaterialEntities,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     WmPackage,
     WmPackageItem,
     PackageQueryParams,
     CreatePackagePayload,
-    Warehouse,
 } from '../types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 
@@ -76,8 +77,9 @@ const PackingPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
+    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
 
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
@@ -131,16 +133,15 @@ const PackingPage = () => {
         }
     }, [queryParams])
 
-    useEffect(() => { fetchPackages() }, [fetchPackages])
-
     useEffect(() => {
-        warehouseService.list({ limit: 200 }).then((r) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 200 }).then((r) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+        fetchPackages()
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [fetchPackages, loadFilterRefs])
 
     const warehouseOptions = useMemo<FilterOption[]>(
-        () => [{ value: '', label: 'All warehouses' }, ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))],
-        [warehouses],
+        () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],
+        [warehouseFilterOpts],
     )
 
     const materialOptions = useMemo<FilterOption[]>(
@@ -148,10 +149,11 @@ const PackingPage = () => {
         [materials],
     )
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
         setCreateForm({ warehouseId: '', orderNumber: '', packageType: '', items: [] })
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials])
 
     const addItem = useCallback(() => {
         setCreateForm((prev) => ({ ...prev, items: [...prev.items, { materialId: '', expectedQty: 1 }] }))

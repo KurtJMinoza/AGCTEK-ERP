@@ -13,10 +13,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import { orgService } from '../../material-master/services/referenceService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { storageBinService } from '../../warehouse/services/storageBinService'
-import { materialService } from '../../material-master/services/materialService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { stockTransferOrderService } from '../services/stockTransferOrderService'
 import StoOrderBoard from '../components/StoOrderBoard'
 import { errMsg } from '../components/StoStatusTone'
@@ -63,12 +60,22 @@ const TransferOrdersPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [createOpen, setCreateOpen] = useState(false)
     const [creating, setCreating] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [bins, setBins] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<
-        Array<{ id: string; label: string; baseUomId?: string }>
-    >([])
+    const {
+        ensure: ensureFormRefs,
+        companies,
+        warehouses,
+        bins,
+        materials: materialOptsRaw,
+    } = useLazyMmRefs()
+    const materials = useMemo(
+        () =>
+            materialOptsRaw.map((m) => ({
+                id: m.value,
+                label: m.label,
+                baseUomId: (m.meta as { baseUomId?: string } | undefined)?.baseUomId,
+            })),
+        [materialOptsRaw],
+    )
     const [boardKey, setBoardKey] = useState(0)
 
     const [form, setForm] = useState({
@@ -82,41 +89,6 @@ const TransferOrdersPage = () => {
         { materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' },
     ])
 
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 500 }),
-            storageBinService.list({ limit: 500 }),
-            materialService.list({ limit: 500 }),
-        ]).then(([cos, wh, bn, mats]: any[]) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map((x: any) => ({
-                value: x.id,
-                label: x.name || x.code,
-            }))
-            setCompanies(c)
-            setWarehouses(
-                (wh?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: `${x.code} — ${x.name}`,
-                })),
-            )
-            setBins(
-                (Array.isArray(bn) ? bn : bn?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: x.code,
-                })),
-            )
-            setMaterials(
-                (Array.isArray(mats) ? mats : mats?.data ?? []).map((m: any) => ({
-                    id: m.id,
-                    label: `${m.materialCode} — ${m.materialName}`,
-                    baseUomId: m.baseUomId,
-                })),
-            )
-            if (c[0]) setForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
-        })
-    }, [])
-
     const materialOpts = useMemo(
         () => materials.map((m) => ({ value: m.id, label: m.label })),
         [materials],
@@ -126,9 +98,10 @@ const TransferOrdersPage = () => {
         [bins],
     )
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses', 'bins', 'materials')
         setForm((f) => ({
-            companyId: f.companyId || companies[0]?.value || '',
+            companyId: f.companyId || refs.companies?.[0]?.value || '',
             transferType: 'WAREHOUSE_TO_WAREHOUSE',
             sourceWarehouseId: '',
             destinationWarehouseId: '',
@@ -136,7 +109,7 @@ const TransferOrdersPage = () => {
         }))
         setLines([{ materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' }])
         setCreateOpen(true)
-    }, [companies])
+    }, [ensureFormRefs])
 
     const handleCreate = useCallback(async () => {
         if (!form.companyId || !form.sourceWarehouseId || !form.destinationWarehouseId) {

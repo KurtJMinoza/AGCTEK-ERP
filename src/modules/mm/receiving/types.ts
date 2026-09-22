@@ -364,15 +364,31 @@ export type MmInspectionDefect = {
     notes?: string | null
 }
 
+export type MmQualityDecision = {
+    id: string
+    decisionCode: string
+    quantity: number | string
+    reason?: string | null
+    decidedBy?: string | null
+    decidedAt: string
+    idempotencyKey?: string | null
+    inspectionLot?: {
+        id: string
+        lotNumber: string
+        material?: MmMaterialRef
+    }
+}
+
 export type MmInspectionLot = {
     id: string
     lotNumber: string
     companyId: string
     goodsReceiptId: string
     goodsReceiptLineId: string
-    goodsReceipt?: MmGrRef
+    goodsReceipt?: MmGrRef & { supplier?: MmSupplierRef }
     materialId: string
     material?: MmMaterialRef
+    supplier?: MmSupplierRef
     warehouseId: string
     quantity: number | string
     status: string
@@ -384,7 +400,7 @@ export type MmInspectionLot = {
     samples: MmInspectionSample[]
     results: MmInspectionResult[]
     defects: MmInspectionDefect[]
-    decisions?: unknown[]
+    decisions?: MmQualityDecision[]
     qualityHolds?: MmQualityHold[]
     createdAt: string
     updatedAt: string
@@ -409,7 +425,9 @@ export type UsageDecisionPayload = {
     quantity: number
     decidedBy?: string
     notes?: string
+    reason?: string
     deviationReason?: string
+    idempotencyKey?: string
 }
 
 export type MmQualityHold = {
@@ -421,6 +439,8 @@ export type MmQualityHold = {
     goodsReceiptLineId?: string | null
     materialId?: string | null
     warehouseId?: string | null
+    holdType?: string | null
+    targetStockStatus?: string | null
     status: string
     reason: string
     heldBy?: string | null
@@ -436,6 +456,7 @@ export type CreateQualityHoldPayload = {
     goodsReceiptLineId?: string
     materialId?: string
     warehouseId?: string
+    holdType?: string
     reason: string
     heldBy?: string
 }

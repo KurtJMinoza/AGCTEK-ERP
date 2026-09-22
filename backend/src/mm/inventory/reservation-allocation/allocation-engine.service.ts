@@ -18,12 +18,14 @@ import { AllocationCandidate } from './strategies/allocation-strategy.interface'
 import { ACTIVE_RESERVATION_STATUSES } from './reservation-allocation.constants'
 import { PickingService } from '../../warehouse/picking/picking.service'
 import { ReservationEngineService } from './reservation-engine.service'
+import { MmDomainEventsService } from '../../common/mm-domain-events.service'
 
 @Injectable()
 export class AllocationEngineService {
     constructor(
         private prisma: PrismaService,
         private strategies: AllocationStrategyRegistry,
+        private domainEvents: MmDomainEventsService,
         @Inject(forwardRef(() => PickingService))
         private picking: PickingService,
         @Inject(forwardRef(() => ReservationEngineService))
@@ -197,6 +199,24 @@ export class AllocationEngineService {
             await this.generatePickTasks(allocation.id)
         }
 
+        if (allocation) {
+            const header = allocation.header
+            void this.domainEvents.allocationCreated({
+                companyId: header.companyId,
+                allocationId: allocation.id,
+                sourceModule: header.sourceModule,
+                sourceEntityType: header.sourceDocumentType,
+                sourceEntityId: header.sourceDocumentId,
+                payload: {
+                    allocationHeaderId: allocation.id,
+                    allocationNumber: allocation.allocationNumber,
+                    reservationHeaderId: header.id,
+                    sourceDocumentId: header.sourceDocumentId,
+                    strategy: allocation.strategy,
+                },
+            })
+        }
+
         return allocation!
     }
 
@@ -206,7 +226,7 @@ export class AllocationEngineService {
             throw new BadRequestException('Allocation already released')
         }
 
-        return this.prisma.$transaction(async (tx) => {
+        const updated = await this.prisma.$transaction(async (tx) => {
             for (const line of allocation.lines) {
                 const open = new Decimal(line.quantity).minus(line.issuedQuantity)
                 if (open.lte(0)) continue
@@ -236,6 +256,22 @@ export class AllocationEngineService {
                 include: this.includes,
             })
         })
+
+        void this.domainEvents.allocationReleased({
+            companyId: allocation.header.companyId,
+            allocationId: id,
+            sourceModule: allocation.header.sourceModule,
+            sourceEntityType: allocation.header.sourceDocumentType,
+            sourceEntityId: allocation.header.sourceDocumentId,
+            payload: {
+                allocationHeaderId: id,
+                reservationHeaderId: allocation.headerId,
+                sourceDocumentId: allocation.header.sourceDocumentId,
+                reason: 'RELEASED',
+            },
+        })
+
+        return updated
     }
 
     async releaseByHeader(headerId: string) {

@@ -7,14 +7,19 @@ import { ExpectedReceiptService } from '../inbound/expected-receipt.service'
 import { ReceivingDocumentService } from './receiving-document.service'
 import { ReceivingVarianceService } from './receiving-variance.service'
 import { InspectionRequirementService } from './inspection-requirement.service'
+import { QualityRuleService } from '../quality/quality-rule.service'
 import { InspectionLotService } from './inspection-lot.service'
 import { QualityDecisionService } from './quality-decision.service'
 import { GoodsReceiptService } from '../stock-ops/goods-receipt.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
-import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { SupplierReturnService } from '../returns-disposal/supplier-return.service'
 import { MM_DOMAIN_EVENTS } from '../common/mm-domain-events.types'
+import { InspectionPlanService } from '../quality/inspection-plan.service'
+import { SamplingService } from '../quality/sampling.service'
+import { DefectCodeService } from '../quality/defect-code.service'
+import { NonconformanceService } from '../quality/nonconformance.service'
+import { QualityWorkflowService } from '../quality/quality-workflow.service'
 
 const mockPrisma: any = {
     mmPurchaseOrder: { findUnique: jest.fn() },
@@ -82,16 +87,60 @@ const mockDomainEvents: any = {
     qualityDecisionMade: jest.fn(),
 }
 
-const mockLegacyQi: any = {
-    createFromGoodsReceipt: jest.fn(),
+const mockQualityRuleService: any = {
+    resolveInspectionRequirement: jest.fn().mockResolvedValue({
+        action: 'NO_INSPECTION',
+        inspectionRequired: false,
+        matchedRuleId: null,
+        matchedRuleCode: null,
+    }),
+}
+
+const mockPlanService: any = { selectPlan: jest.fn().mockResolvedValue(null) }
+const mockSampling: any = {
+    computeSampleQuantity: jest.fn().mockReturnValue({
+        sampleQuantity: new Decimal(5),
+        samplingType: 'FIXED',
+    }),
+}
+const mockDefectCodes: any = {
+    resolveCode: jest.fn().mockResolvedValue({ id: 'dc-1', code: 'D01', severityDefault: 'MAJOR' }),
+}
+const mockNonconformance: any = {
+    createFromDefect: jest.fn(),
+    create: jest.fn().mockResolvedValue({ id: 'nc-1' }),
 }
 
 const mockSupplierReturn: any = { create: jest.fn() }
 
+function inspectionLotModuleProviders() {
+    return [
+        InspectionLotService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: QualityDecisionService, useValue: { applyDecision: jest.fn() } },
+        { provide: MmDomainEventsService, useValue: mockDomainEvents },
+        { provide: InspectionPlanService, useValue: mockPlanService },
+        { provide: SamplingService, useValue: mockSampling },
+        { provide: DefectCodeService, useValue: mockDefectCodes },
+        { provide: NonconformanceService, useValue: mockNonconformance },
+    ]
+}
+
 const mockEvents: any = { emit: jest.fn() }
 
 describe('Receiving + Quality hardening (Phase 3)', () => {
-    beforeEach(() => jest.resetAllMocks())
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockSampling.computeSampleQuantity.mockReturnValue({
+            sampleQuantity: new Decimal(5),
+            samplingType: 'FIXED',
+        })
+        mockDefectCodes.resolveCode.mockResolvedValue({
+            id: 'dc-1',
+            code: 'D01',
+            severityDefault: 'MAJOR',
+        })
+    })
 
     describe('1. PO 100 units → ER', () => {
         it('creates expected receipt with open qty from PO line', async () => {
@@ -193,11 +242,18 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
         let svc: ReceivingDocumentService
 
         beforeEach(async () => {
+            mockQualityRuleService.resolveInspectionRequirement.mockResolvedValue({
+                action: 'NO_INSPECTION',
+                inspectionRequired: false,
+                matchedRuleId: null,
+                matchedRuleCode: null,
+            })
             const module = await Test.createTestingModule({
                 providers: [
                     ReceivingDocumentService,
                     ReceivingVarianceService,
                     InspectionRequirementService,
+                    { provide: QualityRuleService, useValue: mockQualityRuleService },
                     { provide: PrismaService, useValue: mockPrisma },
                     { provide: GoodsReceiptService, useValue: mockGrService },
                     { provide: MmDomainEventsService, useValue: mockDomainEvents },
@@ -224,6 +280,7 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
                 warehouseId: 'wh-1',
                 purchaseOrderId: 'po-1',
                 supplierId: 'sup-1',
+                sourceType: 'PO',
                 asnId: null,
                 lines: [
                     {
@@ -341,34 +398,40 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
     })
 
     describe('4–5. Inspection required + lot at GR post', () => {
-        it('material flag triggers QI stock on GR line mapping', async () => {
-            mockPrisma.mmMaterial.findUnique.mockResolvedValue({ qualityInspectionRequired: true })
-            mockPrisma.warehouse.findUnique.mockResolvedValue({ qualityInspectionRequired: false })
-            mockPrisma.mmSupplier.findUnique.mockResolvedValue(null)
-            mockPrisma.mmSupplierMaterial.findFirst.mockResolvedValue(null)
+        it('rule engine triggers QI stock on GR line mapping', async () => {
+            const mockRules = {
+                resolveInspectionRequirement: jest.fn().mockResolvedValue({
+                    action: 'INSPECTION_REQUIRED',
+                    inspectionRequired: true,
+                    matchedRuleId: 'rule-1',
+                    matchedRuleCode: 'SEED-MAT-M1',
+                }),
+            }
 
             const module = await Test.createTestingModule({
                 providers: [
                     InspectionRequirementService,
-                    { provide: PrismaService, useValue: mockPrisma },
+                    { provide: QualityRuleService, useValue: mockRules },
                 ],
             }).compile()
             const required = await module
                 .get(InspectionRequirementService)
                 .isInspectionRequired({
+                    companyId: 'co-1',
                     materialId: 'mat-1',
                     warehouseId: 'wh-1',
                     supplierId: 'sup-1',
                 })
             expect(required).toBe(true)
+            expect(mockRules.resolveInspectionRequirement).toHaveBeenCalled()
         })
 
-        it('creates inspection lot when GR post triggers createFromGoodsReceipt', async () => {
-            mockLegacyQi.createFromGoodsReceipt.mockResolvedValue({ id: 'qi-legacy-1' })
+        it('creates inspection lot without legacy QI when GR post triggers createFromGoodsReceipt', async () => {
             mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue({
                 id: 'gr-1',
                 companyId: 'co-1',
                 warehouseId: 'wh-1',
+                supplierId: 'sup-1',
                 lines: [
                     {
                         id: 'grl-1',
@@ -376,33 +439,25 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
                         material: { materialCategoryId: 'cat-1' },
                     },
                 ],
+                supplier: { id: 'sup-1' },
             })
-            mockPrisma.mmInspectionPlan.findFirst.mockResolvedValue(null)
             mockPrisma.mmInspectionLot.findFirst.mockResolvedValue(null)
             mockPrisma.mmInspectionLot.create.mockResolvedValue({
                 id: 'il-1',
                 lotNumber: 'IL-1',
-                status: 'PENDING',
+                status: 'CREATED',
             })
+            mockPrisma.mmInspectionSample.create.mockResolvedValue({ id: 's1' })
 
             const module = await Test.createTestingModule({
-                providers: [
-                    InspectionLotService,
-                    { provide: PrismaService, useValue: mockPrisma },
-                    { provide: QualityInspectionService, useValue: mockLegacyQi },
-                    {
-                        provide: QualityDecisionService,
-                        useValue: { applyDecision: jest.fn() },
-                    },
-                    { provide: MmDomainEventsService, useValue: mockDomainEvents },
-                ],
+                providers: inspectionLotModuleProviders(),
             }).compile()
 
             const lots = await module.get(InspectionLotService).createFromGoodsReceipt('gr-1', [
                 { goodsReceiptLineId: 'grl-1', materialId: 'mat-1', quantity: 100 },
             ])
             expect(lots).toHaveLength(1)
-            expect(mockLegacyQi.createFromGoodsReceipt).toHaveBeenCalled()
+            expect(mockPlanService.selectPlan).toHaveBeenCalled()
             expect(mockDomainEvents.emit).toHaveBeenCalledWith(
                 expect.objectContaining({ eventType: MM_DOMAIN_EVENTS.INSPECTION_LOT_CREATED }),
             )
@@ -413,7 +468,8 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
         it('persists samples, results, and defects', async () => {
             mockPrisma.mmInspectionLot.findUnique.mockResolvedValue({
                 id: 'il-1',
-                status: 'PENDING',
+                companyId: 'co-1',
+                status: 'CREATED',
                 qualityHolds: [],
                 material: {},
                 goodsReceipt: {},
@@ -426,19 +482,10 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
             mockPrisma.mmInspectionLot.update.mockResolvedValue({ id: 'il-1', status: 'IN_PROGRESS' })
             mockPrisma.mmInspectionSample.create.mockResolvedValue({})
             mockPrisma.mmInspectionResult.create.mockResolvedValue({})
-            mockPrisma.mmInspectionDefect.create.mockResolvedValue({})
+            mockPrisma.mmInspectionDefect.create.mockResolvedValue({ id: 'def-1' })
 
             const module = await Test.createTestingModule({
-                providers: [
-                    InspectionLotService,
-                    { provide: PrismaService, useValue: mockPrisma },
-                    { provide: QualityInspectionService, useValue: mockLegacyQi },
-                    {
-                        provide: QualityDecisionService,
-                        useValue: { applyDecision: jest.fn() },
-                    },
-                    { provide: MmDomainEventsService, useValue: mockDomainEvents },
-                ],
+                providers: inspectionLotModuleProviders(),
             }).compile()
 
             await module.get(InspectionLotService).recordResults('il-1', {
@@ -465,6 +512,11 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
                     { provide: EventEmitter2, useValue: mockEvents },
                     { provide: MmDomainEventsService, useValue: mockDomainEvents },
                     { provide: SupplierReturnService, useValue: mockSupplierReturn },
+                    { provide: NonconformanceService, useValue: mockNonconformance },
+                    {
+                        provide: QualityWorkflowService,
+                        useValue: { requireApprovalIfConfigured: jest.fn().mockResolvedValue(null) },
+                    },
                 ],
             }).compile()
             svc = module.get(QualityDecisionService)
@@ -517,7 +569,7 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
             )
         })
 
-        it('8. REJECT moves stock to QUARANTINE', async () => {
+        it('8. REJECT alias maps to BLOCK and moves stock to BLOCKED', async () => {
             await svc.applyDecision(
                 {
                     id: 'il-2',
@@ -531,8 +583,9 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
                 { decisionCode: 'REJECT', quantity: 50 },
             )
             expect(mockPosting.postTransaction).toHaveBeenCalledWith(
-                expect.objectContaining({ stockStatus: 'QUARANTINE', movementType: 'TRANSFER_IN' }),
+                expect.objectContaining({ stockStatus: 'BLOCKED', movementType: 'TRANSFER_IN' }),
             )
+            expect(mockNonconformance.create).toHaveBeenCalled()
         })
 
         it('9. RETURN creates supplier return draft', async () => {
@@ -615,22 +668,26 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
         })
     })
 
-    describe('14–15. Supplier / warehouse inspection rules', () => {
-        it('14. supplier-level inspection required', async () => {
-            mockPrisma.mmMaterial.findUnique.mockResolvedValue({ qualityInspectionRequired: false })
-            mockPrisma.warehouse.findUnique.mockResolvedValue({ qualityInspectionRequired: false })
-            mockPrisma.mmSupplier.findUnique.mockResolvedValue({ qualityInspectionRequired: true })
-            mockPrisma.mmSupplierMaterial.findFirst.mockResolvedValue(null)
+    describe('14–15. Configurable inspection rules (Phase 1B)', () => {
+        it('14. supplier-scoped rule requires inspection', async () => {
+            const mockRules = {
+                resolveInspectionRequirement: jest.fn().mockResolvedValue({
+                    action: 'INSPECTION_REQUIRED',
+                    inspectionRequired: true,
+                    matchedRuleCode: 'SEED-SUP-S1',
+                }),
+            }
 
             const module = await Test.createTestingModule({
                 providers: [
                     InspectionRequirementService,
-                    { provide: PrismaService, useValue: mockPrisma },
+                    { provide: QualityRuleService, useValue: mockRules },
                 ],
             }).compile()
             const required = await module
                 .get(InspectionRequirementService)
                 .isInspectionRequired({
+                    companyId: 'co-1',
                     materialId: 'mat-1',
                     warehouseId: 'wh-1',
                     supplierId: 'sup-1',
@@ -638,26 +695,30 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
             expect(required).toBe(true)
         })
 
-        it('15. warehouse-level inspection required', async () => {
-            mockPrisma.mmMaterial.findUnique.mockResolvedValue({ qualityInspectionRequired: false })
-            mockPrisma.warehouse.findUnique.mockResolvedValue({ qualityInspectionRequired: true })
-            mockPrisma.mmSupplier.findUnique.mockResolvedValue({ qualityInspectionRequired: false })
-            mockPrisma.mmSupplierMaterial.findFirst.mockResolvedValue(null)
+        it('15. NO_INSPECTION rule suppresses inspection', async () => {
+            const mockRules = {
+                resolveInspectionRequirement: jest.fn().mockResolvedValue({
+                    action: 'NO_INSPECTION',
+                    inspectionRequired: false,
+                    matchedRuleCode: 'EXEMPT-ALL',
+                }),
+            }
 
             const module = await Test.createTestingModule({
                 providers: [
                     InspectionRequirementService,
-                    { provide: PrismaService, useValue: mockPrisma },
+                    { provide: QualityRuleService, useValue: mockRules },
                 ],
             }).compile()
             const required = await module
                 .get(InspectionRequirementService)
                 .isInspectionRequired({
+                    companyId: 'co-1',
                     materialId: 'mat-1',
                     warehouseId: 'wh-1',
                     supplierId: 'sup-1',
                 })
-            expect(required).toBe(true)
+            expect(required).toBe(false)
         })
     })
 })

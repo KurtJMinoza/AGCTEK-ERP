@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import RefCrudPage from '@/modules/mm/material-master/components/RefCrudPage'
 import type { RefCrudField } from '@/modules/mm/material-master/components/RefCrudPage'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
-import type { MmBranch, MmCompany, MmPlant } from '@/modules/mm/material-master/types'
+import { useLazyMmRefs, useLazyOrgRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import type { MmBranch } from '@/modules/mm/material-master/types'
 
 const ROUTE_PATH = '/modules/mm/organization/branches'
 
@@ -16,26 +17,25 @@ const STATUS_OPTIONS = [
 ]
 
 const BranchesPage = () => {
-    const [companies, setCompanies] = useState<MmCompany[]>([])
-    const [plants, setPlants] = useState<MmPlant[]>([])
-
-    useEffect(() => {
-        orgService.companies().then((list) => setCompanies(Array.isArray(list) ? list : [])).catch(() => {})
-        orgService.plants().then((list) => setPlants(Array.isArray(list) ? list : [])).catch(() => {})
-    }, [])
+    const { ensure: ensureOrgRefs, plants } = useLazyOrgRefs()
+    const { ensure: ensureCompanies, companies } = useLazyMmRefs()
 
     const companyOptions = useMemo(
-        () => companies.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })),
+        () => companies.map((c) => ({ value: c.value, label: c.label })),
         [companies],
     )
 
     const plantOptions = useMemo(
-        () => plants.map((p) => ({
-            value: p.id,
-            label: `${p.code} — ${p.name}${p.company ? ` (${p.company.code})` : ''}`,
-        })),
+        () => plants.map((p) => ({ value: p.value, label: p.label })),
         [plants],
     )
+
+    const prepareFormOpen = useCallback(async () => {
+        await Promise.all([
+            ensureCompanies('companies'),
+            ensureOrgRefs('plants'),
+        ])
+    }, [ensureCompanies, ensureOrgRefs])
 
     const fields = useMemo<RefCrudField[]>(
         () => [
@@ -108,6 +108,7 @@ const BranchesPage = () => {
             })}
             deleteItem={orgService.deleteBranch}
             getItemLabel={(item) => `${item.code} — ${item.name}`}
+            prepareFormOpen={prepareFormOpen}
         />
     )
 }

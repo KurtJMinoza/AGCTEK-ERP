@@ -21,6 +21,7 @@ export class CreateReservationLineDto {
     @IsOptional() @IsString() serialNumberId?: string
     @IsOptional() @IsString() uomId?: string
     @IsOptional() @IsString() stockStatus?: string
+    @IsOptional() @IsString() demandReferenceLineId?: string
 }
 
 export class CreateReservationHeaderDto {
@@ -35,6 +36,7 @@ export class CreateReservationHeaderDto {
     @IsOptional() @IsBoolean() allowPartialReservation?: boolean
     @IsOptional() @IsDateString() validUntil?: string
     @IsOptional() @IsString() createdBy?: string
+    @IsOptional() @IsString() idempotencyKey?: string
     @IsArray() @ValidateNested({ each: true }) @Type(() => CreateReservationLineDto)
     lines!: CreateReservationLineDto[]
 }

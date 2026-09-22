@@ -5,7 +5,12 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MrpEngineService } from './mrp-engine.service'
-import { CreateMrpRunDto, MrpRunQueryDto, MaterialRequirementQueryDto } from './dto/planning.dto'
+import {
+    CreateMrpRunDto,
+    MrpRunQueryDto,
+    MaterialRequirementQueryDto,
+    BomExplosionTraceQueryDto,
+} from './dto/planning.dto'
 
 const RUN_INCLUDE = {
     warehouse: { select: { id: true, code: true, name: true } },
@@ -106,6 +111,25 @@ export class MrpRunService {
     }
 
     async create(dto: CreateMrpRunDto) {
+        if (dto.runKey) {
+            const since = new Date(Date.now() - 5 * 60 * 1000)
+            const existing = await this.prisma.mmMrpRun.findFirst({
+                where: {
+                    companyId: dto.companyId,
+                    plantId: dto.plantId ?? null,
+                    warehouseId: dto.warehouseId ?? null,
+                    status: { in: ['QUEUED', 'RUNNING', 'PENDING'] },
+                    createdAt: { gte: since },
+                    parametersJson: {
+                        path: ['runKey'],
+                        equals: dto.runKey,
+                    },
+                },
+                include: RUN_INCLUDE,
+            })
+            if (existing) return existing
+        }
+
         const runNumber = await this.generateRunNumber()
         const parametersJson = {
             planningHorizonDays: dto.planningHorizonDays ?? 30,
@@ -114,6 +138,7 @@ export class MrpRunService {
                 dto.autoCreatePurchaseRequisitions ?? false,
             plantId: dto.plantId ?? null,
             warehouseId: dto.warehouseId ?? null,
+            runKey: dto.runKey ?? null,
         }
         const run = await this.prisma.mmMrpRun.create({
             data: {
@@ -212,6 +237,63 @@ export class MrpRunService {
                 take: limit,
             }),
             this.prisma.mmMaterialRequirement.count({ where }),
+        ])
+
+        return {
+            data,
+            meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+        }
+    }
+
+    async listBomExplosionTraces(query: BomExplosionTraceQueryDto) {
+        const page = query.page ?? 1
+        const limit = query.limit ?? 100
+        const where: any = {}
+        if (query.mrpRunId) where.mrpRunId = query.mrpRunId
+        if (query.companyId) where.companyId = query.companyId
+        if (query.warehouseId) where.warehouseId = query.warehouseId
+        if (query.parentMaterialId) where.parentMaterialId = query.parentMaterialId
+        if (query.componentMaterialId)
+            where.componentMaterialId = query.componentMaterialId
+
+        if (!query.mrpRunId && query.companyId) {
+            const latest = await this.prisma.mmMrpRun.findFirst({
+                where: { companyId: query.companyId, status: 'COMPLETED' },
+                orderBy: { completedAt: 'desc' },
+                select: { id: true },
+            })
+            if (latest) where.mrpRunId = latest.id
+        }
+
+        const [data, total] = await Promise.all([
+            this.prisma.mmBomExplosionTrace.findMany({
+                where,
+                include: {
+                    parentMaterial: {
+                        select: {
+                            id: true,
+                            materialCode: true,
+                            materialName: true,
+                        },
+                    },
+                    componentMaterial: {
+                        select: {
+                            id: true,
+                            materialCode: true,
+                            materialName: true,
+                        },
+                    },
+                    warehouse: { select: { id: true, code: true, name: true } },
+                },
+                orderBy: [
+                    { parentMaterialId: 'asc' },
+                    { level: 'asc' },
+                    { componentMaterialId: 'asc' },
+                ],
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            this.prisma.mmBomExplosionTrace.count({ where }),
         ])
 
         return {

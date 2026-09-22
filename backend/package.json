@@ -14,7 +14,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit",
+    "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
   },
   "jest": {
     "moduleFileExtensions": [

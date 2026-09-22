@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import {
     CreateSupplierReturnDto,
@@ -37,6 +38,7 @@ export class SupplierReturnService {
         private configService: ReturnsDisposalConfigService,
         private events: EventEmitter2,
         private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateSupplierReturnDto) {
@@ -238,6 +240,8 @@ export class SupplierReturnService {
             throw new BadRequestException('Duplicate return posting blocked')
         }
 
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
         const now = new Date().toISOString()
 
         for (const line of doc.lines) {
@@ -276,10 +280,15 @@ export class SupplierReturnService {
             payload: {
                 returnNumber: doc.returnNumber,
                 supplierId: doc.supplierId,
+                postingDate: now,
+                warehouseId: doc.warehouseId,
                 lines: doc.lines.map((l) => ({
                     materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'RETURN_OUT',
                     quantity: Number(l.quantity),
                     unitCost: Number(l.unitCost),
+                    totalCost: Number(l.unitCost) * Number(l.quantity),
                 })),
             },
         })
@@ -331,24 +340,24 @@ export class SupplierReturnService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'SUPPLIER_RETURN_REVERSED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'SUPPLIER_RETURN',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: { returnNumber: doc.returnNumber },
-                status: 'PENDING',
-            },
-        })
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
 
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'SUPPLIER_RETURN',
-            documentId: doc.id,
+        void this.domainEvents.supplierReturnReversed({
             companyId: doc.companyId,
-            eventHint: 'REVERSAL',
+            returnId: doc.id,
+            payload: {
+                returnNumber: doc.returnNumber,
+                postingDate: new Date().toISOString(),
+                warehouseId: doc.warehouseId,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'RETURN_OUT_REVERSAL',
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                    totalCost: Number(l.unitCost) * Number(l.quantity),
+                })),
+            },
         })
 
         const updated = await this.prisma.mmSupplierReturn.update({

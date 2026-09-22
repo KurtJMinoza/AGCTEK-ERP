@@ -14,8 +14,12 @@ import {
 export class QualityHoldService {
     constructor(private prisma: PrismaService) {}
 
-    async create(dto: CreateQualityHoldDto) {
+    async create(dto: CreateQualityHoldDto & { holdType?: string; targetStockStatus?: string }) {
         const holdNumber = await this.nextNumber()
+        const holdType = (dto.holdType ?? 'QUALITY_HOLD').toUpperCase()
+        const targetStockStatus =
+            dto.targetStockStatus ??
+            (holdType === 'QUARANTINE' ? 'QUARANTINE' : holdType === 'BLOCKED' ? 'BLOCKED' : null)
         return this.prisma.mmQualityHold.create({
             data: {
                 holdNumber,
@@ -24,6 +28,8 @@ export class QualityHoldService {
                 goodsReceiptLineId: dto.goodsReceiptLineId ?? null,
                 materialId: dto.materialId ?? null,
                 warehouseId: dto.warehouseId ?? null,
+                holdType,
+                targetStockStatus,
                 status: 'ACTIVE',
                 reason: dto.reason,
                 heldBy: dto.heldBy ?? null,

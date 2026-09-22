@@ -17,9 +17,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { planningService } from '../services/planningService'
-import { materialService } from '../../material-master/services/materialService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PlanningDemand } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -48,9 +46,8 @@ const DemandPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<PlanningDemand[]>([])
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
+    const { ensure: ensureFormRefs, materials } = useLazyMmRefs()
     const [companyId, setCompanyId] = useState('')
     const [open, setOpen] = useState(false)
     const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -65,32 +62,13 @@ const DemandPage = () => {
     })
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-            materialService.list({ limit: 200 }),
-        ])
-            .then(([cos, wh, mats]: any[]) => {
-                const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                    (x: any) => ({ value: x.id, label: x.name || x.code }),
-                )
-                setCompanies(c)
-                setWarehouses(
-                    (wh?.data ?? []).map((x: any) => ({
-                        value: x.id,
-                        label: `${x.code} — ${x.name}`,
-                    })),
-                )
-                setMaterials(
-                    (mats?.data ?? mats ?? []).map((x: any) => ({
-                        value: x.id,
-                        label: `${x.materialCode} — ${x.materialName}`,
-                    })),
-                )
-                if (c[0]) setCompanyId(c[0].value)
-            })
-            .catch(() => pushToast('danger', 'Error', 'Failed to load filters'))
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
+
+    const openCreate = useCallback(async () => {
+        await ensureFormRefs('materials')
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -110,7 +88,9 @@ const DemandPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<PlanningDemand>[] = useMemo(
         () => [
@@ -208,7 +188,7 @@ const DemandPage = () => {
                     <Button
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         Add Demand
                     </Button>

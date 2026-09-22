@@ -16,7 +16,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { valuationService } from '../services/valuationService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { LandedCost } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -46,8 +46,7 @@ const LandedCostPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<LandedCost[]>([])
     const [loading, setLoading] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
     const [open, setOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const { options: materialOpts } = useMaterialOptions({ enabled: open })
@@ -81,23 +80,14 @@ const LandedCostPage = () => {
 
     useEffect(() => {
         load()
-        orgService.companies().then((cos: any) =>
-            setCompanies(
-                (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.name || c.code,
-                })),
-            ),
-        )
-        orgService.warehouses().then((list: any) =>
-            setWarehouses(
-                (Array.isArray(list) ? list : []).map((w: any) => ({
-                    value: w.id,
-                    label: w.name || w.code,
-                })),
-            ),
-        )
     }, [load])
+
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        setForm((f) => ({ ...f, companyId: c[0]?.value || '' }))
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const columns: ColumnDef<LandedCost>[] = useMemo(
         () => [
@@ -214,7 +204,7 @@ const LandedCostPage = () => {
                     <Button
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         New Draft
                     </Button>

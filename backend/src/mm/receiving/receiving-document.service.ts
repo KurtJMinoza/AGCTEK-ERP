@@ -284,10 +284,13 @@ export class ReceivingDocumentService {
             const discrepancyFlag = this.varianceService.flagsFromVariances(detected)
             const wrongIdentity = discrepancyFlag?.includes('WRONG_')
 
-            const needsQi = await this.inspectionRequirement.isInspectionRequired({
+            const inspection = await this.inspectionRequirement.resolveInspectionRequirement({
+                companyId: doc.companyId,
                 materialId: line.materialId,
                 supplierId: doc.supplierId,
                 warehouseId: doc.warehouseId,
+                expectedReceiptId: doc.expectedReceiptId,
+                purchaseOrderId: doc.purchaseOrderId ?? undefined,
             })
             const goodQty = Math.max(0, received - damaged - rejected)
 
@@ -307,7 +310,8 @@ export class ReceivingDocumentService {
                 purchaseOrderLineId: erLine.purchaseOrderLineId ?? undefined,
                 expectedReceiptLineId: erLine.id,
                 discrepancyFlag,
-                stockStatus: goodQty > 0 && needsQi ? 'QUALITY_INSPECTION' : undefined,
+                stockStatus: goodQty > 0 && inspection.inspectionRequired ? 'QUALITY_INSPECTION' : undefined,
+                samplingOverride: inspection.samplingOverride,
                 remarks: line.remarks ?? undefined,
             })
         }

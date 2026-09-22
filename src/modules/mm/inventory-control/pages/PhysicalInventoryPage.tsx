@@ -18,8 +18,7 @@ import Tabs from '@/components/ui/Tabs'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlinePlay, HiOutlineCheck, HiOutlineX } from 'react-icons/hi'
 import { inventoryControlService } from '../services/inventoryControlService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryCount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -53,8 +52,7 @@ const PhysicalInventoryPage = () => {
     const [detail, setDetail] = useState<InventoryCount | null>(null)
     const [createOpen, setCreateOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [companies, setCompanies] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
     const [form, setForm] = useState({
         companyId: '',
         warehouseId: '',
@@ -80,23 +78,19 @@ const PhysicalInventoryPage = () => {
 
     useEffect(() => {
         load()
-        Promise.all([orgService.companies(), warehouseService.list({ limit: 200 })]).then(
-            ([cos, wh]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setWarehouses(
-                    (wh?.data ?? []).map((w: any) => ({
-                        value: w.id,
-                        label: `${w.code} — ${w.name}`,
-                    })),
-                )
-            },
-        )
     }, [load])
+
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        setForm({
+            companyId: c[0]?.value || '',
+            warehouseId: '',
+            assignedCounter: '',
+            includeZeroBalances: true,
+        })
+        setCreateOpen(true)
+    }, [ensureFormRefs])
 
     const run = async (fn: () => Promise<unknown>, ok: string) => {
         try {
@@ -183,7 +177,7 @@ const PhysicalInventoryPage = () => {
                 title="Physical Inventory"
                 description="Full stock-take sessions: OPEN → COUNTING → RECOUNT → APPROVAL → POSTED → CLOSED."
                 actions={
-                    <Button variant="solid" icon={<HiOutlinePlus />} onClick={() => setCreateOpen(true)}>
+                    <Button variant="solid" icon={<HiOutlinePlus />} onClick={openCreate}>
                         New Stock-Take
                     </Button>
                 }

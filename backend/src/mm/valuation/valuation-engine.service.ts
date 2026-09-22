@@ -7,6 +7,9 @@ import { MaterialValuationService } from './material-valuation.service'
 import { CostLayerService, LayerConsumption } from './cost-layer.service'
 import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
 import { PriceVarianceService } from './price-variance.service'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 const COST_SCALE = 6
 
@@ -42,6 +45,8 @@ export class ValuationEngineService {
         private methodRegistry: ValuationMethodRegistry,
         private priceVariances: PriceVarianceService,
         private events: EventEmitter2,
+        private accountingEvents: MmAccountingEventService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     /**
@@ -152,34 +157,26 @@ export class ValuationEngineService {
             },
         })
 
-        const payload = {
+        await this.recordAndDispatchAccounting(tx, {
+            eventType: 'InventoryValuationReversed',
             sourceModule: 'VALUATION',
             documentType: 'INVENTORY_VALUATION',
             documentId: reversal.id,
             companyId: original.companyId,
-            eventHint: 'INVENTORY_VALUATION_REVERSAL',
+            postingDate: new Date(),
+            sourceTransactionId: reversal.id,
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.REVERSAL],
             lines: [
                 {
                     materialId: original.materialId,
+                    warehouseId: original.warehouseId,
+                    movementType: 'REVALUATION_REVERSAL',
                     quantity: Number(new Decimal(original.quantity).neg()),
                     unitCost: Number(original.unitCost),
                     totalCost: Number(new Decimal(original.totalCost).neg()),
                 },
             ],
-        }
-
-        await tx.mmAccountingEvent.create({
-            data: {
-                eventType: 'INVENTORY_VALUATION_REVERSED',
-                sourceModule: 'VALUATION',
-                documentType: 'INVENTORY_VALUATION',
-                documentId: reversal.id,
-                companyId: original.companyId,
-                payload,
-                status: 'PENDING',
-            },
         })
-        this.events.emit('accounting.entry.requested', payload)
 
         return {
             unitCost: new Decimal(reversal.unitCost),
@@ -369,53 +366,54 @@ export class ValuationEngineService {
         valTxn: any,
         priceVariance: Decimal,
     ) {
-        const payload = {
+        await this.recordAndDispatchAccounting(tx, {
+            eventType: 'InventoryValuationUpdated',
             sourceModule: 'VALUATION',
             documentType: 'INVENTORY_VALUATION',
             documentId: valTxn.id,
             companyId: valTxn.companyId,
-            eventHint: 'INVENTORY_VALUATION',
+            postingDate: new Date(),
+            sourceTransactionId: valTxn.id,
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_REVALUATION],
             lines: [
                 {
                     materialId: valTxn.materialId,
+                    warehouseId: valTxn.warehouseId,
+                    movementType: 'REVALUATION',
                     quantity: Number(valTxn.quantity),
                     unitCost: Number(valTxn.unitCost),
                     totalCost: Number(valTxn.totalCost),
-                    priceVariance: Number(priceVariance),
                 },
             ],
-        }
-
-        await tx.mmAccountingEvent.create({
-            data: {
-                eventType: 'INVENTORY_VALUATION_POSTED',
-                sourceModule: 'VALUATION',
-                documentType: 'INVENTORY_VALUATION',
-                documentId: valTxn.id,
-                companyId: valTxn.companyId,
-                payload,
-                status: 'PENDING',
-            },
         })
-        this.events.emit('accounting.entry.requested', payload)
 
         if (!priceVariance.isZero()) {
-            const varPayload = {
-                ...payload,
-                eventHint: 'PRICE_VARIANCE',
-            }
-            await tx.mmAccountingEvent.create({
-                data: {
-                    eventType: 'PRICE_VARIANCE_POSTED',
-                    sourceModule: 'VALUATION',
-                    documentType: 'INVENTORY_VALUATION',
-                    documentId: valTxn.id,
-                    companyId: valTxn.companyId,
-                    payload: varPayload,
-                    status: 'PENDING',
-                },
+            await this.recordAndDispatchAccounting(tx, {
+                eventType: 'PriceVariancePosted',
+                sourceModule: 'VALUATION',
+                documentType: 'PRICE_VARIANCE',
+                documentId: valTxn.id,
+                companyId: valTxn.companyId,
+                postingDate: new Date(),
+                sourceTransactionId: valTxn.id,
+                idempotencyKey: this.accountingEvents.buildIdempotencyKey(
+                    'PriceVariancePosted',
+                    'PRICE_VARIANCE',
+                    valTxn.id,
+                ),
+                accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.PRICE_VARIANCE],
+                lines: [
+                    {
+                        materialId: valTxn.materialId,
+                        warehouseId: valTxn.warehouseId,
+                        movementType: 'PRICE_VARIANCE',
+                        quantity: Number(valTxn.quantity),
+                        unitCost: Number(priceVariance),
+                        totalCost: Number(priceVariance),
+                    },
+                ],
+                extraPayload: { priceVariance: Number(priceVariance) },
             })
-            this.events.emit('accounting.entry.requested', varPayload)
         }
     }
 
@@ -475,6 +473,11 @@ export class ValuationEngineService {
         if (allocated.lte(0)) {
             throw new BadRequestException('Allocated amount must be positive')
         }
+
+        await this.periodGuard.assertCanPost(
+            params.companyId,
+            params.postingDate ?? new Date(),
+        )
 
         return this.prisma.$transaction(async (tx) => {
             const valuation = await this.materialValuation.ensureForPosting(
@@ -623,6 +626,11 @@ export class ValuationEngineService {
         const delta = this.roundCost(newCost.minus(oldCost))
         if (delta.isZero()) return null
 
+        await this.periodGuard.assertCanPost(
+            params.companyId,
+            params.postingDate ?? new Date(),
+        )
+
         return this.prisma.$transaction(async (tx) => {
             const onHand = await this.onHandQty(
                 tx,
@@ -673,35 +681,30 @@ export class ValuationEngineService {
                 layerConsumptions: null,
             })
 
-            const payload = {
+            await this.recordAndDispatchAccounting(tx, {
+                eventType: 'InventoryRevaluationPosted',
                 sourceModule: 'VALUATION',
                 documentType: 'INVENTORY_VALUATION',
                 documentId: valTxn.id,
                 companyId: params.companyId,
-                eventHint: 'INVENTORY_REVALUATION',
+                postingDate,
+                sourceTransactionId: valTxn.id,
+                accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_REVALUATION],
                 lines: [
                     {
                         materialId: params.materialId,
+                        warehouseId: params.warehouseId,
+                        movementType: 'REVALUATION',
                         quantity: Number(onHand),
                         unitCost: Number(delta),
                         totalCost: Number(totalCost),
-                        oldStandardCost: Number(oldCost),
-                        newStandardCost: Number(newCost),
                     },
                 ],
-            }
-            await tx.mmAccountingEvent.create({
-                data: {
-                    eventType: 'INVENTORY_REVALUATION_POSTED',
-                    sourceModule: 'VALUATION',
-                    documentType: 'INVENTORY_VALUATION',
-                    documentId: valTxn.id,
-                    companyId: params.companyId,
-                    payload,
-                    status: 'PENDING',
+                extraPayload: {
+                    oldStandardCost: Number(oldCost),
+                    newStandardCost: Number(newCost),
                 },
             })
-            this.events.emit('accounting.entry.requested', payload)
             return valTxn
         })
     }
@@ -765,49 +768,64 @@ export class ValuationEngineService {
         allocated: Decimal,
         priceVariance: Decimal,
     ) {
-        const payload = {
+        await this.recordAndDispatchAccounting(tx, {
+            eventType: 'LandedCostAllocated',
             sourceModule: 'VALUATION',
             documentType: 'LANDED_COST',
             documentId: valTxn.id,
             companyId: valTxn.companyId,
-            eventHint: 'LANDED_COST',
+            postingDate: new Date(),
+            sourceTransactionId: valTxn.id,
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.LANDED_COST],
             lines: [
                 {
                     materialId: valTxn.materialId,
+                    warehouseId: valTxn.warehouseId,
+                    movementType: 'LANDED_COST',
                     quantity: Number(valTxn.quantity),
                     unitCost: Number(valTxn.unitCost),
                     totalCost: Number(allocated),
-                    priceVariance: Number(priceVariance),
                 },
             ],
-        }
-        await tx.mmAccountingEvent.create({
-            data: {
-                eventType: 'LANDED_COST_POSTED',
+        })
+
+        if (!priceVariance.isZero()) {
+            await this.recordAndDispatchAccounting(tx, {
+                eventType: 'PriceVariancePosted',
                 sourceModule: 'VALUATION',
                 documentType: 'LANDED_COST',
                 documentId: valTxn.id,
                 companyId: valTxn.companyId,
-                payload,
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', payload)
-
-        if (!priceVariance.isZero()) {
-            const varPayload = { ...payload, eventHint: 'PRICE_VARIANCE' }
-            await tx.mmAccountingEvent.create({
-                data: {
-                    eventType: 'PRICE_VARIANCE_POSTED',
-                    sourceModule: 'VALUATION',
-                    documentType: 'LANDED_COST',
-                    documentId: valTxn.id,
-                    companyId: valTxn.companyId,
-                    payload: varPayload,
-                    status: 'PENDING',
-                },
+                postingDate: new Date(),
+                sourceTransactionId: valTxn.id,
+                idempotencyKey: this.accountingEvents.buildIdempotencyKey(
+                    'PriceVariancePosted',
+                    'LANDED_COST',
+                    valTxn.id,
+                ),
+                accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.PRICE_VARIANCE],
+                lines: [
+                    {
+                        materialId: valTxn.materialId,
+                        warehouseId: valTxn.warehouseId,
+                        movementType: 'PRICE_VARIANCE',
+                        quantity: Number(valTxn.quantity),
+                        unitCost: Number(priceVariance),
+                        totalCost: Number(priceVariance),
+                    },
+                ],
             })
-            this.events.emit('accounting.entry.requested', varPayload)
+        }
+    }
+
+    private async recordAndDispatchAccounting(
+        tx: Prisma.TransactionClient,
+        input: Parameters<MmAccountingEventService['recordStandalone']>[1],
+    ): Promise<void> {
+        const record = await this.accountingEvents.recordStandalone(tx, input)
+        const dispatch = this.accountingEvents.toDispatchPayload(record)
+        if (dispatch) {
+            this.events.emit('accounting.entry.requested', dispatch)
         }
     }
 

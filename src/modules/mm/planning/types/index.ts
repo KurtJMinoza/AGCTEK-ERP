@@ -1,3 +1,46 @@
+export const MRP_EXPLANATION_VERSION = '2D' as const
+
+export type MrpDemandLineExplanation = {
+    sourceType: string
+    label: string
+    sourceDocumentId?: string | null
+    demandDate?: string
+    quantity: string
+}
+
+export type MrpRecommendationExplanation = {
+    version: typeof MRP_EXPLANATION_VERSION
+    materialCode: string
+    materialName?: string
+    warehouseCode?: string
+    planningDate?: string
+    demandLines: MrpDemandLineExplanation[]
+    grossDemand: string
+    openingStock: string
+    reserved: string
+    projectedSupply: string
+    safetyStock: string
+    projectedAvailable: string
+    netRequirement: string
+    moq: string
+    lotSize: string
+    recommendedQuantity: string
+    reasonCode: string
+    reasonSummary: string
+    planningRule: string
+    sourceDemandReferences: string[]
+    independentDemandQty?: string
+    bomDependentDemandQty?: string
+    timePhased?: {
+        violationDate?: string
+        projectedClosing?: string
+        safetyStockViolation?: string
+    }
+    leadTimeDays?: number
+    expectedProcurementDate?: string
+    preferredSupplierCode?: string | null
+}
+
 export type ListMeta = {
     total: number
     page: number
@@ -85,6 +128,8 @@ export type MaterialRequirement = {
     plannedSupplyQty?: number | string
     productionSupplyQty?: number | string
     demandQty: number | string
+    independentDemandQty?: number | string | null
+    bomDependentDemandQty?: number | string | null
     grossDemand?: number | string
     projectedAvailable?: number | string
     safetyStock: number | string
@@ -100,8 +145,11 @@ export type MaterialRequirement = {
     source?: string | null
     expectedProcurementDate?: string | null
     projectedStockoutDate?: string | null
+    shortageDate?: string | null
+    safetyStockViolationQty?: number | string | null
     belowReorderPoint: boolean
     shortage: boolean
+    explanationJson?: MrpRecommendationExplanation | null
     material?: { id: string; materialCode: string; materialName: string }
     warehouse?: { id: string; code: string; name: string }
     mrpRun?: { id: string; runNumber: string; status: string }
@@ -126,7 +174,10 @@ export type ProcurementSuggestion = {
     shortageReason?: string | null
     moq?: number | string
     lotSize?: number | string
+    shortageDate?: string | null
+    projectedClosingQty?: number | string | null
     explanation?: string | null
+    explanationJson?: MrpRecommendationExplanation | null
     status: string
     purchaseRequisitionId?: string | null
     material?: { id: string; materialCode: string; materialName: string }
@@ -142,6 +193,45 @@ export type ProcurementSuggestion = {
         requisitionNumber: string
         status: string
     } | null
+}
+
+export type BomExplosionTrace = {
+    id: string
+    mrpRunId: string
+    companyId: string
+    warehouseId: string
+    parentMaterialId: string
+    componentMaterialId: string
+    level: number
+    demandDate?: string | null
+    parentDemandQty: number | string
+    quantityPer: number | string
+    grossComponentQty: number | string
+    uomId?: string | null
+    yieldFactor?: number | string | null
+    scrapFactor?: number | string | null
+    explosionReason?: string | null
+    warningCode?: string | null
+    parentMaterial?: { id: string; materialCode: string; materialName: string }
+    componentMaterial?: { id: string; materialCode: string; materialName: string }
+    warehouse?: { id: string; code: string; name: string }
+}
+
+export type ProjectedStockRow = {
+    id: string
+    mrpRunId: string
+    companyId: string
+    warehouseId: string
+    materialId: string
+    bucketDate: string
+    openingQty: number | string
+    demandQty: number | string
+    supplyQty: number | string
+    reservationQty: number | string
+    closingQty: number | string
+    material?: { id: string; materialCode: string; materialName: string }
+    warehouse?: { id: string; code: string; name: string }
+    mrpRun?: { id: string; runNumber: string; status: string }
 }
 
 export type PlanningDashboard = {

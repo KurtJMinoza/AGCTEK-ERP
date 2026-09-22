@@ -100,7 +100,14 @@ describe('MM-11 Returns & Disposal', () => {
     let prisma: any
     let postingService: any
     let events: EventEmitter2
-    let mockDomainEvents: { supplierReturnPosted: jest.Mock }
+    let mockDomainEvents: {
+        supplierReturnPosted: jest.Mock
+        scrapPosted: jest.Mock
+        disposalPosted: jest.Mock
+        disposalReversed: jest.Mock
+        supplierReturnReversed: jest.Mock
+    }
+    const mockPeriodGuard = { assertCanPost: jest.fn().mockResolvedValue(undefined) }
 
     beforeEach(() => {
         prisma = mockPrisma()
@@ -109,7 +116,13 @@ describe('MM-11 Returns & Disposal', () => {
             reverseTransaction: jest.fn().mockResolvedValue({ id: 'txn-rev-1' }),
         }
         events = new EventEmitter2()
-        mockDomainEvents = { supplierReturnPosted: jest.fn() }
+        mockDomainEvents = {
+            supplierReturnPosted: jest.fn(),
+            scrapPosted: jest.fn(),
+            disposalPosted: jest.fn(),
+            disposalReversed: jest.fn(),
+            supplierReturnReversed: jest.fn(),
+        }
 
         configService = new ReturnsDisposalConfigService(prisma)
         returnService = new SupplierReturnService(
@@ -118,12 +131,14 @@ describe('MM-11 Returns & Disposal', () => {
             configService,
             events,
             mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
+            mockPeriodGuard as any,
         )
         disposalService = new DisposalService(
             prisma,
             postingService,
             configService,
-            events,
+            mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
+            mockPeriodGuard as any,
         )
         customerReturnService = new CustomerReturnService(
             prisma,
@@ -309,7 +324,7 @@ describe('MM-11 Returns & Disposal', () => {
     })
 
     describe('scrap', () => {
-        it('posts SCRAP + DISPOSAL_POSTED', async () => {
+        it('posts SCRAP + scrapPosted domain event', async () => {
             const doc = {
                 id: 'dsp-1',
                 disposalNumber: 'DSP-001',
@@ -331,11 +346,10 @@ describe('MM-11 Returns & Disposal', () => {
                 expect.objectContaining({ movementType: 'SCRAP', quantity: 5 }),
             )
             expect(prisma.mmScrapTransaction.upsert).toHaveBeenCalled()
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
+            expect(mockDomainEvents.scrapPosted).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'DISPOSAL_POSTED',
-                    }),
+                    scrapId: 'dsp-1',
+                    companyId: 'c1',
                 }),
             )
         })
@@ -450,16 +464,12 @@ describe('MM-11 Returns & Disposal', () => {
 
             await returnService.reverse('ret-3')
             expect(postingService.reverseTransaction).toHaveBeenCalled()
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'SUPPLIER_RETURN_REVERSED',
-                    }),
-                }),
+            expect(mockDomainEvents.supplierReturnReversed).toHaveBeenCalledWith(
+                expect.objectContaining({ returnId: 'ret-3' }),
             )
         })
 
-        it('disposal reverse → DISPOSAL_REVERSED', async () => {
+        it('disposal reverse → DisposalReversed domain event', async () => {
             const postedDoc = {
                 id: 'dsp-2',
                 disposalNumber: 'DSP-002',
@@ -476,12 +486,8 @@ describe('MM-11 Returns & Disposal', () => {
 
             await disposalService.reverse('dsp-2')
             expect(postingService.reverseTransaction).toHaveBeenCalled()
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'DISPOSAL_REVERSED',
-                    }),
-                }),
+            expect(mockDomainEvents.disposalReversed).toHaveBeenCalledWith(
+                expect.objectContaining({ disposalId: 'dsp-2' }),
             )
         })
     })

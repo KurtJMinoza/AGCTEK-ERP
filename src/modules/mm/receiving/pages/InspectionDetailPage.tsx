@@ -24,7 +24,7 @@ const ROUTE = '/modules/mm/receiving/inspection-queue'
 const DECISION_OPTIONS = [
     { value: 'ACCEPT', label: 'Accept → Unrestricted' },
     { value: 'ACCEPT_WITH_DEVIATION', label: 'Accept with deviation' },
-    { value: 'REJECT', label: 'Reject → Quarantine' },
+    { value: 'BLOCK', label: 'Block → Blocked stock' },
     { value: 'REWORK', label: 'Rework → Blocked' },
     { value: 'RETURN', label: 'Return → Supplier return draft' },
 ]
@@ -145,20 +145,35 @@ const InspectionDetailPage = () => {
         )
     }
 
-    const canDecide = !['COMPLETED', 'CANCELLED'].includes(lot.status) && !(lot.qualityHolds?.length)
+    const terminal = ['CLOSED', 'CANCELLED', 'DECIDED', 'COMPLETED']
+    const canDecide = !terminal.includes(lot.status) && !(lot.qualityHolds?.length)
+    const canStart = ['CREATED', 'READY', 'PENDING'].includes(lot.status)
+    const canComplete = lot.status === 'IN_PROGRESS'
 
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title={lot.lotNumber}
-                description={`Material ${lot.material?.materialCode ?? lot.materialId} · Qty ${Number(lot.quantity)} · GR ${lot.goodsReceipt?.documentNumber ?? lot.goodsReceiptId}`}
+                description={`Material ${lot.material?.materialCode ?? lot.materialId} · Qty ${Number(lot.quantity)} · GR ${lot.goodsReceipt?.documentNumber ?? lot.goodsReceiptId}${lot.supplier ? ` · ${lot.supplier.supplierName}` : ''}`}
                 icon={<HiOutlineClipboardCheck />}
             />
 
-            <div className="mb-4 flex flex-wrap gap-2">
-                <StatusBadge tone={lot.status === 'PENDING' ? 'warning' : 'info'}>{lot.status}</StatusBadge>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+                <StatusBadge tone={['CREATED', 'READY', 'PENDING', 'PENDING_DECISION'].includes(lot.status) ? 'warning' : 'info'}>{lot.status}</StatusBadge>
                 {lot.result ? <StatusBadge tone="success">{lot.result}</StatusBadge> : null}
+                {canStart ? (
+                    <Button size="sm" loading={submitting} onClick={async () => {
+                        await inspectionService.start(lot.id, { inspector: decidedBy || undefined })
+                        await load()
+                    }}>Start inspection</Button>
+                ) : null}
+                {canComplete ? (
+                    <Button size="sm" loading={submitting} onClick={async () => {
+                        await inspectionService.complete(lot.id, { completedBy: decidedBy || undefined })
+                        await load()
+                    }}>Complete inspection</Button>
+                ) : null}
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

@@ -302,7 +302,13 @@ describe('Reservation + Allocation Engine (Phase 5)', () => {
                 { provide: PrismaService, useValue: mockPrisma },
                 {
                     provide: MmDomainEventsService,
-                    useValue: { reservationCreated: jest.fn(), reservationReleased: jest.fn() },
+                    useValue: {
+                        reservationCreated: jest.fn(),
+                        reservationReleased: jest.fn(),
+                        shortageDetected: jest.fn(),
+                        allocationCreated: jest.fn(),
+                        allocationReleased: jest.fn(),
+                    },
                 },
                 {
                     provide: PickingService,

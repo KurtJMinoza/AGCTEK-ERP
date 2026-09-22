@@ -17,7 +17,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash } from 'react-icons/hi'
-import { uomConversionService, uomService } from '../services/referenceService'
+import { uomConversionService } from '../services/referenceService'
+import { useUomOptions } from '@/modules/mm/shared/useEntityOptions'
 import type { MmUomConversion, MmUom } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { firstError, positiveNumber, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
@@ -34,7 +35,6 @@ type Opt = { value: string; label: string }
 const UomConversionsPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
     const [items, setItems] = useState<MmUomConversion[]>([])
-    const [uoms, setUoms] = useState<MmUom[]>([])
     const [loading, setLoading] = useState(true)
     const [formOpen, setFormOpen] = useState(false)
     const [editing, setEditing] = useState<MmUomConversion | null>(null)
@@ -50,7 +50,7 @@ const UomConversionsPage = () => {
     const [forceValidate, setForceValidate] = useState(false)
 
     const { options: materialOpts } = useMaterialOptions({ enabled: formOpen })
-    const uomOpts = useMemo<Opt[]>(() => uoms.map((u) => ({ value: u.id, label: `${u.code} — ${u.name}` })), [uoms])
+    const { options: uomOpts } = useUomOptions({ enabled: formOpen })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
         fromId: required(fromId, 'From UOM'),
@@ -65,8 +65,8 @@ const UomConversionsPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const [c, u] = await Promise.all([uomConversionService.list(), uomService.list()])
-            setItems(c); setUoms(u)
+            const c = await uomConversionService.list()
+            setItems(c)
         } catch { /* ignore */ }
         finally { setLoading(false) }
     }, [])

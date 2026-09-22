@@ -62,6 +62,7 @@ interface RefCrudPageProps<T extends { id: string }> {
     updateItem: (id: string, data: any) => Promise<T>
     deleteItem: (id: string) => Promise<any>
     getItemLabel?: (item: T) => string
+    prepareFormOpen?: () => void | Promise<void>
 }
 
 export default function RefCrudPage<T extends { id: string }>({
@@ -75,6 +76,7 @@ export default function RefCrudPage<T extends { id: string }>({
     updateItem,
     deleteItem,
     getItemLabel,
+    prepareFormOpen,
 }: RefCrudPageProps<T>) {
     const breadcrumbItems = buildErpBreadcrumbs(routePath)
     const [search, setSearch] = useState('')
@@ -132,7 +134,8 @@ export default function RefCrudPage<T extends { id: string }>({
         setTouched((t) => ({ ...t, [key]: true }))
     }
 
-    const openCreate = () => {
+    const openCreate = async () => {
+        await prepareFormOpen?.()
         setEditing(null)
         const blank: Record<string, any> = {}
         fields.forEach((f) => { blank[f.key] = f.type === 'number' ? '' : '' })
@@ -142,7 +145,8 @@ export default function RefCrudPage<T extends { id: string }>({
         setFormOpen(true)
     }
 
-    const openEdit = (item: T) => {
+    const openEdit = async (item: T) => {
+        await prepareFormOpen?.()
         setEditing(item)
         const data: Record<string, any> = {}
         fields.forEach((f) => { data[f.key] = (item as any)[f.key] ?? '' })

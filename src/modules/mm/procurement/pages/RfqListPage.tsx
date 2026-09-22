@@ -27,9 +27,7 @@ import {
 } from 'react-icons/hi'
 import { rfqService } from '../services/rfqService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
-import { uomService, orgService } from '@/modules/mm/material-master/services/referenceService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmRfq, MmRfqListResponse, PurchaseRequisition } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
@@ -115,11 +113,14 @@ const RfqListPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const [companies, setCompanies] = useState<FilterOption[]>([])
-    const [currencies, setCurrencies] = useState<FilterOption[]>([])
-    const [materials, setMaterials] = useState<FilterOption[]>([])
-    const [uoms, setUoms] = useState<FilterOption[]>([])
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
+    const {
+        ensure: ensureFormRefs,
+        companies,
+        currencies,
+        materials,
+        uoms,
+        suppliers,
+    } = useLazyMmRefs()
 
     const [approvedPrs, setApprovedPrs] = useState<PurchaseRequisition[]>([])
     const [fromPr, setFromPr] = useState({
@@ -156,22 +157,17 @@ const RfqListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    useEffect(() => {
-        orgService.companies().then((list) => setCompanies(list.map((c) => ({ value: c.id, label: c.name })))).catch(() => {})
-        orgService.currencies().then((list) => setCurrencies(list.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })))).catch(() => {})
-        uomService.list().then((list) => setUoms(list.map((u: { id: string; code: string }) => ({ value: u.id, label: u.code })))).catch(() => {})
-        materialService.list({ page: 1, limit: 200, status: 'ACTIVE' } as never).then((res) => {
-            setMaterials(res.data.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })))
-        }).catch(() => {})
-        supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }).then((res) => {
-            setSuppliers(res.data.map((s) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })))
-        }).catch(() => {})
-    }, [])
-
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs(
+            'companies',
+            'currencies',
+            'uoms',
+            'materials',
+            'suppliers',
+        )
         setWizardStep(0)
         setHeader({
-            companyId: companies[0]?.value || '',
+            companyId: refs.companies?.[0]?.value || '',
             buyerId: 'current-user',
             responseDeadline: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
             currencyId: '',
@@ -184,9 +180,10 @@ const RfqListPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-    }, [companies])
+    }, [ensureFormRefs])
 
     const openFromPr = useCallback(async () => {
+        await ensureFormRefs('companies', 'currencies', 'suppliers')
         setFromPr({
             purchaseRequisitionId: '',
             buyerId: 'current-user',
@@ -209,7 +206,7 @@ const RfqListPage = () => {
         } catch {
             setApprovedPrs([])
         }
-    }, [])
+    }, [ensureFormRefs])
 
     const selectedPr = useMemo(
         () => approvedPrs.find((p) => p.id === fromPr.purchaseRequisitionId) ?? null,

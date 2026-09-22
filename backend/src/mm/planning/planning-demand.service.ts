@@ -77,10 +77,15 @@ export class PlanningDemandService {
                 materialId: dto.materialId,
                 plantId: dto.plantId ?? null,
                 warehouseId: dto.warehouseId ?? null,
+                uomId: dto.uomId ?? material.baseUomId,
                 demandDate: new Date(dto.demandDate),
                 quantity: new Decimal(dto.quantity),
+                sourceModule: dto.sourceModule ?? 'MM',
+                sourceDocumentType: dto.sourceDocumentType ?? 'MANUAL',
                 sourceType: dto.sourceType ?? 'MANUAL_INTERNAL',
                 sourceDocumentId: dto.sourceDocumentId ?? null,
+                sourceDocumentLineId: dto.sourceDocumentLineId ?? null,
+                priority: dto.priority ?? 100,
                 status: dto.status ?? 'OPEN',
                 remarks: dto.remarks ?? null,
                 createdBy: dto.createdBy ?? null,
@@ -96,9 +101,16 @@ export class PlanningDemandService {
         if (dto.plantId !== undefined) data.plantId = dto.plantId || null
         if (dto.demandDate !== undefined) data.demandDate = new Date(dto.demandDate)
         if (dto.quantity !== undefined) data.quantity = new Decimal(dto.quantity)
+        if (dto.uomId !== undefined) data.uomId = dto.uomId
+        if (dto.sourceModule !== undefined) data.sourceModule = dto.sourceModule
+        if (dto.sourceDocumentType !== undefined)
+            data.sourceDocumentType = dto.sourceDocumentType
         if (dto.sourceType !== undefined) data.sourceType = dto.sourceType
         if (dto.sourceDocumentId !== undefined)
             data.sourceDocumentId = dto.sourceDocumentId
+        if (dto.sourceDocumentLineId !== undefined)
+            data.sourceDocumentLineId = dto.sourceDocumentLineId
+        if (dto.priority !== undefined) data.priority = dto.priority
         if (dto.status !== undefined) data.status = dto.status
         if (dto.remarks !== undefined) data.remarks = dto.remarks
 

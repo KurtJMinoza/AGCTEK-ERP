@@ -20,6 +20,7 @@ export const PLANNING_DEMAND_SOURCES = [
     'PROJECTS',
     'MANUAL_INTERNAL',
     'FORECAST',
+    'IMPORTED',
     // legacy
     'MANUAL',
     'SALES_ORDER',
@@ -38,6 +39,24 @@ export class CreateReorderRuleDto {
     @IsOptional()
     @IsString()
     warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    plantId?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    planningHorizonDays?: number
 
     @IsOptional()
     @Type(() => Number)
@@ -107,6 +126,24 @@ export class CreateReorderRuleDto {
 }
 
 export class UpdateReorderRuleDto {
+    @IsOptional()
+    @IsString()
+    plantId?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    planningHorizonDays?: number
+
     @IsOptional()
     @Type(() => Number)
     @IsNumber()
@@ -231,6 +268,18 @@ export class CreatePlanningDemandDto {
     quantity!: number
 
     @IsOptional()
+    @IsString()
+    uomId?: string
+
+    @IsOptional()
+    @IsString()
+    sourceModule?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentType?: string
+
+    @IsOptional()
     @IsIn([...PLANNING_DEMAND_SOURCES])
     sourceType?: string
 
@@ -239,7 +288,16 @@ export class CreatePlanningDemandDto {
     sourceDocumentId?: string
 
     @IsOptional()
-    @IsIn(['OPEN', 'CANCELLED'])
+    @IsString()
+    sourceDocumentLineId?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    priority?: number
+
+    @IsOptional()
+    @IsIn(['OPEN', 'CANCELLED', 'FULFILLED'])
     status?: string
 
     @IsOptional()
@@ -272,6 +330,18 @@ export class UpdatePlanningDemandDto {
     quantity?: number
 
     @IsOptional()
+    @IsString()
+    uomId?: string
+
+    @IsOptional()
+    @IsString()
+    sourceModule?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentType?: string
+
+    @IsOptional()
     @IsIn([...PLANNING_DEMAND_SOURCES])
     sourceType?: string
 
@@ -280,7 +350,16 @@ export class UpdatePlanningDemandDto {
     sourceDocumentId?: string
 
     @IsOptional()
-    @IsIn(['OPEN', 'CANCELLED'])
+    @IsString()
+    sourceDocumentLineId?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    priority?: number
+
+    @IsOptional()
+    @IsIn(['OPEN', 'CANCELLED', 'FULFILLED'])
     status?: string
 
     @IsOptional()
@@ -369,6 +448,11 @@ export class CreateMrpRunDto {
     @IsOptional()
     @IsBoolean()
     executeImmediately?: boolean
+
+    /** Optional dedup key — returns existing QUEUED/RUNNING run within 5 min for same scope */
+    @IsOptional()
+    @IsString()
+    runKey?: string
 }
 
 export class MrpRunQueryDto {
@@ -427,6 +511,40 @@ export class MaterialRequirementQueryDto {
     @Type(() => Boolean)
     @IsBoolean()
     belowReorderPoint?: boolean
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    limit?: number
+}
+
+export class BomExplosionTraceQueryDto {
+    @IsOptional()
+    @IsString()
+    mrpRunId?: string
+
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    parentMaterialId?: string
+
+    @IsOptional()
+    @IsString()
+    componentMaterialId?: string
 
     @IsOptional()
     @Type(() => Number)
@@ -504,3 +622,48 @@ export class PlanningDashboardQueryDto {
     @IsString()
     warehouseId?: string
 }
+
+export class ProjectedStockQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    mrpRunId?: string
+
+    @IsOptional()
+    @IsString()
+    warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    materialId?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    limit?: number
+}
+
+/** Phase 2D structured MRP explainability — persisted on requirements and suggestions. */
+export {
+    MRP_EXPLANATION_VERSION,
+    type MrpDemandLineExplanation,
+    type MrpRecommendationExplanation,
+} from '../mrp-explanation.types'

@@ -117,7 +117,14 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
     let traceability: TraceabilityService
     let configService: ReturnsDisposalConfigService
     let events: EventEmitter2
-    let domainEvents: { supplierReturnPosted: jest.Mock }
+    let domainEvents: {
+        supplierReturnPosted: jest.Mock
+        scrapPosted: jest.Mock
+        disposalPosted: jest.Mock
+        disposalReversed: jest.Mock
+        supplierReturnReversed: jest.Mock
+    }
+    const mockPeriodGuard = { assertCanPost: jest.fn().mockResolvedValue(undefined) }
 
     beforeEach(() => {
         prisma = mockPrisma()
@@ -126,7 +133,13 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             reverseTransaction: jest.fn().mockResolvedValue({ id: 'txn-rev' }),
         }
         events = new EventEmitter2()
-        domainEvents = { supplierReturnPosted: jest.fn() }
+        domainEvents = {
+            supplierReturnPosted: jest.fn(),
+            scrapPosted: jest.fn(),
+            disposalPosted: jest.fn(),
+            disposalReversed: jest.fn(),
+            supplierReturnReversed: jest.fn(),
+        }
         configService = new ReturnsDisposalConfigService(prisma)
         returnService = new SupplierReturnService(
             prisma,
@@ -134,12 +147,14 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             configService,
             events,
             domainEvents as any,
+            mockPeriodGuard as any,
         )
         disposalService = new DisposalService(
             prisma,
             postingService,
             configService,
-            events,
+            domainEvents as any,
+            mockPeriodGuard as any,
         )
         customerReturnService = new CustomerReturnService(
             prisma,

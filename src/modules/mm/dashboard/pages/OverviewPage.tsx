@@ -18,8 +18,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { HiOutlineRefresh } from 'react-icons/hi'
 import { dashboardService } from '../services/dashboardService'
-import { orgService, materialCategoryService } from '../../material-master/services/referenceService'
-import { supplierService } from '../../supplier-management/services/supplierService'
+import { materialCategoryService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmDashboard } from '../types'
 import { DashboardAnalyticsTab } from '../components/DashboardAnalyticsTab'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -42,9 +42,11 @@ function fmt(n: number, digits = 2) {
 
 const OverviewPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [suppliers, setSuppliers] = useState<Opt[]>([])
+    const { companies, warehouses, suppliers, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'warehouses',
+        'suppliers',
+    )
     const [categories, setCategories] = useState<Opt[]>([])
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
@@ -59,49 +61,22 @@ const OverviewPage = () => {
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        orgService.companies().then((cos: any) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map((x: any) => ({
-                value: x.id,
-                label: x.name || x.code,
-            }))
-            setCompanies(c)
-            if (c[0]) setCompanyId(c[0].value)
-        })
-        materialCategoryService
-            .list()
-            .then((rows: any) => {
-                const list = Array.isArray(rows) ? rows : rows?.data ?? []
-                setCategories(list.map((x: any) => ({ value: x.id, label: x.name || x.code })))
-            })
-            .catch(() => {})
-        // Thin option lists for filters (cached via orgService)
-        orgService
-            .warehouses()
-            .then((list: any) => {
-                const rows = Array.isArray(list) ? list : list?.data ?? []
-                setWarehouses(
-                    rows
-                        .slice(0, 100)
-                        .map((w: any) => ({
-                            value: w.id,
-                            label: `${w.code} — ${w.name}`,
-                        })),
-                )
-            })
-            .catch(() => {})
-        supplierService
-            .list({ pageSize: 100, status: 'ACTIVE' } as any)
-            .then((r: any) => {
-                const list = Array.isArray(r) ? r : r?.data ?? []
-                setSuppliers(
-                    list.slice(0, 100).map((s: any) => ({
-                        value: s.id,
-                        label: `${s.supplierCode} — ${s.supplierName}`,
-                    })),
-                )
-            })
-            .catch(() => {})
-    }, [])
+        const t = window.setTimeout(() => {
+            loadFilterRefs()
+            materialCategoryService
+                .list()
+                .then((rows: any) => {
+                    const list = Array.isArray(rows) ? rows : rows?.data ?? []
+                    setCategories(list.map((x: any) => ({ value: x.id, label: x.name || x.code })))
+                })
+                .catch(() => {})
+        }, 0)
+        return () => window.clearTimeout(t)
+    }, [loadFilterRefs])
+
+    useEffect(() => {
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const params = useMemo(
         () => ({

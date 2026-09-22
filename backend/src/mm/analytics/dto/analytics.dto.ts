@@ -32,6 +32,10 @@ export class AnalyticsQueryDto {
     supplierId?: string
 
     @IsOptional()
+    @IsString()
+    materialId?: string
+
+    @IsOptional()
     @IsDateString()
     dateFrom?: string
 

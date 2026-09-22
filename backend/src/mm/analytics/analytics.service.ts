@@ -10,6 +10,7 @@ import {
 } from '../dashboard/dashboard.helpers'
 import { AnalyticsQueryDto } from './dto/analytics.dto'
 import { ReportsQueryDto } from '../reports/dto/reports.dto'
+import { QualityMetricsService } from '../quality/quality-metrics.service'
 
 /**
  * Read-only MM analytics facade.
@@ -21,6 +22,7 @@ export class AnalyticsService {
         private prisma: PrismaService,
         private reports: ReportsService,
         private dashboardAnalytics: DashboardAnalyticsService,
+        private qualityMetrics: QualityMetricsService,
     ) {}
 
     private toFilters(q: AnalyticsQueryDto): DashboardFilters {
@@ -137,18 +139,53 @@ export class AnalyticsService {
 
     async getQuality(query: AnalyticsQueryDto) {
         return this.cached('QUALITY', this.toFilters(query), async () => {
-            const [receivingAccuracy, qi] = await Promise.all([
+            const metricsQuery = {
+                companyId: query.companyId,
+                warehouseId: query.warehouseId,
+                supplierId: query.supplierId,
+                materialId: query.materialId,
+                materialCategoryId: query.materialCategoryId,
+                dateFrom: query.dateFrom,
+                dateTo: query.dateTo,
+            }
+
+            const [
+                receivingAccuracy,
+                qi,
+                defectTrend,
+                supplierQualityMetric,
+                materialQualityMetric,
+                qualityHoldAging,
+                inspectionTurnaround,
+                nonconformanceMetric,
+            ] = await Promise.all([
                 this.computeReceivingAccuracy(query),
                 this.computeQualityInspectionStats(query),
+                this.qualityMetrics.getDefectTrend(metricsQuery),
+                this.qualityMetrics.getSupplierQualityMetrics(metricsQuery),
+                this.qualityMetrics.getMaterialQualityMetrics(metricsQuery),
+                this.qualityMetrics.getQualityHoldAging(metricsQuery),
+                this.qualityMetrics.getInspectionTurnaround(metricsQuery),
+                this.qualityMetrics.getNonconformanceMetric(metricsQuery),
             ])
             return {
                 type: 'QUALITY',
+                readOnly: true,
                 filters: this.toFilters(query),
                 receivingAccuracy,
                 qualityInspection: qi,
+                defectTrend,
+                supplierQualityMetric,
+                materialQualityMetric,
+                qualityHoldAging,
+                inspectionTurnaround,
+                nonconformanceMetric,
                 drillDown: {
-                    inspection: '/modules/mm/receiving/receiving-inspection',
+                    dashboard: '/modules/mm/receiving/quality-dashboard',
+                    inspectionQueue: '/modules/mm/receiving/inspection-queue',
                     variances: '/modules/mm/receiving/receiving-variances',
+                    nonconformances: '/modules/mm/receiving/nonconformances',
+                    qualityAnalytics: '/modules/mm/reports-analytics/quality-analytics',
                 },
             }
         })
@@ -540,40 +577,77 @@ export class AnalyticsService {
             : new Date(Date.now() - 30 * 86400000)
         const to = query.dateTo ? new Date(query.dateTo) : new Date()
 
-        const lots = await this.prisma.mmQualityInspection.findMany({
-            where: {
-                companyId: query.companyId,
-                createdAt: { gte: from, lte: to },
-                ...(query.warehouseId ? { warehouseId: query.warehouseId } : {}),
-                ...(query.supplierId
-                    ? { goodsReceipt: { supplierId: query.supplierId } }
-                    : {}),
-            },
-            include: { lines: true },
-            take: 2000,
-        })
+        const lotWhere: any = {
+            createdAt: { gte: from, lte: to },
+        }
+        if (query.companyId) lotWhere.companyId = query.companyId
+        if (query.warehouseId) lotWhere.warehouseId = query.warehouseId
+        if (query.supplierId) lotWhere.supplierId = query.supplierId
+
+        const [lots, decisions, holds, ncCount] = await Promise.all([
+            this.prisma.mmInspectionLot.findMany({
+                where: lotWhere,
+                include: { decisions: true },
+                take: 2000,
+            }),
+            this.prisma.mmQualityDecision.findMany({
+                where: query.companyId
+                    ? { inspectionLot: { companyId: query.companyId, createdAt: { gte: from, lte: to } } }
+                    : { decidedAt: { gte: from, lte: to } },
+                take: 2000,
+            }),
+            this.prisma.mmQualityHold.count({
+                where: {
+                    ...(query.companyId ? { companyId: query.companyId } : {}),
+                    status: 'ACTIVE',
+                },
+            }),
+            this.prisma.mmNonconformance.count({
+                where: {
+                    ...(query.companyId ? { companyId: query.companyId } : {}),
+                    status: { notIn: ['CLOSED', 'RESOLVED'] },
+                },
+            }),
+        ])
 
         let received = 0
         let accepted = 0
         let rejected = 0
         let pending = 0
         for (const lot of lots) {
-            if (lot.status === 'PENDING') pending++
-            for (const l of lot.lines) {
-                received += Number(l.quantity)
-                accepted += Number(l.passQuantity || 0)
-                rejected += Number(l.failQuantity || 0)
+            received += Number(lot.quantity)
+            if (['CREATED', 'READY', 'PENDING', 'IN_PROGRESS', 'PENDING_DECISION'].includes(lot.status)) {
+                pending++
             }
+            if (lot.result === 'PASS') accepted += Number(lot.quantity)
+            if (lot.result === 'FAIL') rejected += Number(lot.quantity)
         }
+
+        const acceptDecisions = decisions.filter((d) =>
+            ['ACCEPT', 'ACCEPT_WITH_DEVIATION'].includes(d.decisionCode),
+        )
+        const rejectDecisions = decisions.filter((d) =>
+            ['BLOCK', 'REJECT', 'RETURN', 'REWORK'].includes(d.decisionCode),
+        )
+
         return {
             lotCount: lots.length,
             pending,
+            activeHolds: holds,
+            openNonconformances: ncCount,
             receivedQty: received,
-            acceptedQty: accepted,
-            rejectedQty: rejected,
-            acceptanceRate: received > 0 ? accepted / received : 0,
-            rejectionRate: received > 0 ? rejected / received : 0,
+            acceptedQty: acceptDecisions.reduce((s, d) => s + Number(d.quantity), 0) || accepted,
+            rejectedQty: rejectDecisions.reduce((s, d) => s + Number(d.quantity), 0) || rejected,
+            acceptanceRate:
+                received > 0
+                    ? (acceptDecisions.reduce((s, d) => s + Number(d.quantity), 0) || accepted) / received
+                    : 0,
+            rejectionRate:
+                received > 0
+                    ? (rejectDecisions.reduce((s, d) => s + Number(d.quantity), 0) || rejected) / received
+                    : 0,
             period: { from, to },
+            source: 'MmInspectionLot',
         }
     }
 }

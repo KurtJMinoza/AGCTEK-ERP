@@ -13,6 +13,7 @@ import { PlanningDemandService } from './planning-demand.service'
 import { MrpRunService } from './mrp-run.service'
 import { ProcurementSuggestionService } from './procurement-suggestion.service'
 import { PlanningDashboardService } from './planning-dashboard.service'
+import { ProjectedStockService } from './projected-stock.service'
 import {
     CreateReorderRuleDto,
     UpdateReorderRuleDto,
@@ -23,9 +24,11 @@ import {
     CreateMrpRunDto,
     MrpRunQueryDto,
     MaterialRequirementQueryDto,
+    BomExplosionTraceQueryDto,
     SuggestionQueryDto,
     ConvertSuggestionDto,
     PlanningDashboardQueryDto,
+    ProjectedStockQueryDto,
 } from './dto/planning.dto'
 
 /**
@@ -41,6 +44,7 @@ export class PlanningController {
         private mrpRuns: MrpRunService,
         private suggestions: ProcurementSuggestionService,
         private dashboard: PlanningDashboardService,
+        private projectedStock: ProjectedStockService,
     ) {}
 
     @Get('dashboard')
@@ -110,6 +114,18 @@ export class PlanningController {
         return this.demand.create(dto)
     }
 
+    /** Canonical alias */
+    @Get('demands')
+    listDemands(@Query() query: PlanningDemandQueryDto) {
+        return this.demand.findAll(query)
+    }
+
+    /** Canonical alias */
+    @Post('demands')
+    createDemandAlias(@Body() dto: CreatePlanningDemandDto) {
+        return this.demand.create(dto)
+    }
+
     @Patch('demand/:id')
     updateDemand(@Param('id') id: string, @Body() dto: UpdatePlanningDemandDto) {
         return this.demand.update(id, dto)
@@ -170,6 +186,11 @@ export class PlanningController {
         return this.mrpRuns.listRequirements({ ...query, shortage: true })
     }
 
+    @Get('bom-explosion-traces')
+    listBomExplosionTraces(@Query() query: BomExplosionTraceQueryDto) {
+        return this.mrpRuns.listBomExplosionTraces(query)
+    }
+
     @Get('planned-orders')
     listPlannedOrders(@Query() query: MaterialRequirementQueryDto) {
         return this.mrpRuns.listPlannedOrders(query)
@@ -207,5 +228,12 @@ export class PlanningController {
     @Post('suggestions/:id/dismiss')
     dismiss(@Param('id') id: string) {
         return this.suggestions.dismiss(id)
+    }
+
+    // ── Projected stock (Phase 2A) ─────────────────────────────────
+
+    @Get('projected-stock')
+    listProjectedStock(@Query() query: ProjectedStockQueryDto) {
+        return this.projectedStock.findAll(query)
     }
 }

@@ -203,7 +203,13 @@ beforeEach(async () => {
             },
             {
                 provide: InspectionRequirementService,
-                useValue: { isInspectionRequired: jest.fn().mockResolvedValue(false) },
+                useValue: {
+                    isInspectionRequired: jest.fn().mockResolvedValue(false),
+                    resolveInspectionRequirement: jest.fn().mockResolvedValue({
+                        action: 'NO_INSPECTION',
+                        inspectionRequired: false,
+                    }),
+                },
             },
             {
                 provide: StockTransferOrderService,

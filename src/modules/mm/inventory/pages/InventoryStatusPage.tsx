@@ -19,9 +19,7 @@ import {
     type BalanceSummary,
     type InventoryBalance,
 } from '../services/inventoryService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
@@ -43,9 +41,12 @@ function n(v: string | number | undefined) {
 
 const InventoryStatusPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'warehouses',
+        'materials',
+    )
+    const { ensure: ensureFormRefs } = useLazyMmRefs()
     const [statusOpts, setStatusOpts] = useState<Opt[]>([{ value: '', label: 'All statuses' }])
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
@@ -70,44 +71,6 @@ const InventoryStatusPage = () => {
         postingDate: new Date().toISOString().slice(0, 10),
         documentDate: new Date().toISOString().slice(0, 10),
     })
-
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-            materialService.list({ limit: 200 }),
-            inventoryService.stockStatuses(),
-        ])
-            .then(([cos, wh, mats, statuses]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setWarehouses(
-                    (wh?.data ?? []).map((w: any) => ({
-                        value: w.id,
-                        label: `${w.code} — ${w.name}`,
-                    })),
-                )
-                setMaterials(
-                    (mats?.data ?? []).map((m: any) => ({
-                        value: m.id,
-                        label: `${m.materialCode} — ${m.materialName}`,
-                        uomId: m.baseUomId,
-                    })),
-                )
-                setStatusOpts([
-                    { value: '', label: 'All statuses' },
-                    ...(statuses ?? []).map((s: { code: string }) => ({
-                        value: s.code,
-                        label: s.code.replace(/_/g, ' '),
-                    })),
-                ])
-            })
-            .catch(() => undefined)
-    }, [])
 
     const load = useCallback(async () => {
         setLoading(true)
@@ -138,12 +101,29 @@ const InventoryStatusPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => {
+            loadFilterRefs()
+            inventoryService.stockStatuses().then((statuses) => {
+                setStatusOpts([
+                    { value: '', label: 'All statuses' },
+                    ...(statuses ?? []).map((s: { code: string }) => ({
+                        value: s.code,
+                        label: s.code.replace(/_/g, ' '),
+                    })),
+                ])
+            }).catch(() => undefined)
+        }, 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
+
+    const openStatusChange = useCallback(async () => {
+        await ensureFormRefs('companies', 'warehouses', 'materials')
+        setChangeOpen(true)
+    }, [ensureFormRefs])
 
     const submitStatusChange = async () => {
-        const mat = materials.find((m) => m.value === changeForm.materialId) as Opt & {
-            uomId?: string
-        }
+        const mat = materials.find((m) => m.value === changeForm.materialId)
+        const baseUomId = (mat?.meta as { baseUomId?: string } | undefined)?.baseUomId
         if (!changeForm.companyId || !changeForm.warehouseId || !changeForm.materialId) {
             pushToast('danger', 'Required', 'Company, warehouse, and material are required')
             return
@@ -152,7 +132,7 @@ const InventoryStatusPage = () => {
         try {
             await inventoryService.postStatusChange({
                 ...changeForm,
-                uomId: changeForm.uomId || mat?.uomId || '',
+                uomId: changeForm.uomId || baseUomId || '',
                 sourceModule: 'INVENTORY',
                 sourceDocumentType: 'STATUS_CHANGE',
                 sourceDocumentId: `sc-${Date.now()}`,
@@ -219,7 +199,7 @@ const InventoryStatusPage = () => {
                         <Button
                             variant="solid"
                             icon={<HiOutlinePlus />}
-                            onClick={() => setChangeOpen(true)}
+                            onClick={openStatusChange}
                         >
                             Status Change
                         </Button>

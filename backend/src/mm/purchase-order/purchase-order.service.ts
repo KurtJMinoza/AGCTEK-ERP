@@ -19,6 +19,7 @@ import {
 import { Decimal } from '@prisma/client/runtime/library'
 import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
 import { assertSupplierProcurementById } from '../procurement/assert-supplier-procurement'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 const PO_INCLUDES = {
     lines: {
@@ -75,6 +76,7 @@ export class PurchaseOrderService {
         private prisma: PrismaService,
         private workflowService: WorkflowService,
         private commitmentService: PurchaseCommitmentService,
+        private documentFlow: DocumentFlowService,
     ) {}
 
     private async assertSupplierForPo(supplierId: string, companyId: string) {
@@ -652,27 +654,8 @@ export class PurchaseOrderService {
     }
 
     async getDocumentFlow(id: string) {
-        const po = await this.findOneOrFail(id)
-        return {
-            purchaseOrder: { id: po.id, number: po.poNumber, status: po.status },
-            purchaseRequisition: po.purchaseRequisition
-                ? {
-                      id: po.purchaseRequisition.id,
-                      number: po.purchaseRequisition.requisitionNumber,
-                  }
-                : null,
-            rfq: po.rfq ? { id: po.rfq.id, number: po.rfq.rfqNumber } : null,
-            quotation: po.quotation
-                ? { id: po.quotation.id, number: po.quotation.quotationNumber }
-                : null,
-            award: po.award ? { id: po.award.id } : null,
-            goodsReceipts: po.goodsReceipts.map((gr) => ({
-                id: gr.id,
-                number: gr.documentNumber,
-                status: gr.status,
-                postingDate: gr.postingDate,
-            })),
-        }
+        await this.findOneOrFail(id)
+        return this.documentFlow.getPoLegacyFlow(id)
     }
 
     async listAttachments(id: string) {

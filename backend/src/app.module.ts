@@ -7,6 +7,9 @@ import { NotificationsModule } from './notifications/notifications.module'
 import { AuthModule } from './auth/auth.module'
 import { ScmModule } from './scm/scm.module'
 import { MmModule } from './mm/mm.module'
+import { SdModule } from './sd/sd.module'
+import { PpModule } from './pp/pp.module'
+import { FicoModule } from './fico/fico.module'
 
 @Module({
     imports: [
@@ -16,6 +19,9 @@ import { MmModule } from './mm/mm.module'
         AuthModule,
         ScmModule,
         MmModule,
+        SdModule,
+        PpModule,
+        FicoModule,
     ],
     controllers: [AppController],
     providers: [AppService],

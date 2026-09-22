@@ -19,6 +19,7 @@ import {
     EvaluationQueryDto,
     TrendsQueryDto,
 } from './dto/supplier-performance.dto'
+import { QualityMetricsService } from '../quality/quality-metrics.service'
 
 const EVAL_INCLUDE = {
     supplier: {
@@ -39,6 +40,7 @@ export class SupplierEvaluationService {
         private prisma: PrismaService,
         private config: SupplierScoreConfigService,
         private alerts: SupplierAlertService,
+        private qualityMetrics: QualityMetricsService,
     ) {}
 
     async findAll(query: EvaluationQueryDto) {
@@ -264,9 +266,6 @@ export class SupplierEvaluationService {
                     },
                 },
                 purchaseOrder: true,
-                qualityInspections: {
-                    include: { lines: true },
-                },
             },
         })
 
@@ -338,16 +337,22 @@ export class SupplierEvaluationService {
                 }
             }
 
-            for (const qi of gr.qualityInspections) {
-                for (const ql of qi.lines) {
-                    qualityLines.push({
-                        quantity: Number(ql.quantity),
-                        passQuantity: Number(ql.passQuantity || 0),
-                        failQuantity: Number(ql.failQuantity || 0),
-                    })
-                }
-            }
         }
+
+        // Phase 1C: use canonical MmInspectionLot instead of legacy qualityInspections
+        const inspectionLots = await this.prisma.mmInspectionLot.findMany({
+            where: {
+                companyId,
+                supplierId,
+                createdAt: { gte: periodStart, lte: periodEnd },
+            },
+            include: {
+                decisions: { select: { decisionCode: true, quantity: true } },
+            },
+        })
+        qualityLines.push(
+            ...this.qualityMetrics.buildQualityLinesFromInspectionLots(inspectionLots),
+        )
 
         const invoices = await this.prisma.mmSupplierInvoice.findMany({
             where: {

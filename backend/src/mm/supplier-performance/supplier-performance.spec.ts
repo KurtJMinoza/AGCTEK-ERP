@@ -306,3 +306,58 @@ describe('MM-13 alerts never auto-block', () => {
         expect((service as any).deactivateSupplier).toBeUndefined()
     })
 })
+
+describe('MM-13 Phase 1C: supplier eval uses canonical inspection lots', () => {
+    it('buildQualityLinesFromInspectionLots maps decisions to pass/fail', () => {
+        const { QualityMetricsService } = require('../quality/quality-metrics.service')
+        const svc = new QualityMetricsService({} as any)
+        const lines = svc.buildQualityLinesFromInspectionLots([
+            {
+                quantity: 100,
+                decisions: [
+                    { decisionCode: 'ACCEPT', quantity: 80 },
+                    { decisionCode: 'BLOCK', quantity: 20 },
+                ],
+            },
+            {
+                quantity: 50,
+                decisions: [
+                    { decisionCode: 'ACCEPT_WITH_DEVIATION', quantity: 50 },
+                ],
+            },
+        ])
+        expect(lines).toHaveLength(2)
+        expect(lines[0]).toEqual({ quantity: 100, passQuantity: 80, failQuantity: 20 })
+        expect(lines[1]).toEqual({ quantity: 50, passQuantity: 50, failQuantity: 0 })
+    })
+
+    it('buildQualityLinesFromInspectionLots defaults to full pass when no decisions', () => {
+        const { QualityMetricsService } = require('../quality/quality-metrics.service')
+        const svc = new QualityMetricsService({} as any)
+        const lines = svc.buildQualityLinesFromInspectionLots([
+            { quantity: 200, decisions: [] },
+        ])
+        expect(lines[0]).toEqual({ quantity: 200, passQuantity: 200, failQuantity: 0 })
+    })
+
+    it('supplier evaluation never updates MmSupplier.status even with poor quality', () => {
+        const mockPrisma: any = {
+            mmSupplier: { update: jest.fn() },
+            mmSupplierAlert: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                create: jest.fn().mockResolvedValue({ id: 'a1', status: 'OPEN' }),
+            },
+        }
+        const alert = new SupplierAlertService(mockPrisma)
+        alert.createIfNeeded({
+            companyId: 'co-1',
+            supplierId: 'sup-1',
+            evaluationId: 'ev-1',
+            alertType: 'HIGH_REJECTION',
+            score: 30,
+            threshold: 50,
+            supplierCode: 'SUP01',
+        })
+        expect(mockPrisma.mmSupplier.update).not.toHaveBeenCalled()
+    })
+})

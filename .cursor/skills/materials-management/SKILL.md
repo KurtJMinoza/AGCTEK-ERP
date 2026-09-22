@@ -1,262 +1,501 @@
 ---
 name: materials-management
 description: >-
-  Materials Management (MM) ERP engineering contract for this codebase.
+  Permanent Materials Management (MM) engineering contract for this existing ERP.
   Use before designing, implementing, modifying, debugging, or reviewing any MM
-  work: material master, suppliers, MRP/planning, purchase requisitions, RFQ,
-  quotations, purchase orders, receiving, goods receipt/issue, inventory ledger,
-  balances, reservations, warehouse (bins/putaway/picking/packing), transfers,
-  adjustments, cycle count, valuation, returns/disposal, barcodes, or MM reports.
-  Enforces inventory-ledger-centric architecture and forbids disconnected CRUD.
+  work across MM-01…MM-15: material master, suppliers, warehouse master, valuation,
+  MRP/planning, procurement, receiving/quality, inventory core, warehouse execution,
+  inventory control, returns/disposal/traceability, barcode/mobile, supplier performance,
+  analytics, and dashboard. Enforces InventoryPostingService as the sole physical stock
+  writer and forbids parallel engines, duplicate services, and frontend stock math.
 ---
 
-# Materials Management (MM) — ERP Engineering Skill
+# Materials Management — Permanent Engineering Skill
 
-## PURPOSE
+## Mandate
 
-You are the Materials Management (MM) engineering specialist for this ERP.
+You are the **Materials Management engineering specialist** for this **existing ERP**.
 
-Design, implement, modify, debug, and review all MM functionality while
-preserving the established enterprise ERP architecture.
+This is **not** a greenfield MM module. Before any design or code:
 
-MM owns the complete material lifecycle:
+1. **Inspect** the repository (see [Repository inspection checklist](#repository-inspection-checklist)).
+2. **Reuse** authoritative services, tables, routes, and UI patterns.
+3. **Enhance** what exists — never create parallel engines or duplicate stock logic.
+4. **Preserve** the mandatory posting invariant (below).
 
-```text
-Demand → Planning → Procurement → Receiving → Inventory → Warehouse
-→ Reservation → Picking → Packing → Goods Issue → Valuation
-→ Returns / Disposal → Replenishment
-```
-
-MM must operate as an **integrated ERP domain**, not disconnected CRUD.
-
-For the full architectural contract (sections 1–62), read
-[reference.md](reference.md) before non-trivial MM work.
-
-For **MM-01 → MM-15 dependency order**, document ownership, and update authority, read
-[docs/MM_DEPENDENCY_MAP.md](../../docs/MM_DEPENDENCY_MAP.md).
-
-Also respect project UI/module rules: `AGENTS.md`, `.cursor/rules/erp-ui.mdc`,
-`.cursor/rules/erp-modules.mdc`.
+Also respect: `AGENTS.md`, `.cursor/rules/erp-ui.mdc`, `.cursor/rules/mm-architecture.mdc`.
 
 ---
 
-## This repo’s MM layout
-
-| Layer | Path |
-| --- | --- |
-| Backend domain | `backend/src/mm/` |
-| Prisma models | `backend/prisma/schema.prisma` (`Mm*`, `Wm*`) |
-| Frontend modules | `src/modules/mm/` |
-| Thin routes | `src/app/(protected-pages)/modules/mm/` |
-| Nav | `src/configs/erp-modules/mm.module.ts` |
-
-Reuse existing services (especially `InventoryPostingService`) before adding new ones.
-
----
-
-## Non-negotiable core
-
-### Inventory ledger is the MM core
-
-Never implement inventory as editable stock quantities.
+## Mandatory posting invariant
 
 ```text
 Business Operation
-→ Inventory Posting Service
-→ Immutable Inventory Transaction
-→ Inventory Balance
-→ Audit Event
-→ Domain Event
-→ Accounting Event (when financially relevant)
+  → InventoryPostingService          (backend/src/mm/inventory/inventory-posting.service.ts)
+  → MmInventoryTransaction           (immutable ledger)
+  → MmInventoryBalance               (derived operational state)
+  → ValuationEngineService           (when cost-relevant)
+  → MmInventoryAudit + MmDomainEventsService
+  → MmAccountingEvent                (financial events → FICO bridge)
 ```
 
-Canonical inbound posting chain (keep exactly):
+**Never** allow direct physical quantity mutation outside MM-08 inventory domain.
 
-```text
-Receiving
-→ Goods Receipt
-→ Inventory Posting Service
-→ Inventory Ledger
-```
+---
 
-Do **not** let Receiving, Warehouse, Goods Receipt, and Stock Movements each
-maintain their own stock logic.
+## Repository map
 
-### Posted transactions are immutable
-
-- Never `UPDATE` a posted inventory transaction
-- Corrections = **reversal** transaction referencing the original
-
-### Availability ≠ on hand
-
-```text
-Available ≈ On Hand − Unavailable/Restricted − Reserved
-```
-
-- Reservation allocates; it does **not** create a physical stock movement
-- Goods Issue **does** reduce on-hand
-
-### Stock status (minimum)
-
-`UNRESTRICTED` | `QUALITY_INSPECTION` | `BLOCKED`
-
-Validate status transitions; QI/Blocked are not freely available.
-
-### Material / batch / serial / UOM
-
-- Transactions reference `materialId` (no free-text material identity)
-- Batch-controlled materials require batch on receive/issue/transfer/adjust
-- Serialized materials require unique serials; no anonymous issue
-- Normalize to base UOM for inventory; preserve transaction UOM for audit
-
-### Warehouse hierarchy
-
-```text
-Company → Plant → Warehouse → Storage Type → Storage Section → Storage Bin
-```
-
-Use FKs (`warehouseId`, `storageBinId`, …), not bin strings as primary keys.
-
-### MM vs other domains
-
-| MM owns | MM does NOT own |
+| Layer | Path |
 | --- | --- |
-| Material master, procurement docs, physical inventory, availability, reservations, warehouse execution, valuation, returns/disposal, MRP suggestions | GL, AP payment execution, AR, payroll, CRM, fleet, customer billing |
+| Backend Nest module | `backend/src/mm/mm.module.ts` |
+| Backend domains | `backend/src/mm/{materials,supplier,warehouse,valuation,planning,purchase-*,rfq,inbound,receiving,inventory,stock-ops,inventory-control,returns-disposal,scanner,supplier-performance,analytics,dashboard,reports,common,...}/` |
+| Prisma models | `backend/prisma/schema.prisma` (`Mm*`, `Wm*`, `Warehouse`, …) |
+| Frontend modules | `src/modules/mm/` |
+| Thin Next routes | `src/app/(protected-pages)/modules/mm/` |
+| Nav config | `src/configs/erp-modules/mm.module.ts` |
+| Architecture docs | `docs/MM_*.md` |
+| Governance (Phase 6) | `docs/MM_ARCHITECTURE_RULES.md`, `docs/MM_FORBIDDEN_PATTERNS.md` |
+| Architecture specs (tests) | `backend/src/mm/architecture/` — run `npm run test:architecture` |
 
-Integration pattern:
+**API prefix:** `/api/v1/mm/*` (global prefix in `backend/src/main.ts`).
 
-```text
-MM Transaction → Accounting Event → FICO Posting Engine → Accounting Document
-```
-
-Never post directly to the General Ledger from MM.
-
----
-
-## Process model (think processes, not pages)
-
-**Procurement:** Demand → PR → Approval → RFQ → Quotation → Comparison → PO  
-**Inbound:** PO/ASN → Receiving → Verify → QI → GR → Putaway → Available  
-**Outbound:** Requirement → Availability → Reservation → Pick → Pack → GI  
-**Control:** Count → Blind count → Variance → Recount → Approval → Adjustment → Ledger  
-**Replenishment:** Demand → MRP → Net requirement → Suggestion → PR (not auto-PO unless configured)
-
-Preserve **document flow** both directions (PR→RFQ→Quote→PO→GR→…→Accounting).
-
-Prefer separate status dimensions when needed:
-
-`Document` / `Approval` / `Fulfillment` / `Inventory` / `Accounting`
+**Cross-cutting:** `backend/src/mm/common/` — scope, auth, domain events, idempotency.
 
 ---
 
-## Ownership & anti-duplication
+## MM domain ownership (MM-01 → MM-15)
 
-One authoritative owner per transaction. Examples:
+| ID | Domain | Backend (authoritative) | Frontend |
+| --- | --- | --- | --- |
+| MM-01 | Material Master | `materials/`, `material-types/`, `material-categories/`, `uom/`, `barcodes/`, `batches/`, `serials/` | `material-master/` |
+| MM-02 | Supplier Management | `supplier/` | `supplier-management/` |
+| MM-03 | Warehouse Master | `warehouse/` (master, bins), `org.service.ts` | `warehouse/`, `organization/` |
+| MM-04 | Valuation | `valuation/` (+ strategy registry) | `valuation/` |
+| MM-05 | Planning / MRP | `planning/` — **read-only for stock** | `planning/` |
+| MM-06 | Procurement | `purchase-requisition/`, `rfq/`, `purchase-order/`, `purchase-contract/`, `procurement/`, `workflow/` | `procurement/` |
+| MM-07 | Receiving / Quality | `inbound/`, `receiving/` (inspection lots, holds, decisions) | `receiving/` |
+| MM-08 | **Inventory Core** | `inventory/` + `stock-ops/` | `inventory/` |
+| MM-09 | Warehouse Execution | `warehouse/putaway|picking|packing|transfers|tasks/` | `warehouse/`, `stock-transfer/` |
+| MM-10 | Inventory Control | `inventory-control/` (count engine) | `inventory-control/` |
+| MM-11 | Returns / Disposal / Traceability | `returns-disposal/`, `traceability/` | `returns-disposal/` |
+| MM-12 | Barcode / Mobile | `scanner/` | `barcode-rfid/` |
+| MM-13 | Supplier Performance | `supplier-performance/` | `supplier-performance/` |
+| MM-14 | Reports / Analytics | `reports/`, `analytics/` | `reports-analytics/`, `analytics/` |
+| MM-15 | Dashboard | `dashboard/` | `dashboard/` |
 
-| Document | Owner |
+Full dependency order and document ownership: [docs/MM_DEPENDENCY_MAP.md](../../docs/MM_DEPENDENCY_MAP.md).
+
+---
+
+## 1. Inventory invariant (MM-08)
+
+Physical stock changes **MUST** flow through `InventoryPostingService.postTransaction()` or `postTransferPair()`.
+
+Applies to: `RECEIPT`, `ISSUE`, `TRANSFER_OUT/IN`, `COUNT_GAIN/LOSS`, `RETURN_IN/OUT`, `SCRAP`, `ADJUSTMENT_IN/OUT`, `STATUS_CHANGE`, and future movement types.
+
+**Forbidden:**
+- Controllers directly editing `MmInventoryBalance.quantity`
+- React computing or persisting stock quantities
+- Scanner/mobile maintaining separate inventory math
+- MRP posting inventory
+- Quality directly mutating balances (quality issues **STATUS_CHANGE** via posting service)
+- Warehouse task completion writing balances directly
+- Returns bypassing posting
+
+**Authoritative MM-08 services:**
+
+| Service | Role |
 | --- | --- |
-| PR / RFQ / Quotation / PO | Procurement |
-| Goods Receipt / Issue / Adjustment / Ledger | Inventory |
-| Putaway / Picking / Packing | Warehouse |
-| Cycle count | Inventory Control |
-| Supplier return | Returns & Disposal |
+| `InventoryPostingService` | Sole physical stock writer |
+| `MmInventoryBalanceService` / `InventoryBalanceQueryService` | Read balances |
+| `InventoryAvailabilityService` | Central ATP |
+| `InventoryReservationService` + `reservation-allocation/` | Reservations & allocation |
+| `StockStatusService` | Status validation |
+| `InventoryReversalService` | Reversal orchestration |
+| `InventoryOperationService` | Typed facades |
+| `InventoryTraceabilityService` | Batch/serial/document trace |
 
-Before creating anything new: check existing schema, services, routes, and UI.
-Do **not** create a second Goods Receipt, second availability calculator, or
-duplicate stock math in SD/Warehouse/UI.
-
----
-
-## Implementation workflow (every MM task)
-
-1. **Inspect** — schema, `backend/src/mm/*`, shared posting/availability, workflow, audit, UI, routes, nav
-2. **Ownership** — domain owner, source/target docs, inventory/valuation/accounting/audit impact
-3. **Data model** — entities, FKs, indexes, statuses, source refs
-4. **Domain logic** — services only; thin controllers
-5. **API** — existing Nest/Prisma conventions under `/api/v1/mm/...`
-6. **UI** — ECME + `src/components/shared`; module pages under `src/modules/mm/`; thin app routes
-7. **Auth** — granular permissions + company/plant/warehouse scope (backend mandatory)
-8. **Audit** — CREATE/UPDATE/SUBMIT/APPROVE/POST/REVERSE/RECEIVE/ISSUE/…
-9. **Events** — domain + accounting events when relevant
-10. **Test** — success and failure paths (insufficient stock, already posted, etc.)
-
-Prefer incremental correction over rewrite.
+Stock-ops (`goods-receipt`, `goods-issue`, `adjustment`, `bin-transfer`, `warehouse-transfer-order`) **orchestrate documents** then call posting.
 
 ---
 
-## Service / controller rules
+## 2. Ledger rule
 
-Shared inventory-changing path: **`InventoryPostingService`**.
+- `MmInventoryTransaction` is **immutable** after post.
+- **Never** `UPDATE` posted transaction quantities or movement types.
+- Corrections = **reversal** transaction linked via `reversalOfId`.
+- `MmInventoryBalance` is **derived/current state**, not historical truth.
+- Ledger is the audit source of truth.
 
-Preferred flow:
+See [docs/MM_TRANSACTION_RULES.md](../../docs/MM_TRANSACTION_RULES.md).
+
+---
+
+## 3. Reservation rule
 
 ```text
-Controller → Auth → Domain Service → DB Transaction → Events
+Reservation  → reserves qty (reservedQuantity ↑, availableQuantity ↓)
+Allocation   → identifies specific physical stock (FIFO/FEFO strategies)
+Goods Issue  → physical reduction via InventoryPostingService
 ```
 
-Explicit business errors (`INSUFFICIENT_STOCK`, `DOCUMENT_ALREADY_POSTED`, …).  
-Idempotency for scanner/mobile retries.  
-Concurrency via PostgreSQL transactions / atomic updates.
+Reservation **does not** create inventory transactions or reduce `quantity`.
+
+Engines: `InventoryReservationService`, `ReservationEngineService`, `AllocationEngineService` in `inventory/reservation-allocation/`.
 
 ---
 
-## UI / DoD (short)
+## 4. Quality rule (MM-07)
 
-UI: searchable DataTables, server filters, pagination, status badges, detail
-pages with document flow, approval history, attachments, audit — not isolated CRUD.
+Quality controls **stock usability** (status). Inventory controls **physical quantity**.
 
-**Done only when** schema + API + domain rules + validation + audit (+ workflow if needed) + inventory/valuation/accounting impacts + UI + tests apply. Frontend-only is not complete.
+```text
+RECEIPT (often QUALITY_INSPECTION status)
+  → InspectionLot / QualityInspection
+  → QualityDecision (ACCEPT | REJECT | REWORK | RETURN | …)
+  → STATUS_CHANGE via InventoryPostingService (QualityDecisionService)
+  → UNRESTRICTED | BLOCKED | QUARANTINE
+```
+
+**Models:** `MmInspectionPlan`, `MmInspectionCharacteristic`, `MmInspectionLot`, `MmInspectionSample`, `MmInspectionResult`, `MmInspectionDefect`, `MmQualityHold`, `MmQualityDecision`.
+
+Legacy bridge: `MmQualityInspection` (inbound/) coexists with new receiving engine.
+
+See [docs/MM_QUALITY_ARCHITECTURE.md](../../docs/MM_QUALITY_ARCHITECTURE.md).
 
 ---
 
-## Pre-coding checklist
+## 5. MRP rule (MM-05)
 
-Answer before coding:
+MRP is **planning only**.
 
-1. Which business process?
-2. Which MM module owns it?
-3. Source document? Created document?
-4. Physical inventory change? Availability? Valuation?
-5. FICO accounting event?
-6. Workflow? Audit?
-7. Which existing service to reuse?
-8. Which other MM modules consume this?
+**May:** read inventory/ATP, reservations, open POs, expected receipts, demand, reorder rules; create `MmMrpRun`, `MmMaterialRequirement`, `MmProcurementSuggestion`, `MmPlannedOrder`, `MmSupplyProposal`; optionally create PR when configured.
+
+**Must NOT:** import/call `InventoryPostingService`; post receipts/issues; update balances; create fake stock.
+
+Enforced by architecture specs: `backend/src/mm/architecture/mm-guardrails.spec.ts`, `planning.spec.ts`, `advanced-mrp-engine.spec.ts`. Run `npm run test:architecture` from `backend/`.
+
+See [docs/MM_MRP_ARCHITECTURE.md](../../docs/MM_MRP_ARCHITECTURE.md).
+
+---
+
+## 6. Procurement rule (MM-06)
+
+Procurement creates: PR, RFQ, Quotation, Comparison, PO, Contract.
+
+Procurement **does not** create inventory. Receiving (MM-07) bridges PO → GR → posting.
+
+Workflow: `WorkflowService` + `MmWorkflowInstance` / `MmApprovalTask` for PR/PO approval.
+
+---
+
+## 7. Receiving rule (MM-07)
+
+Receiving validates physical inbound goods. **Goods Receipt** is the controlled bridge to inventory posting.
+
+```text
+PO / ASN / Expected Receipt → Receiving → GR document → InventoryPostingService
+```
+
+**Do not create:** Receiving Inventory Engine, GR Inventory Engine, or alternate balance writers.
+
+Services: `ReceivingService` (inbound/), `ReceivingDocumentService`, `GoodsReceiptService` (stock-ops/), `InspectionLotService`, `QualityDecisionService` (receiving/).
+
+---
+
+## 8. Warehouse rule (MM-09)
+
+| Question | Owner |
+| --- | --- |
+| WHERE is stock? | MM-03 master + MM-09 execution (bins, tasks) |
+| HOW MUCH exists? WHAT moved? WHAT is available? | MM-08 inventory |
+
+Warehouse tasks (`warehouse/tasks/`) confirm putaway/pick/transfer/relocation → delegate posting on completion handlers.
+
+Stock transfer orders: `backend/src/mm/stock-transfer/` + `stock-ops/warehouse-transfer-order.service.ts`.
+
+---
+
+## 9. Cross-module integration
+
+MM integrates with SD, Production, FICO, Projects, Maintenance, SCM/Logistics, Notifications via **typed events** — not cross-module DB writes.
+
+Use: `MmDomainEventsService` → `EventEmitter2` + `MmAccountingEvent` (financial outbox).
+
+See [docs/MM_INTEGRATION_CONTRACTS.md](../../docs/MM_INTEGRATION_CONTRACTS.md) and [docs/MM_INTEGRATION_EVENTS.md](../../docs/MM_INTEGRATION_EVENTS.md).
+
+---
+
+## 10. Event rule
+
+Canonical types in `backend/src/mm/common/mm-domain-events.types.ts`:
+
+`GoodsReceiptPosted`, `GoodsIssuePosted`, `InventoryTransactionPosted`, `InventoryTransactionReversed`, `InventoryAdjusted`, `InventoryTransferred`, `ReservationCreated`, `ReservationReleased`, `QualityDecisionMade`, `SupplierReturnPosted`, `InspectionLotCreated`, `PutawayRequested`, `StockBelowSafetyLevel`, `PurchaseOrderOverdue`, …
+
+Events must be: typed, versionable (payload extensibility), auditable, idempotent (consumer dedupe), traceable, safe to replay.
+
+**Emit via** `MmDomainEventsService` — do not duplicate outbox tables.
+
+---
+
+## 11. Integration style
+
+```text
+Command → Domain Service → DB Transaction → Domain Event → Outbox (MmAccountingEvent) → Consumer
+```
+
+**Avoid:**
+
+```text
+Controller → arbitrary service → other module database write
+```
+
+---
+
+## 12. Idempotency
+
+All retry-prone writes must support idempotency:
+
+- `MmInventoryTransaction.idempotencyKey` (unique)
+- `MmScannerEvent.idempotencyKey`
+- Helpers: `postingKey()`, `reversalKey()` in `backend/src/mm/common/idempotency.util.ts`
+
+Applies to: posting, receiving, scanner, mobile, event consumers, integration APIs.
+
+On duplicate key: return existing result (do not double-post).
+
+---
+
+## 13. Concurrency
+
+Inventory posting uses:
+
+- PostgreSQL **Serializable** transactions (`InventoryPostingService`)
+- Optimistic **`version`** on `MmInventoryBalance`
+- Atomic transfer pairs (`postTransferPair`)
+
+Handle simultaneous receipts, allocations, issues, transfers, count adjustments, competing reservations.
+
+---
+
+## 14. Configuration over hardcoding
+
+Prefer policies, strategies, and configuration tables over controller logic:
+
+- Valuation: `valuation/strategies/` registry (FIFO, moving average, standard)
+- Allocation: `reservation-allocation/strategies/` (FIFO, FEFO)
+- Putaway/picking: `warehouse/tasks/strategies/`
+- Count: `inventory-control/count-policy.service.ts`, tolerance profiles
+- MRP: `MmReorderRule`, planning parameters on run
+- Quality: `MmInspectionPlan`, inspection requirements
+- Supplier scoring: `supplier-score-config.service.ts`
+
+---
+
+## 15. Frontend rule
+
+Frontend = workflow/UI layer only.
+
+**Do not duplicate:** ATP, availability, MRP netting, quality decisions, valuation, supplier scores.
+
+**Use backend APIs**, e.g.:
+- `GET /mm/inventory/available`
+- Dashboard/analytics facades
+- Planning/MRP run results
+
+**UI stack:** ECME (`src/components/ui`), shared (`src/components/shared`), module pages (`src/modules/mm/`), thin routes.
+
+**Performance (existing):** `mmReferenceCache.ts`, `MmWarmCache.tsx`, `useReferenceData(keys)`, `loading.tsx`, debounced `useQueryList`.
+
+---
+
+## 16. API rule
+
+- Paths: `/api/v1/mm/*`
+- Preserve existing endpoints; breaking changes require migration plan
+- Controllers stay thin; domain logic in services
+- Stock mutations: `@MmMutation()` + `MmAuthGuard` (`X-User-Id` header)
+
+---
+
+## 17. Testing rule
+
+Every MM enhancement should include relevant tests:
+
+| Test type | Location pattern |
+| --- | --- |
+| Unit / domain | `*.spec.ts` next to service |
+| Posting integration | `inventory/inventory.spec.ts`, `inventory-core-hardening.spec.ts` |
+| Architecture guards | `backend/src/mm/architecture/*.spec.ts` |
+| MRP no-posting guard | `planning/planning.spec.ts`, `advanced-mrp-engine.spec.ts` |
+| Scope / auth | `architecture/mm-scope.spec.ts`, `architecture/mm-auth.spec.ts` |
+| Idempotency / concurrency | posting specs, stock-ops specs |
+| Frontend | page/service behavior where applicable |
+
+Run typecheck, lint, build, and affected specs before completion report.
+
+---
+
+## 18. Cursor implementation workflow
+
+For **every** MM feature:
+
+| Step | Action |
+| --- | --- |
+| 1 | Inspect existing implementation (schema, services, routes, UI, tests) |
+| 2 | Identify reusable components |
+| 3 | Identify duplicates/conflicts |
+| 4 | Propose changes (minimal diff, no parallel engines) |
+| 5 | Wait for approval on non-trivial architectural changes |
+| 6 | Implement backend/domain/database |
+| 7 | Implement API |
+| 8 | Implement auth/workflow/audit/events |
+| 9 | Implement frontend |
+| 10 | Add tests |
+| 11 | Run typecheck/lint/build/tests |
+| 12 | Produce completion report |
+
+**Never skip repository inspection.**
+
+---
+
+## 19. "Do not rebuild" rule
+
+If capability exists → **enhance it**.
+
+Do **not** create duplicate: tables, controllers, services, APIs, inventory logic, workflow engines, event systems, audit systems, availability calculators, or GR paths.
+
+**Legacy note:** `WmInventoryBalance` is read-only legacy; canonical balance is `MmInventoryBalance`. Dual inbound paths (`inbound/` + `receiving/`) — extend receiving engine; do not add a third.
+
+---
+
+## 20. Document flow rule
+
+Every transactional document must trace upstream/downstream.
+
+**Inbound:**
+
+```text
+PR → RFQ → Quotation → PO → ASN/ER → Receiving → GR → Inspection → Putaway
+  → Inventory Transaction → Valuation → FICO/AP
+```
+
+**Outbound:**
+
+```text
+Demand → Reservation → Allocation → Pick → Pack → GI
+  → Inventory Transaction → Valuation → COGS/FICO
+```
+
+**Control:**
+
+```text
+Count Plan → Session → Entry → Variance → Recount → Adjustment Approval
+  → COUNT_GAIN/LOSS → Ledger
+```
+
+Store `sourceDocumentType`, `sourceDocumentId`, `sourceDocumentLineId` on transactions.
+
+---
+
+## 21. Definition of done
+
+**Not complete** when only UI, endpoint, or table exists.
+
+**Complete** when all applicable items work:
+
+- [ ] Domain logic correct and owned by right MM module
+- [ ] Permissions (`MmAuthGuard`, roles)
+- [ ] Organization scope (`MmScopeService`, company/plant/warehouse)
+- [ ] Workflow (if transactional approval required)
+- [ ] Audit (`MmInventoryAudit` for stock posts)
+- [ ] Domain events (`MmDomainEventsService`)
+- [ ] Idempotency (retry-safe)
+- [ ] DB constraints and indexes
+- [ ] Frontend wired to backend (no client stock math)
+- [ ] Tests pass
+- [ ] Existing MM flows remain intact
+
+---
+
+## 22. Pre-coding checklist
+
+Answer before writing code:
+
+1. Which **MM-0x** owns this?
+2. What **document** is created/consumed?
+3. Physical inventory change? → `InventoryPostingService`
+4. Availability only? → Reservation/allocation path
+5. Valuation / FICO impact?
+6. Workflow / audit required?
+7. Which **existing service** to reuse?
+8. Which modules **consume** the output?
+9. Idempotency key convention?
+10. Is this a duplicate of something in `mm.module.ts`?
+
+---
+
+## 23. Repository inspection checklist
+
+Inspect before any MM work:
+
+```text
+backend/src/mm/mm.module.ts          → registered providers/controllers
+backend/src/mm/inventory/            → posting, availability, reservation
+backend/src/mm/stock-ops/            → GR/GI/adjustment orchestration
+backend/src/mm/common/               → scope, auth, events, idempotency
+backend/prisma/schema.prisma         → Mm* models, constraints, indexes
+backend/src/mm/planning/             → MRP (confirm no posting imports)
+backend/src/mm/receiving/            → quality engine
+backend/src/mm/warehouse/tasks/      → task completion → posting
+src/modules/mm/                      → existing pages/services
+src/configs/erp-modules/mm.module.ts → nav/routes
+docs/MM_*.md                         → architecture contracts
+.cursor/skills/materials-management/  → this skill
+backend/src/mm/architecture/         → architecture regression specs
+```
+
+---
+
+## 24. Additional resources
+
+| Document | Purpose |
+| --- | --- |
+| [reference.md](reference.md) | Extended historical contract (flows, permissions, tables) |
+| [docs/MM_ARCHITECTURE.md](../../docs/MM_ARCHITECTURE.md) | System architecture overview |
+| [docs/MM_DOMAIN_BOUNDARIES.md](../../docs/MM_DOMAIN_BOUNDARIES.md) | Ownership matrix |
+| [docs/MM_DEPENDENCY_MAP.md](../../docs/MM_DEPENDENCY_MAP.md) | MM-01→15 build order |
+| [docs/MM_TRANSACTION_RULES.md](../../docs/MM_TRANSACTION_RULES.md) | Posting, movement types, reversal |
+| [docs/MM_INTEGRATION_EVENTS.md](../../docs/MM_INTEGRATION_EVENTS.md) | Event catalog |
+| [docs/MM_INTEGRATION_CONTRACTS.md](../../docs/MM_INTEGRATION_CONTRACTS.md) | Cross-module contracts |
+| [docs/MM_QUALITY_ARCHITECTURE.md](../../docs/MM_QUALITY_ARCHITECTURE.md) | Quality inspection model |
+| [docs/MM_MRP_ARCHITECTURE.md](../../docs/MM_MRP_ARCHITECTURE.md) | MRP engine contract |
 
 ---
 
 ## Final principle
 
 ```text
-              MATERIALS MANAGEMENT
+              MATERIALS MANAGEMENT (MM-01…15)
                        │
       ┌────────────────┼────────────────┐
       ▼                ▼                ▼
   PLANNING        PROCUREMENT       WAREHOUSE
+  (read stock)    (docs only)    (where/how)
       │                │                │
       └────────────────┼────────────────┘
                        ▼
-                  INVENTORY
+              INVENTORY POSTING SERVICE
                        │
-             ┌─────────┼─────────┐
-             ▼         ▼         ▼
-         RECEIVING   RESERVE    ISSUE
-             │         │         │
-             └─────────┼─────────┘
                        ▼
-               INVENTORY LEDGER
+               INVENTORY LEDGER (immutable)
                        │
              ┌─────────┼─────────┐
              ▼         ▼         ▼
-         BALANCE    VALUATION   AUDIT
+         BALANCE    VALUATION   AUDIT/EVENTS
                        │
                        ▼
                       FICO
 ```
 
-Ledger = authoritative history · Balance = current stock · Warehouse = location/execution · Procurement = acquisition · Planning = replenishment · Valuation = monetary value · FICO = accounting.
-
-Keep these boundaries intact.
-
-## Additional resources
-
-- Full contract (architecture, flows, permissions, tables, priority order): [reference.md](reference.md)
+**One posting service. One ledger. Enhance — do not rebuild.**
