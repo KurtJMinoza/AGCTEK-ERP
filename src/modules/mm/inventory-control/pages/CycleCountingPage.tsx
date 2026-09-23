@@ -271,10 +271,11 @@ const CycleCountingPage = () => {
                 title="Cycle Counting"
                 description="ABC frequency rules and cycle count generation. A=weekly, B=monthly, C=quarterly."
                 actions={
-                    <div className="flex gap-2">
+                    tab === 'rules' ? (
                         <Button icon={<HiOutlinePlus />} onClick={openRule}>
                             New Rule
                         </Button>
+                    ) : (
                         <Button
                             variant="solid"
                             icon={<HiOutlinePlay />}
@@ -282,25 +283,33 @@ const CycleCountingPage = () => {
                         >
                             Generate Cycle Count
                         </Button>
-                    </div>
+                    )
                 }
             />
 
-            <AdaptiveCard className="mb-4">
+            <AdaptiveCard>
                 <Tabs value={tab} onChange={setTab}>
                     <Tabs.TabList>
                         <Tabs.TabNav value="rules">Count Rules</Tabs.TabNav>
                         <Tabs.TabNav value="sessions">Cycle Sessions</Tabs.TabNav>
                     </Tabs.TabList>
+                    <div className="mt-4">
+                        <Tabs.TabContent value="rules">
+                            <DataTable
+                                columns={ruleColumns}
+                                data={rules}
+                                loading={loading}
+                            />
+                        </Tabs.TabContent>
+                        <Tabs.TabContent value="sessions">
+                            <DataTable
+                                columns={countColumns}
+                                data={counts}
+                                loading={loading}
+                            />
+                        </Tabs.TabContent>
+                    </div>
                 </Tabs>
-            </AdaptiveCard>
-
-            <AdaptiveCard>
-                {tab === 'rules' ? (
-                    <DataTable columns={ruleColumns} data={rules} loading={loading} />
-                ) : (
-                    <DataTable columns={countColumns} data={counts} loading={loading} />
-                )}
             </AdaptiveCard>
 
             <FormDialog

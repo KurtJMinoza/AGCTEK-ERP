@@ -14,6 +14,7 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
+import Tabs from '@/components/ui/Tabs'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
@@ -22,6 +23,9 @@ import type { CountPlan, CountPolicy } from '../types'
 
 const ROUTE = '/modules/mm/inventory-control/count-planning'
 type Opt = { value: string; label: string }
+type PlanningTab = 'policies' | 'plans'
+
+const { TabList, TabNav, TabContent } = Tabs
 
 const TYPE_OPTS: Opt[] = [
     { value: 'CYCLE_COUNT', label: 'Cycle count' },
@@ -44,6 +48,7 @@ const CountPlanningPage = () => {
     const [plans, setPlans] = useState<CountPlan[]>([])
     const [loading, setLoading] = useState(true)
     const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
+    const [activeTab, setActiveTab] = useState<PlanningTab>('policies')
     const [policyOpen, setPolicyOpen] = useState(false)
     const [planOpen, setPlanOpen] = useState(false)
     const [busy, setBusy] = useState(false)
@@ -249,30 +254,49 @@ const CountPlanningPage = () => {
                 title="Count Planning"
                 description="Configure ABC count policies and generate count plans by warehouse and cycle."
                 actions={
-                    <div className="flex gap-2">
-                        <Button size="sm" icon={<HiOutlinePlus />} onClick={openPolicy}>
-                            Policy
+                    activeTab === 'policies' ? (
+                        <Button size="sm" variant="solid" icon={<HiOutlinePlus />} onClick={openPolicy}>
+                            New policy
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="solid"
-                            icon={<HiOutlinePlus />}
-                            onClick={openPlan}
-                        >
-                            Plan
+                    ) : (
+                        <Button size="sm" variant="solid" icon={<HiOutlinePlus />} onClick={openPlan}>
+                            New plan
                         </Button>
-                    </div>
+                    )
                 }
             />
 
-            <AdaptiveCard className="mb-6">
-                <h6 className="mb-3 text-sm font-semibold">Count policies</h6>
-                <DataTable columns={policyColumns} data={policies} loading={loading} compact />
-            </AdaptiveCard>
-
             <AdaptiveCard>
-                <h6 className="mb-3 text-sm font-semibold">Count plans</h6>
-                <DataTable columns={planColumns} data={plans} loading={loading} compact />
+                <Tabs
+                    value={activeTab}
+                    onChange={(v) => setActiveTab(v as PlanningTab)}
+                >
+                    <TabList>
+                        <TabNav value="policies">Count policies</TabNav>
+                        <TabNav value="plans">Count plans</TabNav>
+                    </TabList>
+
+                    <div className="mt-4">
+                        <TabContent value="policies">
+                            <DataTable
+                                columns={policyColumns}
+                                data={policies}
+                                loading={loading}
+                                compact
+                                noData={!loading && policies.length === 0}
+                            />
+                        </TabContent>
+                        <TabContent value="plans">
+                            <DataTable
+                                columns={planColumns}
+                                data={plans}
+                                loading={loading}
+                                compact
+                                noData={!loading && plans.length === 0}
+                            />
+                        </TabContent>
+                    </div>
+                </Tabs>
             </AdaptiveCard>
 
             <FormDialog

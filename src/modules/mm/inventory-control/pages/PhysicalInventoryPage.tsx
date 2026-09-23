@@ -183,7 +183,7 @@ const PhysicalInventoryPage = () => {
                 }
             />
 
-            <AdaptiveCard className="mb-4">
+            <AdaptiveCard>
                 <Tabs value={status} onChange={setStatus}>
                     <Tabs.TabList>
                         {['', 'OPEN', 'COUNTING', 'RECOUNT', 'APPROVAL', 'POSTED', 'CLOSED'].map(
@@ -195,10 +195,9 @@ const PhysicalInventoryPage = () => {
                         )}
                     </Tabs.TabList>
                 </Tabs>
-            </AdaptiveCard>
-
-            <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <div className="mt-4">
+                    <DataTable columns={columns} data={rows} loading={loading} />
+                </div>
             </AdaptiveCard>
 
             <FormDialog

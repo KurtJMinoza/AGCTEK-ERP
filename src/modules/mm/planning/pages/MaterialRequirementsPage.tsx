@@ -13,6 +13,7 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
+import Tabs from '@/components/ui/Tabs'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import MrpExplanationPanel from '../components/MrpExplanationPanel'
@@ -21,6 +22,9 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/material-requirements'
 type Opt = { value: string; label: string }
+type MrpTab = 'requirements' | 'trace'
+
+const { TabList, TabNav, TabContent } = Tabs
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
@@ -45,6 +49,7 @@ const MaterialRequirementsPage = () => {
     const [explainRow, setExplainRow] = useState<MaterialRequirement | null>(
         null,
     )
+    const [viewTab, setViewTab] = useState<MrpTab>('requirements')
 
     useEffect(() => {
         if (!companyId && companies[0]) setCompanyId(companies[0].value)
@@ -202,6 +207,77 @@ const MaterialRequirementsPage = () => {
         [],
     )
 
+    const traceColumns: ColumnDef<BomExplosionTrace>[] = useMemo(
+        () => [
+            {
+                header: 'Parent',
+                cell: ({ row }) =>
+                    row.original.parentMaterial?.materialCode ?? '—',
+            },
+            {
+                header: 'Component',
+                cell: ({ row }) =>
+                    row.original.componentMaterial?.materialCode ?? '—',
+            },
+            {
+                header: 'Level',
+                cell: ({ row }) => row.original.level,
+            },
+            {
+                header: 'Qty/Parent',
+                cell: ({ row }) => Number(row.original.quantityPer),
+            },
+            {
+                header: 'Gross',
+                cell: ({ row }) => Number(row.original.grossComponentQty),
+            },
+            {
+                header: 'Reason',
+                cell: ({ row }) => row.original.explosionReason ?? '—',
+            },
+        ],
+        [],
+    )
+
+    const traceMaterialOptions = useMemo(
+        () => [
+            ...new Map(
+                traces.map((t) => [
+                    t.componentMaterialId,
+                    {
+                        value: t.componentMaterialId,
+                        label:
+                            t.componentMaterial?.materialCode ??
+                            t.componentMaterialId,
+                    },
+                ]),
+            ).values(),
+            ...new Map(
+                traces.map((t) => [
+                    t.parentMaterialId,
+                    {
+                        value: t.parentMaterialId,
+                        label:
+                            t.parentMaterial?.materialCode ?? t.parentMaterialId,
+                    },
+                ]),
+            ).values(),
+        ],
+        [traces],
+    )
+
+    const filteredTraces = useMemo(
+        () =>
+            selectedMaterialId
+                ? traces.filter(
+                      (t) =>
+                          t.componentMaterialId === selectedMaterialId ||
+                          t.parentMaterialId === selectedMaterialId,
+                  )
+                : [],
+        [traces, selectedMaterialId],
+    )
+
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
@@ -240,7 +316,65 @@ const MaterialRequirementsPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <Tabs value={viewTab} onChange={(v) => setViewTab(v as MrpTab)}>
+                    <TabList>
+                        <TabNav value="requirements">Net requirements</TabNav>
+                        <TabNav value="trace" disabled={traces.length === 0}>
+                            BOM explosion trace
+                        </TabNav>
+                    </TabList>
+                    <div className="mt-4">
+                        <TabContent value="requirements">
+                            <DataTable
+                                columns={columns}
+                                data={rows}
+                                loading={loading}
+                            />
+                        </TabContent>
+                        <TabContent value="trace">
+                            {traces.length === 0 ? (
+                                <p className="text-sm text-gray-500">
+                                    Run MRP with BOM explosion to view trace rows.
+                                </p>
+                            ) : (
+                                <>
+                                    <FormItem label="Material">
+                                        <Select
+                                            isClearable
+                                            options={traceMaterialOptions}
+                                            value={
+                                                selectedMaterialId
+                                                    ? {
+                                                          value: selectedMaterialId,
+                                                          label:
+                                                              rows.find(
+                                                                  (r) =>
+                                                                      r.materialId ===
+                                                                      selectedMaterialId,
+                                                              )?.material
+                                                                  ?.materialCode ??
+                                                              selectedMaterialId,
+                                                      }
+                                                    : null
+                                            }
+                                            onChange={(o: any) =>
+                                                setSelectedMaterialId(o?.value || '')
+                                            }
+                                        />
+                                    </FormItem>
+                                    <DataTable
+                                        columns={traceColumns}
+                                        data={filteredTraces}
+                                        noData={
+                                            !!selectedMaterialId &&
+                                            filteredTraces.length === 0
+                                        }
+                                    />
+                                </>
+                            )}
+                        </TabContent>
+                    </div>
+                </Tabs>
             </AdaptiveCard>
 
             <FormDialog
@@ -252,102 +386,6 @@ const MaterialRequirementsPage = () => {
                 <MrpExplanationPanel explanation={explainRow?.explanationJson} />
             </FormDialog>
 
-            {traces.length > 0 && (
-                <AdaptiveCard className="mt-4">
-                    <FormItem label="View BOM trace for material">
-                        <Select
-                            isClearable
-                            options={[
-                                ...new Map(
-                                    traces.map((t) => [
-                                        t.componentMaterialId,
-                                        {
-                                            value: t.componentMaterialId,
-                                            label:
-                                                t.componentMaterial
-                                                    ?.materialCode ??
-                                                t.componentMaterialId,
-                                        },
-                                    ]),
-                                ).values(),
-                                ...new Map(
-                                    traces.map((t) => [
-                                        t.parentMaterialId,
-                                        {
-                                            value: t.parentMaterialId,
-                                            label:
-                                                t.parentMaterial?.materialCode ??
-                                                t.parentMaterialId,
-                                        },
-                                    ]),
-                                ).values(),
-                            ]}
-                            value={
-                                selectedMaterialId
-                                    ? {
-                                          value: selectedMaterialId,
-                                          label:
-                                              rows.find(
-                                                  (r) =>
-                                                      r.materialId ===
-                                                      selectedMaterialId,
-                                              )?.material?.materialCode ??
-                                              selectedMaterialId,
-                                      }
-                                    : null
-                            }
-                            onChange={(o: any) =>
-                                setSelectedMaterialId(o?.value || '')
-                            }
-                        />
-                    </FormItem>
-                </AdaptiveCard>
-            )}
-            {selectedMaterialId && traces.length > 0 && (
-                <AdaptiveCard className="mt-4">
-                    <h3 className="font-semibold mb-3">BOM Explosion Trace</h3>
-                    <DataTable
-                        columns={[
-                            {
-                                header: 'Parent',
-                                cell: ({ row }) =>
-                                    row.original.parentMaterial?.materialCode ??
-                                    '—',
-                            },
-                            {
-                                header: 'Component',
-                                cell: ({ row }) =>
-                                    row.original.componentMaterial?.materialCode ??
-                                    '—',
-                            },
-                            {
-                                header: 'Level',
-                                cell: ({ row }) => row.original.level,
-                            },
-                            {
-                                header: 'Qty/Parent',
-                                cell: ({ row }) =>
-                                    Number(row.original.quantityPer),
-                            },
-                            {
-                                header: 'Gross',
-                                cell: ({ row }) =>
-                                    Number(row.original.grossComponentQty),
-                            },
-                            {
-                                header: 'Reason',
-                                cell: ({ row }) =>
-                                    row.original.explosionReason ?? '—',
-                            },
-                        ]}
-                        data={traces.filter(
-                            (t) =>
-                                t.componentMaterialId === selectedMaterialId ||
-                                t.parentMaterialId === selectedMaterialId,
-                        )}
-                    />
-                </AdaptiveCard>
-            )}
         </PageContainer>
     )
 }

@@ -9,6 +9,7 @@ import { orgService, uomService } from '@/modules/mm/material-master/services/re
 import type { Warehouse } from '@/modules/mm/warehouse/types'
 import type { Material } from '@/modules/mm/material-master/types'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
+import { getApiErrorMessage } from '@/modules/mm/shared/apiError'
 
 export type MmOpt = { value: string; label: string; meta?: Record<string, unknown> }
 
@@ -96,6 +97,14 @@ export function useLazyMmRefs() {
                     inflightRef.current[key] = p
                     try {
                         cacheRef.current[key] = await p
+                    } catch (err) {
+                        cacheRef.current[key] = []
+                        if (process.env.NODE_ENV === 'development') {
+                            console.warn(
+                                `[useLazyMmRefs] ${key}:`,
+                                getApiErrorMessage(err, 'Load failed'),
+                            )
+                        }
                     } finally {
                         delete inflightRef.current[key]
                     }

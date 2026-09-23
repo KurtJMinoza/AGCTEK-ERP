@@ -24,8 +24,12 @@ import {
     type MaterialQualityMetricRow,
 } from '@/modules/mm/analytics/services/analyticsService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Tabs from '@/components/ui/Tabs'
 
 const ROUTE = '/modules/mm/reports-analytics/quality-analytics'
+type QualityTableTab = 'supplier' | 'material'
+
+const { TabList, TabNav, TabContent } = Tabs
 
 export default function QualityAnalyticsPage() {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
@@ -38,6 +42,8 @@ export default function QualityAnalyticsPage() {
     const [dateTo, setDateTo] = useState('')
     const [data, setData] = useState<QualityAnalyticsResponse | null>(null)
     const [loading, setLoading] = useState(false)
+    const [qualityTableTab, setQualityTableTab] =
+        useState<QualityTableTab>('supplier')
 
     useEffect(() => {
         const t = window.setTimeout(() => loadFilterRefs(), 0)
@@ -315,22 +321,30 @@ export default function QualityAnalyticsPage() {
                         )}
                     </AdaptiveCard>
 
-                    {/* Supplier quality table */}
                     <AdaptiveCard>
-                        <h6 className="mb-2 font-semibold">Supplier Quality</h6>
-                        <DataTable
-                            columns={supplierCols}
-                            data={data.supplierQualityMetric ?? []}
-                        />
-                    </AdaptiveCard>
-
-                    {/* Material quality table */}
-                    <AdaptiveCard>
-                        <h6 className="mb-2 font-semibold">Material Quality</h6>
-                        <DataTable
-                            columns={materialCols}
-                            data={data.materialQualityMetric ?? []}
-                        />
+                        <Tabs
+                            value={qualityTableTab}
+                            onChange={(v) => setQualityTableTab(v as QualityTableTab)}
+                        >
+                            <TabList>
+                                <TabNav value="supplier">Supplier quality</TabNav>
+                                <TabNav value="material">Material quality</TabNav>
+                            </TabList>
+                            <div className="mt-4">
+                                <TabContent value="supplier">
+                                    <DataTable
+                                        columns={supplierCols}
+                                        data={data.supplierQualityMetric ?? []}
+                                    />
+                                </TabContent>
+                                <TabContent value="material">
+                                    <DataTable
+                                        columns={materialCols}
+                                        data={data.materialQualityMetric ?? []}
+                                    />
+                                </TabContent>
+                            </div>
+                        </Tabs>
                     </AdaptiveCard>
                 </div>
             )}
