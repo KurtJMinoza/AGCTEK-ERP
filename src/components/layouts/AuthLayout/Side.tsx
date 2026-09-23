@@ -1,19 +1,13 @@
-import { cloneElement } from 'react'
 import type { CommonProps } from '@/@types/common'
 
 type SideProps = CommonProps
 
-const Side = ({ children, ...rest }: SideProps) => {
+const Side = ({ children }: SideProps) => {
     return (
         <div className="flex h-full p-6 bg-white dark:bg-gray-800">
             <div className=" flex flex-col justify-center items-center flex-1">
                 <div className="w-full xl:max-w-[450px] px-8 max-w-[380px]">
-                    {children
-                        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          cloneElement(children as React.ReactElement<any>, {
-                              ...rest,
-                          })
-                        : null}
+                    {children}
                 </div>
             </div>
             <div className="py-6 px-10 lg:flex flex-col flex-1 justify-between hidden rounded-3xl items-end relative max-w-[520px] 2xl:max-w-[720px]">

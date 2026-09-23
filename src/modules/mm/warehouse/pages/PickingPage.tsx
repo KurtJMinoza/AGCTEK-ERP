@@ -32,7 +32,7 @@ import {
 import { pickingService } from '../services/pickingService'
 import { pickWaveService } from '../services/pickWaveService'
 import {
-    useDeferredFilterRefs,
+    useMmFilterRefs,
     useLazyBinsForWarehouse,
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
@@ -93,7 +93,7 @@ const PickingPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
     const { ensure: ensureWarehouses, rows: warehouseEntities } = useLazyWarehouseEntities()
     const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
     const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
@@ -150,9 +150,7 @@ const PickingPage = () => {
 
     useEffect(() => {
         fetchTasks()
-        const t = window.setTimeout(() => loadFilterRefs(), 0)
-        return () => window.clearTimeout(t)
-    }, [fetchTasks, loadFilterRefs])
+    }, [fetchTasks])
 
     const warehouseOptions = useMemo<FilterOption[]>(
         () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],

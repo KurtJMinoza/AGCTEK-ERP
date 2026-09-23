@@ -31,7 +31,7 @@ import {
 } from 'react-icons/hi'
 import { transferService } from '../services/transferService'
 import {
-    useDeferredFilterRefs,
+    useMmFilterRefs,
     useLazyBinsForWarehouse,
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
@@ -126,16 +126,14 @@ const TransfersPage = () => {
         }
     }, [queryParams])
 
-    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
     const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
     const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
     const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
 
     useEffect(() => {
         fetchList()
-        const t = window.setTimeout(() => loadFilterRefs(), 0)
-        return () => window.clearTimeout(t)
-    }, [fetchList, loadFilterRefs])
+    }, [fetchList])
 
     const warehouseOpts = useMemo<FilterOption[]>(
         () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],

@@ -18,14 +18,10 @@ export const onSignInWithCredentials = async (
         })
     } catch (error) {
         if (error instanceof AuthError) {
-            /** Customize error message based on AuthError */
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            switch ((error.type as any).type) {
-                case 'CredentialsSignin':
-                    return { error: 'Invalid credentials!' }
-                default:
-                    return { error: 'Something went wrong!' }
+            if (error.type === 'CredentialsSignin') {
+                return { error: 'Invalid credentials!' }
             }
+            return { error: 'Something went wrong!' }
         }
         throw error
     }

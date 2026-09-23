@@ -6,7 +6,6 @@ import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import { FormItem, Form } from '@/components/ui/Form'
 import PasswordInput from '@/components/shared/PasswordInput'
-import AuthFormSection from '@/components/auth/AuthFormSection'
 import { ROLE_OPTIONS, type RoleOption, type UserRole } from '@/constants/roles.constant'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -45,16 +44,14 @@ const validationSchema = z
         userName: z.string().min(1, { message: 'Username is required' }),
         email: z
             .string()
-            .min(1, { message: 'Please enter your email' })
-            .email({ message: 'Please enter a valid email' }),
+            .min(1, { message: 'Email is required' })
+            .email({ message: 'Enter a valid email' }),
         password: z
             .string()
-            .min(6, { message: 'Password must be at least 6 characters' }),
-        confirmPassword: z
-            .string()
-            .min(1, { message: 'Please confirm your password' }),
+            .min(6, { message: 'At least 6 characters' }),
+        confirmPassword: z.string().min(1, { message: 'Confirm your password' }),
         role: z.enum(['super_admin', 'admin'], {
-            message: 'Please select a role',
+            message: 'Select a role',
         }),
     })
     .refine((data) => data.password === data.confirmPassword, {
@@ -85,6 +82,7 @@ const SignUpForm = (props: SignUpFormProps) => {
     })
 
     const handleSignUp = async (values: SignUpFormSchema) => {
+        setMessage('')
         if (onSignUp) {
             onSignUp({ values, setSubmitting, setMessage })
         }
@@ -92,61 +90,53 @@ const SignUpForm = (props: SignUpFormProps) => {
 
     return (
         <div className={className}>
-            <Form
-                containerClassName="flex flex-col gap-8"
-                onSubmit={handleSubmit(handleSignUp)}
-            >
-                <AuthFormSection
-                    title="Personal information"
-                    description="Your name and role within the organization."
-                >
-                    <div className="grid gap-x-4 sm:grid-cols-2">
-                        <FormItem
-                            label="First name"
-                            asterisk
-                            invalid={Boolean(errors.firstName)}
-                            errorMessage={errors.firstName?.message}
-                        >
-                            <Controller
-                                name="firstName"
-                                control={control}
-                                render={({ field }) => (
-                                    <Input
-                                        type="text"
-                                        placeholder="First name"
-                                        autoComplete="given-name"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
+            <Form size="sm" onSubmit={handleSubmit(handleSignUp)}>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0">
+                    <FormItem
+                        label="First name"
+                        invalid={Boolean(errors.firstName)}
+                        errorMessage={errors.firstName?.message}
+                        className="mb-2.5"
+                    >
+                        <Controller
+                            name="firstName"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    type="text"
+                                    placeholder="First name"
+                                    autoComplete="given-name"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
 
-                        <FormItem
-                            label="Last name"
-                            asterisk
-                            invalid={Boolean(errors.lastName)}
-                            errorMessage={errors.lastName?.message}
-                        >
-                            <Controller
-                                name="lastName"
-                                control={control}
-                                render={({ field }) => (
-                                    <Input
-                                        type="text"
-                                        placeholder="Last name"
-                                        autoComplete="family-name"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
-                    </div>
+                    <FormItem
+                        label="Last name"
+                        invalid={Boolean(errors.lastName)}
+                        errorMessage={errors.lastName?.message}
+                        className="mb-2.5"
+                    >
+                        <Controller
+                            name="lastName"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    type="text"
+                                    placeholder="Last name"
+                                    autoComplete="family-name"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
 
                     <FormItem
                         label="Job position"
-                        asterisk
                         invalid={Boolean(errors.jobPosition)}
                         errorMessage={errors.jobPosition?.message}
+                        className="col-span-2 mb-2.5"
                     >
                         <Controller
                             name="jobPosition"
@@ -154,73 +144,66 @@ const SignUpForm = (props: SignUpFormProps) => {
                             render={({ field }) => (
                                 <Input
                                     type="text"
-                                    placeholder="e.g. Warehouse Manager, Procurement Lead"
+                                    placeholder="e.g. Operations Manager"
                                     autoComplete="organization-title"
                                     {...field}
                                 />
                             )}
                         />
                     </FormItem>
-                </AuthFormSection>
-
-                <AuthFormSection
-                    title="Account details"
-                    description="Credentials used to sign in to AGCTEK ERP."
-                >
-                    <div className="grid gap-x-4 sm:grid-cols-2">
-                        <FormItem
-                            label="Username"
-                            asterisk
-                            invalid={Boolean(errors.userName)}
-                            errorMessage={errors.userName?.message}
-                        >
-                            <Controller
-                                name="userName"
-                                control={control}
-                                render={({ field }) => (
-                                    <Input
-                                        type="text"
-                                        placeholder="Unique login username"
-                                        autoComplete="username"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
-
-                        <FormItem
-                            label="Email"
-                            asterisk
-                            invalid={Boolean(errors.email)}
-                            errorMessage={errors.email?.message}
-                        >
-                            <Controller
-                                name="email"
-                                control={control}
-                                render={({ field }) => (
-                                    <Input
-                                        type="email"
-                                        placeholder="name@company.com"
-                                        autoComplete="email"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
-                    </div>
 
                     <FormItem
-                        label="System role"
-                        asterisk
+                        label="Username"
+                        invalid={Boolean(errors.userName)}
+                        errorMessage={errors.userName?.message}
+                        className="mb-2.5"
+                    >
+                        <Controller
+                            name="userName"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    type="text"
+                                    placeholder="Login username"
+                                    autoComplete="username"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+
+                    <FormItem
+                        label="Email"
+                        invalid={Boolean(errors.email)}
+                        errorMessage={errors.email?.message}
+                        className="mb-2.5"
+                    >
+                        <Controller
+                            name="email"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    type="email"
+                                    placeholder="name@company.com"
+                                    autoComplete="email"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+
+                    <FormItem
+                        label="Role"
                         invalid={Boolean(errors.role)}
                         errorMessage={errors.role?.message}
+                        className="col-span-2 mb-2.5"
                     >
                         <Controller
                             name="role"
                             control={control}
                             render={({ field }) => (
                                 <Select<RoleOption>
-                                    placeholder="Select access level"
+                                    placeholder="Super Admin or Admin"
                                     options={ROLE_OPTIONS}
                                     value={ROLE_OPTIONS.find(
                                         (option) => option.value === field.value,
@@ -232,67 +215,56 @@ const SignUpForm = (props: SignUpFormProps) => {
                             )}
                         />
                     </FormItem>
-                </AuthFormSection>
 
-                <AuthFormSection
-                    title="Security"
-                    description="Choose a strong password for your account."
-                >
-                    <div className="grid gap-x-4 sm:grid-cols-2">
-                        <FormItem
-                            label="Password"
-                            asterisk
-                            invalid={Boolean(errors.password)}
-                            errorMessage={errors.password?.message}
-                        >
-                            <Controller
-                                name="password"
-                                control={control}
-                                render={({ field }) => (
-                                    <PasswordInput
-                                        placeholder="At least 6 characters"
-                                        autoComplete="new-password"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
-
-                        <FormItem
-                            label="Confirm password"
-                            asterisk
-                            invalid={Boolean(errors.confirmPassword)}
-                            errorMessage={errors.confirmPassword?.message}
-                        >
-                            <Controller
-                                name="confirmPassword"
-                                control={control}
-                                render={({ field }) => (
-                                    <PasswordInput
-                                        placeholder="Re-enter password"
-                                        autoComplete="new-password"
-                                        {...field}
-                                    />
-                                )}
-                            />
-                        </FormItem>
-                    </div>
-                </AuthFormSection>
-
-                <div className="border-t border-gray-200 pt-6 dark:border-gray-700">
-                    <Button
-                        block
-                        loading={isSubmitting}
-                        variant="solid"
-                        type="submit"
-                        size="lg"
+                    <FormItem
+                        label="Password"
+                        invalid={Boolean(errors.password)}
+                        errorMessage={errors.password?.message}
+                        className="mb-2.5"
                     >
-                        {isSubmitting ? 'Creating account…' : 'Create account'}
-                    </Button>
-                    <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-                        By creating an account, you agree to use AGCTEK ERP for authorized business purposes only.
-                    </p>
+                        <Controller
+                            name="password"
+                            control={control}
+                            render={({ field }) => (
+                                <PasswordInput
+                                    placeholder="Min. 6 characters"
+                                    autoComplete="new-password"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
+
+                    <FormItem
+                        label="Confirm password"
+                        invalid={Boolean(errors.confirmPassword)}
+                        errorMessage={errors.confirmPassword?.message}
+                        className="mb-2.5"
+                    >
+                        <Controller
+                            name="confirmPassword"
+                            control={control}
+                            render={({ field }) => (
+                                <PasswordInput
+                                    placeholder="Repeat password"
+                                    autoComplete="new-password"
+                                    {...field}
+                                />
+                            )}
+                        />
+                    </FormItem>
                 </div>
+
+                <Button
+                    block
+                    size="sm"
+                    loading={isSubmitting}
+                    variant="solid"
+                    type="submit"
+                    className="mt-1"
+                >
+                    {isSubmitting ? 'Creating account…' : 'Create account'}
+                </Button>
             </Form>
         </div>
     )

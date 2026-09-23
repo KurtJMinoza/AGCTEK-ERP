@@ -13,7 +13,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlay, HiOutlineUserAdd, HiOutlineCheckCircle, HiOutlineExclamation } from 'react-icons/hi'
 import { warehouseTaskService } from '../services/warehouseTaskService'
-import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { WarehouseTask, WarehouseTaskQueryParams, WarehouseTaskStatus, WarehouseTaskType } from '../types'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
@@ -48,7 +48,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
     const [taskType, setTaskType] = useState('')
     const [status, setStatus] = useState(mode === 'exceptions' ? 'EXCEPTION' : '')
     const [warehouseId, setWarehouseId] = useState('')
-    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
 
     const [assignOpen, setAssignOpen] = useState(false)
     const [assignUserId, setAssignUserId] = useState('')
@@ -105,9 +105,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
 
     useEffect(() => {
         fetchTasks()
-        const t = window.setTimeout(() => loadFilterRefs(), 0)
-        return () => window.clearTimeout(t)
-    }, [fetchTasks, loadFilterRefs])
+    }, [fetchTasks])
 
     const runAction = async (fn: () => Promise<unknown>, success: string) => {
         setActionLoading(true)

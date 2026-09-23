@@ -30,7 +30,7 @@ import {
 } from 'react-icons/hi'
 import { putawayService } from '../services/putawayService'
 import {
-    useDeferredFilterRefs,
+    useMmFilterRefs,
     useLazyBinsForWarehouse,
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
@@ -100,7 +100,7 @@ const PutawayPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
     const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
     const { ensure: ensureMaterials, rows: materialRows } = useLazyMaterialEntities()
     const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
@@ -152,9 +152,7 @@ const PutawayPage = () => {
 
     useEffect(() => {
         fetchData()
-        const t = window.setTimeout(() => loadFilterRefs(), 0)
-        return () => window.clearTimeout(t)
-    }, [fetchData, loadFilterRefs])
+    }, [fetchData])
 
     const warehouseOptions = useMemo<FilterOption[]>(() => [
         { value: '', label: 'All warehouses' },

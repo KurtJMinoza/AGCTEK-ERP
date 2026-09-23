@@ -170,16 +170,20 @@ export function useLazyMaterialEntities() {
 /** Defer filter dropdown options until after the primary list fetch starts. */
 export function useDeferredFilterRefs(...keys: MmRefKey[]) {
     const refs = useLazyMmRefs()
+    const ensureRef = useRef(refs.ensure)
+    ensureRef.current = refs.ensure
     const loaded = useRef(false)
     const keyStr = keys.join(',')
 
-    const load = useCallback(() => {
+    // Do not depend on `refs` — snap/loading updates recreate that object and
+    // would retrigger any effect that lists loadFilterRefs (infinite list fetch loop).
+    const loadFilterRefs = useCallback(() => {
         if (loaded.current) return
         loaded.current = true
-        void refs.ensure(...(keyStr.split(',') as MmRefKey[]))
-    }, [refs, keyStr])
+        void ensureRef.current(...(keyStr.split(',') as MmRefKey[]))
+    }, [keyStr])
 
-    return { ...refs, loadFilterRefs: load }
+    return { ...refs, loadFilterRefs }
 }
 
 /** Filter pages: defer reference dropdowns until after first paint (list fetch is not blocked). */

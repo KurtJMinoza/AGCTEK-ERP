@@ -32,7 +32,7 @@ import {
 } from 'react-icons/hi'
 import { packingService } from '../services/packingService'
 import {
-    useDeferredFilterRefs,
+    useMmFilterRefs,
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
@@ -77,7 +77,7 @@ const PackingPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const { warehouses: warehouseFilterOpts, loadFilterRefs } = useDeferredFilterRefs('warehouses')
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
     const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
     const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
 
@@ -135,9 +135,7 @@ const PackingPage = () => {
 
     useEffect(() => {
         fetchPackages()
-        const t = window.setTimeout(() => loadFilterRefs(), 0)
-        return () => window.clearTimeout(t)
-    }, [fetchPackages, loadFilterRefs])
+    }, [fetchPackages])
 
     const warehouseOptions = useMemo<FilterOption[]>(
         () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],
