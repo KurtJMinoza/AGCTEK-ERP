@@ -1,16 +1,48 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common'
+import {
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Param,
+    Patch,
+    Post,
+    Put,
+    Query,
+} from '@nestjs/common'
 import { MaintenanceService } from './maintenance.service'
+import { VehicleDocumentsService } from './vehicle-documents.service'
 import type { ListQuery } from '../scm.utils'
 
 @Controller('scm/maintenance')
 export class MaintenanceController {
-    constructor(private readonly maintenanceService: MaintenanceService) {}
+    constructor(
+        private readonly maintenanceService: MaintenanceService,
+        private readonly vehicleDocumentsService: VehicleDocumentsService,
+    ) {}
 
     @Get()
     findAll(
         @Query() query: ListQuery & { vehicleId?: string; type?: string },
     ) {
         return this.maintenanceService.findAll(query)
+    }
+
+    /** Fleet OR/CR/insurance list (before :id). */
+    @Get('documents')
+    findDocuments(
+        @Query()
+        query: ListQuery & {
+            vehicleId?: string
+            kind?: string
+            expiring?: string
+        },
+    ) {
+        return this.vehicleDocumentsService.findAll(query)
+    }
+
+    @Get('compliance-summary')
+    complianceSummary() {
+        return this.vehicleDocumentsService.complianceSummary()
     }
 
     /**

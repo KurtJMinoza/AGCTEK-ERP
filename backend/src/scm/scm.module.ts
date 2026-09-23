@@ -13,6 +13,8 @@ import { TrackingGateway } from './tracking/tracking.gateway'
 import { FlespiMqttService } from './tracking/flespi-mqtt.service'
 import { MaintenanceController } from './maintenance/maintenance.controller'
 import { MaintenanceService } from './maintenance/maintenance.service'
+import { VehicleDocumentsService } from './maintenance/vehicle-documents.service'
+import { VehicleDocumentsController } from './documents/vehicle-documents.controller'
 import { Tile38Service } from './tile38/tile38.service'
 import { GeofencesController } from './geofences/geofences.controller'
 import { GeofencesService } from './geofences/geofences.service'
@@ -34,6 +36,7 @@ import { MmModule } from '../mm/mm.module'
         TripsController,
         TrackingController,
         MaintenanceController,
+        VehicleDocumentsController,
         GeofencesController,
         GeocodeController,
         PlacesController,
@@ -49,6 +52,7 @@ import { MmModule } from '../mm/mm.module'
         TrackingGateway,
         FlespiMqttService,
         MaintenanceService,
+        VehicleDocumentsService,
         Tile38Service,
         GeofencesService,
         PlacesService,
