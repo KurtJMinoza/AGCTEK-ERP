@@ -10,6 +10,7 @@ import {
 } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MaintenanceService } from '../maintenance/maintenance.service'
+import { VehicleDocumentsService } from '../maintenance/vehicle-documents.service'
 import { computeCapacity } from '../scm.capacity'
 import {
     assertFound,
@@ -52,6 +53,7 @@ export class VehiclesService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly maintenanceService: MaintenanceService,
+        private readonly vehicleDocumentsService: VehicleDocumentsService,
     ) {}
 
     async findAll(query: ListQuery): Promise<PaginatedResult<unknown>> {
@@ -85,14 +87,27 @@ export class VehiclesService {
             this.prisma.vehicle.count({ where }),
         ])
 
-        return { data, total, page, pageSize }
+        const enriched = await Promise.all(
+            data.map(async (vehicle) => ({
+                ...vehicle,
+                complianceAlert:
+                    await this.vehicleDocumentsService.complianceAlertForVehicle(
+                        vehicle.id,
+                    ),
+            })),
+        )
+
+        return { data: enriched, total, page, pageSize }
     }
 
     async findOne(id: string) {
-        return assertFound(
+        const vehicle = assertFound(
             await this.prisma.vehicle.findUnique({ where: { id } }),
             'Vehicle not found',
         )
+        const complianceAlert =
+            await this.vehicleDocumentsService.complianceAlertForVehicle(id)
+        return { ...vehicle, complianceAlert }
     }
 
     private resolveThreshold(

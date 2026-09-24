@@ -618,11 +618,17 @@ model WmPackage {
   height         Decimal?
   carrier        String?
   trackingNumber String?
+  /// Customer ship-to for SCM auto-release (required before READY_FOR_DISPATCH → shipment)
+  shipToName     String?
+  shipToAddress  String?
+  shipToLat      Float?
+  shipToLng      Float?
   status         String          @default("OPEN") // OPEN | VERIFIED | SEALED | READY_FOR_DISPATCH | DISPATCHED
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   items          WmPackageItem[]
   goodsIssues    MmGoodsIssue[]
+  shipment       Shipment?
 
   @@index([warehouseId, status])
   @@index([pickingTaskId])
@@ -5428,6 +5434,22 @@ enum MaintenanceStatus {
   CANCELLED
 }
 
+/// PH LTO registration + insurance (calendar expiry) — not oil-interval maintenance.
+enum VehicleDocumentKind {
+  OR
+  CR
+  INSURANCE_CTPL
+  INSURANCE_COMPREHENSIVE
+  INSURANCE_OTHER
+}
+
+enum VehicleDocumentStatus {
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+  CANCELLED
+}
+
 model Vehicle {
   id                 String               @id @default(cuid())
   code               String               @unique
@@ -5454,10 +5476,39 @@ model Vehicle {
   trips              Trip[]
   gpsLogs            GpsLog[]
   maintenanceRecords MaintenanceRecord[]
+  documents          VehicleDocument[]
 
   @@index([status])
   @@index([type])
   @@index([telematicsDeviceId])
+}
+
+/// LTO OR/CR and insurance policies — calendar expiry + optional routing block when expired.
+model VehicleDocument {
+  id               String                @id @default(cuid())
+  vehicleId        String
+  vehicle          Vehicle               @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  kind             VehicleDocumentKind
+  /// OR no. / CR no. / policy no.
+  documentNo       String
+  /// LTO office / insurer name
+  issuer           String?
+  issuedAt         DateTime?
+  expiresAt        DateTime
+  coverageNote     String?
+  /// Single URL or stored path (no multipart DMS)
+  fileUrl          String?
+  remindDaysBefore Int                   @default(30)
+  /// When true and status=EXPIRED, vehicle.routingBlocked is set (same spine as open PM)
+  blocksVehicle    Boolean               @default(true)
+  status           VehicleDocumentStatus @default(VALID)
+  notes            String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([vehicleId, kind])
+  @@index([status, expiresAt])
+  @@index([expiresAt])
 }
 
 model Driver {
@@ -5496,6 +5547,11 @@ model Shipment {
   materialCode        String?
   /// External MM / WMS order id ΓÇö warehouse release stub hand-off key
   externalOrderId     String?
+  /// MM packed package that released this shipment (outbound customer flow)
+  packageId           String?            @unique
+  package             WmPackage?         @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  /// Posted MM goods issue for this package (set on trip start)
+  goodsIssueId        String?
   /// Short cargo description for drivers / load lists
   description         String?
   isFragile           Boolean            @default(false)
@@ -5517,6 +5573,7 @@ model Shipment {
 
   @@index([status])
   @@index([movementType])
+  @@index([packageId])
 }
 
 model Trip {

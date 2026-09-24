@@ -39,8 +39,8 @@ EXPO_PUBLIC_API_URL=http://192.168.1.10:3001 npx expo start
 
 Nest currently has **no JWT**. Flow:
 
-1. `POST /auth/sign-in` `{ userName, password }` → user
-2. `GET /scm/drivers/me?userId=` → Driver profile (`Driver.userId`)
+1. `POST /api/v1/auth/sign-in` `{ userName, password }` → user
+2. `GET /api/v1/scm/drivers/me?userId=` → Driver profile (`Driver.userId`)
 
 Store session in AsyncStorage. JWT can be added later without changing screens.
 
@@ -64,21 +64,21 @@ Demo credentials (after seed): `driver01` / `123Qwe`
 | Trip | Stop list, **Start route** (5.1) |
 | Stop | Arrive, manifest qty, POD photo/signature/notes, deliver/fail (5.5 / 6.x) |
 
-Optional GPS: while `IN_TRANSIT`, posts to `POST /scm/tracking/ping` so **dispatcher Live Tracking** updates. **Primary vehicle tracker** for VL502 testing is **flespi** (MQTT) → GpsLog — see `docs/SCM_FLESPI_VL502.md`. Traccar remains optional.
+Optional GPS: while `IN_TRANSIT`, posts to `POST /api/v1/scm/tracking/ping` so **dispatcher Live Tracking** updates. **Primary vehicle tracker** for VL502 testing is **flespi** (MQTT) → GpsLog — see `docs/SCM_FLESPI_VL502.md`. Traccar remains optional.
 
 ## APIs used
 
 | Method | Path |
 | --- | --- |
-| POST | `/auth/sign-in` |
-| GET | `/scm/drivers/me?userId=` |
-| GET | `/scm/trips/active?driverId=` |
-| GET | `/scm/trips/:id` |
-| PATCH | `/scm/trips/:id/start` |
-| PATCH | `/scm/trips/:id/stops/:stopId/arrive` |
-| PATCH | `/scm/trips/:id/stops/:stopId/pod` |
-| PATCH | `/scm/trips/:id/stops/:stopId/deliver` |
-| POST | `/scm/tracking/ping` (optional) |
+| POST | `/api/v1/auth/sign-in` |
+| GET | `/api/v1/scm/drivers/me?userId=` |
+| GET | `/api/v1/scm/trips/active?driverId=` |
+| GET | `/api/v1/scm/trips/:id` |
+| PATCH | `/api/v1/scm/trips/:id/start` |
+| PATCH | `/api/v1/scm/trips/:id/stops/:stopId/arrive` |
+| PATCH | `/api/v1/scm/trips/:id/stops/:stopId/pod` |
+| PATCH | `/api/v1/scm/trips/:id/stops/:stopId/deliver` |
+| POST | `/api/v1/scm/tracking/ping` (optional) |
 
 ## Out of scope
 

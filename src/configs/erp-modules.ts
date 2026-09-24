@@ -403,6 +403,57 @@ export const ERP_MODULES: ErpModule[] = [
                             'Shipments, load building, trips, fleet, drivers, tracking, and maintenance.',
                         path: '/scm',
                         icon: 'truck',
+                        childGroupTitle: 'Features',
+                        children: [
+                            {
+                                code: 'vehicles',
+                                title: 'Vehicles',
+                                description:
+                                    'Track and manage company fleet.',
+                                path: '/scm/vehicles',
+                                icon: 'truck',
+                            },
+                            {
+                                code: 'drivers',
+                                title: 'Drivers',
+                                description:
+                                    'Manage driver profiles and status.',
+                                path: '/scm/drivers',
+                                icon: 'users',
+                            },
+                            {
+                                code: 'shipments',
+                                title: 'Shipments',
+                                description:
+                                    'Process load building and shipment lifecycle.',
+                                path: '/scm/shipments',
+                                icon: 'package',
+                            },
+                            {
+                                code: 'trips',
+                                title: 'Trips',
+                                description:
+                                    'Plan and execute transportation trips.',
+                                path: '/scm/trips',
+                                icon: 'gitBranch',
+                            },
+                            {
+                                code: 'tracking',
+                                title: 'Tracking',
+                                description:
+                                    'Real-time telematics and tracking.',
+                                path: '/scm/tracking',
+                                icon: 'activity',
+                            },
+                            {
+                                code: 'maintenance',
+                                title: 'Maintenance',
+                                description:
+                                    'Vehicle maintenance and service schedules.',
+                                path: '/scm/maintenance',
+                                icon: 'settings',
+                            },
+                        ],
                     },
                 ],
             },

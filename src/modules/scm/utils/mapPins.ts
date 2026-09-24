@@ -81,6 +81,23 @@ export function createMapPinIcon(options: {
     })
 }
 
+const pinIconCache = new Map<string, L.DivIcon>()
+
+/** Stable DivIcon instances — avoids marker flicker from recreating icons each ping. */
+export function getCachedMapPinIcon(options: {
+    color: string
+    label?: string
+    selected?: boolean
+}): L.DivIcon {
+    const key = `${options.color}|${options.label ?? ''}|${options.selected ? 1 : 0}`
+    let icon = pinIconCache.get(key)
+    if (!icon) {
+        icon = createMapPinIcon(options)
+        pinIconCache.set(key, icon)
+    }
+    return icon
+}
+
 function escapeHtml(value: string) {
     return value
         .replaceAll('&', '&amp;')

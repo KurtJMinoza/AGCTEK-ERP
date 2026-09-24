@@ -1,11 +1,14 @@
 import {
     BadRequestException,
+    Inject,
     Injectable,
+    forwardRef,
 } from '@nestjs/common'
 import { Prisma, ShipmentMovementType, ShipmentStatus, StopStatus, TripStatus, VehicleStatus, DriverStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { VehiclesService } from '../vehicles/vehicles.service'
 import { MaintenanceService } from '../maintenance/maintenance.service'
+import { GoodsIssueService } from '../../mm/stock-ops/goods-issue.service'
 import { computeCapacity } from '../scm.capacity'
 import {
     assertFound,
@@ -90,6 +93,8 @@ export class TripsService {
         private readonly prisma: PrismaService,
         private readonly vehiclesService: VehiclesService,
         private readonly maintenanceService: MaintenanceService,
+        @Inject(forwardRef(() => GoodsIssueService))
+        private readonly goodsIssueService: GoodsIssueService,
     ) {}
 
     async findAll(
@@ -135,26 +140,30 @@ export class TripsService {
     }
 
     /**
-     * Driver mobile — active trip for a driver (ASSIGNED or IN_TRANSIT).
-     * Prefers IN_TRANSIT when both somehow exist.
+     * Driver mobile — active trip for a driver (PLANNED / ASSIGNED / IN_TRANSIT).
+     * Prefers IN_TRANSIT, then ASSIGNED, then PLANNED.
      */
     async findActiveForDriver(driverId: string) {
         const id = requireString(driverId, 'driverId')
-        const inTransit = await this.prisma.trip.findFirst({
-            where: { driverId: id, status: TripStatus.IN_TRANSIT },
-            include: tripInclude,
-            orderBy: { updatedAt: 'desc' },
-        })
-        if (inTransit) return inTransit
+        const activeStatuses: TripStatus[] = [
+            TripStatus.IN_TRANSIT,
+            TripStatus.ASSIGNED,
+            TripStatus.PLANNED,
+        ]
 
-        return this.prisma.trip.findFirst({
-            where: { driverId: id, status: TripStatus.ASSIGNED },
-            include: tripInclude,
-            orderBy: { updatedAt: 'desc' },
-        })
+        for (const status of activeStatuses) {
+            const trip = await this.prisma.trip.findFirst({
+                where: { driverId: id, status },
+                include: tripInclude,
+                orderBy: { updatedAt: 'desc' },
+            })
+            if (trip) return trip
+        }
+
+        return null
     }
 
-    /** Driver 5.1 — start route (ASSIGNED → IN_TRANSIT). */
+    /** Driver 5.1 — start route (PLANNED/ASSIGNED → IN_TRANSIT). */
     async startTrip(id: string) {
         const trip = await this.findOne(id)
         if (
@@ -614,6 +623,8 @@ export class TripsService {
                 )
             }
             await this.assertVehicleAssignable(trip.vehicleId)
+            // GI before status flip — block start if stock issue fails
+            await this.issueGoodsForTripShipments(trip)
         }
 
         const data: Prisma.TripUpdateInput = { status }
@@ -1383,5 +1394,47 @@ export class TripsService {
                 include: tripInclude,
             })
         })
+    }
+
+    /**
+     * Customer outbound: post MM GI for each package-linked shipment, then
+     * mark package DISPATCHED. Blocks trip start on failure.
+     */
+    private async issueGoodsForTripShipments(
+        trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>,
+    ) {
+        const shipments = (trip.stops ?? []).flatMap((stop) =>
+            (stop.shipments ?? []).map((link) => link.shipment),
+        )
+
+        for (const shipment of shipments) {
+            if (!shipment?.packageId) continue
+            if (shipment.goodsIssueId) continue
+
+            try {
+                const gi = await this.goodsIssueService.issueAndPostFromPackage(
+                    shipment.packageId,
+                )
+                await this.prisma.shipment.update({
+                    where: { id: shipment.id },
+                    data: { goodsIssueId: gi.id },
+                })
+                await this.prisma.wmPackage.updateMany({
+                    where: {
+                        id: shipment.packageId,
+                        status: {
+                            in: ['READY_FOR_DISPATCH', 'SEALED'],
+                        },
+                    },
+                    data: { status: 'DISPATCHED' },
+                })
+            } catch (err) {
+                const message =
+                    err instanceof Error ? err.message : 'Goods issue failed'
+                throw new BadRequestException(
+                    `Cannot start trip: goods issue failed for shipment ${shipment.reference} (package ${shipment.packageId}): ${message}`,
+                )
+            }
+        }
     }
 }

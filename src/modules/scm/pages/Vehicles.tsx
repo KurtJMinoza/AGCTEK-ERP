@@ -431,6 +431,13 @@ function VehicleCard({
                         {vehicle.routingBlocked ? (
                             <StatusBadge tone="danger">Blocked</StatusBadge>
                         ) : null}
+                        {vehicle.complianceAlert === 'EXPIRED' ? (
+                            <StatusBadge tone="danger">Docs expired</StatusBadge>
+                        ) : vehicle.complianceAlert === 'EXPIRING_SOON' ? (
+                            <StatusBadge tone="warning">
+                                Docs expiring
+                            </StatusBadge>
+                        ) : null}
                     </div>
                 ),
             }}

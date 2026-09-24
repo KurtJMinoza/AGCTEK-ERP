@@ -16,12 +16,12 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import {
-    VehicleMaintenancePanel,
     VehicleOverviewPanel,
     VehicleTelematicsPanel,
     VehicleTripsPanel,
 } from '../components/VehicleDetailPanels'
 import CurrentCargoPanel from '../components/vehicles/CurrentCargoPanel'
+import VehicleMaintenanceSection from '../components/vehicles/VehicleMaintenanceSection'
 import { useVehicleDetail } from '../hooks/useVehicleDetail'
 import { scmVehicleBreadcrumbs } from '../utils/breadcrumbs'
 import { formatStatusLabel, statusTone } from '../utils/status'
@@ -180,6 +180,15 @@ export default function VehicleDetailPage() {
                                 Routing blocked
                             </StatusBadge>
                         ) : null}
+                        {vehicle.complianceAlert === 'EXPIRED' ? (
+                            <StatusBadge tone="danger">
+                                Docs expired
+                            </StatusBadge>
+                        ) : vehicle.complianceAlert === 'EXPIRING_SOON' ? (
+                            <StatusBadge tone="warning">
+                                Docs expiring
+                            </StatusBadge>
+                        ) : null}
                     </span>
                 }
                 description={subtitle}
@@ -239,7 +248,13 @@ export default function VehicleDetailPage() {
                             />
                         </TabContent>
                         <TabContent value="maintenance">
-                            <VehicleMaintenancePanel records={maintenance} />
+                            <VehicleMaintenanceSection
+                                vehicleId={vehicle.id}
+                                maintenanceRecords={maintenance}
+                                defaultPane={
+                                    vehicle.complianceAlert ? 'docs' : 'service'
+                                }
+                            />
                         </TabContent>
                         <TabContent value="trips">
                             <VehicleTripsPanel trips={trips} />

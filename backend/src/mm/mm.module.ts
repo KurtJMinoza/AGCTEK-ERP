@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { MmCommonModule } from './common/mm-common.module'
 import { ProcurementCommonModule } from './procurement/procurement-common.module'
+import { ScmModule } from '../scm/scm.module'
 import { MaterialsController } from './materials/materials.controller'
 import { MaterialsService } from './materials/materials.service'
 import { MaterialTypesController } from './material-types/material-types.controller'
@@ -240,6 +241,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         NotificationsModule,
         MmCommonModule,
         ProcurementCommonModule,
+        forwardRef(() => ScmModule),
         forwardRef(() => SdIntegrationModule),
         forwardRef(() => ProductionIntegrationModule),
         FicoIntegrationModule,

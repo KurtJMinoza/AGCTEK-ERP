@@ -35,11 +35,15 @@ function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase()
 
+/** Nest global prefix — must match backend `app.setGlobalPrefix('api/v1')`. */
+const API_PREFIX = '/api/v1'
+
 async function request<T>(
     path: string,
     init?: RequestInit,
 ): Promise<T> {
-    const url = `${API_BASE}${path}`
+    const normalized = path.startsWith('/') ? path : `/${path}`
+    const url = `${API_BASE}${API_PREFIX}${normalized}`
     const res = await fetch(url, {
         ...init,
         headers: {

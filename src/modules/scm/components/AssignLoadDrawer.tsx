@@ -403,6 +403,28 @@ export default function AssignLoadDrawer({
                                     )
                                 }
                             />
+                            {vehicle?.complianceAlert === 'EXPIRED' ? (
+                                <Alert
+                                    showIcon
+                                    type="danger"
+                                    className="mt-2"
+                                    title="Registration / insurance expired"
+                                >
+                                    This vehicle has an expired blocking OR/CR/CTPL
+                                    document and should not be assigned until renewed.
+                                </Alert>
+                            ) : vehicle?.complianceAlert === 'EXPIRING_SOON' ? (
+                                <Alert
+                                    showIcon
+                                    type="warning"
+                                    className="mt-2"
+                                    title="Registration / insurance expiring"
+                                >
+                                    Documents are within the reminder window.
+                                    Assignment is still allowed — renew before
+                                    expiry to avoid a routing block.
+                                </Alert>
+                            ) : null}
                         </div>
 
                         {vehicle ? (

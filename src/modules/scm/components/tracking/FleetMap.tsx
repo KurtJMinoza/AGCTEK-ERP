@@ -18,13 +18,14 @@ import type { GeofenceZone } from '../../utils/geofences'
 import { formatStatusLabel } from '../../utils/status'
 import {
     MAP_PIN,
-    createMapPinIcon,
+    getCachedMapPinIcon,
     resolveStopPinColor,
 } from '../../utils/mapPins'
 import {
     fleetMarkerKind,
     markerKindColor,
 } from '../../utils/trackingMetrics'
+import SmoothMarker from './SmoothMarker'
 
 export type FleetMapProps = {
     items: FleetTrackingItem[]
@@ -185,10 +186,11 @@ export default function FleetMap({
                         ? MAP_PIN.vehicle
                         : markerKindColor(kind)
                     return (
-                        <Marker
+                        <SmoothMarker
                             key={item.vehicle.id}
                             position={[latest.latitude, latest.longitude]}
-                            icon={createMapPinIcon({
+                            durationMs={selected ? 500 : 400}
+                            icon={getCachedMapPinIcon({
                                 color,
                                 label: selected
                                     ? 'V'
@@ -222,7 +224,7 @@ export default function FleetMap({
                                     </p>
                                 </div>
                             </Popup>
-                        </Marker>
+                        </SmoothMarker>
                     )
                 })}
 
@@ -230,7 +232,7 @@ export default function FleetMap({
                     <Marker
                         key={stop.key}
                         position={[stop.lat, stop.lng]}
-                        icon={createMapPinIcon({
+                        icon={getCachedMapPinIcon({
                             color: stop.color,
                             label:
                                 stop.kind === 'destination'
@@ -260,7 +262,7 @@ export default function FleetMap({
                     <Marker
                         key={`hub-${zone.id}`}
                         position={[zone.lat, zone.lng]}
-                        icon={createMapPinIcon({
+                        icon={getCachedMapPinIcon({
                             color: zone.color ?? '#38bdf8',
                             label: zone.kind === 'HUB' ? 'H' : 'C',
                         })}
@@ -353,7 +355,7 @@ function FitFleetBounds({
 }) {
     const map = useMap()
     const prevSelectedRef = useRef<string | null | undefined>(undefined)
-    const lastFitKeyRef = useRef<string>('')
+    const didInitialFitRef = useRef(false)
     const lastCenterReqRef = useRef(0)
 
     const fleetLatLngs = useMemo((): [number, number][] => {
@@ -365,10 +367,6 @@ function FitFleetBounds({
             ])
     }, [vehiclePoints])
 
-    const fleetKey = fleetLatLngs
-        .map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`)
-        .join('|')
-
     useEffect(() => {
         const prev = prevSelectedRef.current
         const selectionChanged = prev !== selectedVehicleId
@@ -377,15 +375,19 @@ function FitFleetBounds({
         const centerRequested = centerRequest !== lastCenterReqRef.current
         if (centerRequested) lastCenterReqRef.current = centerRequest
 
+        // No selection: fit once on first GPS / when user clears selection.
+        // Do NOT re-fit on every live ping (that causes map thrashing).
         if (selectedVehicleId == null) {
             if (fleetLatLngs.length === 0) return
-            if (fleetKey === lastFitKeyRef.current && !selectionChanged) return
-            lastFitKeyRef.current = fleetKey
+            if (didInitialFitRef.current && !selectionChanged) return
+            didInitialFitRef.current = true
 
             if (fleetLatLngs.length === 1) {
-                map.setView(fleetLatLngs[0], 14)
+                map.setView(fleetLatLngs[0], 14, { animate: true })
             } else {
-                map.fitBounds(L.latLngBounds(fleetLatLngs).pad(0.2))
+                map.fitBounds(L.latLngBounds(fleetLatLngs).pad(0.2), {
+                    animate: true,
+                })
             }
             return
         }
@@ -406,17 +408,18 @@ function FitFleetBounds({
 
             if (focus.length === 1) {
                 map.flyTo(focus[0], Math.max(map.getZoom(), 14), {
-                    duration: 0.55,
+                    duration: 0.65,
+                    easeLinearity: 0.25,
                 })
             } else if (focus.length > 1) {
                 map.flyToBounds(L.latLngBounds(focus).pad(0.25), {
-                    duration: 0.55,
+                    duration: 0.65,
+                    easeLinearity: 0.25,
                 })
             }
         }
     }, [
         centerRequest,
-        fleetKey,
         fleetLatLngs,
         map,
         selectedVehicleId,

@@ -1,14 +1,34 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { VehiclesService } from './vehicles.service'
+import { VehicleDocumentsService } from '../maintenance/vehicle-documents.service'
 import type { ListQuery } from '../scm.utils'
 
 @Controller('scm/vehicles')
 export class VehiclesController {
-    constructor(private readonly vehiclesService: VehiclesService) {}
+    constructor(
+        private readonly vehiclesService: VehiclesService,
+        private readonly vehicleDocumentsService: VehicleDocumentsService,
+    ) {}
 
     @Get()
     findAll(@Query() query: ListQuery) {
         return this.vehiclesService.findAll(query)
+    }
+
+    @Get(':id/documents')
+    listDocuments(@Param('id') id: string) {
+        return this.vehicleDocumentsService.findByVehicle(id)
+    }
+
+    @Post(':id/documents')
+    createDocument(
+        @Param('id') id: string,
+        @Body() body: Record<string, unknown>,
+    ) {
+        return this.vehicleDocumentsService.create({
+            ...body,
+            vehicleId: id,
+        } as never)
     }
 
     @Get(':id/cargo')

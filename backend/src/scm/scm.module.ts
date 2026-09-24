@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { VehiclesController } from './vehicles/vehicles.controller'
 import { VehiclesService } from './vehicles/vehicles.service'
 import { DriversController } from './drivers/drivers.controller'
@@ -13,6 +13,8 @@ import { TrackingGateway } from './tracking/tracking.gateway'
 import { FlespiMqttService } from './tracking/flespi-mqtt.service'
 import { MaintenanceController } from './maintenance/maintenance.controller'
 import { MaintenanceService } from './maintenance/maintenance.service'
+import { VehicleDocumentsService } from './maintenance/vehicle-documents.service'
+import { VehicleDocumentsController } from './documents/vehicle-documents.controller'
 import { Tile38Service } from './tile38/tile38.service'
 import { GeofencesController } from './geofences/geofences.controller'
 import { GeofencesService } from './geofences/geofences.service'
@@ -23,8 +25,10 @@ import { PlanningSettingsController } from './planning-settings/planning-setting
 import { PlanningSettingsService } from './planning-settings/planning-settings.service'
 import { DashboardController } from './dashboard/dashboard.controller'
 import { DashboardService } from './dashboard/dashboard.service'
+import { MmModule } from '../mm/mm.module'
 
 @Module({
+    imports: [forwardRef(() => MmModule)],
     controllers: [
         VehiclesController,
         DriversController,
@@ -32,6 +36,7 @@ import { DashboardService } from './dashboard/dashboard.service'
         TripsController,
         TrackingController,
         MaintenanceController,
+        VehicleDocumentsController,
         GeofencesController,
         GeocodeController,
         PlacesController,
@@ -47,11 +52,13 @@ import { DashboardService } from './dashboard/dashboard.service'
         TrackingGateway,
         FlespiMqttService,
         MaintenanceService,
+        VehicleDocumentsService,
         Tile38Service,
         GeofencesService,
         PlacesService,
         PlanningSettingsService,
         DashboardService,
     ],
+    exports: [ShipmentsService],
 })
 export class ScmModule {}
