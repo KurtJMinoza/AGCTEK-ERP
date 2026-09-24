@@ -4,6 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common'
 
 const mockPrisma = {
+    company: {
+        findUnique: jest.fn(),
+    },
     warehouse: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -28,9 +31,11 @@ describe('WarehouseService', () => {
 
         service = module.get<WarehouseService>(WarehouseService)
         jest.clearAllMocks()
+        mockPrisma.company.findUnique.mockResolvedValue({ id: 'c1' })
     })
 
     it('should create a warehouse with auto-generated code', async () => {
+        mockPrisma.company.findUnique.mockResolvedValue({ id: 'c1' })
         mockPrisma.warehouse.findFirst
             .mockResolvedValueOnce(null) // generateNextCode - no existing
             .mockResolvedValueOnce(null) // assertUniqueCode

@@ -29,11 +29,12 @@ import {
     HiOutlineTruck,
 } from 'react-icons/hi'
 import { returnsDisposalService } from '../services/returnsDisposalService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
+import {
+    useLazyMaterialEntities,
+    useLazyMmRefs,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
 import type { SupplierReturn } from '../types'
-import type { Warehouse } from '../../warehouse/types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
@@ -131,18 +132,9 @@ const SupplierReturnsPage = () => {
         fetchList()
     }, [fetchList])
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
-    useEffect(() => {
-        warehouseService
-            .list({ limit: 500 })
-            .then((r: any) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? [])))
-            .catch(() => {})
-        materialService
-            .list({ limit: 500 })
-            .then((r: any) => setMaterials(Array.isArray(r) ? r : (r?.data ?? [])))
-            .catch(() => {})
-    }, [])
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
+    const { ensure: ensureFormRefs, suppliers } = useLazyMmRefs()
 
     const warehouseOpts = useMemo(
         () => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
@@ -166,23 +158,14 @@ const SupplierReturnsPage = () => {
     ])
     const [creating, setCreating] = useState(false)
 
-    const [suppliers, setSuppliers] = useState<any[]>([])
-    useEffect(() => {
-        import('../../supplier-management/services/supplierService')
-            .then((mod) => mod.supplierService.list({ limit: 500 }))
-            .then((r: any) => setSuppliers(Array.isArray(r) ? r : (r?.data ?? [])))
-            .catch(() => {})
-    }, [])
-    const supplierOpts = useMemo(
-        () => suppliers.map((s: any) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })),
-        [suppliers],
-    )
+    const supplierOpts = suppliers
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials(), ensureFormRefs('suppliers')])
         setCreateForm({ warehouseId: '', supplierId: '', reason: 'QUALITY_FAILURE', remarks: '' })
         setCreateLines([{ materialId: '', uomId: '', quantity: 0, unitCost: 0, reason: 'QUALITY_FAILURE', stockStatus: 'BLOCKED' }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials, ensureFormRefs])
 
     const handleCreate = useCallback(async () => {
         setCreating(true)

@@ -14,7 +14,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "test": "jest --runInBand --forceExit"
+    "prisma:seed-mm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
+    "test": "jest --runInBand --forceExit",
+    "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
   },
   "jest": {
     "moduleFileExtensions": [
@@ -33,9 +35,10 @@
     ]
   },
   "prisma": {
-    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+    "seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.1.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/event-emitter": "^12.0.0",

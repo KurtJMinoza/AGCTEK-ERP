@@ -6,8 +6,9 @@ import {
 import { PrismaService } from '../../prisma/prisma.service'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
-import { InventoryAvailabilityService } from './inventory-availability.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { CreateReservationDto, ReservationQueryDto } from './dto/reservation.dto'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 
 const OPEN_STATUSES = new Set(['OPEN', 'PARTIAL'])
 
@@ -16,6 +17,7 @@ export class ReservationService {
     constructor(
         private prisma: PrismaService,
         private availability: InventoryAvailabilityService,
+        private domainEvents: MmDomainEventsService,
     ) {}
 
     private readonly includes = {
@@ -48,7 +50,7 @@ export class ReservationService {
 
         const reservationNumber = await this.generateNumber()
 
-        return this.prisma.$transaction(async (tx) => {
+        const reservation = await this.prisma.$transaction(async (tx) => {
             await this.allocateReserved(tx, {
                 companyId: dto.companyId,
                 warehouseId: dto.warehouseId,
@@ -84,6 +86,19 @@ export class ReservationService {
                 include: this.includes,
             })
         })
+
+        void this.domainEvents.reservationCreated({
+            companyId: dto.companyId,
+            reservationId: reservation.id,
+            payload: {
+                reservationNumber,
+                materialId: dto.materialId,
+                quantity: Number(qty),
+                sourceDocumentId: dto.sourceDocumentId,
+            },
+        })
+
+        return reservation
     }
 
     async findAll(query: ReservationQueryDto) {
@@ -145,7 +160,7 @@ export class ReservationService {
             throw new BadRequestException('Reservation already fulfilled')
         }
 
-        return this.prisma.$transaction(async (tx) => {
+        const updated = await this.prisma.$transaction(async (tx) => {
             if (remaining.gt(0)) {
                 await this.releaseReserved(tx, {
                     companyId: reservation.companyId,
@@ -167,6 +182,14 @@ export class ReservationService {
                 include: this.includes,
             })
         })
+
+        void this.domainEvents.reservationReleased({
+            companyId: reservation.companyId,
+            reservationId: id,
+            payload: { reason: 'CANCELLED', releasedQuantity: Number(remaining) },
+        })
+
+        return updated
     }
 
     async expireDue() {

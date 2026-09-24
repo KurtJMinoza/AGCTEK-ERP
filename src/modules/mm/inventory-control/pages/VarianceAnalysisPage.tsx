@@ -13,7 +13,7 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { inventoryControlService } from '../services/inventoryControlService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryCountLine } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -35,7 +35,7 @@ const VarianceAnalysisPage = () => {
     const [rows, setRows] = useState<InventoryCountLine[]>([])
     const [loading, setLoading] = useState(true)
     const [warehouseId, setWarehouseId] = useState('')
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { warehouses, loadFilterRefs } = useDeferredFilterRefs('warehouses')
 
     const load = useCallback(async () => {
         setLoading(true)
@@ -72,15 +72,9 @@ const VarianceAnalysisPage = () => {
 
     useEffect(() => {
         load()
-        warehouseService.list({ limit: 200 }).then((wh: any) => {
-            setWarehouses(
-                (wh?.data ?? []).map((w: any) => ({
-                    value: w.id,
-                    label: `${w.code} — ${w.name}`,
-                })),
-            )
-        })
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<InventoryCountLine>[] = useMemo(
         () => [

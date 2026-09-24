@@ -13,6 +13,7 @@ import { PlanningDemandService } from './planning-demand.service'
 import { MrpRunService } from './mrp-run.service'
 import { ProcurementSuggestionService } from './procurement-suggestion.service'
 import { PlanningDashboardService } from './planning-dashboard.service'
+import { ProjectedStockService } from './projected-stock.service'
 import {
     CreateReorderRuleDto,
     UpdateReorderRuleDto,
@@ -23,11 +24,18 @@ import {
     CreateMrpRunDto,
     MrpRunQueryDto,
     MaterialRequirementQueryDto,
+    BomExplosionTraceQueryDto,
     SuggestionQueryDto,
     ConvertSuggestionDto,
     PlanningDashboardQueryDto,
+    ProjectedStockQueryDto,
 } from './dto/planning.dto'
 
+/**
+ * Planning / MRP API.
+ * Canonical Phase 10 aliases coexist with legacy paths.
+ * MRP never posts inventory.
+ */
 @Controller('mm/planning')
 export class PlanningController {
     constructor(
@@ -36,6 +44,7 @@ export class PlanningController {
         private mrpRuns: MrpRunService,
         private suggestions: ProcurementSuggestionService,
         private dashboard: PlanningDashboardService,
+        private projectedStock: ProjectedStockService,
     ) {}
 
     @Get('dashboard')
@@ -43,7 +52,25 @@ export class PlanningController {
         return this.dashboard.getDashboard(query)
     }
 
-    // ── Reorder rules ──────────────────────────────────────────────
+    // ── Planning parameters (canonical) / reorder rules (legacy) ───
+
+    @Get('planning-parameters')
+    listPlanningParameters(@Query() query: ReorderRuleQueryDto) {
+        return this.reorderRules.findAll(query)
+    }
+
+    @Post('planning-parameters')
+    createPlanningParameter(@Body() dto: CreateReorderRuleDto) {
+        return this.reorderRules.create(dto)
+    }
+
+    @Patch('planning-parameters/:id')
+    updatePlanningParameter(
+        @Param('id') id: string,
+        @Body() dto: UpdateReorderRuleDto,
+    ) {
+        return this.reorderRules.update(id, dto)
+    }
 
     @Get('reorder-rules')
     listRules(@Query() query: ReorderRuleQueryDto) {
@@ -87,9 +114,26 @@ export class PlanningController {
         return this.demand.create(dto)
     }
 
+    /** Canonical alias */
+    @Get('demands')
+    listDemands(@Query() query: PlanningDemandQueryDto) {
+        return this.demand.findAll(query)
+    }
+
+    /** Canonical alias */
+    @Post('demands')
+    createDemandAlias(@Body() dto: CreatePlanningDemandDto) {
+        return this.demand.create(dto)
+    }
+
     @Patch('demand/:id')
     updateDemand(@Param('id') id: string, @Body() dto: UpdatePlanningDemandDto) {
         return this.demand.update(id, dto)
+    }
+
+    @Post('demand/:id/cancel')
+    cancelDemand(@Param('id') id: string) {
+        return this.demand.cancel(id)
     }
 
     @Delete('demand/:id')
@@ -119,17 +163,49 @@ export class PlanningController {
         return this.mrpRuns.execute(id)
     }
 
-    // ── Material requirements ──────────────────────────────────────
+    @Post('mrp-runs/:id/cancel')
+    cancelRun(@Param('id') id: string) {
+        return this.mrpRuns.cancel(id)
+    }
+
+    // ── Material / MRP requirements ───────────────────────────────
 
     @Get('material-requirements')
     listRequirements(@Query() query: MaterialRequirementQueryDto) {
         return this.mrpRuns.listRequirements(query)
     }
 
+    /** Canonical alias */
+    @Get('requirements')
+    listRequirementsCanonical(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listRequirements(query)
+    }
+
+    @Get('shortages')
+    listShortages(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listRequirements({ ...query, shortage: true })
+    }
+
+    @Get('bom-explosion-traces')
+    listBomExplosionTraces(@Query() query: BomExplosionTraceQueryDto) {
+        return this.mrpRuns.listBomExplosionTraces(query)
+    }
+
+    @Get('planned-orders')
+    listPlannedOrders(@Query() query: MaterialRequirementQueryDto) {
+        return this.mrpRuns.listPlannedOrders(query)
+    }
+
     // ── Suggestions ────────────────────────────────────────────────
 
     @Get('suggestions')
     listSuggestions(@Query() query: SuggestionQueryDto) {
+        return this.suggestions.findAll(query)
+    }
+
+    /** Canonical alias */
+    @Get('procurement-suggestions')
+    listProcurementSuggestions(@Query() query: SuggestionQueryDto) {
         return this.suggestions.findAll(query)
     }
 
@@ -143,8 +219,21 @@ export class PlanningController {
         return this.suggestions.convertToPr(id, dto)
     }
 
+    /** Canonical alias */
+    @Post('suggestions/:id/create-pr')
+    createPr(@Param('id') id: string, @Body() dto: ConvertSuggestionDto) {
+        return this.suggestions.convertToPr(id, dto)
+    }
+
     @Post('suggestions/:id/dismiss')
     dismiss(@Param('id') id: string) {
         return this.suggestions.dismiss(id)
+    }
+
+    // ── Projected stock (Phase 2A) ─────────────────────────────────
+
+    @Get('projected-stock')
+    listProjectedStock(@Query() query: ProjectedStockQueryDto) {
+        return this.projectedStock.findAll(query)
     }
 }

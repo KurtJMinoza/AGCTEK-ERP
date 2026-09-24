@@ -41,12 +41,12 @@ import {
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { workflowService } from '../services/workflowService'
 import { goodsReceiptService } from '@/modules/mm/inventory/services/goodsReceiptService'
+import DocumentFlowTimeline from '@/components/shared/DocumentFlowTimeline'
 import type {
     MmPurchaseOrder,
     MmPurchaseOrderLine,
     MmPurchaseOrderAudit,
     MmPurchaseOrderAttachment,
-    PoDocumentFlow,
     WorkflowInstance,
     ApprovalTask,
 } from '../types'
@@ -94,7 +94,6 @@ const PurchaseOrderDetailPage = () => {
     const [tab, setTab] = useState('overview')
     const [audits, setAudits] = useState<MmPurchaseOrderAudit[]>([])
     const [attachments, setAttachments] = useState<MmPurchaseOrderAttachment[]>([])
-    const [docFlow, setDocFlow] = useState<PoDocumentFlow | null>(null)
     const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null)
     const [confirmAction, setConfirmAction] = useState<{ action: string; fn: () => Promise<void> } | null>(null)
     const [confirming, setConfirming] = useState(false)
@@ -142,9 +141,6 @@ const PurchaseOrderDetailPage = () => {
         }
         if (tab === 'attachments') {
             purchaseOrderService.listAttachments(id).then(setAttachments).catch(() => setAttachments([]))
-        }
-        if (tab === 'flow') {
-            purchaseOrderService.getDocumentFlow(id).then(setDocFlow).catch(() => setDocFlow(null))
         }
     }, [tab, id])
 
@@ -810,53 +806,11 @@ const PurchaseOrderDetailPage = () => {
                         )}
 
                         {tab === 'flow' && (
-                            <div className="space-y-3">
-                                {!docFlow ? (
-                                    <p className="text-sm text-gray-500">Loading document flow…</p>
-                                ) : (
-                                    <ul className="space-y-2 text-sm">
-                                        <FlowRow
-                                            label="Purchase Requisition"
-                                            value={docFlow.purchaseRequisition?.number}
-                                            href={docFlow.purchaseRequisition
-                                                ? `/modules/mm/procurement/purchase-requisitions/${docFlow.purchaseRequisition.id}`
-                                                : undefined}
-                                        />
-                                        <FlowRow
-                                            label="RFQ"
-                                            value={docFlow.rfq?.number}
-                                            href={docFlow.rfq ? `/modules/mm/procurement/rfqs/${docFlow.rfq.id}` : undefined}
-                                        />
-                                        <FlowRow
-                                            label="Quotation"
-                                            value={docFlow.quotation?.number}
-                                            href={docFlow.quotation
-                                                ? `/modules/mm/procurement/supplier-quotations?quotationId=${docFlow.quotation.id}`
-                                                : undefined}
-                                        />
-                                        <FlowRow
-                                            label="Award"
-                                            value={docFlow.award ? docFlow.award.id.slice(0, 8) : undefined}
-                                            href={docFlow.rfq ? `/modules/mm/procurement/rfqs/${docFlow.rfq.id}` : undefined}
-                                        />
-                                        <FlowRow
-                                            label="Purchase Order"
-                                            value={docFlow.purchaseOrder.number}
-                                        />
-                                        {(docFlow.goodsReceipts ?? []).map((gr) => (
-                                            <FlowRow
-                                                key={gr.id}
-                                                label="Goods Receipt"
-                                                value={`${gr.number} (${gr.status})`}
-                                                href={`/modules/mm/inventory-management/goods-receipt`}
-                                            />
-                                        ))}
-                                        {(docFlow.goodsReceipts ?? []).length === 0 && (
-                                            <FlowRow label="Goods Receipt" value={undefined} />
-                                        )}
-                                    </ul>
-                                )}
-                            </div>
+                            <DocumentFlowTimeline
+                                documentType="PURCHASE_ORDER"
+                                documentId={id}
+                                companyId={po?.companyId}
+                            />
                         )}
                     </div>
                 </Tabs>
@@ -987,25 +941,6 @@ const InfoCard = ({ label, value }: { label: string; value?: string | null }) =>
         <p className="text-xs text-gray-500">{label}</p>
         <p className="truncate text-sm font-medium">{value || '—'}</p>
     </div>
-)
-
-const FlowRow = ({
-    label,
-    value,
-    href,
-}: {
-    label: string
-    value?: string | null
-    href?: string
-}) => (
-    <li className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-600">
-        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">{label}</span>
-        {value && href ? (
-            <Link href={href} className="font-mono text-sm font-semibold text-primary hover:underline">{value}</Link>
-        ) : (
-            <span className="font-mono text-sm">{value || '—'}</span>
-        )}
-    </li>
 )
 
 export default PurchaseOrderDetailPage

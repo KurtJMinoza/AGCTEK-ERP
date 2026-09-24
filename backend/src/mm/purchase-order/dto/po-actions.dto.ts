@@ -99,6 +99,16 @@ export class CreatePoAttachmentDto {
     uploadedBy?: string
 }
 
+export class RevisePurchaseOrderDto {
+    @IsString()
+    @IsNotEmpty()
+    reason!: string
+
+    @IsOptional()
+    @IsString()
+    revisedBy?: string
+}
+
 export class UpsertPoToleranceDto {
     @IsString()
     @IsNotEmpty()

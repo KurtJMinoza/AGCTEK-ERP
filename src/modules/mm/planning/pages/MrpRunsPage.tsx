@@ -16,10 +16,10 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import Card from '@/components/ui/Card'
-import { HiOutlinePlus, HiOutlinePlay } from 'react-icons/hi'
+import Link from 'next/link'
+import { HiOutlinePlus, HiOutlinePlay, HiOutlineChartBar } from 'react-icons/hi'
 import { planningService } from '../services/planningService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MrpRun, PlanningDashboard } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -40,8 +40,8 @@ const MrpRunsPage = () => {
     const [rows, setRows] = useState<MrpRun[]>([])
     const [dash, setDash] = useState<PlanningDashboard | null>(null)
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
+    const { ensure: ensureFormRefs, warehouses } = useLazyMmRefs()
     const [companyId, setCompanyId] = useState('')
     const [open, setOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
@@ -53,23 +53,8 @@ const MrpRunsPage = () => {
     })
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-        ]).then(([cos, wh]: any[]) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            setWarehouses(
-                (wh?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: `${x.code} — ${x.name}`,
-                })),
-            )
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -90,7 +75,14 @@ const MrpRunsPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
+
+    const openCreate = useCallback(async () => {
+        await ensureFormRefs('warehouses')
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const columns: ColumnDef<MrpRun>[] = useMemo(
         () => [
@@ -185,13 +177,23 @@ const MrpRunsPage = () => {
                 title="MRP Runs"
                 description="Execute material requirements planning and review dashboard signals"
                 actions={
-                    <Button
-                        variant="solid"
-                        icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
-                    >
-                        New MRP Run
-                    </Button>
+                    <div className="flex gap-2">
+                        <Link href="/modules/mm/planning-mrp/projected-stock">
+                            <Button
+                                variant="plain"
+                                icon={<HiOutlineChartBar />}
+                            >
+                                Projected Stock
+                            </Button>
+                        </Link>
+                        <Button
+                            variant="solid"
+                            icon={<HiOutlinePlus />}
+                            onClick={openCreate}
+                        >
+                            New MRP Run
+                        </Button>
+                    </div>
                 }
             />
 

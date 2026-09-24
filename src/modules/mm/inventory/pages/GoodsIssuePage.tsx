@@ -27,12 +27,13 @@ import {
     HiOutlineRewind,
     HiOutlineLogout,
 } from 'react-icons/hi'
+import {
+    inventoryService,
+    type AvailabilityResult,
+} from '../services/inventoryService'
 import { goodsIssueService } from '../services/goodsIssueService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
+import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsIssue, StockOpsQueryParams } from '../types'
-import type { Warehouse } from '../../warehouse/types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
@@ -105,12 +106,8 @@ const GoodsIssuePage = () => {
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
-    useEffect(() => {
-        warehouseService.list({ limit: 500 }).then((r: any) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 500 }).then((r: any) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -121,11 +118,12 @@ const GoodsIssuePage = () => {
     const [createLines, setCreateLines] = useState<LineInput[]>([{ materialId: '', quantity: 1, uomId: '', unitCost: 0 }])
     const [creating, setCreating] = useState(false)
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
         setCreateForm({ companyId: '', warehouseId: '', postingDate: new Date().toISOString().slice(0, 10), documentDate: new Date().toISOString().slice(0, 10), issuePurpose: 'INTERNAL', remarks: '' })
         setCreateLines([{ materialId: '', quantity: 1, uomId: '', unitCost: 0 }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials])
 
     const handleCreate = useCallback(async () => {
         setCreating(true)
@@ -159,6 +157,30 @@ const GoodsIssuePage = () => {
     /* ── Detail dialog ── */
     const [detailOpen, setDetailOpen] = useState(false)
     const [detail, setDetail] = useState<GoodsIssue | null>(null)
+    const [postAtp, setPostAtp] = useState<AvailabilityResult[]>([])
+
+    useEffect(() => {
+        if (!detail || detail.status !== 'DRAFT' || !detail.companyId || !detail.warehouseId) {
+            setPostAtp([])
+            return
+        }
+        const lines = detail.lines ?? []
+        if (lines.length === 0) {
+            setPostAtp([])
+            return
+        }
+        Promise.all(
+            lines.map((line) =>
+                inventoryService.available({
+                    companyId: detail.companyId,
+                    warehouseId: detail.warehouseId,
+                    materialId: line.materialId,
+                }),
+            ),
+        )
+            .then(setPostAtp)
+            .catch(() => setPostAtp([]))
+    }, [detail])
 
     const openDetail = useCallback(async (id: string) => {
         setDetailOpen(true)
@@ -338,6 +360,26 @@ const GoodsIssuePage = () => {
                                 <p className="mt-0.5 text-sm">{detail.remarks}</p>
                             </AdaptiveCard>
                         ) : null}
+                        {detail.status === 'DRAFT' && postAtp.length > 0 && (
+                            <AdaptiveCard className="!p-3 bg-gray-50 dark:bg-gray-800/50">
+                                <p className="text-xs font-medium text-gray-600 mb-2">
+                                    ATP preview before post (backend)
+                                </p>
+                                <div className="space-y-1 text-sm">
+                                    {(detail.lines ?? []).map((line, idx) => {
+                                        const atp = postAtp[idx]
+                                        const qty = Number(line.quantity)
+                                        const ok = atp && qty <= atp.available
+                                        return (
+                                            <div key={line.id ?? idx} className={ok ? '' : 'text-danger'}>
+                                                {materialLabel(line)}: available {atp?.available ?? '—'}
+                                                {qty > (atp?.available ?? 0) ? ' — insufficient' : ''}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </AdaptiveCard>
+                        )}
                         <div>
                             <h6 className="mb-3 text-sm font-semibold heading-text">Line items</h6>
                             <DataTable

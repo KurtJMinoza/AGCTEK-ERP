@@ -108,6 +108,19 @@ export class DashboardAlertService {
                 href: '/modules/mm/supplier-management/supplier-performance',
             })
         }
+
+        const expiryRisk = await this.expiryRisk(filters)
+        if (expiryRisk > 0) {
+            alerts.push({
+                type: 'EXPIRY_RISK',
+                scope: 'inventory',
+                severity: 'warning',
+                title: 'Expiry Risk',
+                count: expiryRisk,
+                href: '/modules/mm/returns-disposal/damaged-stock',
+                query: { filter: 'expiry' },
+            })
+        }
         return alerts
     }
 
@@ -244,6 +257,21 @@ export class DashboardAlertService {
                     status: { in: ['COUNTING', 'RECOUNT', 'APPROVAL'] },
                     ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
                 },
+            },
+        })
+    }
+
+    private async expiryRisk(filters: DashboardFilters, horizonDays = 30): Promise<number> {
+        const horizon = new Date(Date.now() + horizonDays * 86400000)
+        return this.prisma.mmInventoryBalance.count({
+            where: {
+                companyId: filters.companyId,
+                quantity: { gt: 0 },
+                ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
+                OR: [
+                    { stockStatus: 'EXPIRED' },
+                    { batch: { expiryDate: { lte: horizon } } },
+                ],
             },
         })
     }

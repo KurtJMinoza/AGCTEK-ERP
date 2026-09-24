@@ -14,4 +14,9 @@ export class ReverseTransactionDto {
     @IsOptional()
     @IsString()
     createdBy?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    idempotencyKey?: string
 }

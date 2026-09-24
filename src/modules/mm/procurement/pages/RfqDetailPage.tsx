@@ -37,9 +37,8 @@ import {
 import { rfqService } from '../services/rfqService'
 import { quotationService } from '../services/quotationService'
 import { purchaseOrderService } from '../services/purchaseOrderService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
 import { paymentTermsService } from '@/modules/mm/supplier-management/services/paymentTermsService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     MmRfq,
     MmRfqLine,
@@ -117,8 +116,7 @@ const RfqDetailPage = () => {
 
     const [inviteOpen, setInviteOpen] = useState(false)
     const [inviteIds, setInviteIds] = useState<string[]>([])
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
-    const [currencies, setCurrencies] = useState<FilterOption[]>([])
+    const { ensure: ensureFormRefs, suppliers, currencies } = useLazyMmRefs()
     const [paymentTerms, setPaymentTerms] = useState<FilterOption[]>([])
 
     const [awardOpen, setAwardOpen] = useState(false)
@@ -164,17 +162,13 @@ const RfqDetailPage = () => {
 
     useEffect(() => { fetchRfq() }, [fetchRfq])
 
-    useEffect(() => {
-        supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }).then((res) => {
-            setSuppliers(res.data.map((s) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })))
-        }).catch(() => {})
-        orgService.currencies().then((list) => {
-            setCurrencies(list.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })))
-        }).catch(() => {})
-        paymentTermsService.list().then((list) => {
+    const ensureQuoteRefs = useCallback(async () => {
+        await ensureFormRefs('suppliers', 'currencies')
+        if (!paymentTerms.length) {
+            const list = await paymentTermsService.list()
             setPaymentTerms(list.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })))
-        }).catch(() => {})
-    }, [])
+        }
+    }, [ensureFormRefs, paymentTerms.length])
 
     useEffect(() => {
         if (tab === 'audit') {
@@ -183,7 +177,10 @@ const RfqDetailPage = () => {
         if (tab === 'comparison' || tab === 'award') {
             rfqService.getComparison(id).then(setComparison).catch(() => setComparison(null))
         }
-    }, [tab, id])
+        if (tab === 'suppliers') {
+            void ensureFormRefs('suppliers')
+        }
+    }, [tab, id, ensureFormRefs])
 
     const runConfirm = useCallback(async () => {
         if (!confirmAction) return
@@ -219,12 +216,9 @@ const RfqDetailPage = () => {
         quantity: firstError(required(l.quantity, 'Quantity'), positiveNumber(l.quantity, 'Quantity')),
     })), [quoteLines])
 
-    const openInvite = () => {
-        const existing = new Set((rfq?.invitedSuppliers ?? []).map((s) => s.supplierId))
+    const openInvite = async () => {
+        await ensureFormRefs('suppliers')
         setInviteIds([])
-        setSuppliers((prev) => prev.filter((s) => !existing.has(s.value)).concat(
-            prev.filter((s) => existing.has(s.value)),
-        ))
         setInviteOpen(true)
     }
 
@@ -308,7 +302,8 @@ const RfqDetailPage = () => {
         }
     }
 
-    const openCreateQuote = () => {
+    const openCreateQuote = async () => {
+        await ensureQuoteRefs()
         const lines = (rfq?.lines ?? []).map((l) => ({
             key: `ql-${l.id}`,
             rfqLineId: l.id,

@@ -31,18 +31,19 @@ import {
 } from 'react-icons/hi'
 import { pickingService } from '../services/pickingService'
 import { pickWaveService } from '../services/pickWaveService'
-import { warehouseService } from '../services/warehouseService'
-import { storageBinService } from '../services/storageBinService'
-import { materialService } from '../../material-master/services/materialService'
+import {
+    useMmFilterRefs,
+    useLazyBinsForWarehouse,
+    useLazyMaterialEntities,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     PickingTask,
     PickingQueryParams,
     CreatePickingTaskPayload,
     CreatePickWavePayload,
-    Warehouse,
     StorageBin,
 } from '../types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/warehouse-management/picking'
@@ -92,9 +93,10 @@ const PickingPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [bins, setBins] = useState<StorageBin[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
+    const { ensure: ensureWarehouses, rows: warehouseEntities } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
+    const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
 
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkCancelOpen, setBulkCancelOpen] = useState(false)
@@ -146,17 +148,16 @@ const PickingPage = () => {
         }
     }, [queryParams])
 
-    useEffect(() => { fetchTasks() }, [fetchTasks])
-
     useEffect(() => {
-        warehouseService.list({ limit: 200 }).then((r) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 200 }).then((r) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+        fetchTasks()
+    }, [fetchTasks])
 
     const warehouseOptions = useMemo<FilterOption[]>(
-        () => [{ value: '', label: 'All warehouses' }, ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))],
-        [warehouses],
+        () => [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts],
+        [warehouseFilterOpts],
     )
+
+    const warehouses = warehouseEntities
 
     const binOptions = useMemo<FilterOption[]>(
         () => bins.map((b) => ({ value: b.id, label: b.code })),
@@ -169,14 +170,14 @@ const PickingPage = () => {
     )
 
     const loadBins = useCallback((whId: string) => {
-        if (!whId) { setBins([]); return }
-        storageBinService.list({ limit: 500 }).then((r) => setBins(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+        void loadForWarehouse(whId)
+    }, [loadForWarehouse])
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
         setCreateForm({})
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials])
 
     const handleCreateSave = useCallback(async () => {
         try {

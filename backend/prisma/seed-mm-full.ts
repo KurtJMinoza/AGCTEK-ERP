@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
+import { seedMmEndToEndFlow } from './seed-mm-flow'
 
 type SeedCtx = {
     company: { id: string }
@@ -769,4 +770,6 @@ export async function seedMmFull(prisma: PrismaClient, ctx: SeedCtx) {
     })
 
     console.log('MM full demo seed complete.')
+
+    await seedMmEndToEndFlow(prisma, ctx)
 }

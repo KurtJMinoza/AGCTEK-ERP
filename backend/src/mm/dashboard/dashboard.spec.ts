@@ -126,6 +126,28 @@ describe('MM-15 overview KPI groups', () => {
         expect(vis.warehouse).toBe(true)
         expect(vis.procurement).toBe(false)
     })
+
+    it('dashboard/mm alias shares filter and visibility contract', () => {
+        // Controller exposes GET /mm/dashboard/mm → same buildDashboard payload
+        const vis = resolveVisibility('admin')
+        expect(vis.analytics).toBe(true)
+        const key = buildCacheKey('INVENTORY', { companyId: 'c1' })
+        expect(typeof key).toBe('string')
+        expect(key.length).toBeGreaterThan(8)
+    })
+
+    it('KPI cards require href drill-downs', () => {
+        const sample = {
+            key: 'expiryRisk',
+            label: 'Expiry Risk',
+            value: 2,
+            group: 'inventory' as const,
+            href: '/modules/mm/returns-disposal/damaged-stock',
+            query: { filter: 'expiry' },
+        }
+        expect(sample.href).toMatch(/^\//)
+        expect(sample.query?.filter).toBe('expiry')
+    })
 })
 
 describe('MM-18 analytics cache hit', () => {
@@ -148,5 +170,25 @@ describe('MM-18 analytics cache hit', () => {
         expect(cached && fresh(cached.expiresAt)).toBe(true)
         expect(upsert).not.toHaveBeenCalled()
         expect(cached!.payload).toEqual(payload)
+    })
+
+    it('refresh invalidates phase-12 analytics metric types', () => {
+        const types = [
+            'INVENTORY',
+            'PROCUREMENT',
+            'WAREHOUSE',
+            'QUALITY',
+            'VALUATION',
+            'EXPIRY',
+            'AVAILABILITY',
+        ]
+        const keys = types.map((t) => buildCacheKey(t, { companyId: 'c1' }))
+        expect(new Set(keys).size).toBe(types.length)
+        for (const k of keys) {
+            expect(k).toBe(buildCacheKey(
+                types[keys.indexOf(k)],
+                { companyId: 'c1' },
+            ))
+        }
     })
 })

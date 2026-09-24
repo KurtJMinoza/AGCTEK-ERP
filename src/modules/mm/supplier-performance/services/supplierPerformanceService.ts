@@ -13,6 +13,16 @@ import type {
 const BASE = '/mm/supplier-performance'
 
 export const supplierPerformanceService = {
+    /** Canonical list/rankings alias GET /mm/supplier-performance */
+    list: (params: Record<string, unknown>) =>
+        ErpAxiosBase.get<PerformanceDashboard>(BASE, { params }).then((r) => r.data),
+
+    /** Canonical detail alias GET /mm/supplier-performance/:supplierId */
+    getBySupplier: (supplierId: string, params: Record<string, unknown>) =>
+        ErpAxiosBase.get<SupplierPerformanceDetail>(`${BASE}/${supplierId}`, {
+            params,
+        }).then((r) => r.data),
+
     getWeights: (companyId: string) =>
         ErpAxiosBase.get<ScoreWeightConfig>(`${BASE}/weight-config`, {
             params: { companyId },

@@ -25,9 +25,7 @@ import {
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { rfqService } from '../services/rfqService'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
-import { uomService, orgService } from '@/modules/mm/material-master/services/referenceService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     MmPurchaseOrder,
     PoListResponse,
@@ -117,12 +115,16 @@ const PurchaseOrderListPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const [companies, setCompanies] = useState<FilterOption[]>([])
-    const [currencies, setCurrencies] = useState<FilterOption[]>([])
-    const [materials, setMaterials] = useState<FilterOption[]>([])
-    const [uoms, setUoms] = useState<FilterOption[]>([])
-    const [warehouses, setWarehouses] = useState<FilterOption[]>([])
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
+    const {
+        ensure: ensureFormRefs,
+        loading: formRefsLoading,
+        companies,
+        currencies,
+        materials,
+        uoms,
+        warehouses,
+        suppliers,
+    } = useLazyMmRefs()
 
     const [awardedRfqs, setAwardedRfqs] = useState<MmRfq[]>([])
     const [approvedPrs, setApprovedPrs] = useState<PurchaseRequisition[]>([])
@@ -156,19 +158,6 @@ const PurchaseOrderListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    useEffect(() => {
-        orgService.companies().then((list) => setCompanies(list.map((c) => ({ value: c.id, label: c.name })))).catch(() => {})
-        orgService.currencies().then((list) => setCurrencies(list.map((c: { id: string; code: string; name?: string }) => ({ value: c.id, label: `${c.code}${c.name ? ` — ${c.name}` : ''}` })))).catch(() => {})
-        orgService.warehouses().then((list) => setWarehouses(list.map((w: { id: string; name: string }) => ({ value: w.id, label: w.name })))).catch(() => {})
-        uomService.list().then((list) => setUoms(list.map((u: { id: string; code: string }) => ({ value: u.id, label: u.code })))).catch(() => {})
-        materialService.list({ page: 1, limit: 200, status: 'ACTIVE' } as never).then((res) => {
-            setMaterials(res.data.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })))
-        }).catch(() => {})
-        supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }).then((res) => {
-            setSuppliers(res.data.map((s) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })))
-        }).catch(() => {})
-    }, [])
-
     const awardOptions = useMemo<FilterOption[]>(() => {
         const opts: FilterOption[] = []
         for (const rfq of awardedRfqs) {
@@ -188,9 +177,17 @@ const PurchaseOrderListPage = () => {
     )
 
     const openCreate = useCallback(async (mode: CreateMode = 'manual') => {
+        const refs = await ensureFormRefs(
+            'companies',
+            'currencies',
+            'warehouses',
+            'uoms',
+            'materials',
+            'suppliers',
+        )
         setCreateMode(mode)
         setHeader({
-            companyId: companies[0]?.value || '',
+            companyId: refs.companies?.[0]?.value || '',
             supplierId: '',
             buyerId: 'current-user',
             warehouseId: '',
@@ -228,7 +225,7 @@ const PurchaseOrderListPage = () => {
                 setApprovedPrs([])
             }
         }
-    }, [companies])
+    }, [ensureFormRefs])
 
     const manualErrors = useMemo<FieldErrors>(() => ({
         companyId: required(header.companyId, 'Company'),

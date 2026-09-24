@@ -27,6 +27,16 @@ export class MaterialsService {
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
     }
 
+    /** List / dropdown — avoid loading every UOM/valuation relation. */
+    private readonly listIncludes = {
+        materialType: { select: { id: true, code: true, name: true } },
+        materialCategory: { select: { id: true, code: true, name: true } },
+        baseUom: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true } },
+        defaultWarehouse: { select: { id: true, code: true, name: true } },
+        preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+    }
+
     async findAll(query: MaterialQueryDto) {
         const {
             page = 1,
@@ -60,10 +70,10 @@ export class MaterialsService {
         const [data, total] = await Promise.all([
             this.prisma.mmMaterial.findMany({
                 where,
-                include: this.includes,
+                include: this.listIncludes,
                 orderBy: { [sortBy]: sortOrder },
                 skip: (page - 1) * limit,
-                take: limit,
+                take: Math.min(limit, 200),
             }),
             this.prisma.mmMaterial.count({ where }),
         ])

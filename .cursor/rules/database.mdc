@@ -1,0 +1,18 @@
+---
+description: Prisma schema and migration discipline for ERP
+globs: backend/prisma/**/*,backend/src/**/*.ts
+alwaysApply: false
+---
+
+# Database Rules
+
+Read [AGENTS.md](../../AGENTS.md) §9 before schema work.
+
+1. Search `backend/prisma/schema.prisma` for existing models and `@@map` table names.
+2. Prefer extending models over new tables with overlapping meaning.
+3. Every new relation: FK, indexes, uniqueness, org scope (`companyId` where applicable).
+4. Migrations must be reviewed for data loss and production impact.
+5. MM tables: `Mm*` / `Wm*` — do not duplicate inventory or document storage.
+6. Seeds: `backend/prisma/seed*.ts`; MM full reset via `npm run prisma:seed-mm-demo`.
+
+Never assume greenfield—grep migrations and existing seed data.

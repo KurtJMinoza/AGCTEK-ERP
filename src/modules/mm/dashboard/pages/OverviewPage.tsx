@@ -18,9 +18,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { HiOutlineRefresh } from 'react-icons/hi'
 import { dashboardService } from '../services/dashboardService'
-import { orgService, materialCategoryService } from '../../material-master/services/referenceService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { supplierService } from '../../supplier-management/services/supplierService'
+import { materialCategoryService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmDashboard } from '../types'
 import { DashboardAnalyticsTab } from '../components/DashboardAnalyticsTab'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -43,9 +42,11 @@ function fmt(n: number, digits = 2) {
 
 const OverviewPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [suppliers, setSuppliers] = useState<Opt[]>([])
+    const { companies, warehouses, suppliers, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'warehouses',
+        'suppliers',
+    )
     const [categories, setCategories] = useState<Opt[]>([])
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
@@ -60,41 +61,22 @@ const OverviewPage = () => {
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        orgService.companies().then((cos: any) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map((x: any) => ({
-                value: x.id,
-                label: x.name || x.code,
-            }))
-            setCompanies(c)
-            if (c[0]) setCompanyId(c[0].value)
-        })
-        materialCategoryService
-            .list()
-            .then((rows: any) => {
-                const list = Array.isArray(rows) ? rows : rows?.data ?? []
-                setCategories(list.map((x: any) => ({ value: x.id, label: x.name || x.code })))
-            })
-            .catch(() => {})
-        warehouseService
-            .list({ limit: 500 })
-            .then((r: any) => {
-                const list = Array.isArray(r) ? r : r?.data ?? []
-                setWarehouses(list.map((w: any) => ({ value: w.id, label: `${w.code} — ${w.name}` })))
-            })
-            .catch(() => {})
-        supplierService
-            .list({ pageSize: 500 } as any)
-            .then((r: any) => {
-                const list = Array.isArray(r) ? r : r?.data ?? []
-                setSuppliers(
-                    list.map((s: any) => ({
-                        value: s.id,
-                        label: `${s.supplierCode} — ${s.supplierName}`,
-                    })),
-                )
-            })
-            .catch(() => {})
-    }, [])
+        const t = window.setTimeout(() => {
+            loadFilterRefs()
+            materialCategoryService
+                .list()
+                .then((rows: any) => {
+                    const list = Array.isArray(rows) ? rows : rows?.data ?? []
+                    setCategories(list.map((x: any) => ({ value: x.id, label: x.name || x.code })))
+                })
+                .catch(() => {})
+        }, 0)
+        return () => window.clearTimeout(t)
+    }, [loadFilterRefs])
+
+    useEffect(() => {
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const params = useMemo(
         () => ({
@@ -113,10 +95,21 @@ const OverviewPage = () => {
         if (!companyId) return
         setLoading(true)
         try {
-            setDash(await dashboardService.get(params))
+            // Phase 1: KPIs + alerts only (~fast)
+            const lite = await dashboardService.get({
+                ...params,
+                includeAnalytics: false,
+            } as any)
+            setDash(lite)
+            setLoading(false)
+            // Phase 2: heavy analytics in background
+            const full = await dashboardService.get({
+                ...params,
+                includeAnalytics: true,
+            } as any)
+            setDash(full)
         } catch (e: any) {
             pushToast('danger', 'Error', e?.response?.data?.message || 'Failed to load dashboard')
-        } finally {
             setLoading(false)
         }
     }, [companyId, params])

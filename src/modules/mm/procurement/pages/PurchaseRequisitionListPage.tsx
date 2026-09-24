@@ -34,9 +34,7 @@ import {
     HiOutlineLockClosed,
 } from 'react-icons/hi'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
-import { uomService, orgService } from '@/modules/mm/material-master/services/referenceService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PurchaseRequisition, PrListResponse } from '../types'
 import { prTotalAmount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -130,11 +128,14 @@ const PurchaseRequisitionListPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const [companies, setCompanies] = useState<FilterOption[]>([])
-    const [materials, setMaterials] = useState<FilterOption[]>([])
-    const [uoms, setUoms] = useState<FilterOption[]>([])
-    const [warehouses, setWarehouses] = useState<FilterOption[]>([])
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
+    const {
+        ensure: ensureFormRefs,
+        companies,
+        materials,
+        uoms,
+        warehouses,
+        suppliers,
+    } = useLazyMmRefs()
 
     const [confirmAction, setConfirmAction] = useState<{ action: string; fn: () => Promise<void> } | null>(null)
     const [confirming, setConfirming] = useState(false)
@@ -160,22 +161,17 @@ const PurchaseRequisitionListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    useEffect(() => {
-        orgService.companies().then((list) => setCompanies(list.map((c) => ({ value: c.id, label: c.name })))).catch(() => {})
-        orgService.warehouses().then((list) => setWarehouses(list.map((w: any) => ({ value: w.id, label: w.name })))).catch(() => {})
-        uomService.list().then((list) => setUoms(list.map((u: any) => ({ value: u.id, label: u.code })))).catch(() => {})
-        materialService.list({ page: 1, limit: 200, status: 'ACTIVE' } as any).then((res) => {
-            setMaterials(res.data.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })))
-        }).catch(() => {})
-        supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }).then((res) => {
-            setSuppliers(res.data.map((s) => ({ value: s.id, label: `${s.supplierCode} — ${s.supplierName}` })))
-        }).catch(() => {})
-    }, [])
-
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs(
+            'companies',
+            'warehouses',
+            'uoms',
+            'materials',
+            'suppliers',
+        )
         setWizardStep(0)
         setHeader({
-            companyId: companies[0]?.value || '',
+            companyId: refs.companies?.[0]?.value || '',
             requesterId: 'current-user',
             requiredDate: new Date().toISOString().slice(0, 10),
             purpose: '',
@@ -189,7 +185,7 @@ const PurchaseRequisitionListPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-    }, [companies])
+    }, [ensureFormRefs])
 
     const headerErrors = useMemo<FieldErrors>(() => ({
         companyId: required(header.companyId, 'Company'),

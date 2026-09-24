@@ -17,8 +17,98 @@ export type ResolvedPlanningParams = {
     safetyStock: Decimal
     reorderQuantity: Decimal
     minimumOrderQuantity: Decimal
+    minStock: Decimal
+    maxStock: Decimal
+    lotSize: Decimal
+    reviewPeriodDays: number
+    planningHorizonDays: number | null
+    planningStrategy: string
+    procurementType: string
     leadTimeDays: number
     source: 'RULE' | 'MATERIAL'
+}
+
+export function isRuleEffective(
+    rule: { effectiveFrom: Date | null; effectiveTo: Date | null },
+    asOf: Date,
+): boolean {
+    if (rule.effectiveFrom && asOf.getTime() < rule.effectiveFrom.getTime()) return false
+    if (rule.effectiveTo && asOf.getTime() > rule.effectiveTo.getTime()) return false
+    return true
+}
+
+type RuleRow = {
+    warehouseId: string | null
+    reorderPoint: Decimal | number
+    safetyStock: Decimal | number
+    reorderQuantity: Decimal | number
+    minimumOrderQuantity: Decimal | number
+    minStock?: Decimal | number | null
+    maxStock?: Decimal | number | null
+    lotSize?: Decimal | number | null
+    reviewPeriodDays?: number | null
+    planningHorizonDays?: number | null
+    planningStrategy?: string | null
+    procurementType?: string | null
+    leadTimeDays: number
+    effectiveFrom?: Date | null
+    effectiveTo?: Date | null
+}
+
+/** Pure resolver for preloaded rules (Phase 2B batched scope). */
+export function resolveParamsFromRules(
+    rules: RuleRow[],
+    warehouseId: string,
+    material: {
+        safetyStock: Decimal | number
+        reorderPoint: Decimal | number
+        reorderQuantity: Decimal | number
+        minimumOrderQuantity: Decimal | number
+        leadTimeDays: number
+    },
+    asOf: Date = new Date(),
+): ResolvedPlanningParams {
+    const effective = rules.filter((r) =>
+        isRuleEffective(
+            { effectiveFrom: r.effectiveFrom ?? null, effectiveTo: r.effectiveTo ?? null },
+            asOf,
+        ),
+    )
+    const whRule = effective.find((r) => r.warehouseId === warehouseId)
+    const companyRule = effective.find((r) => r.warehouseId == null)
+    const rule = whRule ?? companyRule
+    if (rule) {
+        return {
+            reorderPoint: new Decimal(rule.reorderPoint),
+            safetyStock: new Decimal(rule.safetyStock),
+            reorderQuantity: new Decimal(rule.reorderQuantity),
+            minimumOrderQuantity: new Decimal(rule.minimumOrderQuantity),
+            minStock: new Decimal(rule.minStock ?? 0),
+            maxStock: new Decimal(rule.maxStock ?? 0),
+            lotSize: new Decimal(rule.lotSize ?? 0),
+            reviewPeriodDays: rule.reviewPeriodDays ?? 0,
+            planningHorizonDays: rule.planningHorizonDays ?? null,
+            planningStrategy: rule.planningStrategy ?? 'REORDER_POINT',
+            procurementType: rule.procurementType ?? 'BUY',
+            leadTimeDays: rule.leadTimeDays,
+            source: 'RULE',
+        }
+    }
+    return {
+        reorderPoint: new Decimal(material.reorderPoint),
+        safetyStock: new Decimal(material.safetyStock),
+        reorderQuantity: new Decimal(material.reorderQuantity),
+        minimumOrderQuantity: new Decimal(material.minimumOrderQuantity),
+        minStock: new Decimal(0),
+        maxStock: new Decimal(0),
+        lotSize: new Decimal(0),
+        reviewPeriodDays: 0,
+        planningHorizonDays: null,
+        planningStrategy: 'REORDER_POINT',
+        procurementType: 'BUY',
+        leadTimeDays: material.leadTimeDays,
+        source: 'MATERIAL',
+    }
 }
 
 const RULE_INCLUDE = {
@@ -105,11 +195,21 @@ export class ReorderRuleService {
                 companyId: dto.companyId,
                 materialId: dto.materialId,
                 warehouseId,
+                plantId: dto.plantId ?? null,
                 reorderPoint: new Decimal(dto.reorderPoint ?? 0),
                 safetyStock: new Decimal(dto.safetyStock ?? 0),
                 reorderQuantity: new Decimal(dto.reorderQuantity ?? 0),
                 minimumOrderQuantity: new Decimal(dto.minimumOrderQuantity ?? 0),
+                minStock: new Decimal(dto.minStock ?? 0),
+                maxStock: new Decimal(dto.maxStock ?? 0),
+                lotSize: new Decimal(dto.lotSize ?? 0),
                 leadTimeDays: dto.leadTimeDays ?? 0,
+                reviewPeriodDays: dto.reviewPeriodDays ?? 0,
+                planningHorizonDays: dto.planningHorizonDays ?? null,
+                effectiveFrom: dto.effectiveFrom ? new Date(dto.effectiveFrom) : null,
+                effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null,
+                planningStrategy: dto.planningStrategy ?? 'REORDER_POINT',
+                procurementType: dto.procurementType ?? 'BUY',
                 isActive: dto.isActive ?? true,
             },
             include: RULE_INCLUDE,
@@ -125,7 +225,23 @@ export class ReorderRuleService {
             data.reorderQuantity = new Decimal(dto.reorderQuantity)
         if (dto.minimumOrderQuantity !== undefined)
             data.minimumOrderQuantity = new Decimal(dto.minimumOrderQuantity)
+        if (dto.minStock !== undefined) data.minStock = new Decimal(dto.minStock)
+        if (dto.maxStock !== undefined) data.maxStock = new Decimal(dto.maxStock)
+        if (dto.lotSize !== undefined) data.lotSize = new Decimal(dto.lotSize)
         if (dto.leadTimeDays !== undefined) data.leadTimeDays = dto.leadTimeDays
+        if (dto.reviewPeriodDays !== undefined)
+            data.reviewPeriodDays = dto.reviewPeriodDays
+        if (dto.plantId !== undefined) data.plantId = dto.plantId || null
+        if (dto.planningHorizonDays !== undefined)
+            data.planningHorizonDays = dto.planningHorizonDays ?? null
+        if (dto.effectiveFrom !== undefined)
+            data.effectiveFrom = dto.effectiveFrom ? new Date(dto.effectiveFrom) : null
+        if (dto.effectiveTo !== undefined)
+            data.effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : null
+        if (dto.planningStrategy !== undefined)
+            data.planningStrategy = dto.planningStrategy
+        if (dto.procurementType !== undefined)
+            data.procurementType = dto.procurementType
         if (dto.isActive !== undefined) data.isActive = dto.isActive
 
         return this.prisma.mmReorderRule.update({
@@ -155,6 +271,7 @@ export class ReorderRuleService {
             minimumOrderQuantity: Decimal | number
             leadTimeDays: number
         },
+        asOf: Date = new Date(),
     ): Promise<ResolvedPlanningParams> {
         const rules = await this.prisma.mmReorderRule.findMany({
             where: {
@@ -164,19 +281,6 @@ export class ReorderRuleService {
                 OR: [{ warehouseId }, { warehouseId: null }],
             },
         })
-        const whRule = rules.find((r) => r.warehouseId === warehouseId)
-        const companyRule = rules.find((r) => r.warehouseId == null)
-        const rule = whRule ?? companyRule
-        if (rule) {
-            return {
-                reorderPoint: new Decimal(rule.reorderPoint),
-                safetyStock: new Decimal(rule.safetyStock),
-                reorderQuantity: new Decimal(rule.reorderQuantity),
-                minimumOrderQuantity: new Decimal(rule.minimumOrderQuantity),
-                leadTimeDays: rule.leadTimeDays,
-                source: 'RULE',
-            }
-        }
 
         let mat = material
         if (!mat) {
@@ -194,13 +298,6 @@ export class ReorderRuleService {
             mat = row
         }
 
-        return {
-            reorderPoint: new Decimal(mat.reorderPoint),
-            safetyStock: new Decimal(mat.safetyStock),
-            reorderQuantity: new Decimal(mat.reorderQuantity),
-            minimumOrderQuantity: new Decimal(mat.minimumOrderQuantity),
-            leadTimeDays: mat.leadTimeDays,
-            source: 'MATERIAL',
-        }
+        return resolveParamsFromRules(rules, warehouseId, mat, asOf)
     }
 }

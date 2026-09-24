@@ -19,6 +19,7 @@ import { warehouseService } from '../services/warehouseService'
 import { putawayService } from '../services/putawayService'
 import { pickingService } from '../services/pickingService'
 import { packingService } from '../services/packingService'
+import { warehouseTaskService } from '../services/warehouseTaskService'
 import type { PutawayTask } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -37,7 +38,14 @@ const OverviewPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const router = useRouter()
 
-    const [counts, setCounts] = useState({ warehouses: 0, inbound: 0, outbound: 0, packing: 0 })
+    const [counts, setCounts] = useState({
+        warehouses: 0,
+        inbound: 0,
+        outbound: 0,
+        packing: 0,
+        pendingTasks: 0,
+        exceptions: 0,
+    })
     const [countsLoading, setCountsLoading] = useState(true)
     const [recentTasks, setRecentTasks] = useState<PutawayTask[]>([])
     const [recentLoading, setRecentLoading] = useState(true)
@@ -45,17 +53,21 @@ const OverviewPage = () => {
     const fetchCounts = useCallback(async () => {
         setCountsLoading(true)
         try {
-            const [wh, put, pick, pack] = await Promise.all([
+            const [wh, put, pick, pack, pending, exceptions] = await Promise.all([
                 warehouseService.list({ status: 'ACTIVE', limit: 1 }),
                 putawayService.list({ status: 'PENDING', limit: 1 }),
                 pickingService.list({ status: 'OPEN', limit: 1 }),
                 packingService.list({ status: 'OPEN', limit: 1 }),
+                warehouseTaskService.list({ status: 'PENDING', pageSize: 1 }),
+                warehouseTaskService.list({ status: 'EXCEPTION', pageSize: 1 }),
             ])
             setCounts({
                 warehouses: wh.meta.total,
                 inbound: put.meta.total,
                 outbound: pick.meta.total,
                 packing: pack.meta.total,
+                pendingTasks: pending.total,
+                exceptions: exceptions.total,
             })
         } catch {
             /* counts stay at 0 */
@@ -136,9 +148,9 @@ const OverviewPage = () => {
 
     const summaryCards = [
         { label: 'Warehouses', value: counts.warehouses, icon: <HiOutlineOfficeBuilding className="text-lg" />, tone: 'default' as const },
-        { label: 'Inbound (Pending)', value: counts.inbound, icon: <HiOutlineArrowDown className="text-lg" />, tone: 'warning' as const },
+        { label: 'Pending Tasks', value: counts.pendingTasks, icon: <HiOutlineArrowDown className="text-lg" />, tone: 'warning' as const },
         { label: 'Outbound (Open)', value: counts.outbound, icon: <HiOutlineArrowUp className="text-lg" />, tone: 'success' as const },
-        { label: 'Packing (Open)', value: counts.packing, icon: <HiOutlineCube className="text-lg" />, tone: 'default' as const },
+        { label: 'Exceptions', value: counts.exceptions, icon: <HiOutlineCube className="text-lg" />, tone: 'warning' as const },
     ]
 
     return (
@@ -191,9 +203,27 @@ const OverviewPage = () => {
                     <Button
                         size="sm"
                         variant="solid"
-                        onClick={() => router.push('/modules/mm/warehouse-management/transfers')}
+                        onClick={() => router.push('/modules/mm/warehouse-management/task-queue')}
                     >
-                        + Transfer
+                        Task Queue
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="solid"
+                        onClick={() =>
+                            router.push('/modules/mm/warehouse-management/transfer-orders')
+                        }
+                    >
+                        + Transfer Order
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="solid"
+                        onClick={() =>
+                            router.push('/modules/mm/warehouse-management/warehouse-transfers')
+                        }
+                    >
+                        Legacy Transfers
                     </Button>
                 </div>
             </AdaptiveCard>

@@ -8,6 +8,9 @@ import { TransfersService } from './transfers/transfers.service'
 import { StorageBinsService } from './storage-bins.service'
 import { WarehouseService } from './warehouse.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { WarehouseTaskService } from './tasks/warehouse-task.service'
+import { PutawayStrategyRegistry } from './tasks/strategies/putaway-strategy.registry'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const mockPosting = {
@@ -110,6 +113,24 @@ describe('MM-03 Warehouse Management', () => {
                 WarehouseService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: InventoryPostingService, useValue: mockPosting },
+                {
+                    provide: MmDomainEventsService,
+                    useValue: { inventoryTransferred: jest.fn() },
+                },
+                {
+                    provide: WarehouseTaskService,
+                    useValue: {
+                        create: jest.fn().mockResolvedValue({ id: 'wt1', destinationBinId: 'bin-rec' }),
+                        assign: jest.fn(),
+                        start: jest.fn(),
+                        complete: jest.fn(),
+                        cancel: jest.fn(),
+                    },
+                },
+                {
+                    provide: PutawayStrategyRegistry,
+                    useValue: { recommend: jest.fn().mockResolvedValue('bin-rec') },
+                },
             ],
         }).compile()
 

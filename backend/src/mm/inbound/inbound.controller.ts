@@ -19,6 +19,7 @@ import {
     QualityDecideDto,
     ReceiveDto,
 } from './dto/inbound.dto'
+import { MmMutation } from '../common/mm-mutation.decorator'
 
 @Controller('mm/inbound')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -78,8 +79,9 @@ export class InboundController {
 
     // ── Receiving ───────────────────────────────────────────────────
     @Post('receiving')
-    receive(@Body() dto: ReceiveDto) {
-        return this.receiving.receive(dto)
+    @MmMutation()
+    receive(@Body() dto: ReceiveDto & { autoPost?: boolean }) {
+        return this.receiving.receive({ ...dto, autoPost: dto.autoPost ?? true })
     }
 
     // ── Quality ─────────────────────────────────────────────────────
@@ -94,6 +96,7 @@ export class InboundController {
     }
 
     @Post('quality-inspections/:id/decide')
+    @MmMutation()
     decideQi(@Param('id') id: string, @Body() dto: QualityDecideDto) {
         return this.quality.decide(id, dto)
     }

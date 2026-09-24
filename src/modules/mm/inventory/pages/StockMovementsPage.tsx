@@ -17,9 +17,7 @@ import {
     inventoryService,
     type InventoryTransaction,
 } from '../services/inventoryService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/stock-movements'
@@ -56,9 +54,11 @@ function n(v: string | number | undefined) {
 
 const StockMovementsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'warehouses',
+        'materials',
+    )
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
@@ -70,39 +70,10 @@ const StockMovementsPage = () => {
     const [page, setPage] = useState(1)
     const [loading, setLoading] = useState(false)
 
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-            materialService.list({ limit: 200 }),
-        ])
-            .then(([cos, wh, mats]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setWarehouses(
-                    (wh?.data ?? []).map((w: any) => ({
-                        value: w.id,
-                        label: `${w.code} — ${w.name}`,
-                    })),
-                )
-                setMaterials(
-                    (mats?.data ?? []).map((m: any) => ({
-                        value: m.id,
-                        label: `${m.materialCode} — ${m.materialName}`,
-                    })),
-                )
-            })
-            .catch(() => undefined)
-    }, [])
-
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await inventoryService.transactions({
+            const res = await inventoryService.ledger({
                 companyId: companyId || undefined,
                 warehouseId: warehouseId || undefined,
                 materialId: materialId || undefined,
@@ -127,7 +98,9 @@ const StockMovementsPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<InventoryTransaction>[] = useMemo(
         () => [
@@ -162,9 +135,20 @@ const StockMovementsPage = () => {
             {
                 header: 'Source',
                 cell: ({ row }) =>
-                    row.original.sourceDocumentType
-                        ? `${row.original.sourceDocumentType}`
+                    row.original.sourceDocumentType && row.original.sourceDocumentId
+                        ? `${row.original.sourceDocumentType}:${row.original.sourceDocumentId.slice(0, 8)}`
                         : '—',
+            },
+            {
+                header: 'Reversal',
+                cell: ({ row }) =>
+                    row.original.reversalOfId
+                        ? row.original.reversalOfId.slice(0, 8)
+                        : '—',
+            },
+            {
+                header: 'Idempotency',
+                cell: ({ row }) => row.original.idempotencyKey?.slice(0, 10) ?? '—',
             },
         ],
         [],

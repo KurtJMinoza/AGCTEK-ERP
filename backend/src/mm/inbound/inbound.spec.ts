@@ -5,8 +5,10 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ExpectedReceiptService } from './expected-receipt.service'
 import { QualityInspectionService } from './quality-inspection.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { ReceivingService } from './receiving.service'
-import { GoodsReceiptService } from '../stock-ops/goods-receipt.service'
+import { ReceivingDocumentService } from '../receiving/receiving-document.service'
+import { InspectionLotService } from '../receiving/inspection-lot.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 
@@ -275,168 +277,66 @@ describe('ExpectedReceiptService', () => {
     })
 })
 
-describe('ReceivingService variances', () => {
+describe('ReceivingService (legacy alias)', () => {
     let service: ReceivingService
-    const mockGr: any = { create: jest.fn(), findOne: jest.fn() }
+    const mockReceivingDocs: any = { create: jest.fn() }
 
     beforeEach(async () => {
         jest.resetAllMocks()
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ReceivingService,
-                { provide: PrismaService, useValue: mockPrisma },
-                { provide: GoodsReceiptService, useValue: mockGr },
+                { provide: ReceivingDocumentService, useValue: mockReceivingDocs },
             ],
         }).compile()
         service = module.get(ReceivingService)
-        mockGr.create.mockResolvedValue({ id: 'gr-draft', documentNumber: 'GR-D', lines: [] })
-        mockGr.findOne.mockResolvedValue({ id: 'gr-draft', documentNumber: 'GR-D', lines: [] })
     })
 
-    function erBase(lineOverrides: any = {}) {
-        return {
-            id: 'er-1',
-            status: 'OPEN',
-            companyId: 'co-1',
-            warehouseId: 'wh-1',
-            purchaseOrderId: 'po-1',
-            supplierId: 'sup-1',
-            purchaseOrder: null,
-            lines: [
-                {
-                    id: 'erl-1',
-                    materialId: 'mat-1',
-                    expectedQuantity: new Decimal(100),
-                    receivedQuantity: new Decimal(0),
-                    uomId: 'uom-1',
-                    purchaseOrderLineId: 'pol-1',
-                    material: {
-                        materialCode: 'M1',
-                        batchManaged: false,
-                        serialManaged: false,
-                        qualityInspectionRequired: false,
-                    },
-                    ...lineOverrides,
-                },
-            ],
-        }
-    }
-
-    it('partial receipt flags SHORTAGE', async () => {
-        mockPrisma.mmExpectedReceipt.findUnique.mockResolvedValue(erBase())
-        await service.receive({
+    it('delegates to ReceivingDocumentService with autoPost=true by default', async () => {
+        mockReceivingDocs.create.mockResolvedValue({
+            goodsReceipt: { id: 'gr-1', documentNumber: 'GR-1', status: 'POSTED' },
+        })
+        const gr = await service.receive({
             expectedReceiptId: 'er-1',
+            lines: [{ expectedReceiptLineId: 'erl-1', receivedQuantity: 100 }],
+        })
+        expect(mockReceivingDocs.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                expectedReceiptId: 'er-1',
+                autoPost: true,
+            }),
+        )
+        expect(gr).toEqual(expect.objectContaining({ id: 'gr-1', status: 'POSTED' }))
+    })
+
+    it('autoPost=false returns receiving document draft', async () => {
+        mockReceivingDocs.create.mockResolvedValue({
+            id: 'rcv-1',
+            status: 'DRAFT',
+            documentNumber: 'RCV-1',
+        })
+        const doc = await service.receive({
+            expectedReceiptId: 'er-1',
+            autoPost: false,
             lines: [{ expectedReceiptLineId: 'erl-1', receivedQuantity: 40 }],
         })
-        expect(mockGr.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                lines: [
-                    expect.objectContaining({
-                        quantity: 40,
-                        shortageQuantity: 60,
-                        discrepancyFlag: 'SHORTAGE',
-                    }),
-                ],
-            }),
+        expect(mockReceivingDocs.create).toHaveBeenCalledWith(
+            expect.objectContaining({ autoPost: false }),
         )
-    })
-
-    it('overage flags OVERAGE', async () => {
-        mockPrisma.mmExpectedReceipt.findUnique.mockResolvedValue(erBase())
-        await service.receive({
-            expectedReceiptId: 'er-1',
-            lines: [{ expectedReceiptLineId: 'erl-1', receivedQuantity: 110 }],
-        })
-        expect(mockGr.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                lines: [
-                    expect.objectContaining({
-                        overageQuantity: 10,
-                        discrepancyFlag: 'OVERAGE',
-                    }),
-                ],
-            }),
-        )
-    })
-
-    it('records REJECTED and DAMAGE flags with rejected qty', async () => {
-        mockPrisma.mmExpectedReceipt.findUnique.mockResolvedValue(erBase())
-        await service.receive({
-            expectedReceiptId: 'er-1',
-            lines: [
-                {
-                    expectedReceiptLineId: 'erl-1',
-                    receivedQuantity: 50,
-                    damagedQuantity: 5,
-                    rejectedQuantity: 3,
-                },
-            ],
-        })
-        expect(mockGr.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                lines: [
-                    expect.objectContaining({
-                        damagedQuantity: 5,
-                        rejectedQuantity: 3,
-                        discrepancyFlag: expect.stringMatching(/DAMAGE/),
-                    }),
-                ],
-            }),
-        )
-        const flag = mockGr.create.mock.calls[0][0].lines[0].discrepancyFlag as string
-        expect(flag).toContain('REJECTED')
-        expect(flag).toContain('SHORTAGE')
-    })
-
-    it('wrong material still creates GR with WRONG_MATERIAL', async () => {
-        mockPrisma.mmExpectedReceipt.findUnique.mockResolvedValue(erBase())
-        await service.receive({
-            expectedReceiptId: 'er-1',
-            lines: [
-                {
-                    expectedReceiptLineId: 'erl-1',
-                    receivedQuantity: 10,
-                    materialId: 'mat-other',
-                },
-            ],
-        })
-        expect(mockGr.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                lines: [
-                    expect.objectContaining({
-                        discrepancyFlag: expect.stringContaining('WRONG_MATERIAL'),
-                        rejectedQuantity: 10,
-                    }),
-                ],
-            }),
-        )
-    })
-
-    it('batch-managed material requires batch', async () => {
-        mockPrisma.mmExpectedReceipt.findUnique.mockResolvedValue(
-            erBase({
-                material: {
-                    materialCode: 'M1',
-                    batchManaged: true,
-                    serialManaged: false,
-                    qualityInspectionRequired: false,
-                },
-            }),
-        )
-        await expect(
-            service.receive({
-                expectedReceiptId: 'er-1',
-                lines: [{ expectedReceiptLineId: 'erl-1', receivedQuantity: 5 }],
-            }),
-        ).rejects.toBeInstanceOf(BadRequestException)
+        expect(doc).toEqual(expect.objectContaining({ id: 'rcv-1', status: 'DRAFT' }))
     })
 })
 
 describe('QualityInspectionService', () => {
     let service: QualityInspectionService
+    const mockInspectionLots: any = {
+        findByLegacyQiId: jest.fn(),
+        usageDecision: jest.fn(),
+    }
 
     beforeEach(async () => {
         jest.resetAllMocks()
+        mockInspectionLots.findByLegacyQiId.mockResolvedValue(null)
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 QualityInspectionService,
@@ -444,6 +344,11 @@ describe('QualityInspectionService', () => {
                 { provide: InventoryPostingService, useValue: mockPosting },
                 { provide: PutawayService, useValue: mockPutaway },
                 { provide: EventEmitter2, useValue: mockEvents },
+                {
+                    provide: MmDomainEventsService,
+                    useValue: { qualityDecisionMade: jest.fn() },
+                },
+                { provide: InspectionLotService, useValue: mockInspectionLots },
             ],
         }).compile()
         service = module.get(QualityInspectionService)
@@ -512,7 +417,22 @@ describe('QualityInspectionService', () => {
             }),
         )
         expect(mockPutaway.createFromGoodsReceiptLine).toHaveBeenCalled()
-        expect(result.result).toBe('PASS')
+        expect((result as { result: string }).result).toBe('PASS')
+    })
+
+    it('delegates decide to inspection lot when legacy bridge exists', async () => {
+        mockInspectionLots.findByLegacyQiId.mockResolvedValue({ id: 'il-1' })
+        mockInspectionLots.usageDecision.mockResolvedValue({ lot: { id: 'il-1' }, decision: {} })
+
+        await service.decide('qi-1', {
+            inspectedBy: 'qa-1',
+            lines: [{ lineId: 'qil-1', passQuantity: 0, failQuantity: 5 }],
+        })
+
+        expect(mockInspectionLots.usageDecision).toHaveBeenCalledWith(
+            'il-1',
+            expect.objectContaining({ decisionCode: 'REJECT', quantity: 5 }),
+        )
     })
 
     it('FAIL moves QI stock to BLOCKED without putaway', async () => {
@@ -599,7 +519,7 @@ describe('QualityInspectionService', () => {
             lines: [{ lineId: 'qil-1', passQuantity: 7, failQuantity: 3 }],
         })
 
-        expect(result.result).toBe('PARTIAL_PASS')
+        expect((result as { result: string }).result).toBe('PARTIAL_PASS')
         expect(mockPosting.postTransaction).toHaveBeenCalledWith(
             expect.objectContaining({
                 stockStatus: 'UNRESTRICTED',

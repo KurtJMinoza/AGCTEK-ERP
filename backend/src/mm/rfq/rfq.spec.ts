@@ -135,7 +135,9 @@ const mockPrisma: any = {
         count: jest.fn(),
     },
     mmRfqLine: { deleteMany: jest.fn() },
-    mmRfqSupplier: { upsert: jest.fn(), updateMany: jest.fn() },
+    mmRfqSupplier: { upsert: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
+    mmSupplier: { findFirst: jest.fn() },
+    mmQuotationComparison: { create: jest.fn() },
     mmRfqAudit: { create: jest.fn(), findMany: jest.fn() },
     mmRfqAward: { create: jest.fn() },
     mmSupplierQuotation: {
@@ -188,6 +190,17 @@ describe('MM-07 RFQ & Quotations', () => {
                 mmRfq: mockPrisma.mmRfq,
             }),
         )
+        mockPrisma.mmSupplier.findFirst.mockResolvedValue({
+            id: supplierA,
+            status: 'ACTIVE',
+            companyId,
+            sourcingType: 'APPROVED',
+            documents: [],
+        })
+        mockPrisma.mmRfqSupplier.findMany.mockResolvedValue([
+            { supplier: { sourcingType: 'APPROVED' } },
+            { supplier: { sourcingType: 'APPROVED' } },
+        ])
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [

@@ -1,7 +1,20 @@
 # Materials Management (MM) — Full Architectural Contract
 
-This file is the complete MM engineering contract. The agent should follow
-[SKILL.md](SKILL.md) first, then read this reference for detailed rules.
+This file is the **extended historical reference** for MM. The agent must follow
+[SKILL.md](SKILL.md) first — it is the permanent, repo-grounded engineering skill.
+
+Then read these docs for focused architecture:
+
+- [docs/MM_ARCHITECTURE.md](../../docs/MM_ARCHITECTURE.md)
+- [docs/MM_DOMAIN_BOUNDARIES.md](../../docs/MM_DOMAIN_BOUNDARIES.md)
+- [docs/MM_DEPENDENCY_MAP.md](../../docs/MM_DEPENDENCY_MAP.md)
+- [docs/MM_TRANSACTION_RULES.md](../../docs/MM_TRANSACTION_RULES.md)
+- [docs/MM_INTEGRATION_EVENTS.md](../../docs/MM_INTEGRATION_EVENTS.md)
+- [docs/MM_INTEGRATION_CONTRACTS.md](../../docs/MM_INTEGRATION_CONTRACTS.md)
+- [docs/MM_QUALITY_ARCHITECTURE.md](../../docs/MM_QUALITY_ARCHITECTURE.md)
+- [docs/MM_MRP_ARCHITECTURE.md](../../docs/MM_MRP_ARCHITECTURE.md)
+
+Use this reference for additional detail (permissions, tables, legacy flows) not duplicated above.
 
 ---
 

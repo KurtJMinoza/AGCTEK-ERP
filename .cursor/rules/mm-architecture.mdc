@@ -8,10 +8,22 @@ alwaysApply: false
 
 Before any Materials Management change in matching paths:
 
-1. Read and follow `.cursor/skills/materials-management/SKILL.md`.
-2. For build order, document ownership, and consumers, read `docs/MM_DEPENDENCY_MAP.md`.
-3. For detailed rules (ownership, ledger, flows, DoD), read `.cursor/skills/materials-management/reference.md`.
-3. Prefer reusing `InventoryPostingService` for all physical stock changes.
-4. Preserve: Receiving → Goods Receipt → Inventory Posting Service → Inventory Ledger.
-5. Do not invent a second GR, availability, or stock-calculation path.
-6. Keep UI on ECME + existing shared components; thin app routes under `src/app/(protected-pages)/modules/mm/`.
+1. Read and follow `.cursor/skills/materials-management/SKILL.md` (permanent MM contract).
+2. Inspect existing code in `backend/src/mm/` and `src/modules/mm/` before proposing changes.
+3. Read `docs/MM_DEPENDENCY_MAP.md` for MM-01→15 build order and document ownership.
+4. Read focused architecture docs as needed:
+   - `docs/MM_ARCHITECTURE_RULES.md` — governance + allowed patterns (Phase 6)
+   - `docs/MM_FORBIDDEN_PATTERNS.md` — forbidden catalog + rule IDs
+   - `docs/MM_ARCHITECTURE.md` — posting invariant and service map
+   - `docs/MM_DOMAIN_BOUNDARIES.md` — ownership matrix
+   - `docs/MM_TRANSACTION_RULES.md` — ledger, movement types, idempotency
+   - `docs/MM_QUALITY_RULES.md` / `docs/MM_MRP_RULES.md` / `docs/MM_INTEGRATION_RULES.md`
+   - `docs/MM_INTEGRATION_CONTRACTS.md` — cross-module events
+   - `docs/MM_QUALITY_ARCHITECTURE.md` — inspection / usage decisions
+   - `docs/MM_MRP_ARCHITECTURE.md` — planning-only rules
+5. Run `npm run test:architecture` in `backend/` after MM backend changes.
+6. Prefer reusing `InventoryPostingService` for all physical stock changes.
+7. Preserve: Receiving → Goods Receipt → Inventory Posting Service → Inventory Ledger.
+8. Do not invent parallel engines, duplicate GR paths, or frontend stock math.
+9. Keep UI on ECME + existing shared components; thin app routes under `src/app/(protected-pages)/modules/mm/`.
+10. Extended detail: `.cursor/skills/materials-management/reference.md`.

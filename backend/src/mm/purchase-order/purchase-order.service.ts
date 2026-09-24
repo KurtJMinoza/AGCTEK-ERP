@@ -14,8 +14,12 @@ import {
     CreatePoFromPrDto,
     CreatePoAttachmentDto,
     UpsertPoToleranceDto,
+    RevisePurchaseOrderDto,
 } from './dto/po-actions.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
+import { assertSupplierProcurementById } from '../procurement/assert-supplier-procurement'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 const PO_INCLUDES = {
     lines: {
@@ -41,6 +45,16 @@ const PO_INCLUDES = {
     goodsReceipts: { select: { id: true, documentNumber: true, status: true, postingDate: true } },
 }
 
+/** List view — header only; lines/attachments loaded on detail. */
+const PO_LIST_INCLUDES = {
+    company: { select: { id: true, name: true } },
+    supplier: { select: { id: true, supplierCode: true, supplierName: true } },
+    currency: { select: { id: true, code: true, name: true } },
+    warehouse: { select: { id: true, code: true, name: true } },
+    purchaseRequisition: { select: { id: true, requisitionNumber: true } },
+    _count: { select: { lines: true, attachments: true, goodsReceipts: true } },
+}
+
 function calcLineTotal(l: {
     quantity: number | Decimal
     unitPrice: number | Decimal
@@ -61,14 +75,22 @@ export class PurchaseOrderService {
     constructor(
         private prisma: PrismaService,
         private workflowService: WorkflowService,
+        private commitmentService: PurchaseCommitmentService,
+        private documentFlow: DocumentFlowService,
     ) {}
+
+    private async assertSupplierForPo(supplierId: string, companyId: string) {
+        await assertSupplierProcurementById(this.prisma, supplierId, {
+            companyId,
+            purpose: 'PO',
+        })
+    }
 
     async create(dto: CreatePurchaseOrderDto) {
         if (!dto.lines?.length) {
             throw new BadRequestException('At least one line is required')
         }
-        const { assertSupplierUsableById } = await import('../supplier/assert-supplier-usable')
-        await assertSupplierUsableById(this.prisma, dto.supplierId)
+        await this.assertSupplierForPo(dto.supplierId, dto.companyId)
         const { assertPurchasableMaterials } = await import('../materials/assert-purchasable-materials')
         await assertPurchasableMaterials(
             this.prisma,
@@ -263,8 +285,7 @@ export class PurchaseOrderService {
         }
 
         if (dto.supplierId && dto.supplierId !== po.supplierId) {
-            const { assertSupplierUsableById } = await import('../supplier/assert-supplier-usable')
-            await assertSupplierUsableById(this.prisma, dto.supplierId)
+            await this.assertSupplierForPo(dto.supplierId, po.companyId)
         }
         if (dto.lines?.length) {
             const { assertPurchasableMaterials } = await import('../materials/assert-purchasable-materials')
@@ -322,7 +343,7 @@ export class PurchaseOrderService {
         const [data, total] = await Promise.all([
             this.prisma.mmPurchaseOrder.findMany({
                 where,
-                include: PO_INCLUDES,
+                include: PO_LIST_INCLUDES,
                 orderBy: { createdAt: 'desc' },
                 skip: (page - 1) * pageSize,
                 take: pageSize,
@@ -345,6 +366,8 @@ export class PurchaseOrderService {
         if (po.lines.length === 0) {
             throw new BadRequestException('Cannot submit PO with no lines')
         }
+
+        await this.assertSupplierForPo(po.supplierId, po.companyId)
 
         const total = po.lines.reduce(
             (sum, l) => sum.plus(new Decimal(l.lineTotal)),
@@ -396,6 +419,7 @@ export class PurchaseOrderService {
     @OnEvent('workflow.approved')
     async handleApproved(payload: { entityType: string; entityId: string; decidedBy?: string }) {
         if (payload.entityType !== 'PURCHASE_ORDER') return
+        const po = await this.findOneOrFail(payload.entityId)
         await this.prisma.mmPurchaseOrder.update({
             where: { id: payload.entityId },
             data: {
@@ -404,6 +428,7 @@ export class PurchaseOrderService {
                 approvedAt: new Date(),
             },
         })
+        await this.recordPoCommitment(po, payload.decidedBy)
         await this.audit(payload.entityId, 'APPROVED', 'status', 'PENDING_APPROVAL', 'APPROVED', payload.decidedBy)
     }
 
@@ -463,7 +488,69 @@ export class PurchaseOrderService {
             data: { status: 'APPROVED', approvedBy: userId ?? null, approvedAt: new Date() },
             include: PO_INCLUDES,
         })
+        await this.recordPoCommitment(updated, userId)
         await this.audit(id, 'APPROVED', 'status', 'PENDING_APPROVAL', 'APPROVED', userId)
+        return updated
+    }
+
+    async revise(id: string, dto: RevisePurchaseOrderDto) {
+        const po = await this.findOneOrFail(id)
+        const allowed = ['APPROVED', 'SENT']
+        if (!allowed.includes(po.status)) {
+            throw new BadRequestException(`Cannot revise PO in status ${po.status}`)
+        }
+        const anyReceived = po.lines.some((l) => Number(l.receivedQuantity) > 0)
+        if (anyReceived) {
+            throw new BadRequestException('Cannot revise PO with received quantities')
+        }
+
+        const snapshot = {
+            poNumber: po.poNumber,
+            status: po.status,
+            totalAmount: Number(po.totalAmount),
+            revisionNumber: po.revisionNumber,
+            lines: po.lines.map((l) => ({
+                id: l.id,
+                materialId: l.materialId,
+                quantity: Number(l.quantity),
+                unitPrice: Number(l.unitPrice),
+                lineTotal: Number(l.lineTotal),
+            })),
+        }
+
+        await this.prisma.mmPurchaseOrderRevision.create({
+            data: {
+                purchaseOrderId: id,
+                revisionNumber: po.revisionNumber,
+                reason: dto.reason,
+                snapshot,
+                revisedBy: dto.revisedBy ?? null,
+            },
+        })
+
+        const updated = await this.prisma.mmPurchaseOrder.update({
+            where: { id },
+            data: {
+                status: 'DRAFT',
+                revisionNumber: po.revisionNumber + 1,
+                approvedBy: null,
+                approvedAt: null,
+                sentAt: null,
+                submittedAt: null,
+                workflowInstanceId: null,
+            },
+            include: PO_INCLUDES,
+        })
+
+        await this.audit(
+            id,
+            'REVISED',
+            'revisionNumber',
+            String(po.revisionNumber),
+            String(po.revisionNumber + 1),
+            dto.revisedBy,
+            { reason: dto.reason },
+        )
         return updated
     }
 
@@ -504,6 +591,8 @@ export class PurchaseOrderService {
         if (po.status !== 'APPROVED') {
             throw new BadRequestException(`Cannot send: PO is ${po.status}`)
         }
+        await this.assertSupplierForPo(po.supplierId, po.companyId)
+        await this.recordPoCommitment(po, performedBy)
         const updated = await this.prisma.mmPurchaseOrder.update({
             where: { id },
             data: { status: 'SENT', sentAt: new Date() },
@@ -527,6 +616,7 @@ export class PurchaseOrderService {
         }
 
         await this.workflowService.cancel('PURCHASE_ORDER', id)
+        await this.commitmentService.cancelCommitment(id)
 
         const updated = await this.prisma.mmPurchaseOrder.update({
             where: { id },
@@ -564,27 +654,8 @@ export class PurchaseOrderService {
     }
 
     async getDocumentFlow(id: string) {
-        const po = await this.findOneOrFail(id)
-        return {
-            purchaseOrder: { id: po.id, number: po.poNumber, status: po.status },
-            purchaseRequisition: po.purchaseRequisition
-                ? {
-                      id: po.purchaseRequisition.id,
-                      number: po.purchaseRequisition.requisitionNumber,
-                  }
-                : null,
-            rfq: po.rfq ? { id: po.rfq.id, number: po.rfq.rfqNumber } : null,
-            quotation: po.quotation
-                ? { id: po.quotation.id, number: po.quotation.quotationNumber }
-                : null,
-            award: po.award ? { id: po.award.id } : null,
-            goodsReceipts: po.goodsReceipts.map((gr) => ({
-                id: gr.id,
-                number: gr.documentNumber,
-                status: gr.status,
-                postingDate: gr.postingDate,
-            })),
-        }
+        await this.findOneOrFail(id)
+        return this.documentFlow.getPoLegacyFlow(id)
     }
 
     async listAttachments(id: string) {
@@ -731,6 +802,19 @@ export class PurchaseOrderService {
             if (!isNaN(lastSeq)) seq = lastSeq + 1
         }
         return `${pfx}${String(seq).padStart(5, '0')}`
+    }
+
+    private async recordPoCommitment(
+        po: { id: string; companyId: string; totalAmount: any; currencyId?: string | null },
+        createdBy?: string | null,
+    ) {
+        await this.commitmentService.recordCommitment({
+            purchaseOrderId: po.id,
+            companyId: po.companyId,
+            amount: po.totalAmount,
+            currencyId: po.currencyId,
+            createdBy: createdBy ?? null,
+        })
     }
 
     private async audit(

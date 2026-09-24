@@ -96,6 +96,9 @@ export class MaterialValuationService {
                 movingAverageCost: 0,
                 effectiveDate,
                 revision: 1,
+                code: dto.code ?? null,
+                name: dto.name ?? null,
+                isActive: dto.isActive ?? true,
             },
             update: {
                 valuationMethod: dto.valuationMethod,
@@ -103,6 +106,9 @@ export class MaterialValuationService {
                 standardCost:
                     dto.standardCost !== undefined ? standardCost : undefined,
                 effectiveDate: dto.effectiveDate ? effectiveDate : undefined,
+                code: dto.code !== undefined ? dto.code : undefined,
+                name: dto.name !== undefined ? dto.name : undefined,
+                isActive: dto.isActive !== undefined ? dto.isActive : undefined,
             },
             include: { material: true, warehouse: true, currency: true },
         })
@@ -125,6 +131,9 @@ export class MaterialValuationService {
                 effectiveDate: dto.effectiveDate
                     ? new Date(dto.effectiveDate)
                     : undefined,
+                code: dto.code === undefined ? undefined : dto.code,
+                name: dto.name === undefined ? undefined : dto.name,
+                isActive: dto.isActive === undefined ? undefined : dto.isActive,
             },
             include: { material: true, warehouse: true, currency: true },
         })

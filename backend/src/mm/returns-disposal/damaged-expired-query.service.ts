@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { postingKey } from '../common/idempotency.util'
 import { SupplierReturnService } from './supplier-return.service'
 import { DisposalService } from './disposal.service'
 import {
@@ -111,15 +112,18 @@ export class DamagedExpiredQueryService {
             createdBy: dto.performedBy,
         }
 
+        const docKey = `${dto.materialId}:${dto.warehouseId}`
         await this.postingService.postTransaction({
             ...base,
             stockStatus: 'UNRESTRICTED',
             movementType: 'TRANSFER_OUT',
+            idempotencyKey: postingKey('damage', docKey, dto.batchId ?? 'na', 'unr-out'),
         })
         const txnIn = await this.postingService.postTransaction({
             ...base,
             stockStatus: 'BLOCKED',
             movementType: 'TRANSFER_IN',
+            idempotencyKey: postingKey('damage', docKey, dto.batchId ?? 'na', 'blocked-in'),
         })
         return { ok: true, inventoryTxnId: txnIn.id, stockStatus: 'BLOCKED' }
     }
@@ -150,15 +154,18 @@ export class DamagedExpiredQueryService {
             createdBy: dto.performedBy,
         }
 
+        const docKey = `${dto.materialId}:${dto.warehouseId}`
         await this.postingService.postTransaction({
             ...base,
             stockStatus: fromStatus,
             movementType: 'TRANSFER_OUT',
+            idempotencyKey: postingKey('expire', docKey, dto.batchId ?? 'na', `${fromStatus}-out`),
         })
         const txnIn = await this.postingService.postTransaction({
             ...base,
             stockStatus: 'EXPIRED',
             movementType: 'TRANSFER_IN',
+            idempotencyKey: postingKey('expire', docKey, dto.batchId ?? 'na', 'expired-in'),
         })
         return { ok: true, inventoryTxnId: txnIn.id, stockStatus: 'EXPIRED' }
     }

@@ -3,9 +3,11 @@ import {
     BadRequestException,
     NotFoundException,
 } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import {
     CreateDisposalDto,
@@ -31,7 +33,8 @@ export class DisposalService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private configService: ReturnsDisposalConfigService,
-        private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateDisposalDto) {
@@ -220,10 +223,28 @@ export class DisposalService {
     async post(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'APPROVED') {
+            if (['POSTED', 'CLOSED'].includes(doc.status)) {
+                throw new BadRequestException('Duplicate disposal posting blocked')
+            }
             throw new BadRequestException(`Cannot post: status is ${doc.status}`)
         }
 
+        const claimed = await this.prisma.mmDisposal.updateMany({
+            where: { id, status: 'APPROVED' },
+            data: {
+                status: 'POSTED',
+                postedBy: dto?.performedBy ?? null,
+                postedAt: new Date(),
+            },
+        })
+        if (claimed.count === 0) {
+            throw new BadRequestException('Duplicate disposal posting blocked')
+        }
+
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
         const now = new Date().toISOString()
+        const txnIds: string[] = []
 
         for (const line of doc.lines) {
             const txn = await this.postingService.postTransaction({
@@ -246,52 +267,80 @@ export class DisposalService {
                 sourceDocumentLineId: line.id,
                 reasonCode: line.reason,
                 createdBy: dto?.performedBy ?? undefined,
+                idempotencyKey: postingKey('disposal', doc.id, line.id),
             })
 
+            txnIds.push(txn.id)
             await this.prisma.mmDisposalLine.update({
                 where: { id: line.id },
                 data: { inventoryTxnId: txn.id },
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'DISPOSAL_POSTED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'DISPOSAL',
-                documentId: doc.id,
+        const scrapNumber = `SCP-${doc.disposalNumber}`
+        await this.prisma.mmScrapTransaction.upsert({
+            where: { legacyDisposalId: id },
+            create: {
+                scrapNumber,
                 companyId: doc.companyId,
-                payload: {
-                    disposalNumber: doc.disposalNumber,
-                    disposalType: doc.disposalType,
-                    lines: doc.lines.map((l) => ({
-                        materialId: l.materialId,
-                        quantity: Number(l.quantity),
-                        unitCost: Number(l.unitCost),
-                    })),
-                },
-                status: 'PENDING',
+                warehouseId: doc.warehouseId,
+                legacyDisposalId: id,
+                postedBy: dto?.performedBy ?? null,
+                idempotencyKey: postingKey('scrap-doc', id),
+                inventoryTxnIds: txnIds,
+            },
+            update: {
+                inventoryTxnIds: txnIds,
+                postedBy: dto?.performedBy ?? null,
+                postedAt: new Date(),
             },
         })
 
-        this.events.emit('accounting.entry.requested', {
+        const eventPayload = {
             sourceModule: 'RETURNS_DISPOSAL',
             documentType: 'DISPOSAL',
             documentId: doc.id,
             companyId: doc.companyId,
-        })
+            postingDate: now,
+            warehouseId: doc.warehouseId,
+            disposalNumber: doc.disposalNumber,
+            disposalType: doc.disposalType,
+            lines: doc.lines.map((l) => ({
+                materialId: l.materialId,
+                warehouseId: doc.warehouseId,
+                movementType: 'SCRAP',
+                quantity: Number(l.quantity),
+                unitCost: Number(l.unitCost),
+                totalCost: Number(l.unitCost) * Number(l.quantity),
+            })),
+        }
+
+        if (doc.disposalType === 'SCRAP') {
+            void this.domainEvents.scrapPosted({
+                companyId: doc.companyId,
+                scrapId: doc.id,
+                plantId: doc.warehouse?.plantId ?? null,
+                payload: eventPayload,
+            })
+        } else {
+            void this.domainEvents.disposalPosted({
+                companyId: doc.companyId,
+                disposalId: doc.id,
+                plantId: doc.warehouse?.plantId ?? null,
+                payload: eventPayload,
+            })
+        }
 
         const updated = await this.prisma.mmDisposal.update({
             where: { id },
             data: {
-                status: 'POSTED',
-                postedBy: dto?.performedBy ?? null,
-                postedAt: new Date(),
+                status: 'CLOSED',
+                closedAt: new Date(),
             },
             include: DETAIL_INCLUDE,
         })
 
-        await this.audit(id, 'POSTED', 'status', 'APPROVED', 'POSTED', dto?.performedBy)
+        await this.audit(id, 'POSTED', 'status', 'APPROVED', 'CLOSED', dto?.performedBy)
         return updated
     }
 
@@ -313,7 +362,7 @@ export class DisposalService {
 
     async reverse(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'POSTED') {
+        if (!['POSTED', 'CLOSED'].includes(doc.status)) {
             throw new BadRequestException(`Cannot reverse: status is ${doc.status}`)
         }
 
@@ -329,24 +378,28 @@ export class DisposalService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'DISPOSAL_REVERSED',
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
+        void this.domainEvents.disposalReversed({
+            companyId: doc.companyId,
+            disposalId: doc.id,
+            payload: {
                 sourceModule: 'RETURNS_DISPOSAL',
                 documentType: 'DISPOSAL',
                 documentId: doc.id,
                 companyId: doc.companyId,
-                payload: { disposalNumber: doc.disposalNumber },
-                status: 'PENDING',
+                postingDate: new Date().toISOString(),
+                warehouseId: doc.warehouseId,
+                disposalNumber: doc.disposalNumber,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'SCRAP_REVERSAL',
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                    totalCost: Number(l.unitCost) * Number(l.quantity),
+                })),
             },
-        })
-
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'DISPOSAL',
-            documentId: doc.id,
-            companyId: doc.companyId,
-            eventHint: 'REVERSAL',
         })
 
         const updated = await this.prisma.mmDisposal.update({

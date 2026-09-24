@@ -12,6 +12,11 @@ import {
     InviteSuppliersDto,
 } from './dto/create-rfq.dto'
 import { RfqQueryDto } from './dto/rfq-query.dto'
+import { SaveQuotationComparisonDto } from './dto/quotation-comparison.dto'
+import {
+    assertSupplierProcurementById,
+    assertCompetitiveSourcing,
+} from '../procurement/assert-supplier-procurement'
 
 const RFQ_INCLUDES = {
     company: { select: { id: true, code: true, name: true } },
@@ -303,6 +308,10 @@ export class RfqService {
         }
 
         for (const supplierId of dto.supplierIds) {
+            await assertSupplierProcurementById(this.prisma, supplierId, {
+                companyId: rfq.companyId,
+                purpose: 'RFQ_INVITE',
+            })
             await this.prisma.mmRfqSupplier.upsert({
                 where: { rfqId_supplierId: { rfqId: id, supplierId } },
                 create: { rfqId: id, supplierId, responseStatus: 'INVITED' },
@@ -435,6 +444,38 @@ export class RfqService {
         }
     }
 
+    async saveComparison(dto: SaveQuotationComparisonDto) {
+        const comparison = await this.getComparison(dto.rfqId)
+        const saved = await this.prisma.mmQuotationComparison.create({
+            data: {
+                rfqId: dto.rfqId,
+                comparedBy: dto.comparedBy ?? null,
+                criteria: dto.criteria ?? [
+                    'unitPrice',
+                    'totalPrice',
+                    'leadTime',
+                    'moq',
+                    'paymentTerms',
+                    'delivery',
+                    'supplierScore',
+                ],
+                results: comparison,
+                selectedQuotationId: dto.selectedQuotationId ?? null,
+                selectionReason: dto.selectionReason ?? null,
+            },
+        })
+        await this.audit(
+            dto.rfqId,
+            'COMPARISON_SAVED',
+            null,
+            null,
+            saved.id,
+            dto.comparedBy,
+            { selectedQuotationId: dto.selectedQuotationId, selectionReason: dto.selectionReason },
+        )
+        return saved
+    }
+
     async award(id: string, dto: AwardRfqDto) {
         const rfq = await this.findOneOrFail(id)
         const allowed = ['EVALUATION', 'RESPONDED', 'PARTIALLY_RESPONDED', 'ISSUED']
@@ -483,6 +524,29 @@ export class RfqService {
         }
 
         supplierId = quotation.supplierId
+
+        const awardedSupplier = await this.prisma.mmSupplier.findFirst({
+            where: { id: supplierId! },
+            select: { sourcingType: true },
+        })
+        const invitedSuppliers = await this.prisma.mmRfqSupplier.findMany({
+            where: { rfqId: id },
+            include: { supplier: { select: { sourcingType: true } } },
+        })
+        const submittedCount = rfq.quotations.filter(
+            (q) => q.status === 'SUBMITTED' || q.status === 'SELECTED',
+        ).length
+        assertCompetitiveSourcing({
+            submittedQuotationCount: submittedCount,
+            awardedSupplierSourcingType: awardedSupplier?.sourcingType,
+            invitedSupplierSourcingTypes: invitedSuppliers.map((s) => s.supplier.sourcingType),
+            reason: dto.reason,
+        })
+
+        await assertSupplierProcurementById(this.prisma, supplierId!, {
+            companyId: rfq.companyId,
+            purpose: 'PO',
+        })
 
         const award = await this.prisma.$transaction(async (tx) => {
             await tx.mmSupplierQuotation.updateMany({

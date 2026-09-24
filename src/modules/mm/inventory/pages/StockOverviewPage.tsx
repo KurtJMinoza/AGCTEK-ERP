@@ -12,16 +12,17 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlineRefresh } from 'react-icons/hi'
+import Link from 'next/link'
 import {
     inventoryService,
+    type BalanceSummary,
     type InventoryBalance,
 } from '../services/inventoryService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/stock-overview'
+const LEDGER_ROUTE = '/modules/mm/inventory-management/inventory-ledger'
 
 type Opt = { value: string; label: string }
 
@@ -40,57 +41,37 @@ function n(v: string | number | undefined) {
 
 const StockOverviewPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [materials, setMaterials] = useState<Opt[]>([])
+    const {
+        companies,
+        warehouses,
+        materials,
+        loadFilterRefs,
+    } = useDeferredFilterRefs('companies', 'warehouses', 'materials')
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
+    const [stockStatus, setStockStatus] = useState('')
+    const [summary, setSummary] = useState<BalanceSummary | null>(null)
     const [rows, setRows] = useState<InventoryBalance[]>([])
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 50 })
     const [page, setPage] = useState(1)
     const [loading, setLoading] = useState(false)
 
-    useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-            materialService.list({ limit: 200 }),
-        ])
-            .then(([cos, wh, mats]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setWarehouses(
-                    (wh?.data ?? []).map((w: any) => ({
-                        value: w.id,
-                        label: `${w.code} — ${w.name}`,
-                    })),
-                )
-                setMaterials(
-                    (mats?.data ?? []).map((m: any) => ({
-                        value: m.id,
-                        label: `${m.materialCode} — ${m.materialName}`,
-                    })),
-                )
-            })
-            .catch(() => undefined)
-    }, [])
-
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await inventoryService.balances({
+            const params = {
                 companyId: companyId || undefined,
                 warehouseId: warehouseId || undefined,
                 materialId: materialId || undefined,
-                page,
-                limit: 50,
-            })
+                stockStatus: stockStatus || undefined,
+            }
+            const [res, sum] = await Promise.all([
+                inventoryService.balances({ ...params, page, limit: 50 }),
+                inventoryService.balanceSummary(params),
+            ])
             setRows(res.data)
+            setSummary(sum)
             setMeta({
                 total: res.meta.total,
                 page: res.meta.page,
@@ -101,22 +82,24 @@ const StockOverviewPage = () => {
         } finally {
             setLoading(false)
         }
-    }, [companyId, warehouseId, materialId, page])
+    }, [companyId, warehouseId, materialId, stockStatus, page])
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
-    const totals = useMemo(() => {
-        return rows.reduce(
-            (acc, r) => ({
-                onHand: acc.onHand + n(r.quantity),
-                reserved: acc.reserved + n(r.reservedQuantity),
-                available: acc.available + n(r.availableQuantity),
-            }),
-            { onHand: 0, reserved: 0, available: 0 },
-        )
-    }, [rows])
+    const statusFilterOpts = useMemo(
+        () => [
+            { value: '', label: 'All statuses' },
+            ...(summary?.byStatus.map((s) => ({
+                value: s.status,
+                label: s.status,
+            })) ?? []),
+        ],
+        [summary],
+    )
 
     const columns: ColumnDef<InventoryBalance>[] = useMemo(
         () => [
@@ -148,6 +131,18 @@ const StockOverviewPage = () => {
             {
                 header: 'Available',
                 cell: ({ row }) => n(row.original.availableQuantity),
+            },
+            {
+                header: '',
+                id: 'ledger',
+                cell: ({ row }) => (
+                    <Link
+                        href={`${LEDGER_ROUTE}?materialId=${row.original.materialId}&warehouseId=${row.original.warehouseId}`}
+                        className="text-primary text-sm hover:underline"
+                    >
+                        Ledger
+                    </Link>
+                ),
             },
         ],
         [],
@@ -206,14 +201,25 @@ const StockOverviewPage = () => {
                             }}
                         />
                     </FormItem>
+                    <FormItem label="Stock status">
+                        <Select
+                            options={statusFilterOpts}
+                            value={statusFilterOpts.find((o) => o.value === stockStatus)}
+                            onChange={(o: any) => {
+                                setStockStatus(o?.value ?? '')
+                                setPage(1)
+                            }}
+                        />
+                    </FormItem>
                 </div>
             </AdaptiveCard>
 
-            <div className="grid gap-4 md:grid-cols-3 mb-4">
+            <div className="grid gap-4 md:grid-cols-4 mb-4">
                 {[
-                    { label: 'On hand (page)', value: totals.onHand },
-                    { label: 'Reserved (page)', value: totals.reserved },
-                    { label: 'Available (page)', value: totals.available },
+                    { label: 'On hand', value: summary?.onHand ?? 0 },
+                    { label: 'Reserved', value: summary?.reserved ?? 0 },
+                    { label: 'Available (ATP)', value: summary?.available ?? 0 },
+                    { label: 'Restricted', value: summary?.restricted ?? 0 },
                 ].map((card) => (
                     <AdaptiveCard key={card.label}>
                         <div className="text-sm text-gray-500">{card.label}</div>

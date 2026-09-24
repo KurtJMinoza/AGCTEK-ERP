@@ -18,8 +18,7 @@ import Tabs from '@/components/ui/Tabs'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash, HiOutlinePlay } from 'react-icons/hi'
 import { inventoryControlService } from '../services/inventoryControlService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { CountRule, InventoryCount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -50,8 +49,7 @@ const CycleCountingPage = () => {
     const [rules, setRules] = useState<CountRule[]>([])
     const [counts, setCounts] = useState<InventoryCount[]>([])
     const [loading, setLoading] = useState(true)
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
-    const [companies, setCompanies] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
 
     const [ruleOpen, setRuleOpen] = useState(false)
     const [genOpen, setGenOpen] = useState(false)
@@ -97,23 +95,19 @@ const CycleCountingPage = () => {
 
     useEffect(() => {
         load()
-        Promise.all([orgService.companies(), warehouseService.list({ limit: 200 })]).then(
-            ([cos, wh]: any[]) => {
-                setCompanies(
-                    (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.name || c.code,
-                    })),
-                )
-                setWarehouses(
-                    (wh?.data ?? []).map((w: any) => ({
-                        value: w.id,
-                        label: `${w.code} — ${w.name}`,
-                    })),
-                )
-            },
-        )
     }, [load])
+
+    const openRule = useCallback(async () => {
+        await ensureFormRefs('companies', 'warehouses')
+        setRuleOpen(true)
+    }, [ensureFormRefs])
+
+    const openGenerate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        if (c[0]) setGenForm((f) => ({ ...f, companyId: f.companyId || c[0].value }))
+        setGenOpen(true)
+    }, [ensureFormRefs])
 
     const ruleColumns: ColumnDef<CountRule>[] = useMemo(
         () => [
@@ -277,36 +271,45 @@ const CycleCountingPage = () => {
                 title="Cycle Counting"
                 description="ABC frequency rules and cycle count generation. A=weekly, B=monthly, C=quarterly."
                 actions={
-                    <div className="flex gap-2">
-                        <Button icon={<HiOutlinePlus />} onClick={() => setRuleOpen(true)}>
+                    tab === 'rules' ? (
+                        <Button icon={<HiOutlinePlus />} onClick={openRule}>
                             New Rule
                         </Button>
+                    ) : (
                         <Button
                             variant="solid"
                             icon={<HiOutlinePlay />}
-                            onClick={() => setGenOpen(true)}
+                            onClick={openGenerate}
                         >
                             Generate Cycle Count
                         </Button>
-                    </div>
+                    )
                 }
             />
 
-            <AdaptiveCard className="mb-4">
+            <AdaptiveCard>
                 <Tabs value={tab} onChange={setTab}>
                     <Tabs.TabList>
                         <Tabs.TabNav value="rules">Count Rules</Tabs.TabNav>
                         <Tabs.TabNav value="sessions">Cycle Sessions</Tabs.TabNav>
                     </Tabs.TabList>
+                    <div className="mt-4">
+                        <Tabs.TabContent value="rules">
+                            <DataTable
+                                columns={ruleColumns}
+                                data={rules}
+                                loading={loading}
+                            />
+                        </Tabs.TabContent>
+                        <Tabs.TabContent value="sessions">
+                            <DataTable
+                                columns={countColumns}
+                                data={counts}
+                                loading={loading}
+                            />
+                        </Tabs.TabContent>
+                    </div>
                 </Tabs>
-            </AdaptiveCard>
-
-            <AdaptiveCard>
-                {tab === 'rules' ? (
-                    <DataTable columns={ruleColumns} data={rules} loading={loading} />
-                ) : (
-                    <DataTable columns={countColumns} data={counts} loading={loading} />
-                )}
             </AdaptiveCard>
 
             <FormDialog

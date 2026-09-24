@@ -6,6 +6,11 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ValuationEngineService } from './valuation-engine.service'
 import { MaterialValuationService } from './material-valuation.service'
 import { CostLayerService } from './cost-layer.service'
+import { PriceVarianceService } from './price-variance.service'
+import { FifoValuationStrategy } from './strategies/fifo-valuation.strategy'
+import { MovingAverageValuationStrategy } from './strategies/moving-average-valuation.strategy'
+import { StandardCostValuationStrategy } from './strategies/standard-cost-valuation.strategy'
+import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
 
 describe('MM-12 Valuation Engine', () => {
     let engine: ValuationEngineService
@@ -77,6 +82,13 @@ describe('MM-12 Valuation Engine', () => {
                     txState.layers.push(layer)
                     return layer
                 }),
+                findFirst: jest.fn().mockImplementation(async ({ where }) =>
+                    txState.layers.find(
+                        (l: any) =>
+                            l.receiptTxnId === where.receiptTxnId &&
+                            l.status !== 'REVERSED',
+                    ),
+                ),
                 findMany: jest.fn().mockImplementation(async ({ where }) => {
                     return txState.layers.filter((l: any) => {
                         if (where?.receiptTxnId) return l.receiptTxnId === where.receiptTxnId
@@ -123,6 +135,15 @@ describe('MM-12 Valuation Engine', () => {
                 create: jest.fn().mockImplementation(async ({ data }) => {
                     txState.acctEvents.push(data)
                     return data
+                }),
+            },
+            mmPriceVariance: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                create: jest.fn().mockImplementation(async ({ data }) => {
+                    const row = { id: `pv-${(txState.priceVariances?.length ?? 0) + 1}`, ...data }
+                    txState.priceVariances = txState.priceVariances ?? []
+                    txState.priceVariances.push(row)
+                    return row
                 }),
             },
         }
@@ -175,6 +196,11 @@ describe('MM-12 Valuation Engine', () => {
                 ValuationEngineService,
                 MaterialValuationService,
                 CostLayerService,
+                PriceVarianceService,
+                FifoValuationStrategy,
+                MovingAverageValuationStrategy,
+                StandardCostValuationStrategy,
+                ValuationMethodRegistry,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: EventEmitter2, useValue: mockEvents },
             ],
@@ -213,6 +239,8 @@ describe('MM-12 Valuation Engine', () => {
             expect(txState.acctEvents.some((e: any) => e.eventType === 'INVENTORY_VALUATION_POSTED')).toBe(
                 true,
             )
+            expect(txState.priceVariances?.length).toBe(1)
+            expect(txState.priceVariances[0].varianceType).toBe('PPV')
         })
 
         it('issue uses standard cost', async () => {

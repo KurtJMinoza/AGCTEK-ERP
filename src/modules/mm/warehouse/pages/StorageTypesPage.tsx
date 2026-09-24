@@ -21,8 +21,8 @@ import { FormItem } from '@/components/ui/Form'
 import Select from '@/components/ui/Select'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCollection, HiOutlineSearch } from 'react-icons/hi'
 import { storageTypeService } from '../services/storageTypeService'
-import { warehouseService } from '../services/warehouseService'
-import type { StorageType, Warehouse } from '../types'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import type { StorageType } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 
@@ -38,7 +38,7 @@ const StorageTypesPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<StorageType[]>([])
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+    const { ensure: ensureFormRefs, warehouses: warehouseOpts } = useLazyMmRefs()
     const [loading, setLoading] = useState(true)
     const [formOpen, setFormOpen] = useState(false)
     const [editing, setEditing] = useState<StorageType | null>(null)
@@ -55,8 +55,8 @@ const StorageTypesPage = () => {
     })
 
     const warehouseOptions = useMemo<FilterOption[]>(
-        () => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
-        [warehouses],
+        () => warehouseOpts.map((w) => ({ value: w.value, label: w.label })),
+        [warehouseOpts],
     )
 
     const load = useCallback(async () => {
@@ -70,16 +70,12 @@ const StorageTypesPage = () => {
 
     useEffect(() => { load() }, [load])
 
-    useEffect(() => {
-        warehouseService.list({ limit: 200, status: 'ACTIVE' }).then((r) => {
-            setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))
-        }).catch(() => {})
-    }, [])
-
-    const openCreate = () => {
+    const openCreate = async () => {
+        const refs = await ensureFormRefs('warehouses')
+        const wh = refs.warehouses ?? []
         setEditing(null)
         setFormData({
-            code: '', name: '', description: '', warehouseId: warehouses[0]?.id ?? '',
+            code: '', name: '', description: '', warehouseId: wh[0]?.value ?? '',
             temperatureControlled: false, hazardous: false, qualityControlled: false,
             pickingAllowed: true, putawayAllowed: true,
             receivingAllowed: false, shippingAllowed: false,
@@ -87,7 +83,8 @@ const StorageTypesPage = () => {
         setFormOpen(true)
     }
 
-    const openEdit = (item: StorageType) => {
+    const openEdit = async (item: StorageType) => {
+        await ensureFormRefs('warehouses')
         setEditing(item)
         setFormData({
             code: item.code, name: item.name, description: item.description ?? '', warehouseId: item.warehouseId,

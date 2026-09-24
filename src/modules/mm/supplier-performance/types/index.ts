@@ -11,6 +11,7 @@ export type ScoreWeightConfig = {
     deliveryWeight: number
     qualityWeight: number
     priceWeight: number
+    quantityWeight: number
     serviceWeight: number
     complianceWeight: number
 }
@@ -19,6 +20,10 @@ export type AlertConfig = {
     id?: string | null
     companyId: string
     scoreThreshold: number | string
+    lateDeliveryRateThreshold?: number | string
+    rejectionRateThreshold?: number | string
+    shortageRateThreshold?: number | string
+    priceVarianceThreshold?: number | string
     isActive: boolean
 }
 
@@ -29,16 +34,24 @@ export type SupplierEvaluation = {
     periodStart: string
     periodEnd: string
     onTimePct: number | string
+    lateDeliveryRate?: number | string
+    avgDelayDays?: number | string
     qualityAcceptanceRate: number | string
+    rejectionRate?: number | string
     returnRate: number | string
     leadTimeAccuracyPct: number | string
     priceVariancePct: number | string
+    landedCostVariancePct?: number | string
+    fillRate?: number | string
+    shortageRate?: number | string
+    overDeliveryRate?: number | string
     avgResponseHours: number | string
     complianceRate: number | string
     purchaseVolume: number | string
     deliveryScore: number | string
     qualityScore: number | string
     priceScore: number | string
+    quantityScore?: number | string
     serviceScore: number | string
     complianceScore: number | string
     overallScore: number | string
@@ -57,6 +70,7 @@ export type SupplierPerfAlert = {
     companyId: string
     supplierId: string
     evaluationId: string
+    alertType?: string
     score: number | string
     threshold: number | string
     status: string

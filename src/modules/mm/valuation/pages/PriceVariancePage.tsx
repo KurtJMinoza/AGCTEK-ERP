@@ -7,8 +7,7 @@ import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import Button from '@/components/ui/Button'
-import { valuationService } from '../services/valuationService'
-import type { ValuationTransaction } from '../types'
+import { valuationService, type PriceVarianceRow } from '../services/valuationService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -18,21 +17,20 @@ const ROUTE = '/modules/mm/valuation/price-variance'
 const fmt = (v: number | string | null | undefined) => {
     if (v == null || v === '') return '—'
     const n = Number(v)
-    return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'
+    return Number.isFinite(n)
+        ? n.toLocaleString(undefined, { maximumFractionDigits: 6 })
+        : '—'
 }
 
 const PriceVariancePage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
-    const [rows, setRows] = useState<ValuationTransaction[]>([])
+    const [rows, setRows] = useState<PriceVarianceRow[]>([])
     const [loading, setLoading] = useState(false)
 
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await valuationService.listValuationTransactions({
-                priceVarianceOnly: true,
-                limit: 100,
-            })
+            const res = await valuationService.listPriceVariance({ limit: 100 })
             setRows(res.data)
         } catch (e: any) {
             toast.push(
@@ -49,33 +47,45 @@ const PriceVariancePage = () => {
         load()
     }, [load])
 
-    const columns: ColumnDef<ValuationTransaction>[] = useMemo(
+    const columns: ColumnDef<PriceVarianceRow>[] = useMemo(
         () => [
-            { header: 'Number', accessorKey: 'valuationNumber' },
+            { header: 'Number', accessorKey: 'varianceNumber' },
+            { header: 'Type', accessorKey: 'varianceType' },
             {
                 header: 'Material',
                 cell: ({ row }) =>
                     row.original.material?.materialCode || row.original.materialId,
             },
-            { header: 'Method', accessorKey: 'valuationMethod' },
-            { header: 'Qty', accessorKey: 'quantity' },
+            {
+                header: 'Warehouse',
+                cell: ({ row }) =>
+                    row.original.warehouse?.code || row.original.warehouseId.slice(0, 8),
+            },
             {
                 header: 'PO Price',
-                cell: ({ row }) => fmt(row.original.poUnitPrice),
+                cell: ({ row }) => fmt(row.original.poPrice),
             },
             {
-                header: 'Receipt Price',
-                cell: ({ row }) => fmt(row.original.receiptUnitPrice),
+                header: 'Standard',
+                cell: ({ row }) => fmt(row.original.standardCost),
             },
             {
-                header: 'Invoice Price',
-                cell: ({ row }) => fmt(row.original.invoiceUnitPrice),
+                header: 'Invoice',
+                cell: ({ row }) => fmt(row.original.invoicePrice),
+            },
+            {
+                header: 'Landed',
+                cell: ({ row }) => fmt(row.original.landedUnitCost),
+            },
+            {
+                header: 'Actual',
+                cell: ({ row }) => fmt(row.original.actualUnitCost),
             },
             {
                 header: 'Variance',
-                accessorKey: 'priceVariance',
-                cell: ({ row }) => fmt(row.original.priceVariance),
+                cell: ({ row }) => fmt(row.original.varianceAmount),
             },
+            { header: 'Status', accessorKey: 'status' },
             {
                 header: 'Date',
                 cell: ({ row }) =>
@@ -90,7 +100,7 @@ const PriceVariancePage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Price Variance"
-                description="Standard-cost receipt variances and linked PO / receipt / invoice unit prices when available."
+                description="Auditable PPV / IPV / landed / revaluation variances — PO, standard, invoice, landed, and actual unit costs."
                 actions={
                     <Button variant="solid" onClick={load}>
                         Refresh
