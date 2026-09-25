@@ -2,6 +2,8 @@
 
 Materials Management (MM) is an integrated ERP domain in this **existing** codebase. Physical inventory truth lives in one ledger engine; all business modules post through it.
 
+**Enterprise parent contract:** [`MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) (CRM · SD · MM · SCM · FICO ownership and end-to-end cycles).
+
 **Skill (agents):** `.cursor/skills/materials-management/SKILL.md`
 
 Related: [MM_ARCHITECTURE_RULES](./MM_ARCHITECTURE_RULES.md) · [MM_FORBIDDEN_PATTERNS](./MM_FORBIDDEN_PATTERNS.md) · [MM_DEPENDENCY_MAP](./MM_DEPENDENCY_MAP.md) · [MM_DOMAIN_BOUNDARIES](./MM_DOMAIN_BOUNDARIES.md) · [MM_TRANSACTION_RULES](./MM_TRANSACTION_RULES.md) · [MM_INTEGRATION_EVENTS](./MM_INTEGRATION_EVENTS.md) · [MM_INTEGRATION_CONTRACTS](./MM_INTEGRATION_CONTRACTS.md) · [MM_QUALITY_ARCHITECTURE](./MM_QUALITY_ARCHITECTURE.md) · [MM_MRP_ARCHITECTURE](./MM_MRP_ARCHITECTURE.md)

@@ -2,7 +2,8 @@
 
 Scope: `backend/` — API, Prisma, domain modules, tests.
 
-**Global contract:** [../AGENTS.md](../AGENTS.md)
+**Global contract:** [../AGENTS.md](../AGENTS.md)  
+**Master enterprise flow:** [../docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md](../docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md)
 
 ---
 

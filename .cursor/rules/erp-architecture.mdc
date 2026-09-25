@@ -1,0 +1,21 @@
+---
+description: Apply AGCTEK master enterprise architecture (CRM/SD/MM/SCM/FICO ownership and flows) before cross-module or ERP-wide design
+globs: backend/src/**/*,src/modules/**/*,src/configs/erp-modules*,docs/MASTER*,docs/MM_*,docs/SCM_*
+alwaysApply: false
+---
+
+# Enterprise Architecture Gate
+
+Before designing or implementing features that cross modules, invent new domains, or change ownership:
+
+1. Read **`docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`** — canonical AGCTEK enterprise contract.
+2. Respect module ownership:
+   - **CRM** = customer relationship (no inventory writes)
+   - **SD** = commercial order / O2C (no direct inventory; ATP via MM)
+   - **MM** = material + inventory (sole physical posting engine)
+   - **SCM** = physical movement / fleet / POD (no direct inventory decrease; call MM GI)
+   - **FICO** = financial effect (consumes accounting events; not operational stock)
+3. Enforce: one posting engine, one ATP authority, one MRP engine (planning only), one event/outbox style, no duplicate business logic.
+4. For MM-only work, also follow `.cursor/rules/mm-architecture.mdc` and the MM skill.
+5. For integration events / consumers, follow `.cursor/skills/integration/SKILL.md`.
+6. Prefer extending existing owners over parallel CRM/SD/SCM/FICO engines.
