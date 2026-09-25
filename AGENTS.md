@@ -8,18 +8,39 @@ You are working on an **existing enterprise ERP** (AGCTEK). This file is the **p
 
 ---
 
+## Master enterprise architecture (read first)
+
+**Canonical business-system contract:** [`docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`](docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md)
+
+That document defines module ownership (CRM · SD · MM · SCM · FICO · PP), end-to-end flows (O2C, P2P, MRP, QI, warehouse, MM→SCM, GI→FICO), forbidden overlaps, and the enterprise principles:
+
+```text
+CRM = CUSTOMER RELATIONSHIP · SD = COMMERCIAL ORDER · MM = MATERIAL + INVENTORY
+SCM = PHYSICAL MOVEMENT · FICO = FINANCIAL EFFECT
+
+ONE inventory posting engine · ONE ATP authority · ONE MRP engine
+ONE event/outbox contract · ONE owner per business concept · NO duplicate logic
+```
+
+All Skills, `MM_*` / `SCM_*` docs, API design, and implementation phases **must follow** that contract. This file (`AGENTS.md`) remains **how** to change the repo safely.
+
+---
+
 ## Context hierarchy
 
 ```text
-AGENTS.md (this file)     = HOW the agent works (stable, project-wide)
-backend/AGENTS.md         = NestJS / Prisma / API conventions
-src/AGENTS.md             = Next.js / ECME UI conventions
-.cursor/rules/*.mdc       = Scoped Cursor rules (UI, modules, MM gate)
-.cursor/skills/*/SKILL.md = WHAT each domain knows (load when relevant)
-docs/*.md                 = Detailed system reference (authoritative detail)
+docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md  = WHAT the ERP is (flows + ownership)
+AGENTS.md (this file)                  = HOW the agent works (stable, project-wide)
+backend/AGENTS.md                      = NestJS / Prisma / API conventions
+src/AGENTS.md                          = Next.js / ECME UI conventions
+.cursor/rules/*.mdc                    = Scoped Cursor rules (UI, modules, MM gate)
+.cursor/skills/*/SKILL.md              = WHAT each domain knows (load when relevant)
+docs/MM_* · docs/SCM_* · …             = Domain depth (must not contradict master flow)
 ```
 
 ```text
+        docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md
+                       │
                     AGENTS.md
                        │
         ┌──────────────┼──────────────┐
@@ -30,10 +51,10 @@ docs/*.md                 = Detailed system reference (authoritative detail)
                        ▼
                     SKILLS (MM, Quality, MRP, Integration, …)
                        ▼
-                    DOCS + REPOSITORY
+                    DOMAIN DOCS + REPOSITORY
 ```
 
-**Do not** paste entire domain architectures into this file. Use Skills and `docs/` for depth.
+**Do not** paste entire domain architectures into this file. Use the master flow doc, Skills, and `docs/` for depth.
 
 ### Mandatory workflow loop
 
@@ -166,6 +187,7 @@ Quality decides whether stock may be used; inventory owns quantity and movement.
 
 Do not directly modify another module’s tables. Prefer: domain transaction → outbox → typed event → consumer → consumer-owned transaction.
 
+**Master ownership & event catalog:** `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`  
 **Detail:** `.cursor/skills/integration/SKILL.md`, `docs/MM_INTEGRATION_CONTRACTS.md`
 
 ---

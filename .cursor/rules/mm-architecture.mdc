@@ -8,10 +8,11 @@ alwaysApply: false
 
 Before any Materials Management change in matching paths:
 
-1. Read and follow `.cursor/skills/materials-management/SKILL.md` (permanent MM contract).
-2. Inspect existing code in `backend/src/mm/` and `src/modules/mm/` before proposing changes.
-3. Read `docs/MM_DEPENDENCY_MAP.md` for MM-01→15 build order and document ownership.
-4. Read focused architecture docs as needed:
+1. Align with `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md` (enterprise ownership; MM as material + inventory).
+2. Read and follow `.cursor/skills/materials-management/SKILL.md` (permanent MM contract).
+3. Inspect existing code in `backend/src/mm/` and `src/modules/mm/` before proposing changes.
+4. Read `docs/MM_DEPENDENCY_MAP.md` for MM-01→15 build order and document ownership.
+5. Read focused architecture docs as needed:
    - `docs/MM_ARCHITECTURE_RULES.md` — governance + allowed patterns (Phase 6)
    - `docs/MM_FORBIDDEN_PATTERNS.md` — forbidden catalog + rule IDs
    - `docs/MM_ARCHITECTURE.md` — posting invariant and service map
@@ -21,9 +22,9 @@ Before any Materials Management change in matching paths:
    - `docs/MM_INTEGRATION_CONTRACTS.md` — cross-module events
    - `docs/MM_QUALITY_ARCHITECTURE.md` — inspection / usage decisions
    - `docs/MM_MRP_ARCHITECTURE.md` — planning-only rules
-5. Run `npm run test:architecture` in `backend/` after MM backend changes.
-6. Prefer reusing `InventoryPostingService` for all physical stock changes.
-7. Preserve: Receiving → Goods Receipt → Inventory Posting Service → Inventory Ledger.
-8. Do not invent parallel engines, duplicate GR paths, or frontend stock math.
-9. Keep UI on ECME + existing shared components; thin app routes under `src/app/(protected-pages)/modules/mm/`.
-10. Extended detail: `.cursor/skills/materials-management/reference.md`.
+6. Run `npm run test:architecture` in `backend/` after MM backend changes.
+7. Prefer reusing `InventoryPostingService` for all physical stock changes.
+8. Preserve: Receiving → Goods Receipt → Inventory Posting Service → Inventory Ledger.
+9. Do not invent parallel engines, duplicate GR paths, or frontend stock math.
+10. Keep UI on ECME + existing shared components; thin app routes under `src/app/(protected-pages)/modules/mm/`.
+11. Extended detail: `.cursor/skills/materials-management/reference.md`.

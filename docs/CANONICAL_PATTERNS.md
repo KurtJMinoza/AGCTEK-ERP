@@ -2,6 +2,13 @@
 
 Before inventing a new pattern, **find and follow** the references below.
 
+## Enterprise architecture (first)
+
+| Concern | Canonical path |
+| --- | --- |
+| **Master enterprise system flow** | [`docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) |
+| Agent operating contract | [`AGENTS.md`](../AGENTS.md) |
+
 ---
 
 ## Backend — Materials Management
@@ -66,10 +73,11 @@ Before inventing a new pattern, **find and follow** the references below.
 
 | Concern | Path |
 | --- | --- |
-| Global agent contract | `AGENTS.md` |
-| Backend agents | `backend/AGENTS.md` |
-| Frontend agents | `src/AGENTS.md` |
+| **Master enterprise system flow** | [docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) |
+| Global agent contract | [AGENTS.md](../AGENTS.md) |
+| Backend agents | [backend/AGENTS.md](../backend/AGENTS.md) |
+| Frontend agents | [src/AGENTS.md](../src/AGENTS.md) |
 | MM skill | `.cursor/skills/materials-management/SKILL.md` |
-| MM architecture | `docs/MM_ARCHITECTURE.md`, `docs/MM_FORBIDDEN_PATTERNS.md` |
+| MM architecture | [docs/MM_ARCHITECTURE.md](./MM_ARCHITECTURE.md), [docs/MM_FORBIDDEN_PATTERNS.md](./MM_FORBIDDEN_PATTERNS.md) |
 
 When adding a feature, locate the **closest row** above and copy structure, naming, and validation—not a new parallel pattern.

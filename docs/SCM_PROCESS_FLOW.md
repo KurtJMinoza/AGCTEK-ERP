@@ -1,5 +1,7 @@
 # SCM End-to-End Process Flow — UI mapping
 
+**Enterprise parent:** [`MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) §§12–17 (MM→SCM handoff, logistics, GI, SD/CRM status).
+
 Authoritative logistics phases: PLAN → PREPARE → EXECUTE → CONFIRM → CLOSE.
 
 ## MM → SCM outbound handoff (customer delivery)

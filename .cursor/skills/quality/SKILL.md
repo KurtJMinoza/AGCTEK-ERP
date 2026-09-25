@@ -7,7 +7,7 @@ description: >-
 
 # Quality (MM-07) — Agent Skill
 
-**Contract:** [AGENTS.md](../../../AGENTS.md) · **MM master skill:** [materials-management/SKILL.md](../materials-management/SKILL.md)
+**Contract:** [AGENTS.md](../../../AGENTS.md) · **Master flow:** [docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md](../../../docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md) · **MM master skill:** [materials-management/SKILL.md](../materials-management/SKILL.md)
 
 ## Ownership
 

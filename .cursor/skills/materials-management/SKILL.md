@@ -23,7 +23,9 @@ This is **not** a greenfield MM module. Before any design or code:
 3. **Enhance** what exists — never create parallel engines or duplicate stock logic.
 4. **Preserve** the mandatory posting invariant (below).
 
-Also respect: `AGENTS.md`, `.cursor/rules/erp-ui.mdc`, `.cursor/rules/mm-architecture.mdc`.
+Also respect: `AGENTS.md`, `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`, `.cursor/rules/erp-ui.mdc`, `.cursor/rules/mm-architecture.mdc`, `.cursor/rules/erp-architecture.mdc`.
+
+**Enterprise role of MM:** material + inventory (sole physical posting engine; ATP authority; no FICO GL writes; no route optimization).
 
 ---
 

@@ -7,7 +7,7 @@ description: >-
 
 # Integration — Agent Skill
 
-**Contract:** [AGENTS.md](../../../AGENTS.md) · **MM events:** [materials-management/SKILL.md](../materials-management/SKILL.md)
+**Contract:** [AGENTS.md](../../../AGENTS.md) · **Master flow:** [docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md](../../../docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md) · **MM events:** [materials-management/SKILL.md](../materials-management/SKILL.md)
 
 ## Invariant
 
@@ -18,6 +18,8 @@ Prefer:
 ```text
 Domain transaction → Outbox → Typed event → Consumer → Consumer-owned transaction
 ```
+
+Module roles (CRM / SD / MM / SCM / FICO) and event examples: [MASTER_ENTERPRISE_SYSTEM_FLOW.md](../../../docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md) §§26–31.
 
 ## MM integration targets
 
