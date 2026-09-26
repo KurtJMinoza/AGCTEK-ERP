@@ -18,7 +18,37 @@ function todayRange() {
 export class DashboardKpiService {
     constructor(private prisma: PrismaService) {}
 
+    private kpiCache = new Map<string, { expiresAt: number; value: any }>()
+    private readonly KPI_TTL_MS = 45_000
+
     async getKpis(filters: DashboardFilters): Promise<{
+        inventory: KpiCard[]
+        procurement: KpiCard[]
+        receiving: KpiCard[]
+        warehouse: KpiCard[]
+        control: KpiCard[]
+        suppliers: KpiCard[]
+    }> {
+        const cacheKey = JSON.stringify({
+            companyId: filters.companyId,
+            warehouseId: filters.warehouseId ?? null,
+            branchId: filters.branchId ?? null,
+            materialCategoryId: filters.materialCategoryId ?? null,
+            supplierId: filters.supplierId ?? null,
+        })
+        const hit = this.kpiCache.get(cacheKey)
+        if (hit && hit.expiresAt > Date.now()) {
+            return hit.value
+        }
+        const value = await this.computeKpis(filters)
+        this.kpiCache.set(cacheKey, {
+            expiresAt: Date.now() + this.KPI_TTL_MS,
+            value,
+        })
+        return value
+    }
+
+    private async computeKpis(filters: DashboardFilters): Promise<{
         inventory: KpiCard[]
         procurement: KpiCard[]
         receiving: KpiCard[]
@@ -60,6 +90,8 @@ export class DashboardKpiService {
             supplierScore,
             lateDeliveries,
             qualityFailures,
+            expiryRisk,
+            openReceivingWorkload,
         ] = await Promise.all([
             this.stockByStatus(filters.companyId, warehouseIds),
             this.prisma.mmInventoryBalance.aggregate({
@@ -189,6 +221,12 @@ export class DashboardKpiService {
             this.avgSupplierScore(filters.companyId),
             this.countLateDeliveries(filters),
             this.countQualityFailures(filters),
+            this.countExpiryRisk(filters.companyId, warehouseIds),
+            this.countDocs('mmExpectedReceipt', {
+                companyId: filters.companyId,
+                status: { in: ['OPEN', 'IN_PROGRESS'] },
+                ...wh,
+            }),
         ])
 
         const stock = sumStockByStatus(stockGroups as any)
@@ -262,6 +300,14 @@ export class DashboardKpiService {
                     '/modules/mm/planning-mrp/shortage-monitor',
                     { filter: 'stockout' },
                 ),
+                kpi(
+                    'expiryRisk',
+                    'Expiry Risk',
+                    expiryRisk,
+                    'inventory',
+                    '/modules/mm/returns-disposal/damaged-stock',
+                    { filter: 'expiry' },
+                ),
             ],
             procurement: [
                 kpi(
@@ -334,6 +380,14 @@ export class DashboardKpiService {
                     receivingVariances,
                     'receiving',
                     '/modules/mm/receiving/receiving-variances',
+                ),
+                kpi(
+                    'openReceivingWorkload',
+                    'Open Receiving',
+                    openReceivingWorkload,
+                    'receiving',
+                    '/modules/mm/receiving/expected-receipts',
+                    { status: 'OPEN' },
                 ),
             ],
             warehouse: [
@@ -544,19 +598,35 @@ export class DashboardKpiService {
             })
         }
 
+        const scopedRules = rules.filter((r) => r.warehouseId)
+        if (!scopedRules.length) return 0
+
+        const materialIds = [...new Set(scopedRules.map((r) => r.materialId))]
+        const ruleWarehouseIds = [
+            ...new Set(scopedRules.map((r) => r.warehouseId!).filter(Boolean)),
+        ]
+
+        const balanceGroups = await this.prisma.mmInventoryBalance.groupBy({
+            by: ['materialId', 'warehouseId'],
+            where: {
+                companyId,
+                stockStatus: 'UNRESTRICTED',
+                materialId: { in: materialIds },
+                warehouseId: { in: ruleWarehouseIds },
+            },
+            _sum: { availableQuantity: true },
+        })
+        const avail = new Map(
+            balanceGroups.map((g) => [
+                `${g.materialId}:${g.warehouseId}`,
+                Number(g._sum.availableQuantity ?? 0),
+            ]),
+        )
+
         let count = 0
-        for (const rule of rules) {
-            if (!rule.warehouseId) continue
-            const agg = await this.prisma.mmInventoryBalance.aggregate({
-                where: {
-                    companyId,
-                    materialId: rule.materialId,
-                    warehouseId: rule.warehouseId,
-                    stockStatus: 'UNRESTRICTED',
-                },
-                _sum: { availableQuantity: true },
-            })
-            const available = Number(agg._sum?.availableQuantity ?? 0)
+        for (const rule of scopedRules) {
+            const available =
+                avail.get(`${rule.materialId}:${rule.warehouseId}`) ?? 0
             if (available <= Number(rule.reorderPoint)) count++
         }
         return count
@@ -567,7 +637,8 @@ export class DashboardKpiService {
         warehouseIds: string[] | null,
         materialCategoryId?: string,
     ): Promise<number> {
-        const materialIds = await this.prisma.mmInventoryBalance.findMany({
+        const groups = await this.prisma.mmInventoryBalance.groupBy({
+            by: ['materialId'],
             where: {
                 companyId,
                 ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}),
@@ -575,25 +646,24 @@ export class DashboardKpiService {
                     ? { material: { materialCategoryId } }
                     : {}),
             },
-            select: { materialId: true },
-            distinct: ['materialId'],
-            take: 5000,
+            _sum: { availableQuantity: true },
+            _count: { _all: true },
         })
-        if (!materialIds.length) return 0
+        if (!groups.length) return 0
 
-        const withStock = await this.prisma.mmInventoryBalance.groupBy({
+        const unrestricted = await this.prisma.mmInventoryBalance.groupBy({
             by: ['materialId'],
             where: {
                 companyId,
                 stockStatus: 'UNRESTRICTED',
                 availableQuantity: { gt: 0 },
                 ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}),
-                materialId: { in: materialIds.map((m) => m.materialId) },
+                materialId: { in: groups.map((g) => g.materialId) },
             },
             _sum: { availableQuantity: true },
         })
-        const hasStock = new Set(withStock.map((r) => r.materialId))
-        return materialIds.filter((m) => !hasStock.has(m.materialId)).length
+        const hasStock = new Set(unrestricted.map((r) => r.materialId))
+        return groups.filter((g) => !hasStock.has(g.materialId)).length
     }
 
     private async countOverduePos(filters: DashboardFilters): Promise<number> {
@@ -688,6 +758,25 @@ export class DashboardKpiService {
                 companyId: filters.companyId,
                 result: { in: ['FAIL', 'PARTIAL_PASS'] },
                 ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
+            },
+        })
+    }
+
+    private async countExpiryRisk(
+        companyId: string,
+        warehouseIds: string[] | null,
+        horizonDays = 30,
+    ): Promise<number> {
+        const horizon = new Date(Date.now() + horizonDays * 86400000)
+        return this.prisma.mmInventoryBalance.count({
+            where: {
+                companyId,
+                quantity: { gt: 0 },
+                ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}),
+                OR: [
+                    { stockStatus: 'EXPIRED' },
+                    { batch: { expiryDate: { lte: horizon } } },
+                ],
             },
         })
     }

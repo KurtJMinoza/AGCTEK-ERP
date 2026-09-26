@@ -16,6 +16,7 @@ import {
     IsOptional,
     IsIn,
 } from 'class-validator'
+import { MmMutation } from '../common/mm-mutation.decorator'
 
 class CreateGiFromPackageDto {
     @IsString()
@@ -41,11 +42,13 @@ class CreateGiFromPackageDto {
 export class GoodsIssueController {
     constructor(private service: GoodsIssueService) {}
 
+    @MmMutation()
     @Post()
     create(@Body() dto: CreateGoodsIssueDto) {
         return this.service.create(dto)
     }
 
+    @MmMutation()
     @Post('from-package/:packageId')
     fromPackage(
         @Param('packageId') packageId: string,
@@ -54,16 +57,19 @@ export class GoodsIssueController {
         return this.service.createFromPackage(packageId, dto)
     }
 
+    @MmMutation()
     @Post(':id/post')
     post(@Param('id') id: string) {
         return this.service.post(id)
     }
 
+    @MmMutation()
     @Post(':id/cancel')
     cancel(@Param('id') id: string) {
         return this.service.cancel(id)
     }
 
+    @MmMutation()
     @Post(':id/reverse')
     reverse(@Param('id') id: string, @Body() body: { createdBy?: string }) {
         return this.service.reverse(id, body?.createdBy)

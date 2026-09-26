@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { InventoryPostingService } from '../../inventory/inventory-posting.service'
+import { WarehouseTaskService } from '../tasks/warehouse-task.service'
+import { PutawayStrategyRegistry } from '../tasks/strategies/putaway-strategy.registry'
 import { CreatePutawayDto } from './dto/create-putaway.dto'
 import { PutawayQueryDto } from './dto/putaway-query.dto'
 import { ConfirmPutawayDto } from './dto/confirm-putaway.dto'
@@ -33,6 +35,9 @@ export class PutawayService {
         private prisma: PrismaService,
         @Inject(forwardRef(() => InventoryPostingService))
         private posting: InventoryPostingService,
+        @Inject(forwardRef(() => WarehouseTaskService))
+        private warehouseTasks: WarehouseTaskService,
+        private putawayStrategy: PutawayStrategyRegistry,
     ) {}
 
     private readonly includes = {
@@ -93,15 +98,30 @@ export class PutawayService {
     }
 
     async create(dto: CreatePutawayDto) {
+        const wh = await this.prisma.warehouse.findUnique({ where: { id: dto.warehouseId } })
+        if (!wh) throw new NotFoundException('Warehouse not found')
+
+        const engineTask = await this.warehouseTasks.create({
+            companyId: wh.companyId,
+            warehouseId: dto.warehouseId,
+            taskType: 'PUTAWAY',
+            materialId: dto.materialId,
+            quantity: dto.quantity,
+            batchId: dto.batchId,
+            serialId: dto.serialId,
+            sourceBinId: dto.sourceLocation ?? undefined,
+            stockStatus: 'UNRESTRICTED',
+            referenceType: dto.sourceDocument ? 'MANUAL' : undefined,
+            referenceId: dto.sourceDocument ?? undefined,
+            priority: dto.priority,
+            metadata: { sourceDocument: dto.sourceDocument },
+        })
+
         const taskNumber = await this.generateNextCode()
-        const recommendedBinId = await this.recommendBin(
-            dto.warehouseId,
-            dto.materialId,
-            dto.quantity,
-        )
         return this.prisma.wmPutawayTask.create({
             data: {
                 taskNumber,
+                companyId: wh.companyId,
                 warehouseId: dto.warehouseId,
                 materialId: dto.materialId,
                 quantity: dto.quantity,
@@ -110,7 +130,8 @@ export class PutawayService {
                 sourceDocument: dto.sourceDocument ?? null,
                 sourceLocation: dto.sourceLocation ?? null,
                 priority: dto.priority ?? 5,
-                recommendedBinId,
+                recommendedBinId: engineTask.destinationBinId,
+                warehouseTaskId: engineTask.id,
                 stockStatus: 'UNRESTRICTED',
                 status: 'PENDING',
             },
@@ -119,29 +140,94 @@ export class PutawayService {
     }
 
     async createFromGoodsReceiptLine(input: CreatePutawayFromGrInput) {
+        return this.createPutawayBridge({
+            companyId: input.companyId,
+            warehouseId: input.warehouseId,
+            goodsReceiptId: input.goodsReceiptId,
+            goodsReceiptLineId: input.goodsReceiptLineId,
+            materialId: input.materialId,
+            quantity: input.quantity,
+            uomId: input.uomId,
+            batchId: input.batchId,
+            serialId: input.serialId,
+            stockStatus: input.stockStatus ?? 'UNRESTRICTED',
+            sourceBinId: input.sourceBinId,
+            sourceDocument: input.sourceDocument,
+        })
+    }
+
+    async createFromEvent(input: {
+        companyId: string
+        warehouseId: string
+        materialId: string
+        quantity: number
+        sourceBinId?: string
+        goodsReceiptLineId?: string
+        stockStatus?: string
+    }) {
+        return this.createPutawayBridge({
+            companyId: input.companyId,
+            warehouseId: input.warehouseId,
+            materialId: input.materialId,
+            quantity: input.quantity,
+            sourceBinId: input.sourceBinId,
+            goodsReceiptLineId: input.goodsReceiptLineId,
+            stockStatus: input.stockStatus ?? 'UNRESTRICTED',
+            sourceDocument: input.goodsReceiptLineId
+                ? `GR_LINE:${input.goodsReceiptLineId}`
+                : 'PUTAWAY_EVENT',
+        })
+    }
+
+    private async createPutawayBridge(input: {
+        companyId: string
+        warehouseId: string
+        materialId: string
+        quantity: number
+        uomId?: string
+        batchId?: string
+        serialId?: string
+        stockStatus: string
+        sourceBinId?: string
+        goodsReceiptId?: string
+        goodsReceiptLineId?: string
+        sourceDocument?: string
+    }) {
+        const engineTask = await this.warehouseTasks.create({
+            companyId: input.companyId,
+            warehouseId: input.warehouseId,
+            taskType: 'PUTAWAY',
+            materialId: input.materialId,
+            quantity: input.quantity,
+            uomId: input.uomId,
+            batchId: input.batchId,
+            serialId: input.serialId,
+            sourceBinId: input.sourceBinId,
+            stockStatus: input.stockStatus,
+            referenceType: input.goodsReceiptLineId ? 'GOODS_RECEIPT_LINE' : 'PUTAWAY',
+            referenceId: input.goodsReceiptLineId ?? input.goodsReceiptId,
+            metadata: { sourceDocument: input.sourceDocument },
+        })
+
         const taskNumber = await this.generateNextCode()
-        const recommendedBinId = await this.recommendBin(
-            input.warehouseId,
-            input.materialId,
-            input.quantity,
-        )
         return this.prisma.wmPutawayTask.create({
             data: {
                 taskNumber,
                 companyId: input.companyId,
                 warehouseId: input.warehouseId,
-                goodsReceiptId: input.goodsReceiptId,
-                goodsReceiptLineId: input.goodsReceiptLineId,
+                goodsReceiptId: input.goodsReceiptId ?? null,
+                goodsReceiptLineId: input.goodsReceiptLineId ?? null,
                 materialId: input.materialId,
                 quantity: input.quantity,
-                uomId: input.uomId,
+                uomId: input.uomId ?? null,
                 batchId: input.batchId ?? null,
                 serialId: input.serialId ?? null,
-                stockStatus: input.stockStatus ?? 'UNRESTRICTED',
+                stockStatus: input.stockStatus,
                 sourceBinId: input.sourceBinId ?? null,
                 sourceDocument: input.sourceDocument ?? null,
                 sourceLocation: input.sourceBinId ?? 'RECEIVING',
-                recommendedBinId,
+                recommendedBinId: engineTask.destinationBinId,
+                warehouseTaskId: engineTask.id,
                 priority: 5,
                 status: 'PENDING',
             },
@@ -151,8 +237,12 @@ export class PutawayService {
 
     async assign(id: string, workerId: string) {
         const task = await this.findOne(id)
-        if (task.status !== 'PENDING') {
+        if (task.status !== 'PENDING' && task.status !== 'ASSIGNED') {
             throw new BadRequestException('Only PENDING tasks can be assigned')
+        }
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.assign(task.warehouseTaskId, workerId)
+            return this.findOne(id)
         }
         return this.prisma.wmPutawayTask.update({
             where: { id },
@@ -165,6 +255,17 @@ export class PutawayService {
         const task = await this.findOne(id)
         if (task.status === 'COMPLETED' || task.status === 'CANCELLED') {
             throw new BadRequestException(`Cannot confirm a ${task.status} task`)
+        }
+
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.complete(task.warehouseTaskId, {
+                quantity: Number(dto.quantity),
+                destinationBinId: dto.actualBinId,
+                scannedBinCode: dto.scannedBinCode,
+                performedBy: task.assignedWorker ?? undefined,
+                idempotencyKey: dto.idempotencyKey,
+            })
+            return this.findOne(id)
         }
 
         if (dto.scannedBinCode?.trim()) {
@@ -289,6 +390,10 @@ export class PutawayService {
         if (task.status === 'COMPLETED') {
             throw new BadRequestException('Cannot cancel a completed task')
         }
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.cancel(task.warehouseTaskId)
+            return this.findOne(id)
+        }
         return this.prisma.wmPutawayTask.update({
             where: { id },
             data: { status: 'CANCELLED' },
@@ -296,110 +401,19 @@ export class PutawayService {
         })
     }
 
-    /**
-     * Recommend a bin using MmInventoryBalance occupancy + type compatibility.
-     */
+    /** Recommend a bin via putaway strategy registry (default CAPACITY_BASED). */
     async recommendBin(
         warehouseId: string,
         materialId: string,
         quantity: number,
+        stockStatus = 'UNRESTRICTED',
     ): Promise<string | null> {
-        const material = await this.prisma.mmMaterial.findUnique({
-            where: { id: materialId },
+        return this.putawayStrategy.recommend('CAPACITY_BASED', {
+            warehouseId,
+            materialId,
+            quantity,
+            stockStatus,
         })
-        const bins = await this.prisma.wmStorageBin.findMany({
-            where: {
-                status: 'ACTIVE',
-                putawayAllowed: true,
-                deletedAt: null,
-                storageSection: {
-                    deletedAt: null,
-                    status: 'ACTIVE',
-                    storageType: {
-                        warehouseId,
-                        status: 'ACTIVE',
-                        putawayAllowed: true,
-                        deletedAt: null,
-                    },
-                },
-            },
-            include: {
-                storageSection: { include: { storageType: true } },
-            },
-        })
-
-        const binIds = bins.map((b) => b.id)
-        const balances = binIds.length
-            ? await this.prisma.mmInventoryBalance.findMany({
-                  where: {
-                      storageBinId: { in: binIds },
-                      stockStatus: 'UNRESTRICTED',
-                  },
-                  select: { storageBinId: true, materialId: true, quantity: true },
-              })
-            : []
-
-        const usedByBin = new Map<string, Decimal>()
-        const materialAffinity = new Set<string>()
-        for (const bal of balances) {
-            if (!bal.storageBinId) continue
-            usedByBin.set(
-                bal.storageBinId,
-                (usedByBin.get(bal.storageBinId) ?? new Decimal(0)).plus(bal.quantity),
-            )
-            if (bal.materialId === materialId) materialAffinity.add(bal.storageBinId)
-        }
-
-        type Candidate = {
-            id: string
-            remaining: Decimal
-            sameMaterial: boolean
-            typeScore: number
-        }
-        const candidates: Candidate[] = []
-
-        for (const bin of bins) {
-            const st = bin.storageSection.storageType
-
-            const usedQty = usedByBin.get(bin.id) ?? new Decimal(0)
-            const capacity = new Decimal(bin.capacityQuantity ?? 0)
-            const remaining = capacity.lte(0)
-                ? new Decimal(Number.MAX_SAFE_INTEGER)
-                : capacity.minus(usedQty)
-            if (capacity.gt(0) && remaining.lt(quantity)) continue
-
-            if (material?.weight && bin.capacityWeight && Number(bin.capacityWeight) > 0) {
-                const addWeight = new Decimal(material.weight).mul(quantity)
-                if (addWeight.gt(bin.capacityWeight)) continue
-            }
-            if (material?.volume && bin.capacityVolume && Number(bin.capacityVolume) > 0) {
-                const addVol = new Decimal(material.volume).mul(quantity)
-                if (addVol.gt(bin.capacityVolume)) continue
-            }
-
-            let typeScore = 0
-            if (st.qualityControlled) typeScore -= 1
-            if (st.hazardous) typeScore -= 1
-            if (st.temperatureControlled) typeScore -= 1
-            if (st.receivingAllowed || st.shippingAllowed) typeScore -= 2
-
-            candidates.push({
-                id: bin.id,
-                remaining,
-                sameMaterial: materialAffinity.has(bin.id),
-                typeScore,
-            })
-        }
-
-        if (!candidates.length) return null
-
-        candidates.sort((a, b) => {
-            if (a.sameMaterial !== b.sameMaterial) return a.sameMaterial ? -1 : 1
-            if (a.typeScore !== b.typeScore) return b.typeScore - a.typeScore
-            return a.remaining.minus(b.remaining).toNumber()
-        })
-
-        return candidates[0].id
     }
 
     private async assertScannedBinMatches(

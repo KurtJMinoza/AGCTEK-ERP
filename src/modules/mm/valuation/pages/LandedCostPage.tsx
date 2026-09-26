@@ -16,7 +16,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { valuationService } from '../services/valuationService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { LandedCost } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -26,10 +26,11 @@ type Opt = { value: string; label: string }
 
 const COST_TYPES = [
     { value: 'FREIGHT', label: 'Freight' },
-    { value: 'CUSTOMS', label: 'Customs' },
     { value: 'INSURANCE', label: 'Insurance' },
+    { value: 'CUSTOMS', label: 'Customs' },
+    { value: 'DUTY', label: 'Duty' },
     { value: 'HANDLING', label: 'Handling' },
-    { value: 'OTHER', label: 'Other' },
+    { value: 'OTHER', label: 'Other Charges' },
 ]
 
 const ALLOC_BASES = [
@@ -38,14 +39,14 @@ const ALLOC_BASES = [
     { value: 'VOLUME', label: 'Volume' },
     { value: 'VALUE', label: 'Value' },
     { value: 'MANUAL', label: 'Manual' },
+    { value: 'CUSTOM', label: 'Custom' },
 ]
 
 const LandedCostPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<LandedCost[]>([])
     const [loading, setLoading] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
     const [open, setOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const { options: materialOpts } = useMaterialOptions({ enabled: open })
@@ -79,23 +80,14 @@ const LandedCostPage = () => {
 
     useEffect(() => {
         load()
-        orgService.companies().then((cos: any) =>
-            setCompanies(
-                (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.name || c.code,
-                })),
-            ),
-        )
-        orgService.warehouses().then((list: any) =>
-            setWarehouses(
-                (Array.isArray(list) ? list : []).map((w: any) => ({
-                    value: w.id,
-                    label: w.name || w.code,
-                })),
-            ),
-        )
     }, [load])
+
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        setForm((f) => ({ ...f, companyId: c[0]?.value || '' }))
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const columns: ColumnDef<LandedCost>[] = useMemo(
         () => [
@@ -140,7 +132,7 @@ const LandedCostPage = () => {
                                 variant="solid"
                                 onClick={async () => {
                                     try {
-                                        await valuationService.capitalizeLandedCost(
+                                        await valuationService.allocateLandedCost(
                                             row.original.id,
                                             row.original.warehouseId
                                                 ? { warehouseId: row.original.warehouseId }
@@ -207,12 +199,12 @@ const LandedCostPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Landed Cost"
-                description="Freight, customs, insurance, and handling — allocate and capitalize onto inventory valuation."
+                description="Freight, duty, customs, insurance, and handling — allocate and capitalize onto inventory valuation."
                 actions={
                     <Button
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         New Draft
                     </Button>

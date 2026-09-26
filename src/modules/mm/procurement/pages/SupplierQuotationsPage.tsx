@@ -13,7 +13,7 @@ import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { HiOutlineSearch, HiOutlineExternalLink } from 'react-icons/hi'
 import { quotationService } from '../services/quotationService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmSupplierQuotation, MmQuotationListResponse } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -51,7 +51,7 @@ const SupplierQuotationsPage = () => {
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
     const [supplierId, setSupplierId] = useState('')
-    const [suppliers, setSuppliers] = useState<FilterOption[]>([])
+    const { suppliers, loadFilterRefs } = useDeferredFilterRefs('suppliers')
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -73,16 +73,11 @@ const SupplierQuotationsPage = () => {
         }
     }, [page, pageSize, search, statusFilter, supplierId])
 
-    useEffect(() => { fetchData() }, [fetchData])
-
     useEffect(() => {
-        supplierService.list({ page: 1, pageSize: 200 }).then((res) => {
-            setSuppliers(res.data.map((s) => ({
-                value: s.id,
-                label: `${s.supplierCode} — ${s.supplierName}`,
-            })))
-        }).catch(() => {})
-    }, [])
+        fetchData()
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [fetchData, loadFilterRefs])
 
     const columns = useMemo<ColumnDef<MmSupplierQuotation>[]>(() => [
         {

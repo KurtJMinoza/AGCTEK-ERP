@@ -50,6 +50,18 @@ export class CreatePickingDto {
 
     @IsOptional()
     @IsString()
+    reservationHeaderId?: string
+
+    @IsOptional()
+    @IsString()
+    reservationLineId?: string
+
+    @IsOptional()
+    @IsString()
+    allocationLineId?: string
+
+    @IsOptional()
+    @IsString()
     sourceDocument?: string
 
     @IsOptional()

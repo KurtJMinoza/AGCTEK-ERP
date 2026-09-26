@@ -16,8 +16,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { planningService } from '../services/planningService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import MrpExplanationPanel from '../components/MrpExplanationPanel'
 import type { ProcurementSuggestion } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -37,35 +37,22 @@ const ProcurementSuggestionsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<ProcurementSuggestion[]>([])
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [status, setStatus] = useState('OPEN')
     const [convertId, setConvertId] = useState<string | null>(null)
     const [dismissId, setDismissId] = useState<string | null>(null)
+    const [explainRow, setExplainRow] = useState<ProcurementSuggestion | null>(
+        null,
+    )
     const [submitting, setSubmitting] = useState(false)
     const [requesterId, setRequesterId] = useState('mrp-planner')
     const [purpose, setPurpose] = useState('MRP replenishment')
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-        ]).then(([cos, wh]: any[]) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map(
-                (x: any) => ({ value: x.id, label: x.name || x.code }),
-            )
-            setCompanies(c)
-            setWarehouses(
-                (wh?.data ?? []).map((x: any) => ({
-                    value: x.id,
-                    label: `${x.code} — ${x.name}`,
-                })),
-            )
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -87,7 +74,9 @@ const ProcurementSuggestionsPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<ProcurementSuggestion>[] = useMemo(
         () => [
@@ -124,10 +113,25 @@ const ProcurementSuggestionsPage = () => {
                         : '—',
             },
             {
+                header: 'Demand source',
+                cell: ({ row }) => row.original.demandSource ?? '—',
+            },
+            {
+                header: 'MOQ',
+                cell: ({ row }) =>
+                    row.original.moq != null ? Number(row.original.moq) : '—',
+            },
+            {
                 header: 'Reason',
                 cell: ({ row }) =>
-                    row.original.reason ? (
-                        <StatusBadge status={row.original.reason} />
+                    row.original.shortageReason || row.original.reason ? (
+                        <StatusBadge
+                            status={
+                                row.original.shortageReason ||
+                                row.original.reason ||
+                                ''
+                            }
+                        />
                     ) : (
                         '—'
                     ),
@@ -148,24 +152,33 @@ const ProcurementSuggestionsPage = () => {
             },
             {
                 header: 'Actions',
-                cell: ({ row }) =>
-                    row.original.status === 'OPEN' ? (
-                        <div className="flex gap-2">
-                            <Button
-                                size="xs"
-                                variant="solid"
-                                onClick={() => setConvertId(row.original.id)}
-                            >
-                                Convert to PR
-                            </Button>
-                            <Button
-                                size="xs"
-                                onClick={() => setDismissId(row.original.id)}
-                            >
-                                Dismiss
-                            </Button>
-                        </div>
-                    ) : null,
+                cell: ({ row }) => (
+                    <div className="flex flex-wrap gap-2">
+                        <Button
+                            size="xs"
+                            onClick={() => setExplainRow(row.original)}
+                        >
+                            View explanation
+                        </Button>
+                        {row.original.status === 'OPEN' ? (
+                            <>
+                                <Button
+                                    size="xs"
+                                    variant="solid"
+                                    onClick={() => setConvertId(row.original.id)}
+                                >
+                                    Convert to PR
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    onClick={() => setDismissId(row.original.id)}
+                                >
+                                    Dismiss
+                                </Button>
+                            </>
+                        ) : null}
+                    </div>
+                ),
             },
         ],
         [],
@@ -236,6 +249,18 @@ const ProcurementSuggestionsPage = () => {
             <AdaptiveCard>
                 <DataTable columns={columns} data={rows} loading={loading} />
             </AdaptiveCard>
+
+            <FormDialog
+                isOpen={!!explainRow}
+                onClose={() => setExplainRow(null)}
+                title="MRP recommendation explanation"
+                width={960}
+            >
+                <MrpExplanationPanel
+                    explanation={explainRow?.explanationJson}
+                    fallbackText={explainRow?.explanation}
+                />
+            </FormDialog>
 
             <FormDialog
                 isOpen={!!convertId}

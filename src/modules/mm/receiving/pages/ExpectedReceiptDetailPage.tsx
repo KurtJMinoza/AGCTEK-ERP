@@ -18,6 +18,7 @@ import { inboundService } from '../services/inboundService'
 import ReceiveAgainstErDialog from '../components/ReceiveAgainstErDialog'
 import type { MmExpectedReceipt, MmExpectedReceiptLine } from '../types'
 import type { GoodsReceipt } from '@/modules/mm/inventory/types'
+import DocumentFlowTimeline from '@/components/shared/DocumentFlowTimeline'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const LIST_ROUTE = '/modules/mm/receiving/expected-receipts'
@@ -204,6 +205,15 @@ const ExpectedReceiptDetailPage = () => {
                     </ul>
                 </AdaptiveCard>
             ) : null}
+
+            <AdaptiveCard className="mb-4">
+                <h6 className="mb-3">Document flow</h6>
+                <DocumentFlowTimeline
+                    documentType="EXPECTED_RECEIPT"
+                    documentId={id}
+                    companyId={er.companyId}
+                />
+            </AdaptiveCard>
 
             <AdaptiveCard>
                 <h6 className="mb-3">Lines</h6>

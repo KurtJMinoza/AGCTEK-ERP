@@ -20,6 +20,10 @@ export const dashboardService = {
     get: (params: DashboardParams) =>
         ErpAxiosBase.get<MmDashboard>(BASE, { params }).then((r) => r.data),
 
+    /** Canonical alias GET /mm/dashboard/mm */
+    getMm: (params: DashboardParams) =>
+        ErpAxiosBase.get<MmDashboard>(`${BASE}/mm`, { params }).then((r) => r.data),
+
     getKpis: (params: DashboardParams) =>
         ErpAxiosBase.get(`${BASE}/kpis`, { params }).then((r) => r.data),
 

@@ -31,9 +31,11 @@ import {
 } from 'react-icons/hi'
 import { binTransferService } from '../services/binTransferService'
 import { warehouseTransferOrderService } from '../services/warehouseTransferOrderService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { storageBinService } from '../../warehouse/services/storageBinService'
-import { materialService } from '../../material-master/services/materialService'
+import {
+    useLazyBinsForWarehouse,
+    useLazyMaterialEntities,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
 import type { BinTransfer, BinTransferLine, WarehouseTransferOrder, WtoLine, StockOpsQueryParams } from '../types'
 import type { Warehouse, StorageBin } from '../../warehouse/types'
 import type { Material } from '../../material-master/types'
@@ -92,14 +94,9 @@ function BinTransferTab() {
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
-    const [bins, setBins] = useState<StorageBin[]>([])
-    useEffect(() => {
-        warehouseService.list({ limit: 500 }).then((r: any) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 500 }).then((r: any) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        storageBinService.list({ limit: 500 }).then((r: any) => setBins(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+    const { ensure: ensureWh, rows: warehouses, loading: whLoading } = useLazyWarehouseEntities()
+    const { ensure: ensureMat, rows: materials, loading: matLoading } = useLazyMaterialEntities()
+    const { loadForWarehouse, rows: bins, loading: binsLoading } = useLazyBinsForWarehouse()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -112,11 +109,16 @@ function BinTransferTab() {
     const [createLines, setCreateLines] = useState<BtLineInput[]>([{ materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' }])
     const [creating, setCreating] = useState(false)
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWh(), ensureMat()])
         setCreateForm({ warehouseId: '', postingDate: new Date().toISOString().slice(0, 10), remarks: '' })
         setCreateLines([{ materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWh, ensureMat])
+
+    useEffect(() => {
+        if (createForm.warehouseId) void loadForWarehouse(createForm.warehouseId)
+    }, [createForm.warehouseId, loadForWarehouse])
 
     const handleCreate = useCallback(async () => {
         setCreating(true)
@@ -327,12 +329,8 @@ function WarehouseTransferTab() {
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
-    useEffect(() => {
-        warehouseService.list({ limit: 500 }).then((r: any) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 500 }).then((r: any) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+    const { ensure: ensureWh, rows: warehouses, loading: whLoading } = useLazyWarehouseEntities()
+    const { ensure: ensureMat, rows: materials, loading: matLoading } = useLazyMaterialEntities()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -344,11 +342,12 @@ function WarehouseTransferTab() {
     const [createLines, setCreateLines] = useState<WtoLineInput[]>([{ materialId: '', quantity: 1 }])
     const [creating, setCreating] = useState(false)
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWh(), ensureMat()])
         setCreateForm({ sourceWarehouseId: '', destinationWarehouseId: '', postingDate: new Date().toISOString().slice(0, 10), notes: '' })
         setCreateLines([{ materialId: '', quantity: 1 }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWh, ensureMat])
 
     const handleCreate = useCallback(async () => {
         if (createForm.sourceWarehouseId === createForm.destinationWarehouseId) {

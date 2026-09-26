@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiGetFleetTracking } from '../services/scmApi'
 import { useScmTrackingSocket } from './useScmTrackingSocket'
+import { getApiErrorMessage } from '../utils/apiError'
 import type { VehiclePositionEvent } from '../services/scmTrackingSocket'
 import type { FleetTrackingItem, GpsLog, VehicleStatus } from '../types'
 
@@ -39,6 +40,11 @@ export function useFleetTracking(initial?: FleetFilters) {
         Record<string, GpsLog[]>
     >({})
 
+    const pendingPositionsRef = useRef<Map<string, VehiclePositionEvent>>(
+        new Map(),
+    )
+    const flushRafRef = useRef<number>(0)
+
     const reload = useCallback(async (opts?: { quiet?: boolean }) => {
         if (!opts?.quiet) setLoading(true)
         setError(null)
@@ -60,9 +66,7 @@ export function useFleetTracking(initial?: FleetFilters) {
             })
         } catch (err) {
             setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Failed to load fleet tracking',
+                getApiErrorMessage(err, 'Failed to load fleet tracking'),
             )
             if (!opts?.quiet) setItems([])
         } finally {
@@ -70,53 +74,94 @@ export function useFleetTracking(initial?: FleetFilters) {
         }
     }, [filters])
 
-    const onVehiclePosition = useCallback((event: VehiclePositionEvent) => {
-        const latest: GpsLog = {
-            id: event.gpsLogId,
-            vehicleId: event.vehicleId,
-            tripId: null,
-            latitude: event.latitude,
-            longitude: event.longitude,
-            speedKmh: event.speedKmh,
-            heading: event.heading,
-            rawPayload: null,
-            recordedAt: event.recordedAt,
-        }
+    const flushPendingPositions = useCallback(() => {
+        flushRafRef.current = 0
+        const pending = pendingPositionsRef.current
+        if (pending.size === 0) return
+        const batch = Array.from(pending.values())
+        pending.clear()
 
         setItems((current) => {
-            const index = current.findIndex(
-                (item) => item.vehicle.id === event.vehicleId,
-            )
-            if (index < 0) {
-                void reload({ quiet: true })
-                return current
+            let next = current
+            let unknown = false
+            for (const event of batch) {
+                const index = next.findIndex(
+                    (item) => item.vehicle.id === event.vehicleId,
+                )
+                if (index < 0) {
+                    unknown = true
+                    continue
+                }
+                if (next === current) next = [...current]
+                const prev = next[index]
+                const latest: GpsLog = {
+                    id: event.gpsLogId,
+                    vehicleId: event.vehicleId,
+                    tripId: null,
+                    latitude: event.latitude,
+                    longitude: event.longitude,
+                    speedKmh: event.speedKmh,
+                    heading: event.heading,
+                    rawPayload: null,
+                    recordedAt: event.recordedAt,
+                }
+                next[index] = {
+                    ...prev,
+                    latest,
+                    vehicle: {
+                        ...prev.vehicle,
+                        ...(typeof event.odometerKm === 'number'
+                            ? { odometerKm: event.odometerKm }
+                            : {}),
+                        ...(event.telematicsDeviceId != null
+                            ? { telematicsDeviceId: event.telematicsDeviceId }
+                            : {}),
+                    },
+                }
             }
-
-            const next = [...current]
-            const prev = next[index]
-            next[index] = {
-                ...prev,
-                latest,
-                vehicle: {
-                    ...prev.vehicle,
-                    ...(typeof event.odometerKm === 'number'
-                        ? { odometerKm: event.odometerKm }
-                        : {}),
-                    ...(event.telematicsDeviceId != null
-                        ? { telematicsDeviceId: event.telematicsDeviceId }
-                        : {}),
-                },
-            }
+            if (unknown) void reload({ quiet: true })
             return next
         })
 
         setLiveTrailByVehicle((current) => {
-            const prev = current[event.vehicleId] ?? []
-            if (prev.some((p) => p.id === latest.id)) return current
-            const merged = [latest, ...prev].slice(0, TRAIL_CAP)
-            return { ...current, [event.vehicleId]: merged }
+            let next = current
+            for (const event of batch) {
+                const latest: GpsLog = {
+                    id: event.gpsLogId,
+                    vehicleId: event.vehicleId,
+                    tripId: null,
+                    latitude: event.latitude,
+                    longitude: event.longitude,
+                    speedKmh: event.speedKmh,
+                    heading: event.heading,
+                    rawPayload: null,
+                    recordedAt: event.recordedAt,
+                }
+                const prev = next[event.vehicleId] ?? []
+                if (prev.some((p) => p.id === latest.id)) continue
+                if (next === current) next = { ...current }
+                next[event.vehicleId] = [latest, ...prev].slice(0, TRAIL_CAP)
+            }
+            return next
         })
     }, [reload])
+
+    const onVehiclePosition = useCallback(
+        (event: VehiclePositionEvent) => {
+            pendingPositionsRef.current.set(event.vehicleId, event)
+            if (flushRafRef.current) return
+            flushRafRef.current = requestAnimationFrame(flushPendingPositions)
+        },
+        [flushPendingPositions],
+    )
+
+    useEffect(() => {
+        return () => {
+            if (flushRafRef.current) {
+                cancelAnimationFrame(flushRafRef.current)
+            }
+        }
+    }, [])
 
     const { status: liveStatus, transport: liveTransport } =
         useScmTrackingSocket({ onVehiclePosition })

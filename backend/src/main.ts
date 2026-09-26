@@ -5,6 +5,7 @@ import {
     FastifyAdapter,
     NestFastifyApplication,
 } from '@nestjs/platform-fastify'
+import multipart from '@fastify/multipart'
 import { AppModule } from './app.module'
 
 async function bootstrap() {
@@ -14,6 +15,14 @@ async function bootstrap() {
             bodyLimit: 15 * 1024 * 1024,
         }),
     )
+
+    // Register before global prefix so multipart parser is available on all routes.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (app as any).register(multipart, {
+        limits: {
+            fileSize: 10 * 1024 * 1024,
+        },
+    })
 
     app.setGlobalPrefix('api/v1')
 
@@ -34,7 +43,7 @@ async function bootstrap() {
         methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })
 
-    const port = Number(process.env.PORT) || 3001
+    const port = Number(process.env.PORT) || 3011
     await app.listen({ port, host: '0.0.0.0' })
 
     console.log(`AGCTEK ERP API running on http://localhost:${port}`)

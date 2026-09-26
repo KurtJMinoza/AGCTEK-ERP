@@ -7,6 +7,7 @@ import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import Button from '@/components/ui/Button'
+import Tabs from '@/components/ui/Tabs'
 import { valuationService } from '../services/valuationService'
 import type { MaterialValuation, ValuationTransaction } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -14,9 +15,13 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 
 const ROUTE = '/modules/mm/valuation/moving-average'
+type MapTab = 'map' | 'transactions'
+
+const { TabList, TabNav, TabContent } = Tabs
 
 const MovingAveragePage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const [tab, setTab] = useState<MapTab>('map')
     const [vals, setVals] = useState<MaterialValuation[]>([])
     const [txns, setTxns] = useState<ValuationTransaction[]>([])
     const [loading, setLoading] = useState(false)
@@ -94,11 +99,21 @@ const MovingAveragePage = () => {
                     </Button>
                 }
             />
-            <AdaptiveCard className="mb-4" header={{ content: 'Material MAP' }}>
-                <DataTable columns={valCols} data={vals} loading={loading} />
-            </AdaptiveCard>
-            <AdaptiveCard header={{ content: 'Valuation Transactions' }}>
-                <DataTable columns={txnCols} data={txns} loading={loading} />
+            <AdaptiveCard>
+                <Tabs value={tab} onChange={(v) => setTab(v as MapTab)}>
+                    <TabList>
+                        <TabNav value="map">Material MAP</TabNav>
+                        <TabNav value="transactions">Valuation transactions</TabNav>
+                    </TabList>
+                    <div className="mt-4">
+                        <TabContent value="map">
+                            <DataTable columns={valCols} data={vals} loading={loading} />
+                        </TabContent>
+                        <TabContent value="transactions">
+                            <DataTable columns={txnCols} data={txns} loading={loading} />
+                        </TabContent>
+                    </div>
+                </Tabs>
             </AdaptiveCard>
         </PageContainer>
     )

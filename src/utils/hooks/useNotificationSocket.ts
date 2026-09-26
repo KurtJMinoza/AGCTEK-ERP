@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { io } from 'socket.io-client'
-import appConfig from '@/configs/app.config'
+import { resolveErpSocketOrigin } from '@/configs/app.config'
 import type { NotificationItem } from '@/@types/notification'
 
 type UseNotificationSocketOptions = {
@@ -26,8 +26,9 @@ const useNotificationSocket = ({
     }, [onCount])
 
     useEffect(() => {
-        const socket = io(`${appConfig.apiBaseUrl}/notifications`, {
-            transports: ['websocket'],
+        const socket = io(`${resolveErpSocketOrigin()}/notifications`, {
+            path: '/socket.io',
+            transports: ['websocket', 'polling'],
             withCredentials: true,
         })
 

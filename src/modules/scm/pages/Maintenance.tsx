@@ -14,6 +14,8 @@ import DataTable from '@/components/shared/DataTable'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
+import Tabs from '@/components/ui/Tabs'
+import RegistrationInsuranceSection from '../components/maintenance/RegistrationInsuranceSection'
 import { useMaintenance } from '../hooks/useMaintenance'
 import {
     apiGetVehicles,
@@ -30,6 +32,8 @@ import type {
 } from '../types'
 
 type Option = { value: string; label: string }
+
+const { TabList, TabNav, TabContent } = Tabs
 
 const statusFilterOptions: Option[] = [
     { value: '', label: 'All statuses' },
@@ -110,6 +114,7 @@ export default function MaintenancePage() {
     const [thresholdSaving, setThresholdSaving] = useState(false)
     const [thresholdMsg, setThresholdMsg] = useState<string | null>(null)
     const [thresholdErr, setThresholdErr] = useState<string | null>(null)
+    const [activeTab, setActiveTab] = useState('service')
 
     const openThresholdModal = () => {
         setThresholdErr(null)
@@ -465,26 +470,36 @@ export default function MaintenancePage() {
         <PageContainer>
             <PageHeader
                 title="Maintenance"
-                description="Fleet preventative / corrective work. Blocking records take vehicles out of the routing pool (not an OBD console)."
+                description="Fleet service work orders. Per-vehicle OR/CR/insurance lives on the vehicle Maintenance → Docs tab. Use Fleet docs below for expiry across the fleet."
                 breadcrumbs={scmPageBreadcrumbs('Maintenance')}
                 actions={
-                    <div className="flex flex-wrap gap-2">
-                        <Button onClick={openThresholdModal}>
-                            Odometer thresholds
-                        </Button>
-                        <Button variant="solid" onClick={openCreate}>
-                            Schedule maintenance
-                        </Button>
-                    </div>
+                    activeTab === 'service' ? (
+                        <div className="flex flex-wrap gap-2">
+                            <Button onClick={openThresholdModal}>
+                                Odometer thresholds
+                            </Button>
+                            <Button variant="solid" onClick={openCreate}>
+                                Schedule maintenance
+                            </Button>
+                        </div>
+                    ) : null
                 }
             />
 
-            {error ? (
+            {error && activeTab === 'service' ? (
                 <Alert showIcon type="danger" className="mb-4" title="API error">
                     {error}
                 </Alert>
             ) : null}
 
+            <Tabs value={activeTab} onChange={setActiveTab}>
+                <TabList>
+                    <TabNav value="service">Service</TabNav>
+                    <TabNav value="fleet-docs">Fleet docs</TabNav>
+                </TabList>
+
+                <div className="mt-4">
+                    <TabContent value="service">
             <Dialog
                 isOpen={thresholdModalOpen}
                 width={640}
@@ -859,6 +874,13 @@ export default function MaintenancePage() {
                     </div>
                 </Form>
             </Dialog>
+                    </TabContent>
+
+                    <TabContent value="fleet-docs">
+                        <RegistrationInsuranceSection />
+                    </TabContent>
+                </div>
+            </Tabs>
         </PageContainer>
     )
 }

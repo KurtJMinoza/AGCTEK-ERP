@@ -16,10 +16,9 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { supplierPricingService, type SupplierPrice } from '../services/supplierPricingService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { firstError, nonNegativeNumber, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
-import { useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
+import { useCurrencyOptions, useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 
 const ROUTE = '/modules/mm/supplier-management/supplier-pricing'
 
@@ -27,15 +26,12 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 
-type Opt = { value: string; label: string }
-
 const SupplierPricingPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
     const [items, setItems] = useState<SupplierPrice[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
     const [deleting, setDeleting] = useState<SupplierPrice | null>(null)
-    const [currencyOpts, setCurrencyOpts] = useState<Opt[]>([])
     const [supplierId, setSupplierId] = useState('')
     const [materialId, setMaterialId] = useState('')
     const [unitPrice, setUnitPrice] = useState('')
@@ -48,6 +44,7 @@ const SupplierPricingPage = () => {
 
     const { options: supplierOpts } = useSupplierOptions({ enabled: addOpen })
     const { options: materialOpts } = useMaterialOptions({ enabled: addOpen })
+    const { options: currencyOpts } = useCurrencyOptions({ enabled: addOpen })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
         supplierId: required(supplierId, 'Supplier'),
@@ -64,13 +61,6 @@ const SupplierPricingPage = () => {
     }, [])
 
     useEffect(() => { load() }, [load])
-
-    useEffect(() => {
-        if (!addOpen) return
-        orgService.currencies().then((list) =>
-            setCurrencyOpts(list.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` }))),
-        ).catch(() => setCurrencyOpts([]))
-    }, [addOpen])
 
     const reset = () => {
         setSupplierId(''); setMaterialId(''); setUnitPrice(''); setCurrencyId('')

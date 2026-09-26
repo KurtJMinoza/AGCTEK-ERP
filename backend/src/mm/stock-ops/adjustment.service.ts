@@ -9,6 +9,9 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 @Injectable()
 export class AdjustmentService {
@@ -16,6 +19,8 @@ export class AdjustmentService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateAdjustmentDto) {
@@ -159,6 +164,8 @@ export class AdjustmentService {
     private async postAdjustment(doc: any) {
         const fromCount = !!doc.sourceCountId
 
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
         for (const line of doc.lines) {
             const qty = new Decimal(line.quantity)
             const isPositive = qty.gte(0)
@@ -191,6 +198,11 @@ export class AdjustmentService {
                 sourceDocumentId: doc.id,
                 sourceDocumentLineId: line.id,
                 reasonCode: doc.adjustmentReason,
+                idempotencyKey: postingKey(
+                    fromCount ? 'count-adj' : 'adj',
+                    doc.id,
+                    line.id,
+                ),
                 createdBy: doc.createdBy ?? undefined,
             })
         }
@@ -200,29 +212,27 @@ export class AdjustmentService {
             documentType: fromCount ? 'INVENTORY_COUNT_ADJUSTMENT' : 'ADJUSTMENT',
             documentId: doc.id,
             companyId: doc.companyId,
-            eventHint: 'INVENTORY_ADJUSTMENT',
+            postingDate: doc.postingDate.toISOString(),
+            warehouseId: doc.warehouseId,
+            adjustmentReason: doc.adjustmentReason,
             lines: doc.lines.map((l: any) => ({
                 materialId: l.materialId,
+                warehouseId: doc.warehouseId,
+                movementType: Number(l.quantity) >= 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
                 quantity: Number(l.quantity),
                 unitCost: Number(l.unitCost),
+                totalCost: Number(l.unitCost) * Number(l.quantity),
             })),
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: fromCount
-                    ? 'INVENTORY_COUNT_ADJUSTMENT_POSTED'
-                    : 'INVENTORY_ADJUSTMENT_POSTED',
-                sourceModule: payload.sourceModule,
-                documentType: payload.documentType,
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
+        void this.domainEvents.inventoryAdjusted({
+            companyId: doc.companyId,
+            documentId: doc.id,
+            payload: {
+                ...payload,
+                fromCount,
             },
         })
-
-        this.events.emit('accounting.entry.requested', payload)
     }
 
     private async syncCountAfterAdjustmentPosted(countId: string) {

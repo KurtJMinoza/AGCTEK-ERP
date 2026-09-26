@@ -5,6 +5,8 @@ import {
     PrismaClient,
     ShipmentMovementType,
     ShipmentStatus,
+    VehicleDocumentKind,
+    VehicleDocumentStatus,
 } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
 import { seedMmOrg } from './seed-mm-org'
@@ -664,6 +666,85 @@ async function main() {
         })
         console.log(
             `Seeded maintenance on ${seedVehicle.plateNumber} (blocksRouting=${blocking > 0}). Fleet vehicles remain AVAILABLE.`,
+        )
+    }
+
+    // PH LTO OR/CR + CTPL sample on Visayas fleet unit (calendar expiry; not oil km)
+    const complianceVehicle = await prisma.vehicle.findUnique({
+        where: { code: 'VEH-VIS-01' },
+    })
+    if (complianceVehicle) {
+        const day = 24 * 60 * 60 * 1000
+        const now = Date.now()
+        const samples: Array<{
+            kind: VehicleDocumentKind
+            documentNo: string
+            issuer: string
+            expiresInDays: number
+            blocksVehicle: boolean
+            coverageNote?: string
+        }> = [
+            {
+                kind: VehicleDocumentKind.OR,
+                documentNo: 'OR-2025-VIS-88421',
+                issuer: 'LTO Cebu City District Office',
+                expiresInDays: 120,
+                blocksVehicle: true,
+            },
+            {
+                kind: VehicleDocumentKind.CR,
+                documentNo: 'CR-1301-884210',
+                issuer: 'LTO Cebu City District Office',
+                expiresInDays: 20,
+                blocksVehicle: true,
+            },
+            {
+                kind: VehicleDocumentKind.INSURANCE_CTPL,
+                documentNo: 'CTPL-AGC-VIS-2026-01',
+                issuer: 'Malayan Insurance',
+                expiresInDays: 90,
+                blocksVehicle: true,
+                coverageNote: 'Compulsory third-party liability',
+            },
+        ]
+
+        for (const sample of samples) {
+            const existing = await prisma.vehicleDocument.findFirst({
+                where: {
+                    vehicleId: complianceVehicle.id,
+                    kind: sample.kind,
+                    documentNo: sample.documentNo,
+                },
+            })
+            if (existing) continue
+
+            const expiresAt = new Date(now + sample.expiresInDays * day)
+            const remindDaysBefore = 30
+            const status =
+                sample.expiresInDays < 0
+                    ? VehicleDocumentStatus.EXPIRED
+                    : sample.expiresInDays <= remindDaysBefore
+                      ? VehicleDocumentStatus.EXPIRING_SOON
+                      : VehicleDocumentStatus.VALID
+
+            await prisma.vehicleDocument.create({
+                data: {
+                    vehicleId: complianceVehicle.id,
+                    kind: sample.kind,
+                    documentNo: sample.documentNo,
+                    issuer: sample.issuer,
+                    issuedAt: new Date(now - 200 * day),
+                    expiresAt,
+                    coverageNote: sample.coverageNote ?? null,
+                    remindDaysBefore,
+                    blocksVehicle: sample.blocksVehicle,
+                    status,
+                    notes: 'Seeded PH registration / insurance sample',
+                },
+            })
+        }
+        console.log(
+            `Seeded OR/CR/CTPL documents on ${complianceVehicle.plateNumber} (CR expiring soon — badge only).`,
         )
     }
 }

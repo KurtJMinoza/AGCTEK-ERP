@@ -29,10 +29,13 @@ import {
     HiOutlineInboxIn,
 } from 'react-icons/hi'
 import { putawayService } from '../services/putawayService'
-import { warehouseService } from '../services/warehouseService'
-import { storageBinService } from '../services/storageBinService'
-import { materialService } from '../../material-master/services/materialService'
-import type { PutawayTask, PutawayQueryParams, CreatePutawayPayload, Warehouse, StorageBin } from '../types'
+import {
+    useMmFilterRefs,
+    useLazyBinsForWarehouse,
+    useLazyMaterialEntities,
+    useLazyWarehouseEntities,
+} from '@/modules/mm/shared/useLazyMmRefs'
+import type { PutawayTask, PutawayQueryParams, CreatePutawayPayload } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/warehouse-management/putaway'
@@ -97,9 +100,10 @@ const PutawayPage = () => {
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
     const [loading, setLoading] = useState(true)
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<{ value: string; label: string }[]>([])
-    const [bins, setBins] = useState<StorageBin[]>([])
+    const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materialRows } = useLazyMaterialEntities()
+    const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
 
     // Dialogs
     const [createOpen, setCreateOpen] = useState(false)
@@ -146,41 +150,35 @@ const PutawayPage = () => {
         }
     }, [queryParams])
 
-    useEffect(() => { fetchData() }, [fetchData])
-
     useEffect(() => {
-        warehouseService.list({ limit: 200, status: 'ACTIVE' }).then((res) => {
-            setWarehouses(Array.isArray(res) ? res : (res?.data ?? []))
-        }).catch(() => {})
-    }, [])
-
-    useEffect(() => {
-        materialService.list({ limit: 200 }).then((res) => {
-            const arr = Array.isArray(res) ? res : (res?.data ?? [])
-            setMaterials(arr.map((m: any) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })))
-        }).catch(() => {})
-    }, [])
-
-    useEffect(() => {
-        storageBinService.list({ limit: 200, status: 'ACTIVE' }).then((res) => {
-            setBins(Array.isArray(res) ? res : (res?.data ?? []))
-        }).catch(() => {})
-    }, [])
+        fetchData()
+    }, [fetchData])
 
     const warehouseOptions = useMemo<FilterOption[]>(() => [
         { value: '', label: 'All warehouses' },
-        ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
-    ], [warehouses])
+        ...warehouseFilterOpts,
+    ], [warehouseFilterOpts])
 
     const warehouseSelectOptions = useMemo(() =>
         warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
         [warehouses],
     )
 
+    const materials = useMemo(
+        () => materialRows.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })),
+        [materialRows],
+    )
+
     const binSelectOptions = useMemo(() =>
         bins.map((b) => ({ value: b.id, label: b.code })),
         [bins],
     )
+
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
+        setCreateForm({})
+        setCreateOpen(true)
+    }, [ensureWarehouses, ensureMaterials])
 
     const handleTabChange = useCallback((val: string) => {
         setActiveTab(val)
@@ -224,13 +222,14 @@ const PutawayPage = () => {
     }, [actionTarget, assignWorker, fetchData])
 
     // ---- Confirm ----
-    const openConfirm = useCallback((task: PutawayTask) => {
+    const openConfirm = useCallback(async (task: PutawayTask) => {
+        if (task.warehouseId) await loadForWarehouse(task.warehouseId)
         setActionTarget(task)
         setConfirmBinId(task.actualBinId || task.recommendedBinId || '')
         setConfirmQty(task.quantity)
         setConfirmScanCode('')
         setConfirmOpen(true)
-    }, [])
+    }, [loadForWarehouse])
 
     const handleConfirm = useCallback(async () => {
         if (!actionTarget) return
@@ -415,7 +414,7 @@ const PutawayPage = () => {
                 title="Putaway Tasks"
                 description="Manage inbound putaway operations across all warehouses."
                 actions={
-                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => { setCreateForm({}); setCreateOpen(true) }}>
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
                         Create Putaway
                     </Button>
                 }

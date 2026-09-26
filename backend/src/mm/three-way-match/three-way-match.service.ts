@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
 import { Decimal } from '@prisma/client/runtime/library'
 import { MatchToleranceService } from './match-tolerance.service'
 import { SupplierInvoiceService } from './supplier-invoice.service'
@@ -34,6 +36,7 @@ export class ThreeWayMatchService {
         private tolerances: MatchToleranceService,
         private invoices: SupplierInvoiceService,
         private events: EventEmitter2,
+        private accountingEvents: MmAccountingEventService,
     ) {}
 
     async matchPreview(invoiceId: string) {
@@ -416,17 +419,26 @@ export class ThreeWayMatchService {
             })),
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'SUPPLIER_INVOICE_MATCHED',
-                sourceModule: 'THREE_WAY_MATCH',
-                documentType: 'SUPPLIER_INVOICE',
-                documentId: inv.id,
-                companyId: inv.companyId,
-                payload,
-                status: 'PENDING',
-            },
+        const record = await this.accountingEvents.recordStandalone(this.prisma, {
+            eventType: 'SupplierInvoiceMatched',
+            sourceModule: 'THREE_WAY_MATCH',
+            documentType: 'SUPPLIER_INVOICE',
+            documentId: inv.id,
+            companyId: inv.companyId,
+            postingDate: inv.invoiceDate ?? new Date(),
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.GRIR_ACCRUAL],
+            lines: (inv.lines ?? []).map((l: any) => ({
+                materialId: l.materialId,
+                movementType: 'INVOICE_MATCH',
+                quantity: Number(l.invoicedQuantity),
+                unitCost: Number(l.unitPrice),
+                totalCost: Number(l.lineTotal),
+            })),
+            extraPayload: payload,
         })
-        this.events.emit('accounting.entry.requested', payload)
+        const dispatch = this.accountingEvents.toDispatchPayload(record)
+        if (dispatch) {
+            this.events.emit('accounting.entry.requested', dispatch)
+        }
     }
 }

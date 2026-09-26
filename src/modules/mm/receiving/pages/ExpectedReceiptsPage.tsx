@@ -18,7 +18,7 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineSearch, HiOutlineTruck, HiOutlineDocumentText } from 'react-icons/hi'
 import { inboundService } from '../services/inboundService'
 import { purchaseOrderService } from '@/modules/mm/procurement/services/purchaseOrderService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmExpectedReceipt } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { firstError, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
@@ -74,7 +74,7 @@ const ExpectedReceiptsPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const [warehouses, setWarehouses] = useState<FilterOption[]>([])
+    const { ensure: ensureFormRefs, warehouses } = useLazyMmRefs()
     const [poOptions, setPoOptions] = useState<FilterOption[]>([])
     const [asnOptions, setAsnOptions] = useState<FilterOption[]>([])
 
@@ -99,13 +99,8 @@ const ExpectedReceiptsPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    useEffect(() => {
-        orgService.warehouses().then((list) =>
-            setWarehouses(list.map((w: { id: string; name: string }) => ({ value: w.id, label: w.name }))),
-        ).catch(() => {})
-    }, [])
-
     const openFromPo = useCallback(async () => {
+        await ensureFormRefs('warehouses')
         setFromPo({ purchaseOrderId: '', warehouseId: '', expectedDate: '' })
         setTouched({})
         setForceValidate(false)
@@ -131,9 +126,10 @@ const ExpectedReceiptsPage = () => {
         } catch {
             setPoOptions([])
         }
-    }, [])
+    }, [ensureFormRefs])
 
     const openFromAsn = useCallback(async () => {
+        await ensureFormRefs('warehouses')
         setFromAsn({ asnId: '', warehouseId: '' })
         setTouched({})
         setForceValidate(false)
@@ -149,7 +145,7 @@ const ExpectedReceiptsPage = () => {
         } catch {
             setAsnOptions([])
         }
-    }, [])
+    }, [ensureFormRefs])
 
     const poErrors = useMemo<FieldErrors>(() => ({
         purchaseOrderId: required(fromPo.purchaseOrderId, 'Purchase order'),

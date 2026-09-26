@@ -25,12 +25,17 @@ export type VehiclePositionEvent = {
     namespace: '/scm-tracking',
     cors: {
         origin: (
-            process.env.FRONTEND_URL || 'http://localhost:3000'
+            process.env.FRONTEND_URL || 'https://erp.agctek.co'
         )
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean)
-            .concat(['http://localhost:3000', 'http://127.0.0.1:3000']),
+            .concat([
+                'https://erp.agctek.co',
+                'http://erp.agctek.co',
+                'http://localhost:3010',
+                'http://127.0.0.1:3010',
+            ]),
         credentials: true,
         methods: ['GET', 'POST'],
     },

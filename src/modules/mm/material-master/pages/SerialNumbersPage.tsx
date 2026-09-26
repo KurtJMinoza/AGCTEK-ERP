@@ -18,8 +18,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
-import { batchService, orgService, serialNumberService } from '../services/referenceService'
-import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
+import { batchService, serialNumberService } from '../services/referenceService'
+import { useLazyBinsForWarehouse, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmSerialNumber } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
@@ -52,8 +52,8 @@ const SerialNumbersPage = () => {
     const [binId, setBinId] = useState('')
     const [status, setStatus] = useState('AVAILABLE')
     const [batchOpts, setBatchOpts] = useState<Opt[]>([])
-    const [warehouseOpts, setWarehouseOpts] = useState<Opt[]>([])
-    const [binOpts, setBinOpts] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, warehouses: warehouseOptsRaw } = useLazyMmRefs()
+    const { loadForWarehouse, rows: binRows } = useLazyBinsForWarehouse()
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
     const [bulkDeleting, setBulkDeleting] = useState(false)
@@ -78,14 +78,19 @@ const SerialNumbersPage = () => {
 
     useEffect(() => {
         if (!addOpen) return
-        orgService.warehouses().then((list) =>
-            setWarehouseOpts(list.map((w: any) => ({ value: w.id, label: `${w.code} — ${w.name}` }))),
-        ).catch(() => setWarehouseOpts([]))
-        storageBinService.list({ limit: 500 } as any).then((r: any) => {
-            const list = Array.isArray(r) ? r : r?.data ?? []
-            setBinOpts(list.map((b: any) => ({ value: b.id, label: b.code })))
-        }).catch(() => setBinOpts([]))
-    }, [addOpen])
+        void ensureFormRefs('warehouses')
+    }, [addOpen, ensureFormRefs])
+
+    useEffect(() => {
+        if (!addOpen || !warehouseId) return
+        void loadForWarehouse(warehouseId)
+    }, [addOpen, warehouseId, loadForWarehouse])
+
+    const warehouseOpts = warehouseOptsRaw
+    const binOpts = useMemo(
+        () => binRows.map((b) => ({ value: b.id, label: b.code })),
+        [binRows],
+    )
 
     useEffect(() => {
         if (!addOpen || !materialId) { setBatchOpts([]); setBatchId(''); return }

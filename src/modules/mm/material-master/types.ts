@@ -71,6 +71,32 @@ export interface MmCompany {
     id: string
     code: string
     name: string
+    createdAt?: string
+    updatedAt?: string
+}
+
+export interface MmPlant {
+    id: string
+    code: string
+    name: string
+    companyId: string
+    status: string
+    company?: MmCompany
+    createdAt?: string
+    updatedAt?: string
+}
+
+export interface MmBranch {
+    id: string
+    code: string
+    name: string
+    companyId: string
+    plantId?: string | null
+    status: string
+    company?: MmCompany
+    plant?: { id: string; code: string; name: string } | null
+    createdAt?: string
+    updatedAt?: string
 }
 
 export interface MmWarehouse {

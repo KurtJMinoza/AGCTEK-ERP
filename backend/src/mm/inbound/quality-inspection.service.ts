@@ -9,6 +9,10 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { QualityDecideDto, InboundQueryDto } from './dto/inbound.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { InspectionLotService } from '../receiving/inspection-lot.service'
+import { Inject, forwardRef } from '@nestjs/common'
 
 const QI_INCLUDES = {
     lines: {
@@ -40,6 +44,9 @@ export class QualityInspectionService {
         private posting: InventoryPostingService,
         private putaway: PutawayService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        @Inject(forwardRef(() => InspectionLotService))
+        private inspectionLots: InspectionLotService,
     ) {}
 
     async list(query: InboundQueryDto) {
@@ -76,6 +83,24 @@ export class QualityInspectionService {
     }
 
     async decide(id: string, dto: QualityDecideDto) {
+        const lot = await this.inspectionLots.findByLegacyQiId(id)
+        if (lot) {
+            const line = dto.lines?.[0]
+            if (!line) throw new BadRequestException('Decision lines required')
+            const pass = Number(line.passQuantity)
+            const fail = Number(line.failQuantity)
+            let decisionCode = 'ACCEPT'
+            if (fail > 0 && pass > 0) decisionCode = 'ACCEPT_WITH_DEVIATION'
+            else if (fail > 0 && pass === 0) decisionCode = 'REJECT'
+            return this.inspectionLots.usageDecision(lot.id, {
+                decisionCode,
+                quantity: pass + fail,
+                decidedBy: dto.inspectedBy,
+                notes: dto.remarks ?? line.remarks,
+                deviationReason: fail > 0 && pass > 0 ? line.remarks : undefined,
+            })
+        }
+
         const qi = await this.findOne(id)
         if (qi.status !== 'PENDING') {
             throw new BadRequestException(`Cannot decide QI in status ${qi.status}`)
@@ -148,6 +173,7 @@ export class QualityInspectionService {
                     sourceDocumentType: 'QUALITY_INSPECTION',
                     sourceDocumentId: qi.id,
                     sourceDocumentLineId: d.lineId,
+                    idempotencyKey: postingKey('qi', qi.id, d.lineId, 'pass-out'),
                     createdBy: dto.inspectedBy,
                 })
                 await this.posting.postTransaction({
@@ -168,6 +194,7 @@ export class QualityInspectionService {
                     sourceDocumentType: 'QUALITY_INSPECTION',
                     sourceDocumentId: qi.id,
                     sourceDocumentLineId: d.lineId,
+                    idempotencyKey: postingKey('qi', qi.id, d.lineId, 'pass-in'),
                     createdBy: dto.inspectedBy,
                 })
 
@@ -207,6 +234,7 @@ export class QualityInspectionService {
                     sourceDocumentType: 'QUALITY_INSPECTION',
                     sourceDocumentId: qi.id,
                     sourceDocumentLineId: d.lineId,
+                    idempotencyKey: postingKey('qi', qi.id, d.lineId, 'fail-out'),
                     createdBy: dto.inspectedBy,
                 })
                 await this.posting.postTransaction({
@@ -227,6 +255,7 @@ export class QualityInspectionService {
                     sourceDocumentType: 'QUALITY_INSPECTION',
                     sourceDocumentId: qi.id,
                     sourceDocumentLineId: d.lineId,
+                    idempotencyKey: postingKey('qi', qi.id, d.lineId, 'fail-in'),
                     createdBy: dto.inspectedBy,
                 })
             }
@@ -254,13 +283,21 @@ export class QualityInspectionService {
             passQuantity: totalPass,
             failQuantity: totalFail,
             totalQuantity: totalQty,
-            /** PARTIAL_PASS: pass qty → UNRESTRICTED (+ putaway); fail qty → BLOCKED */
             statusSplit:
                 overall === 'PARTIAL_PASS'
                     ? { unrestrictedQty: totalPass, blockedQty: totalFail }
                     : overall === 'PASS'
                       ? { unrestrictedQty: totalPass, blockedQty: 0 }
                       : { unrestrictedQty: 0, blockedQty: totalFail },
+        })
+        void this.domainEvents.qualityDecisionMade({
+            companyId: gr.companyId,
+            inspectionId: id,
+            payload: {
+                result: overall,
+                passQuantity: totalPass,
+                failQuantity: totalFail,
+            },
         })
 
         return updated

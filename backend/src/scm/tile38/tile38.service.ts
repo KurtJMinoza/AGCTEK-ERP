@@ -99,7 +99,11 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    /** SET scm:geofences {id} CIRCLE lat lng radiusM */
+    /**
+     * Store a circular geofence as a GeoJSON Polygon.
+     * Tile38 SET does not accept CIRCLE — only POINT | BOUNDS | HASH | OBJECT | STRING.
+     * CIRCLE is only valid on search/hook commands (NEARBY / WITHIN / INTERSECTS).
+     */
     async setGeofenceCircle(
         id: string,
         lat: number,
@@ -108,14 +112,13 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
     ) {
         if (!this.ready || !this.client) return false
         try {
+            const geojson = circleToGeoJsonPolygon(lat, lng, radiusM)
             await this.client.call(
                 'SET',
                 GEOFENCE_KEY,
                 id,
-                'CIRCLE',
-                String(lat),
-                String(lng),
-                String(radiusM),
+                'OBJECT',
+                geojson,
             )
             return true
         } catch (err) {
@@ -142,7 +145,7 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
 
     /**
      * Live fence around a hub: when fleet points enter/exit the circle,
-     * Tile38 POSTs to TILE38_HOOK_BASE_URL/scm/tracking/geofence-hook
+     * Tile38 POSTs to TILE38_HOOK_BASE_URL/api/v1/scm/tracking/geofence-hook
      */
     async syncNearbyHook(
         geofenceId: string,
@@ -152,11 +155,14 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
     ) {
         if (!this.ready || !this.client) return false
 
-        const base =
+        const base = (
             process.env.TILE38_HOOK_BASE_URL ||
             process.env.API_PUBLIC_URL ||
-            'http://host.docker.internal:3001'
-        const endpoint = `${base.replace(/\/$/, '')}/scm/tracking/geofence-hook`
+            'http://127.0.0.1:3011'
+        ).replace(/\/$/, '')
+        // Nest listens under the global prefix `/api/v1`
+        const origin = base.replace(/\/api\/v1$/i, '')
+        const endpoint = `${origin}/api/v1/scm/tracking/geofence-hook`
         const name = this.hookName(geofenceId)
 
         try {
@@ -236,4 +242,38 @@ function flattenIds(raw: unknown): string[] {
         }
     }
     return out
+}
+
+/** Approximate a geodesic circle as a closed GeoJSON Polygon (lng/lat order). */
+function circleToGeoJsonPolygon(
+    lat: number,
+    lng: number,
+    radiusM: number,
+    steps = 64,
+): string {
+    const earthRadiusM = 6_371_008.8
+    const lat1 = (lat * Math.PI) / 180
+    const lng1 = (lng * Math.PI) / 180
+    const angDist = Math.max(radiusM, 1) / earthRadiusM
+    const ring: [number, number][] = []
+
+    for (let i = 0; i <= steps; i++) {
+        const bearing = (i / steps) * 2 * Math.PI
+        const lat2 = Math.asin(
+            Math.sin(lat1) * Math.cos(angDist) +
+                Math.cos(lat1) * Math.sin(angDist) * Math.cos(bearing),
+        )
+        const lng2 =
+            lng1 +
+            Math.atan2(
+                Math.sin(bearing) * Math.sin(angDist) * Math.cos(lat1),
+                Math.cos(angDist) - Math.sin(lat1) * Math.sin(lat2),
+            )
+        ring.push([(lng2 * 180) / Math.PI, (lat2 * 180) / Math.PI])
+    }
+
+    return JSON.stringify({
+        type: 'Polygon',
+        coordinates: [ring],
+    })
 }

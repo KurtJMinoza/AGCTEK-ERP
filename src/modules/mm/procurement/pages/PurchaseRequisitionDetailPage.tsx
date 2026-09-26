@@ -18,11 +18,13 @@ import Spinner from '@/components/ui/Spinner'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
+import DocumentFlowTimeline from '@/components/shared/DocumentFlowTimeline'
 import {
     HiOutlineClipboardList,
     HiOutlineCheckCircle,
     HiOutlineClock,
     HiOutlineDocumentText,
+    HiOutlineShare,
     HiOutlineBan,
     HiOutlineXCircle,
     HiOutlineReply,
@@ -375,6 +377,7 @@ const PurchaseRequisitionDetailPage = () => {
                         <Tabs.TabNav value="approval" icon={<HiOutlineCheckCircle />}>Approval</Tabs.TabNav>
                         <Tabs.TabNav value="conversion" icon={<HiOutlineSwitchHorizontal />}>Conversion</Tabs.TabNav>
                         <Tabs.TabNav value="documents" icon={<HiOutlineDocumentText />}>Documents</Tabs.TabNav>
+                        <Tabs.TabNav value="flow" icon={<HiOutlineShare />}>Document Flow</Tabs.TabNav>
                         <Tabs.TabNav value="audit" icon={<HiOutlineClock />}>Audit</Tabs.TabNav>
                     </Tabs.TabList>
 
@@ -459,6 +462,14 @@ const PurchaseRequisitionDetailPage = () => {
                                 <HiOutlineDocumentText className="text-4xl" />
                                 <p className="text-sm font-medium">Documents — Coming soon</p>
                             </div>
+                        )}
+
+                        {tab === 'flow' && (
+                            <DocumentFlowTimeline
+                                documentType="PURCHASE_REQUISITION"
+                                documentId={id}
+                                companyId={pr.companyId}
+                            />
                         )}
 
                         {tab === 'audit' && (

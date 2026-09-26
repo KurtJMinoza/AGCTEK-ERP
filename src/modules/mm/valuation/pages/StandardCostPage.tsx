@@ -15,8 +15,7 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { valuationService } from '../services/valuationService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { orgService } from '../../material-master/services/referenceService'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialValuation } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -34,8 +33,7 @@ const StandardCostPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialValuation[]>([])
     const [loading, setLoading] = useState(false)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
     const [open, setOpen] = useState(false)
     const [reviseOpen, setReviseOpen] = useState(false)
     const [selected, setSelected] = useState<MaterialValuation | null>(null)
@@ -73,24 +71,14 @@ const StandardCostPage = () => {
 
     useEffect(() => {
         load()
-        Promise.all([
-            orgService.companies(),
-            warehouseService.list({ limit: 200 }),
-        ]).then(([cos, wh]: any[]) => {
-            setCompanies(
-                (Array.isArray(cos) ? cos : cos?.data ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.name || c.code,
-                })),
-            )
-            setWarehouses(
-                (wh?.data ?? []).map((w: any) => ({
-                    value: w.id,
-                    label: `${w.code} — ${w.name}`,
-                })),
-            )
-        })
     }, [load])
+
+    const openCreate = useCallback(async () => {
+        const refs = await ensureFormRefs('companies', 'warehouses')
+        const c = refs.companies ?? []
+        setForm((f) => ({ ...f, companyId: c[0]?.value || '' }))
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const columns: ColumnDef<MaterialValuation>[] = useMemo(
         () => [
@@ -184,7 +172,7 @@ const StandardCostPage = () => {
                     <Button
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         Upsert Valuation
                     </Button>

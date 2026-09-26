@@ -162,8 +162,8 @@ const ReceivingWorkspacePage = () => {
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
-                title="Receiving Inspection"
-                description="Pick an open expected receipt and record quantities into a draft goods receipt"
+                title="Receiving Workbench"
+                description="Scan quantities, validate typed variances, then post through goods receipt — no duplicate posting engine."
             />
 
             {lastGr ? (

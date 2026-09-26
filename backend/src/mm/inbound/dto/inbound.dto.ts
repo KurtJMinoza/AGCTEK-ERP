@@ -17,6 +17,8 @@ export class AsnLineDto {
     @IsOptional() @IsString() purchaseOrderLineId?: string
     @IsOptional() @IsString() batchNumber?: string
     @IsOptional() @IsString() serialNumber?: string
+    @IsOptional() @IsString() packageType?: string
+    @IsOptional() @IsNumber() @Min(0) grossWeight?: number
     @IsOptional() @IsString() remarks?: string
 }
 
@@ -26,6 +28,8 @@ export class CreateAsnDto {
     @IsOptional() @IsString() purchaseOrderId?: string
     @IsOptional() @IsString() warehouseId?: string
     @IsOptional() @IsString() shipmentNumber?: string
+    @IsOptional() @IsString() supplierReference?: string
+    @IsOptional() @IsNumber() @Min(0) packageCount?: number
     @IsOptional() @IsString() carrier?: string
     @IsOptional() @IsString() trackingNumber?: string
     @IsOptional() @IsDateString() expectedDate?: string
@@ -60,10 +64,12 @@ export class ReceiveLineDto {
     @IsOptional() @IsString() barcode?: string
     /** Optional override material when scanning — mismatch → WRONG_MATERIAL variance */
     @IsOptional() @IsString() materialId?: string
+    @IsOptional() @IsString() uomId?: string
 }
 
 export class ReceiveDto {
     @IsString() @IsNotEmpty() expectedReceiptId!: string
+    @IsOptional() autoPost?: boolean
     @IsOptional() @IsString() receiverId?: string
     @IsOptional() @IsString() createdBy?: string
     @IsOptional() @IsDateString() postingDate?: string

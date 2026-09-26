@@ -71,7 +71,9 @@ export default function ModuleLandingPage({ moduleCode }: ModuleLandingPageProps
 }
 
 export function getModuleStaticParams(): { moduleCode: ErpModuleCode }[] {
-    return getResolvedErpModules().map((module) => ({
-        moduleCode: module.code,
-    }))
+    return getResolvedErpModules()
+        .filter((module) => !module.isExternalLink)
+        .map((module) => ({
+            moduleCode: module.code,
+        }))
 }

@@ -37,11 +37,12 @@ const ListItem = (props: {
     isLast?: boolean
     keyWord: string
     onNavigate: () => void
+    isExternalLink?: boolean
 }) => {
-    const { icon, label, url = '', keyWord, onNavigate } = props
+    const { icon, label, url = '', keyWord, onNavigate, isExternalLink } =
+        props
 
-    return (
-        <Link href={url} onClick={onNavigate}>
+    const content = (
             <div
                 className={classNames(
                     'flex items-center justify-between rounded-xl p-3 cursor-pointer user-select',
@@ -75,6 +76,24 @@ const ListItem = (props: {
                 </div>
                 <HiChevronRight className="text-lg" />
             </div>
+    )
+
+    if (isExternalLink) {
+        return (
+            <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={onNavigate}
+            >
+                {content}
+            </a>
+        )
+    }
+
+    return (
+        <Link href={url} onClick={onNavigate}>
+            {content}
         </Link>
     )
 }
@@ -180,6 +199,7 @@ const _Search = ({ className }: { className?: string }) => {
                                             icon={data.icon}
                                             label={data.title}
                                             url={data.path}
+                                            isExternalLink={data.isExternalLink}
                                             keyWord={
                                                 inputRef.current?.value || ''
                                             }

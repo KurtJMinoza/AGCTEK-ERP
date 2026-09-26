@@ -2,8 +2,11 @@ import {
     Injectable,
     NotFoundException,
     BadRequestException,
+    Inject,
+    forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
+import { WarehouseTaskService } from '../tasks/warehouse-task.service'
 import { CreatePickingDto } from './dto/create-picking.dto'
 import { PickingQueryDto } from './dto/picking-query.dto'
 import { ConfirmPickingDto } from './dto/confirm-picking.dto'
@@ -15,7 +18,11 @@ import { Decimal } from '@prisma/client/runtime/library'
  */
 @Injectable()
 export class PickingService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        @Inject(forwardRef(() => WarehouseTaskService))
+        private warehouseTasks: WarehouseTaskService,
+    ) {}
 
     private readonly includes = {
         material: true,
@@ -158,6 +165,21 @@ export class PickingService {
             )
         }
 
+        const engineTask = await this.warehouseTasks.create({
+            companyId: companyId!,
+            warehouseId: dto.warehouseId,
+            taskType: 'PICK',
+            materialId: dto.materialId,
+            quantity: dto.requiredQty,
+            sourceBinId,
+            batchId: batchId ?? undefined,
+            serialId: serialId ?? undefined,
+            uomId: uomId ?? undefined,
+            referenceType: reservationId ? 'RESERVATION' : 'PICK',
+            referenceId: reservationId ?? undefined,
+            metadata: { sourceDocument, waveId: dto.waveId },
+        })
+
         const taskNumber = await this.generateNextCode()
         return this.prisma.wmPickingTask.create({
             data: {
@@ -172,7 +194,11 @@ export class PickingService {
                 uomId,
                 waveId: dto.waveId ?? null,
                 reservationId,
+                reservationHeaderId: dto.reservationHeaderId ?? null,
+                reservationLineId: dto.reservationLineId ?? null,
+                allocationLineId: dto.allocationLineId ?? null,
                 sourceDocument,
+                warehouseTaskId: engineTask.id,
                 priority: dto.priority ?? 5,
                 status: 'OPEN',
             },
@@ -210,8 +236,12 @@ export class PickingService {
 
     async assign(id: string, userId: string) {
         const task = await this.findOne(id)
-        if (task.status !== 'OPEN') {
+        if (task.status !== 'OPEN' && task.status !== 'ASSIGNED') {
             throw new BadRequestException('Only OPEN tasks can be assigned')
+        }
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.assign(task.warehouseTaskId, userId)
+            return this.findOne(id)
         }
         return this.prisma.wmPickingTask.update({
             where: { id },
@@ -222,6 +252,20 @@ export class PickingService {
 
     async confirmPick(id: string, dto: ConfirmPickingDto) {
         const task = await this.findOne(id)
+
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.complete(task.warehouseTaskId, {
+                quantity: dto.pickedQty,
+                sourceBinId: task.sourceBinId,
+                scannedBinId: dto.scannedBinId,
+                scannedMaterialId: dto.scannedMaterialId,
+                scannedBatchId: dto.scannedBatchId,
+                scannedSerialId: dto.scannedSerialId,
+                performedBy: task.assignedUser ?? undefined,
+                idempotencyKey: dto.idempotencyKey,
+            })
+            return this.findOne(id)
+        }
 
         if (dto.idempotencyKey) {
             const dup = await this.prisma.wmPickingTask.findFirst({
@@ -317,6 +361,10 @@ export class PickingService {
         const task = await this.findOne(id)
         if (task.status !== 'OPEN' && task.status !== 'ASSIGNED') {
             throw new BadRequestException('Can only cancel OPEN or ASSIGNED tasks')
+        }
+        if (task.warehouseTaskId) {
+            await this.warehouseTasks.cancel(task.warehouseTaskId)
+            return this.findOne(id)
         }
         return this.prisma.wmPickingTask.update({
             where: { id },

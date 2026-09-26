@@ -1,5 +1,8 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
+    ComplianceSummary,
+    CreateDemandForecastInput,
+    DemandForecast,
     Driver,
     FleetTrackingResponse,
     GpsLog,
@@ -14,6 +17,7 @@ import type {
     CreateTripInput,
     Vehicle,
     VehicleCargoResponse,
+    VehicleDocument,
 } from '../types'
 import type { GeofenceZone } from '../utils/geofences'
 import type { GeocodeResult } from '../utils/geocode'
@@ -308,6 +312,84 @@ export async function apiSetOdometerThresholds(
     return data
 }
 
+export type CreateVehicleDocumentBody = {
+    vehicleId: string
+    kind: VehicleDocument['kind']
+    documentNo: string
+    issuer?: string | null
+    issuedAt?: string | null
+    expiresAt: string
+    coverageNote?: string | null
+    fileUrl?: string | null
+    remindDaysBefore?: number
+    blocksVehicle?: boolean
+    notes?: string | null
+    status?: VehicleDocument['status']
+}
+
+export async function apiGetVehicleDocuments(
+    params?: ListParams & {
+        vehicleId?: string
+        kind?: string
+        expiring?: string
+    },
+) {
+    const { data } = await ErpAxiosBase.get<Paginated<VehicleDocument>>(
+        '/scm/maintenance/documents',
+        {
+            params: {
+                ...toQuery(params),
+                ...(params?.vehicleId ? { vehicleId: params.vehicleId } : {}),
+                ...(params?.kind ? { kind: params.kind } : {}),
+                ...(params?.expiring ? { expiring: params.expiring } : {}),
+            },
+        },
+    )
+    return data
+}
+
+export async function apiGetVehicleDocumentsByVehicle(vehicleId: string) {
+    const { data } = await ErpAxiosBase.get<VehicleDocument[]>(
+        `/scm/vehicles/${vehicleId}/documents`,
+    )
+    return data
+}
+
+export async function apiCreateVehicleDocument(
+    body: CreateVehicleDocumentBody,
+) {
+    const { data } = await ErpAxiosBase.post<VehicleDocument>(
+        `/scm/vehicles/${body.vehicleId}/documents`,
+        body,
+    )
+    return data
+}
+
+export async function apiUpdateVehicleDocument(
+    id: string,
+    body: Partial<CreateVehicleDocumentBody>,
+) {
+    const { data } = await ErpAxiosBase.patch<VehicleDocument>(
+        `/scm/documents/${id}`,
+        body,
+    )
+    return data
+}
+
+export async function apiCancelVehicleDocument(id: string) {
+    const { data } = await ErpAxiosBase.delete<VehicleDocument>(
+        `/scm/documents/${id}`,
+    )
+    return data
+}
+
+export async function apiGetComplianceSummary() {
+    const { data } = await ErpAxiosBase.get<ComplianceSummary>(
+        '/scm/maintenance/compliance-summary',
+    )
+    return data
+}
+
 export async function apiGetGeofences(params?: ListParams & { kind?: string; active?: string }) {
     const { data } = await ErpAxiosBase.get<Paginated<GeofenceZone>>(
         '/scm/geofences',
@@ -385,6 +467,29 @@ export async function apiGeocodeReverse(lat: number, lng: number) {
         lat: number
         lng: number
     }>('/scm/geocode/reverse', { params: { lat, lng } })
+    return data
+}
+
+export async function apiGetForecasts(params?: ListParams) {
+    const { data } = await ErpAxiosBase.get<Paginated<DemandForecast>>(
+        '/scm/forecasts',
+        { params: toQuery(params) },
+    )
+    return data
+}
+
+export async function apiCreateForecast(body: CreateDemandForecastInput) {
+    const { data } = await ErpAxiosBase.post<DemandForecast>(
+        '/scm/forecasts',
+        body,
+    )
+    return data
+}
+
+export async function apiDeleteForecast(id: string) {
+    const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
+        `/scm/forecasts/${id}`,
+    )
     return data
 }
 

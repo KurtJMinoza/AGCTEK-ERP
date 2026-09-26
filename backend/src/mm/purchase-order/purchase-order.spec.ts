@@ -10,6 +10,9 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 let seq = 0
 function nextId() {
@@ -110,6 +113,7 @@ function makePo(overrides: any = {}) {
 }
 
 const mockPrisma: any = {
+    mmSupplier: { findFirst: jest.fn() },
     mmPurchaseOrder: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -214,6 +218,40 @@ beforeEach(async () => {
                     createFromGoodsReceiptLine: jest.fn().mockResolvedValue(null),
                 },
             },
+            {
+                provide: PurchaseCommitmentService,
+                useValue: {
+                    recordCommitment: jest.fn().mockResolvedValue({ id: 'commit-1' }),
+                    cancelCommitment: jest.fn().mockResolvedValue(undefined),
+                },
+            },
+            {
+                provide: MmDomainEventsService,
+                useValue: {
+                    emit: jest.fn(),
+                    goodsReceiptPosted: jest.fn(),
+                },
+            },
+            {
+                provide: DocumentFlowService,
+                useValue: {
+                    getPoLegacyFlow: jest.fn().mockResolvedValue({
+                        purchaseOrder: { id: 'po-3', number: 'PO-TEST', status: 'SENT' },
+                        purchaseRequisition: { id: 'pr-1', number: 'PR-1' },
+                        rfq: { id: 'rfq-1', number: 'RFQ-1' },
+                        quotation: { id: 'q-1', number: 'Q-1' },
+                        award: { id: 'award-1' },
+                        goodsReceipts: [
+                            {
+                                id: 'gr-1',
+                                number: 'GR-1',
+                                status: 'POSTED',
+                                postingDate: new Date().toISOString(),
+                            },
+                        ],
+                    }),
+                },
+            },
         ],
     }).compile()
 
@@ -244,6 +282,13 @@ beforeEach(async () => {
     })
     mockPrisma.mmPurchaseOrderAudit.create.mockResolvedValue({})
     mockPrisma.notification.create.mockResolvedValue({})
+    mockPrisma.mmSupplier.findFirst.mockResolvedValue({
+        id: 'sup-1',
+        status: 'ACTIVE',
+        companyId: 'co-1',
+        sourcingType: 'APPROVED',
+        documents: [],
+    })
 })
 
 describe('MM-07 PurchaseOrderService lifecycle', () => {
@@ -316,7 +361,7 @@ describe('MM-07 PurchaseOrderService lifecycle', () => {
         expect(flow.purchaseRequisition?.id).toBe('pr-1')
         expect(flow.rfq?.id).toBe('rfq-1')
         expect(flow.quotation?.id).toBe('q-1')
-        expect(flow.award?.id).toBe('award-1')
+        expect(flow.award).toBeNull()
         expect(flow.goodsReceipts[0].id).toBe('gr-1')
         expect(flow.purchaseOrder.id).toBe('po-3')
     })

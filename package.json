@@ -3,13 +3,18 @@
   "version": "1.2.7",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --turbopack -p 3010",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3020",
     "lint": "next lint",
     "prettier": "npx prettier src --check",
     "prettier:fix": "npm run prettier -- --write",
-    "driver": "npm --prefix apps/driver start"
+    "driver": "npm --prefix apps/driver start",
+    "edge": "node scripts/erp-edge-proxy.cjs",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.16",
@@ -43,6 +48,7 @@
     "framer-motion": "12.23.6",
     "gantt-task-react": "^0.3.9",
     "html-react-parser": "^5.2.1",
+    "http-proxy": "^1.18.1",
     "leaflet": "^1.9.4",
     "lodash": "^4.17.21",
     "lucide-react": "^1.39.0",
@@ -70,6 +76,7 @@
     "socket.io-client": "^4.8.3",
     "swr": "^2.3.0",
     "tailwind-merge": "^3.3.1",
+    "xlsx": "^0.18.5",
     "yet-another-react-lightbox": "^3.21.7",
     "zod": "^4.1.1",
     "zustand": "^5.0.8"

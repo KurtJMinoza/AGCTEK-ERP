@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common'
 import { PurchaseOrderService } from '../purchase-order/purchase-order.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { WorkflowService } from '../workflow/workflow.service'
+import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
 
 describe('PO supplier usability gate', () => {
     let service: PurchaseOrderService
@@ -26,6 +27,13 @@ describe('PO supplier usability gate', () => {
                 PurchaseOrderService,
                 { provide: PrismaService, useValue: prisma },
                 { provide: WorkflowService, useValue: {} },
+                {
+                    provide: PurchaseCommitmentService,
+                    useValue: {
+                        recordCommitment: jest.fn(),
+                        cancelCommitment: jest.fn(),
+                    },
+                },
             ],
         }).compile()
         service = module.get(PurchaseOrderService)
@@ -64,6 +72,9 @@ describe('PO supplier usability gate', () => {
             status: 'INACTIVE',
             deletedAt: null,
             supplierCode: 'SUP-1',
+            companyId: 'co-1',
+            sourcingType: null,
+            documents: [],
         })
         await expect(service.create(dto() as any)).rejects.toThrow(BadRequestException)
         expect(prisma.mmPurchaseOrder.create).not.toHaveBeenCalled()
@@ -75,6 +86,9 @@ describe('PO supplier usability gate', () => {
             status: 'BLOCKED',
             deletedAt: null,
             supplierCode: 'SUP-1',
+            companyId: 'co-1',
+            sourcingType: null,
+            documents: [],
         })
         await expect(service.create(dto() as any)).rejects.toThrow(BadRequestException)
     })
@@ -85,6 +99,9 @@ describe('PO supplier usability gate', () => {
             status: 'ACTIVE',
             deletedAt: null,
             supplierCode: 'SUP-1',
+            companyId: 'co-1',
+            sourcingType: 'APPROVED',
+            documents: [],
         })
         prisma.mmPurchaseOrder.create.mockResolvedValue({
             id: 'po-1',

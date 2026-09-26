@@ -7,9 +7,14 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { ReservationService } from '../outbound/reservation.service'
+import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
+import { ReservationEngineService } from '../inventory/reservation-allocation/reservation-engine.service'
 import { CreateGoodsIssueDto } from './dto/create-goods-issue.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 /**
  * Goods Issue is the hard inventory deduction:
@@ -21,18 +26,16 @@ export class GoodsIssueService {
         private prisma: PrismaService,
         private postingService: InventoryPostingService,
         private reservations: ReservationService,
+        private allocationEngine: AllocationEngineService,
+        private reservationEngine: ReservationEngineService,
         private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
     ) {}
 
     async create(dto: CreateGoodsIssueDto) {
-        if (dto.idempotencyKey) {
-            const existing = await this.prisma.mmGoodsIssue.findFirst({
-                where: { remarks: `idem:${dto.idempotencyKey}` },
-                include: { lines: true },
-            })
-            // Prefer a dedicated column if present later; remarks tag is transitional.
-            if (existing) return existing
-        }
+        this.assertSalesIssueContract(dto)
+        this.assertProductionIssueContract(dto)
 
         if (dto.packageId) {
             await this.validatePackageForIssue(dto.packageId)
@@ -40,14 +43,19 @@ export class GoodsIssueService {
         if (dto.reservationId) {
             await this.validateReservation(dto.reservationId)
         }
+        if (dto.reservationHeaderId) {
+            await this.validateReservationHeader(dto.reservationHeaderId)
+        }
 
-        for (const line of dto.lines) {
+        const resolvedLines = await this.resolveLinesFromReservationHeader(dto)
+
+        for (const line of resolvedLines) {
             await this.validateLinePreconditions(dto, line)
         }
 
         const docNumber = await this.generateDocNumber('GI')
 
-        const lines = dto.lines.map((l) => {
+        const lines = resolvedLines.map((l) => {
             const unitCost = new Decimal(l.unitCost ?? 0)
             const totalCost =
                 l.totalCost !== undefined
@@ -74,15 +82,14 @@ export class GoodsIssueService {
                 companyId: dto.companyId,
                 warehouseId: dto.warehouseId,
                 reservationId: dto.reservationId ?? null,
+                reservationHeaderId: dto.reservationHeaderId ?? null,
                 packageId: dto.packageId ?? null,
                 sourceDocumentType: dto.sourceDocumentType ?? null,
                 sourceDocumentId: dto.sourceDocumentId ?? null,
                 postingDate: new Date(dto.postingDate),
                 documentDate: new Date(dto.documentDate),
                 issuePurpose: dto.issuePurpose ?? 'INTERNAL',
-                remarks: dto.idempotencyKey
-                    ? `idem:${dto.idempotencyKey}${dto.remarks ? ` | ${dto.remarks}` : ''}`
-                    : (dto.remarks ?? null),
+                remarks: dto.remarks ?? null,
                 createdBy: dto.createdBy ?? null,
                 status: 'DRAFT',
                 lines: { create: lines },
@@ -184,6 +191,10 @@ export class GoodsIssueService {
             await this.validatePackageForIssue(doc.packageId)
         }
 
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
+        const lineTxnIds: string[] = []
+
         for (const line of doc.lines) {
             if (!line.storageBinId) {
                 throw new BadRequestException(
@@ -218,9 +229,9 @@ export class GoodsIssueService {
             }
 
             const reservationId = line.reservationId ?? doc.reservationId
-            const consumeReserved = !!reservationId
+            const consumeReserved = !!(reservationId || doc.reservationHeaderId)
 
-            await this.postingService.postTransaction({
+            const txn = await this.postingService.postTransaction({
                 companyId: doc.companyId,
                 warehouseId: doc.warehouseId,
                 storageBinId: line.storageBinId,
@@ -244,12 +255,37 @@ export class GoodsIssueService {
                 releaseReservedQuantity: consumeReserved
                     ? Number(line.quantity)
                     : undefined,
-                idempotencyKey: `gi:${doc.id}:${line.id}`,
+                idempotencyKey: postingKey('gi', doc.id, line.id),
             })
 
-            if (reservationId) {
+            if (line.pickingTaskId) {
+                const pickTask = await this.prisma.wmPickingTask.findUnique({
+                    where: { id: line.pickingTaskId },
+                })
+                if (pickTask?.allocationLineId) {
+                    await this.allocationEngine.recordIssue(
+                        pickTask.allocationLineId,
+                        new Decimal(line.quantity),
+                    )
+                } else if (reservationId) {
+                    await this.reservations.fulfill(reservationId, line.quantity)
+                }
+            } else if (doc.reservationHeaderId) {
+                const rLine = await this.findReservationLineForIssue(
+                    doc.reservationHeaderId,
+                    line.materialId,
+                )
+                if (rLine) {
+                    await this.reservationEngine.recordIssue(
+                        rLine.id,
+                        new Decimal(line.quantity),
+                    )
+                }
+            } else if (reservationId) {
                 await this.reservations.fulfill(reservationId, line.quantity)
             }
+
+            if (txn?.id) lineTxnIds.push(txn.id)
         }
 
         const updated = await this.prisma.mmGoodsIssue.update({
@@ -258,34 +294,57 @@ export class GoodsIssueService {
             include: { lines: true },
         })
 
+        const sdLines = await this.buildSdIssueLines(doc)
+        const integrationLines = sdLines.length
+            ? sdLines
+            : await this.buildProductionIssueLines(doc)
+        const enrichedLines = integrationLines.length
+            ? integrationLines
+            : doc.lines.map((l) => ({
+                  materialId: l.materialId,
+                  quantity: Number(l.quantity),
+                  unitCost: Number(l.unitCost),
+                  totalCost: Number(l.totalCost),
+              }))
+
         // FICO: emit COGS/expense accounting event — do not hardcode GL accounts
         const payload = {
             sourceModule: 'STOCK_OPS',
             documentType: 'GOODS_ISSUE',
             documentId: doc.id,
             companyId: doc.companyId,
-            eventHint: 'COGS_OR_EXPENSE',
+            postingDate: doc.postingDate.toISOString(),
+            warehouseId: doc.warehouseId,
             issuePurpose: doc.issuePurpose,
-            lines: doc.lines.map((l) => ({
-                materialId: l.materialId,
-                quantity: Number(l.quantity),
-                unitCost: Number(l.unitCost),
-                totalCost: Number(l.totalCost),
-            })),
+            salesOrderId:
+                doc.sourceDocumentType === 'SALES_ORDER'
+                    ? doc.sourceDocumentId
+                    : undefined,
+            productionOrderId:
+                doc.sourceDocumentType === 'PRODUCTION_ORDER'
+                    ? doc.sourceDocumentId
+                    : undefined,
+            reservationHeaderId: doc.reservationHeaderId ?? undefined,
+            lines: enrichedLines,
         }
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'GOODS_ISSUE_POSTED',
-                sourceModule: 'STOCK_OPS',
-                documentType: 'GOODS_ISSUE',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload,
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', payload)
         this.events.emit('goods-issue.posted', { goodsIssueId: doc.id })
+        void this.domainEvents.goodsIssuePosted({
+            companyId: doc.companyId,
+            goodsIssueId: doc.id,
+            payload: {
+                ...payload,
+                lines: enrichedLines.map((l) => ({
+                    ...l,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'ISSUE',
+                })),
+            },
+            plantId: doc.warehouse?.plantId ?? null,
+            documentReferences: this.buildIssueDocumentReferences(
+                doc,
+                lineTxnIds,
+            ),
+        })
 
         return updated
     }
@@ -333,21 +392,28 @@ export class GoodsIssueService {
             }
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'GOODS_ISSUE_REVERSED',
+        await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
+
+        void this.domainEvents.goodsIssueReversed({
+            companyId: doc.companyId,
+            goodsIssueId: doc.id,
+            plantId: doc.warehouse?.plantId ?? null,
+            payload: {
                 sourceModule: 'STOCK_OPS',
                 documentType: 'GOODS_ISSUE',
                 documentId: doc.id,
                 companyId: doc.companyId,
-                payload: {
-                    sourceModule: 'STOCK_OPS',
-                    documentType: 'GOODS_ISSUE_REVERSAL',
-                    documentId: doc.id,
-                    companyId: doc.companyId,
-                    eventHint: 'COGS_OR_EXPENSE_REVERSAL',
-                },
-                status: 'PENDING',
+                postingDate: doc.postingDate.toISOString(),
+                warehouseId: doc.warehouseId,
+                issuePurpose: doc.issuePurpose,
+                lines: doc.lines.map((l) => ({
+                    materialId: l.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'ISSUE_REVERSAL',
+                    quantity: Number(l.quantity),
+                    unitCost: Number(l.unitCost),
+                    totalCost: Number(l.totalCost),
+                })),
             },
         })
 
@@ -415,6 +481,162 @@ export class GoodsIssueService {
             )
         }
         return pkg
+    }
+
+    private assertSalesIssueContract(dto: CreateGoodsIssueDto) {
+        const salesPath =
+            dto.issuePurpose === 'SALES' || dto.sourceDocumentType === 'SALES_ORDER'
+        if (!salesPath) return
+        if (dto.issuePurpose !== 'SALES') {
+            throw new BadRequestException(
+                'Sales goods issue requires issuePurpose=SALES',
+            )
+        }
+        if (dto.sourceDocumentType !== 'SALES_ORDER' || !dto.sourceDocumentId) {
+            throw new BadRequestException(
+                'Sales goods issue requires sourceDocumentType=SALES_ORDER and sourceDocumentId',
+            )
+        }
+    }
+
+    private assertProductionIssueContract(dto: CreateGoodsIssueDto) {
+        const productionPath =
+            dto.issuePurpose === 'PRODUCTION' ||
+            dto.sourceDocumentType === 'PRODUCTION_ORDER'
+        if (!productionPath) return
+        if (dto.issuePurpose !== 'PRODUCTION') {
+            throw new BadRequestException(
+                'Production goods issue requires issuePurpose=PRODUCTION',
+            )
+        }
+        if (
+            dto.sourceDocumentType !== 'PRODUCTION_ORDER' ||
+            !dto.sourceDocumentId
+        ) {
+            throw new BadRequestException(
+                'Production goods issue requires sourceDocumentType=PRODUCTION_ORDER and sourceDocumentId',
+            )
+        }
+    }
+
+    private buildIssueDocumentReferences(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+        lineTxnIds: string[],
+    ) {
+        if (!doc.sourceDocumentId) return undefined
+        if (
+            doc.sourceDocumentType !== 'SALES_ORDER' &&
+            doc.sourceDocumentType !== 'PRODUCTION_ORDER'
+        ) {
+            return undefined
+        }
+        return [
+            {
+                entityType: doc.sourceDocumentType,
+                entityId: doc.sourceDocumentId,
+            },
+            ...(doc.reservationHeaderId
+                ? [
+                      {
+                          entityType: 'RESERVATION',
+                          entityId: doc.reservationHeaderId,
+                      },
+                  ]
+                : []),
+            {
+                entityType: 'GOODS_ISSUE',
+                entityId: doc.id,
+            },
+            ...lineTxnIds.map((txnId) => ({
+                entityType: 'INVENTORY_TRANSACTION',
+                entityId: txnId,
+            })),
+        ]
+    }
+
+    private async validateReservationHeader(reservationHeaderId: string) {
+        const header = await this.prisma.mmInventoryReservationHeader.findUnique({
+            where: { id: reservationHeaderId },
+            include: { lines: true },
+        })
+        if (!header) throw new NotFoundException('Reservation header not found')
+        return header
+    }
+
+    private async resolveLinesFromReservationHeader(dto: CreateGoodsIssueDto) {
+        if (!dto.reservationHeaderId) return dto.lines
+
+        const header = await this.validateReservationHeader(dto.reservationHeaderId)
+        const legacyByLineId = new Map<string, string>()
+        const legacyRows = await this.prisma.mmInventoryReservation.findMany({
+            where: { reservationHeaderId: dto.reservationHeaderId },
+        })
+        for (const legacy of legacyRows) {
+            if (legacy.reservationLineId) {
+                legacyByLineId.set(legacy.reservationLineId, legacy.id)
+            }
+        }
+
+        return dto.lines.map((line) => {
+            const rLine = header.lines.find((l) => l.materialId === line.materialId)
+            const reservationId =
+                line.reservationId ??
+                dto.reservationId ??
+                (rLine ? legacyByLineId.get(rLine.id) : undefined)
+            return { ...line, reservationId }
+        })
+    }
+
+    private async findReservationLineForIssue(
+        reservationHeaderId: string,
+        materialId: string,
+    ) {
+        return this.prisma.mmInventoryReservationLine.findFirst({
+            where: { headerId: reservationHeaderId, materialId },
+        })
+    }
+
+    private async buildSdIssueLines(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ) {
+        if (doc.sourceDocumentType !== 'SALES_ORDER' || !doc.reservationHeaderId) {
+            return []
+        }
+        return this.buildIntegrationIssueLines(doc)
+    }
+
+    private async buildProductionIssueLines(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ) {
+        if (
+            doc.sourceDocumentType !== 'PRODUCTION_ORDER' ||
+            !doc.reservationHeaderId
+        ) {
+            return []
+        }
+        return this.buildIntegrationIssueLines(doc)
+    }
+
+    private async buildIntegrationIssueLines(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ) {
+        const header = await this.prisma.mmInventoryReservationHeader.findUnique({
+            where: { id: doc.reservationHeaderId! },
+            include: { lines: true },
+        })
+        if (!header) return []
+
+        return doc.lines.map((l) => {
+            const rLine = header.lines.find((rl) => rl.materialId === l.materialId)
+            return {
+                materialId: l.materialId,
+                quantity: Number(l.quantity),
+                unitCost: Number(l.unitCost),
+                totalCost: Number(l.totalCost),
+                demandReferenceLineId: rLine?.demandReferenceLineId ?? undefined,
+                lineId: rLine?.demandReferenceLineId ?? undefined,
+            }
+        })
     }
 
     private async validateReservation(reservationId: string) {

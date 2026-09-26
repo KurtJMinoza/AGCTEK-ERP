@@ -1,4 +1,5 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
+import { mmCachedFetch } from '@/modules/mm/shared/mmReferenceCache'
 import type {
     StorageBinListResponse,
     StorageBinQueryParams,
@@ -11,10 +12,17 @@ import type {
 const BASE = '/mm/storage-bins'
 
 export const storageBinService = {
-    list: (params?: StorageBinQueryParams) =>
-        ErpAxiosBase.get<StorageBinListResponse>(BASE, { params }).then(
-            (r) => r.data,
-        ),
+    list: (params?: StorageBinQueryParams) => {
+        const limit = params?.limit ?? params?.pageSize ?? 0
+        if (limit >= 50) {
+            const key = `storage-bins:${JSON.stringify(params ?? {})}`
+            return mmCachedFetch(key, () =>
+                ErpAxiosBase.get<StorageBinListResponse>(BASE, { params }).then((r) => r.data),
+                60_000,
+            )
+        }
+        return ErpAxiosBase.get<StorageBinListResponse>(BASE, { params }).then((r) => r.data)
+    },
 
     get: (id: string) =>
         ErpAxiosBase.get<StorageBin>(`${BASE}/${id}`).then((r) => r.data),

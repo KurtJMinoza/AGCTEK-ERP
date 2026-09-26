@@ -9,29 +9,11 @@ import {
     Min,
 } from 'class-validator'
 
-const MOVEMENT_TYPES = [
-    'RECEIPT',
-    'ISSUE',
-    'TRANSFER_IN',
-    'TRANSFER_OUT',
-    'ADJUSTMENT_IN',
-    'ADJUSTMENT_OUT',
-    'RETURN_IN',
-    'RETURN_OUT',
-    'SCRAP',
-    'COUNT_GAIN',
-    'COUNT_LOSS',
-] as const
+import { MM_MOVEMENT_TYPES, MM_STOCK_STATUSES } from '../inventory.constants'
 
-const STOCK_STATUSES = [
-    'UNRESTRICTED',
-    'QUALITY_INSPECTION',
-    'BLOCKED',
-    'QUARANTINE',
-    'IN_TRANSIT',
-    'EXPIRED',
-    'DAMAGED',
-] as const
+const MOVEMENT_TYPES = MM_MOVEMENT_TYPES.filter((t) => t !== 'STATUS_CHANGE')
+
+const STOCK_STATUSES = MM_STOCK_STATUSES
 
 export class PostTransactionDto {
     @IsString()
@@ -49,6 +31,14 @@ export class PostTransactionDto {
     @IsOptional()
     @IsString()
     storageBinId?: string
+
+    @IsOptional()
+    @IsString()
+    sourceBinId?: string
+
+    @IsOptional()
+    @IsString()
+    destinationBinId?: string
 
     @IsString()
     @IsNotEmpty()

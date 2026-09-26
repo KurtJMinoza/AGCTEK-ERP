@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import Dialog from '@/components/ui/Dialog'
+import Button from '@/components/ui/Button'
 import Avatar from '@/components/ui/Avatar'
 import classNames from '@/components/ui/utils/classNames'
 import type { DialogProps } from '@/components/ui/Dialog'
@@ -24,13 +25,17 @@ export interface FormDialogProps extends Omit<DialogProps, 'children' | 'width' 
     size?: FormDialogSize
     width?: number
     children: ReactNode
-    /** Sticky footer actions (Cancel / Save) */
+    /** Sticky footer actions (Cancel / Save). Ignored when `onSubmit` is set. */
     footer?: ReactNode
     /** Optional row under the title (Steps, Tabs, alerts) */
     headerExtra?: ReactNode
     bodyClassName?: string
     footerClassName?: string
     onClose: () => void
+    /** Convenience: builds Cancel + Confirm footer when `footer` is omitted. */
+    onSubmit?: () => void | Promise<void>
+    confirmText?: string
+    confirmLoading?: boolean
 }
 
 /**
@@ -52,9 +57,31 @@ const FormDialog = ({
     footerClassName,
     shouldCloseOnOverlayClick = false,
     contentClassName,
+    onSubmit,
+    confirmText = 'Confirm',
+    confirmLoading,
     ...rest
 }: FormDialogProps) => {
     const resolvedWidth = width ?? SIZE_WIDTH[size]
+    const resolvedFooter =
+        footer ??
+        (onSubmit ? (
+            <>
+                <Button type="button" onClick={onClose}>
+                    Cancel
+                </Button>
+                <Button
+                    type="button"
+                    variant="solid"
+                    loading={confirmLoading}
+                    onClick={() => {
+                        void onSubmit()
+                    }}
+                >
+                    {confirmText}
+                </Button>
+            </>
+        ) : null)
 
     return (
         <Dialog
@@ -103,14 +130,14 @@ const FormDialog = ({
                     {children}
                 </div>
 
-                {footer ? (
+                {resolvedFooter ? (
                     <div
                         className={classNames(
                             'flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-6 dark:border-gray-700 dark:bg-gray-900/40',
                             footerClassName,
                         )}
                     >
-                        {footer}
+                        {resolvedFooter}
                     </div>
                 ) : null}
             </div>

@@ -7,7 +7,11 @@ import {
     Param,
     Body,
     Query,
+    Req,
+    Res,
+    BadRequestException,
 } from '@nestjs/common'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { SupplierService } from './supplier.service'
 import { CreateSupplierDto } from './dto/create-supplier.dto'
 import { UpdateSupplierDto } from './dto/update-supplier.dto'
@@ -82,6 +86,42 @@ export class SupplierController {
         return this.service.listDocuments(id)
     }
 
+    @Post(':id/documents/upload')
+    async uploadDocument(
+        @Param('id') id: string,
+        @Req() req: FastifyRequest,
+    ) {
+        let buffer: Buffer | null = null
+        let fileName = ''
+        let mimeType = ''
+        let docType = 'OTHER'
+        let uploadedBy: string | undefined
+
+        for await (const part of req.parts()) {
+            if (part.type === 'file') {
+                buffer = await part.toBuffer()
+                fileName = part.filename
+                mimeType = part.mimetype
+            } else if (part.fieldname === 'docType') {
+                docType = String(part.value || 'OTHER')
+            } else if (part.fieldname === 'uploadedBy') {
+                uploadedBy = String(part.value)
+            }
+        }
+
+        if (!buffer || !fileName) {
+            throw new BadRequestException('No file uploaded')
+        }
+
+        return this.service.uploadDocumentFile(id, {
+            buffer,
+            fileName,
+            mimeType,
+            docType,
+            uploadedBy,
+        })
+    }
+
     @Post(':id/documents')
     addDocument(
         @Param('id') id: string,
@@ -96,6 +136,26 @@ export class SupplierController {
         },
     ) {
         return this.service.addDocument(id, body)
+    }
+
+    @Get(':id/documents/:documentId/file')
+    async getDocumentFile(
+        @Param('id') id: string,
+        @Param('documentId') documentId: string,
+        @Res() res: FastifyReply,
+    ) {
+        const { stream, fileName, mimeType } = await this.service.getDocumentFile(
+            id,
+            documentId,
+        )
+
+        res.header('Content-Type', mimeType)
+        res.header(
+            'Content-Disposition',
+            `inline; filename="${encodeURIComponent(fileName)}"`,
+        )
+
+        return res.send(stream)
     }
 
     @Delete(':id/documents/:documentId')

@@ -1,3 +1,4 @@
+# Optional Docker alternative — prefer standalone: scripts/start-tile38.ps1
 services:
   tile38:
     image: tile38/tile38:latest

@@ -87,6 +87,10 @@ export class CreateGoodsIssueDto {
 
     @IsOptional()
     @IsString()
+    reservationHeaderId?: string
+
+    @IsOptional()
+    @IsString()
     packageId?: string
 
     @IsOptional()

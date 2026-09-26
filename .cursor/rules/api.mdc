@@ -1,0 +1,18 @@
+---
+description: REST API conventions and anti-duplication
+globs: backend/src/**/*.controller.ts,backend/src/**/*.dto.ts,src/modules/**/services/**/*
+alwaysApply: false
+---
+
+# API Rules
+
+Read [AGENTS.md](../../AGENTS.md) §10.
+
+- Global prefix: `/api/v1` — MM: `/api/v1/mm/*`.
+- Before new routes: grep controllers and frontend `*Service.ts` for existing endpoints.
+- One canonical operation per use case (avoid parallel list/search/foo endpoints).
+- Validate: auth, authorization, org scope, DTO class-validator, state transitions, idempotency keys where posting.
+- Errors: use Nest HTTP exceptions; do not return 200 on partial failure unless API contract says so.
+- Frontend services mirror backend paths; keep types in module `types/`.
+
+Canonical examples: [docs/CANONICAL_PATTERNS.md](../../docs/CANONICAL_PATTERNS.md).

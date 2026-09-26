@@ -36,6 +36,7 @@ export type ErpModuleCode =
     | 'fico'
     | 'crm'
     | 'scm'
+    | 'hcm'
 
 export type ErpModule = {
     code: ErpModuleCode
@@ -44,10 +45,12 @@ export type ErpModule = {
     /** Customizable full name, e.g. "Sales & Distribution" */
     title: string
     description: string
-    /** Landing page path, e.g. "/modules/sd" */
+    /** Landing page path, e.g. "/modules/sd" — or absolute URL when isExternalLink */
     path: string
     icon: ErpIconName
     categories: ErpCategory[]
+    /** Opens path outside the ERP app (e.g. HRIS) */
+    isExternalLink?: boolean
 }
 
 /** Flattened search result for sidebar filtering */

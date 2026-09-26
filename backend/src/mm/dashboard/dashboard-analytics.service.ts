@@ -67,7 +67,22 @@ export class DashboardAnalyticsService {
     }
 
     async refresh(filters: DashboardFilters) {
-        const types = ['AGING', 'TURNOVER', 'DEAD_STOCK', 'MOVEMENT', 'PROCUREMENT_SPEND', 'SUPPLIERS', 'FULL_DASHBOARD']
+        const types = [
+            'AGING',
+            'TURNOVER',
+            'DEAD_STOCK',
+            'MOVEMENT',
+            'PROCUREMENT_SPEND',
+            'PROCUREMENT',
+            'SUPPLIERS',
+            'FULL_DASHBOARD',
+            'INVENTORY',
+            'WAREHOUSE',
+            'QUALITY',
+            'VALUATION',
+            'EXPIRY',
+            'AVAILABILITY',
+        ]
         for (const metricType of types) {
             const cacheKey = buildCacheKey(metricType, filters)
             await this.prisma.mmDashboardAnalyticsCache.deleteMany({

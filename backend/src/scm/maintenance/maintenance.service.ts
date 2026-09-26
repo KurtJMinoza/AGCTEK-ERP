@@ -6,8 +6,10 @@ import {
     MaintenanceStatus,
     MaintenanceType,
     Prisma,
+    VehicleDocumentStatus,
     VehicleStatus,
 } from '@prisma/client'
+import { deriveDocumentStatus } from './vehicle-document.utils'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
     assertFound,
@@ -177,7 +179,7 @@ export class MaintenanceService {
 
     async syncVehicleRoutingBlock(vehicleId: string) {
         // Block when IN_PROGRESS (always) or SCHEDULED/IN_PROGRESS with blocksRouting
-        const blocking = await this.prisma.maintenanceRecord.count({
+        const blockingMaint = await this.prisma.maintenanceRecord.count({
             where: {
                 vehicleId,
                 status: {
@@ -192,6 +194,39 @@ export class MaintenanceService {
                 ],
             },
         })
+
+        // Expired OR/CR/CTPL (blocksVehicle) — same routing gate; EXPIRING_SOON does not block
+        const docs = await this.prisma.vehicleDocument.findMany({
+            where: {
+                vehicleId,
+                blocksVehicle: true,
+                status: { not: VehicleDocumentStatus.CANCELLED },
+            },
+            select: {
+                id: true,
+                expiresAt: true,
+                remindDaysBefore: true,
+                status: true,
+            },
+        })
+        let blockingDocs = 0
+        for (const doc of docs) {
+            const status = deriveDocumentStatus(
+                doc.expiresAt,
+                doc.remindDaysBefore,
+            )
+            if (status !== doc.status) {
+                await this.prisma.vehicleDocument.update({
+                    where: { id: doc.id },
+                    data: { status },
+                })
+            }
+            if (status === VehicleDocumentStatus.EXPIRED) {
+                blockingDocs += 1
+            }
+        }
+
+        const blocking = blockingMaint + blockingDocs
 
         const vehicle = await this.prisma.vehicle.findUnique({
             where: { id: vehicleId },

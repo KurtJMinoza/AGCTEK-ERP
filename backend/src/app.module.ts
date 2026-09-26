@@ -8,6 +8,9 @@ import { AuthModule } from './auth/auth.module'
 import { ScmModule } from './scm/scm.module'
 import { MmModule } from './mm/mm.module'
 import { RetailModule } from './retail/retail.module'
+import { SdModule } from './sd/sd.module'
+import { PpModule } from './pp/pp.module'
+import { FicoModule } from './fico/fico.module'
 
 @Module({
     imports: [
@@ -17,6 +20,9 @@ import { RetailModule } from './retail/retail.module'
         AuthModule,
         ScmModule,
         MmModule,
+        SdModule,
+        PpModule,
+        FicoModule,
         RetailModule,
     ],
     controllers: [AppController],

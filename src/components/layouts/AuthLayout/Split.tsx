@@ -1,15 +1,24 @@
-import { cloneElement } from 'react'
 import { APP_NAME } from '@/constants/app.constant'
-import type { ReactNode, ReactElement } from 'react'
+import classNames from '@/utils/classNames'
+import type { ReactNode } from 'react'
 import type { CommonProps } from '@/@types/common'
 
 interface SplitProps extends CommonProps {
     content?: ReactNode
+    /** Tailwind max-width class for the auth form column */
+    formMaxWidth?: string
+    /** Top-align long forms; center short forms (sign-in) */
+    formAlign?: 'center' | 'start'
 }
 
-const Split = ({ children, content, ...rest }: SplitProps) => {
+const Split = ({
+    children,
+    content,
+    formMaxWidth = 'max-w-[480px]',
+    formAlign = 'center',
+}: SplitProps) => {
     return (
-        <div className="grid h-full bg-gray-50 p-4 dark:bg-gray-950 lg:grid-cols-2 lg:p-6">
+        <div className="grid h-full min-h-0 bg-gray-50 p-3 dark:bg-gray-950 sm:p-4 lg:grid-cols-2 lg:p-6">
             <div className="relative hidden flex-col justify-between overflow-hidden rounded-3xl bg-primary px-12 py-10 lg:flex">
                 <div className="relative z-10 flex flex-1 flex-col justify-center">
                     <img
@@ -37,14 +46,15 @@ const Split = ({ children, content, ...rest }: SplitProps) => {
                 <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-white/10" />
             </div>
 
-            <div className="flex w-full flex-col items-center justify-center px-4 sm:px-8">
-                <div className="w-full max-w-[480px]">
+            <div
+                className={classNames(
+                    'flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto overscroll-y-contain px-2 py-3 sm:px-4 sm:py-4 lg:py-6',
+                    formAlign === 'start' ? 'justify-start' : 'justify-center',
+                )}
+            >
+                <div className={classNames('w-full shrink-0', formMaxWidth)}>
                     {content}
-                    {children
-                        ? cloneElement(children as ReactElement, {
-                              ...rest,
-                          })
-                        : null}
+                    {children}
                 </div>
             </div>
         </div>

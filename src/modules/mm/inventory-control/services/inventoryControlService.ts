@@ -108,4 +108,71 @@ export const inventoryControlService = {
             `${BASE}/count-lines/${id}/recount`,
             data,
         ).then((r) => r.data),
+
+    // Phase 7 canonical APIs
+    listPolicies: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: any[]; total: number }>(`${BASE}/count-policies`, {
+            params,
+        }).then((r) => r.data),
+
+    createPolicy: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/count-policies`, data).then((r) => r.data),
+
+    listPlans: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: any[]; total: number }>(`${BASE}/count-plans`, {
+            params,
+        }).then((r) => r.data),
+
+    createPlan: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/count-plans`, data).then((r) => r.data),
+
+    generatePlan: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/count-plans/${id}/generate`, data ?? {}).then(
+            (r) => r.data,
+        ),
+
+    listSessions: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: any[]; total: number }>(`${BASE}/count-sessions`, {
+            params,
+        }).then((r) => r.data),
+
+    getSession: (id: string, blind?: boolean) =>
+        ErpAxiosBase.get(`${BASE}/count-sessions/${id}`, {
+            params: blind ? { blind: true } : undefined,
+        }).then((r) => r.data),
+
+    startSession: (id: string) =>
+        ErpAxiosBase.post(`${BASE}/count-sessions/${id}/start`, {}).then((r) => r.data),
+
+    createEntry: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/count-entries`, data).then((r) => r.data),
+
+    listRecounts: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: any[]; total: number }>(`${BASE}/recounts`, {
+            params,
+        }).then((r) => r.data),
+
+    createRecount: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/recounts`, data).then((r) => r.data),
+
+    listAdjustmentRequests: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: any[]; total: number }>(
+            `${BASE}/adjustment-requests`,
+            { params },
+        ).then((r) => r.data),
+
+    createAdjustmentRequest: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/adjustment-requests`, data).then((r) => r.data),
+
+    approveAdjustmentRequest: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(
+            `${BASE}/adjustment-requests/${id}/approve`,
+            data ?? {},
+        ).then((r) => r.data),
+
+    rejectAdjustmentRequest: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(
+            `${BASE}/adjustment-requests/${id}/reject`,
+            data ?? {},
+        ).then((r) => r.data),
 }

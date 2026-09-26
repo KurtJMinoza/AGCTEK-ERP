@@ -42,9 +42,9 @@ import {
 } from 'react-icons/hi'
 import { useMaterial } from '../hooks/useMaterial'
 import { materialService } from '../services/materialService'
-import { barcodeService, batchService, orgService, serialNumberService } from '../services/referenceService'
+import { barcodeService, batchService, serialNumberService } from '../services/referenceService'
 import { supplierMaterialService } from '@/modules/mm/supplier-management/services/supplierMaterialService'
-import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
+import { useLazyBinsForWarehouse, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 import MaterialFormDialog from '../components/MaterialFormDialog'
 import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload } from '../types'
@@ -882,8 +882,8 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
     const [binId, setBinId] = useState('')
     const [status, setStatus] = useState('AVAILABLE')
     const [batchOpts, setBatchOpts] = useState<Opt[]>([])
-    const [warehouseOpts, setWarehouseOpts] = useState<Opt[]>([])
-    const [binOpts, setBinOpts] = useState<Opt[]>([])
+    const { ensure: ensureFormRefs, warehouses: warehouseOptsRaw } = useLazyMmRefs()
+    const { loadForWarehouse, rows: binRows } = useLazyBinsForWarehouse()
 
     useEffect(() => {
         if (!addOpen) return
@@ -895,16 +895,19 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                 .then((list) => setBatchOpts(list.map((b: any) => ({ value: b.id, label: b.batchNumber }))))
                 .catch(() => setBatchOpts([]))
         }
-        orgService.warehouses()
-            .then((list) => setWarehouseOpts(list.map((w: any) => ({ value: w.id, label: `${w.code} — ${w.name}` }))))
-            .catch(() => setWarehouseOpts([]))
-        storageBinService.list({ limit: 500 } as any)
-            .then((r: any) => {
-                const list = Array.isArray(r) ? r : r?.data ?? []
-                setBinOpts(list.map((b: any) => ({ value: b.id, label: b.code })))
-            })
-            .catch(() => setBinOpts([]))
-    }, [addOpen, material.id, material.batches])
+        void ensureFormRefs('warehouses')
+    }, [addOpen, material.id, material.batches, ensureFormRefs])
+
+    useEffect(() => {
+        if (!addOpen || !warehouseId) return
+        void loadForWarehouse(warehouseId)
+    }, [addOpen, warehouseId, loadForWarehouse])
+
+    const warehouseOpts = warehouseOptsRaw
+    const binOpts = useMemo(
+        () => binRows.map((b) => ({ value: b.id, label: b.code })),
+        [binRows],
+    )
 
     const resetForm = () => {
         setSerialNumber(''); setBatchId(''); setWarehouseId(''); setBinId(''); setStatus('AVAILABLE')

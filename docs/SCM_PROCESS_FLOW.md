@@ -1,5 +1,7 @@
 # SCM End-to-End Process Flow — UI mapping
 
+**Enterprise parent:** [`MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) §§12–17 (MM→SCM handoff, logistics, GI, SD/CRM status).
+
 Authoritative logistics phases: PLAN → PREPARE → EXECUTE → CONFIRM → CLOSE.
 
 ## MM → SCM outbound handoff (customer delivery)
@@ -69,9 +71,11 @@ Removed from hub: Supply Network, Product Locations, Warehouse Operations (MM te
 - Full VRP / traffic / HOS
 - Demand planning MM↔SCM forecast sync
 
-## Vehicle GPS (flespi + optional Traccar)
+## Vehicle GPS (flespi; Traccar paused)
 
 **Active:** flespi `concox` channel → Nest MQTT (`mqtt.flespi.io`) → `GpsLog` → Live Tracking.  
 Ident = **first 14 digits of IMEI** → `Vehicle.telematicsDeviceId`. See **`docs/SCM_FLESPI_VL502.md`**.
 
 **Optional later:** Huabao **:5015** → Traccar → Nest ingest — **`docs/SCM_TRACCAR_VL502.md`**.
+
+**Optional VL512 (Windows):** GT06 **:5023** → nginx stream → native Traccar → Nest ingest — **`docs/SCM_TRACCAR_VL512.md`**.

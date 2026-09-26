@@ -4,6 +4,9 @@ import { AuthService } from './auth.service'
 type SignUpBody = {
     email: string
     userName: string
+    firstName?: string
+    lastName?: string
+    jobPosition?: string
     password: string
     role: string
 }
@@ -17,6 +20,10 @@ type UpdateProfileBody = {
     userName: string
     email?: string
     newUserName?: string
+    firstName?: string
+    lastName?: string
+    jobPosition?: string
+    bio?: string
     avatar?: string
 }
 

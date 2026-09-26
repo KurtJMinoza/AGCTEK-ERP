@@ -13,11 +13,25 @@ import { WarehouseQueryDto } from './dto/warehouse-query.dto'
 export class WarehouseService {
     constructor(private prisma: PrismaService) {}
 
+    private readonly orgSelect = {
+        id: true,
+        code: true,
+        name: true,
+    } as const
+
+    /** Detail / mutate — includes storage types. */
     private readonly includes = {
-        company: true,
-        plant: true,
-        branch: true,
+        company: { select: this.orgSelect },
+        plant: { select: this.orgSelect },
+        branch: { select: this.orgSelect },
         storageTypes: { where: { deletedAt: null } },
+    }
+
+    /** List — no storageTypes (large child collection). */
+    private readonly listIncludes = {
+        company: { select: this.orgSelect },
+        plant: { select: this.orgSelect },
+        branch: { select: this.orgSelect },
     }
 
     async findAll(query: WarehouseQueryDto) {
@@ -45,7 +59,7 @@ export class WarehouseService {
         const [data, total] = await Promise.all([
             this.prisma.warehouse.findMany({
                 where,
-                include: this.includes,
+                include: this.listIncludes,
                 orderBy: { [sortBy]: sortOrder },
                 skip: (page - 1) * limit,
                 take: limit,

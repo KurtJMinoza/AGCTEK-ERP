@@ -11,7 +11,7 @@ import Select from '@/components/ui/Select'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import { FormItem } from '@/components/ui/Form'
-import { orgService } from '../../material-master/services/referenceService'
+import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import {
     fetchReport,
     type ReportEndpoint,
@@ -47,8 +47,8 @@ export function AnalyticsReportPage({
     render,
 }: Props) {
     const breadcrumbItems = buildErpBreadcrumbs(route)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [warehouses, setWarehouses] = useState<Opt[]>([])
+    const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
+    const { ensure: ensureWarehouses, warehouses: allWarehouses } = useLazyMmRefs()
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [dateFrom, setDateFrom] = useState('')
@@ -59,29 +59,27 @@ export function AnalyticsReportPage({
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        orgService.companies().then((cos: any) => {
-            const c = (Array.isArray(cos) ? cos : cos?.data ?? []).map((x: any) => ({
-                value: x.id,
-                label: x.name || x.code,
-            }))
-            setCompanies(c)
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [loadFilterRefs])
 
     useEffect(() => {
-        if (!companyId) return
-        orgService
-            .warehouses(companyId)
-            .then((list: any) => {
-                const w = (Array.isArray(list) ? list : []).map((x: any) => ({
-                    value: x.id,
-                    label: x.name || x.code,
-                }))
-                setWarehouses(w)
-            })
-            .catch(() => setWarehouses([]))
-    }, [companyId])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
+
+    useEffect(() => {
+        if (!companyId || !showWarehouse) return
+        void ensureWarehouses('warehouses')
+    }, [companyId, showWarehouse, ensureWarehouses])
+
+    const warehouses = useMemo(
+        () =>
+            allWarehouses.filter((w) => {
+                const company = (w.meta as { companyId?: string } | undefined)?.companyId
+                return !companyId || !company || company === companyId
+            }),
+        [allWarehouses, companyId],
+    )
 
     const params = useMemo<ReportParams>(
         () => ({

@@ -23,11 +23,19 @@ export class ReturnsDisposalConfigService {
                 ...(dto.approvalQuantityThreshold !== undefined && {
                     approvalQuantityThreshold: new Decimal(dto.approvalQuantityThreshold),
                 }),
+                ...(dto.autoBlockExpired !== undefined && {
+                    autoBlockExpired: dto.autoBlockExpired,
+                }),
+                ...(dto.expiredBlockStockStatus !== undefined && {
+                    expiredBlockStockStatus: dto.expiredBlockStockStatus,
+                }),
             },
             create: {
                 companyId: dto.companyId,
                 approvalAmountThreshold: new Decimal(dto.approvalAmountThreshold ?? 10000),
                 approvalQuantityThreshold: new Decimal(dto.approvalQuantityThreshold ?? 0),
+                autoBlockExpired: dto.autoBlockExpired ?? false,
+                expiredBlockStockStatus: dto.expiredBlockStockStatus ?? 'EXPIRED',
             },
         })
     }

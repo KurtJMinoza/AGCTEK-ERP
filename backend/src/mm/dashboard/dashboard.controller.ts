@@ -27,24 +27,13 @@ export class DashboardController {
 
     @Get()
     async getDashboard(@Query() query: DashboardQueryDto) {
-        const filters = this.toFilters(query)
-        const visibility = this.visibilityService.getVisibility(query.role, query.authority)
+        return this.buildDashboard(query)
+    }
 
-        const [kpis, rawAlerts, analytics] = await Promise.all([
-            this.kpiService.getKpis(filters),
-            this.alertService.getAlerts(filters),
-            visibility.analytics
-                ? this.analyticsService.getSummaries(filters)
-                : Promise.resolve(null),
-        ])
-
-        return {
-            filters,
-            visibility,
-            kpis: this.applyKpiVisibility(kpis, visibility),
-            alerts: this.alertService.filterByVisibility(rawAlerts, visibility),
-            analytics,
-        }
+    /** Canonical MM dashboard alias — same payload as GET /mm/dashboard. */
+    @Get('mm')
+    async getMmDashboard(@Query() query: DashboardQueryDto) {
+        return this.buildDashboard(query)
     }
 
     @Get('kpis')
@@ -70,6 +59,28 @@ export class DashboardController {
     @Post('refresh')
     refresh(@Body() body: DashboardRefreshDto) {
         return this.analyticsService.refresh(this.toFilters(body))
+    }
+
+    private async buildDashboard(query: DashboardQueryDto) {
+        const filters = this.toFilters(query)
+        const visibility = this.visibilityService.getVisibility(query.role, query.authority)
+        const includeAnalytics = query.includeAnalytics !== false
+
+        const [kpis, rawAlerts, analytics] = await Promise.all([
+            this.kpiService.getKpis(filters),
+            this.alertService.getAlerts(filters),
+            includeAnalytics && visibility.analytics
+                ? this.analyticsService.getSummaries(filters)
+                : Promise.resolve(null),
+        ])
+
+        return {
+            filters,
+            visibility,
+            kpis: this.applyKpiVisibility(kpis, visibility),
+            alerts: this.alertService.filterByVisibility(rawAlerts, visibility),
+            analytics,
+        }
     }
 
     private applyKpiVisibility(

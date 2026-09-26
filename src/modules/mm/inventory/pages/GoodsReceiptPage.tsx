@@ -29,11 +29,8 @@ import {
     HiOutlineInboxIn,
 } from 'react-icons/hi'
 import { goodsReceiptService } from '../services/goodsReceiptService'
-import { warehouseService } from '../../warehouse/services/warehouseService'
-import { materialService } from '../../material-master/services/materialService'
+import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsReceipt, StockOpsQueryParams } from '../types'
-import type { Warehouse } from '../../warehouse/types'
-import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
@@ -113,12 +110,8 @@ const GoodsReceiptPage = () => {
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-    const [materials, setMaterials] = useState<Material[]>([])
-    useEffect(() => {
-        warehouseService.list({ limit: 500 }).then((r: any) => setWarehouses(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-        materialService.list({ limit: 500 }).then((r: any) => setMaterials(Array.isArray(r) ? r : (r?.data ?? []))).catch(() => {})
-    }, [])
+    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -129,11 +122,12 @@ const GoodsReceiptPage = () => {
     const [createLines, setCreateLines] = useState<LineInput[]>([{ materialId: '', quantity: 1, uomId: '', unitCost: 0 }])
     const [creating, setCreating] = useState(false)
 
-    const openCreate = useCallback(() => {
+    const openCreate = useCallback(async () => {
+        await Promise.all([ensureWarehouses(), ensureMaterials()])
         setCreateForm({ companyId: '', warehouseId: '', postingDate: new Date().toISOString().slice(0, 10), documentDate: new Date().toISOString().slice(0, 10), stockStatus: 'UNRESTRICTED', remarks: '' })
         setCreateLines([{ materialId: '', quantity: 1, uomId: '', unitCost: 0 }])
         setCreateOpen(true)
-    }, [])
+    }, [ensureWarehouses, ensureMaterials])
 
     const handleCreate = useCallback(async () => {
         setCreating(true)

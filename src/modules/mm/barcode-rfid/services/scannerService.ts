@@ -1,16 +1,26 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type { ResolveHit, ScannerEventPayload, ScannerEventResult } from '../types'
 
-const BASE = '/mm/scanner'
+const SCANNER = '/mm/scanner'
+const MOBILE = '/mm/mobile'
 
 export const scannerService = {
-    resolve: (barcode: string, companyId?: string) =>
-        ErpAxiosBase.get<ResolveHit>(`${BASE}/resolve`, {
+    /** Canonical Phase 11 resolve */
+    resolve: (barcode: string, companyId?: string, extras?: Record<string, unknown>) =>
+        ErpAxiosBase.post<ResolveHit>(`${SCANNER}/resolve`, {
+            barcode,
+            companyId,
+            ...extras,
+        }).then((r) => r.data),
+
+    /** Legacy GET resolve (still supported) */
+    resolveGet: (barcode: string, companyId?: string) =>
+        ErpAxiosBase.get<ResolveHit>(`${SCANNER}/resolve`, {
             params: { barcode, companyId },
         }).then((r) => r.data),
 
     postEvent: (payload: ScannerEventPayload) =>
-        ErpAxiosBase.post<ScannerEventResult>(`${BASE}/events`, payload).then(
+        ErpAxiosBase.post<ScannerEventResult>(`${SCANNER}/events`, payload).then(
             (r) => r.data,
         ),
 
@@ -18,12 +28,54 @@ export const scannerService = {
         ErpAxiosBase.post<{
             results: ScannerEventResult[]
             processed: number
-        }>(`${BASE}/events/batch`, { events }).then((r) => r.data),
+        }>(`${SCANNER}/events/batch`, { events }).then((r) => r.data),
 
     listEvents: (params?: any) =>
-        ErpAxiosBase.get<{ data: ScannerEventResult[]; total: number }>(`${BASE}/events`, {
-            params,
-        }).then((r) => r.data),
+        ErpAxiosBase.get<{ data: ScannerEventResult[]; total: number }>(
+            `${SCANNER}/events`,
+            { params },
+        ).then((r) => r.data),
+
+    // ── Mobile execution channel aliases ─────────────────────────
+
+    registerDevice: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${MOBILE}/devices/register`, data).then((r) => r.data),
+
+    receivingScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/receiving/scan`,
+            payload,
+        ).then((r) => r.data),
+
+    putawayScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/putaway/scan`,
+            payload,
+        ).then((r) => r.data),
+
+    pickingScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/picking/scan`,
+            payload,
+        ).then((r) => r.data),
+
+    countingScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/counting/scan`,
+            payload,
+        ).then((r) => r.data),
+
+    sync: (payload: {
+        deviceId: string
+        companyId?: string
+        userId?: string
+        sessionToken?: string
+        events: ScannerEventPayload[]
+    }) =>
+        ErpAxiosBase.post<{ processed: number; results: any[] }>(
+            `${MOBILE}/sync`,
+            payload,
+        ).then((r) => r.data),
 }
 
 export function newIdempotencyKey(prefix = 'scan') {

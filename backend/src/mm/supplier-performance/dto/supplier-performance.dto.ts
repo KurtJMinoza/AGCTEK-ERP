@@ -35,6 +35,13 @@ export class UpsertWeightConfigDto {
     @Max(100)
     priceWeight!: number
 
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(0)
+    @Max(100)
+    quantityWeight?: number
+
     @Type(() => Number)
     @IsInt()
     @Min(0)
@@ -58,6 +65,34 @@ export class UpsertAlertConfigDto {
     @Min(0)
     @Max(100)
     scoreThreshold!: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(1)
+    lateDeliveryRateThreshold?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(1)
+    rejectionRateThreshold?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(1)
+    shortageRateThreshold?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(1)
+    priceVarianceThreshold?: number
 
     @IsOptional()
     @IsBoolean()
@@ -153,6 +188,16 @@ export class AlertQueryDto {
     @IsOptional()
     @IsIn(['OPEN', 'ACKNOWLEDGED', 'DISMISSED'])
     status?: string
+
+    @IsOptional()
+    @IsIn([
+        'POOR_SCORE',
+        'LATE_DELIVERY',
+        'HIGH_REJECTION',
+        'REPEATED_SHORTAGE',
+        'HIGH_PRICE_VARIANCE',
+    ])
+    alertType?: string
 
     @IsOptional()
     @Type(() => Number)

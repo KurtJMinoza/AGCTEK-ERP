@@ -21,6 +21,9 @@ const toneMap: Record<string, StatusTone> = {
     CANCELLED: 'danger',
     FAILED: 'danger',
     SKIPPED: 'warning',
+    VALID: 'success',
+    EXPIRING_SOON: 'warning',
+    EXPIRED: 'danger',
 }
 
 export function statusTone(status: string): StatusTone {

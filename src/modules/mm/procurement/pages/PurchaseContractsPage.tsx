@@ -19,8 +19,7 @@ import {
     purchaseContractService,
     type PurchaseContract,
 } from '../services/purchaseContractService'
-import { supplierService } from '@/modules/mm/supplier-management/services/supplierService'
-import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/purchase-contracts'
@@ -39,8 +38,8 @@ const PurchaseContractsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<PurchaseContract[]>([])
     const [loading, setLoading] = useState(true)
-    const [companies, setCompanies] = useState<Opt[]>([])
-    const [suppliers, setSuppliers] = useState<Opt[]>([])
+    const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
+    const { ensure: ensureFormRefs, suppliers } = useLazyMmRefs()
     const [companyId, setCompanyId] = useState('')
     const [status, setStatus] = useState('')
     const [open, setOpen] = useState(false)
@@ -55,24 +54,13 @@ const PurchaseContractsPage = () => {
     })
 
     useEffect(() => {
-        Promise.all([
-            orgService.companies(),
-            supplierService.list({ page: 1, pageSize: 200, status: 'ACTIVE' }),
-        ]).then(([cos, sup]) => {
-            const c = (Array.isArray(cos) ? cos : []).map((x: any) => ({
-                value: x.id,
-                label: x.name || x.code,
-            }))
-            setCompanies(c)
-            setSuppliers(
-                (sup?.data ?? []).map((s) => ({
-                    value: s.id,
-                    label: `${s.supplierCode} — ${s.supplierName}`,
-                })),
-            )
-            if (c[0]) setCompanyId(c[0].value)
-        })
-    }, [])
+        if (!companyId && companies[0]) setCompanyId(companies[0].value)
+    }, [companies, companyId])
+
+    const openCreate = useCallback(async () => {
+        await ensureFormRefs('suppliers')
+        setOpen(true)
+    }, [ensureFormRefs])
 
     const load = useCallback(async () => {
         if (!companyId) return
@@ -93,7 +81,9 @@ const PurchaseContractsPage = () => {
 
     useEffect(() => {
         load()
-    }, [load])
+        const t = window.setTimeout(() => loadFilterRefs(), 0)
+        return () => window.clearTimeout(t)
+    }, [load, loadFilterRefs])
 
     const columns: ColumnDef<PurchaseContract>[] = useMemo(
         () => [
@@ -234,7 +224,7 @@ const PurchaseContractsPage = () => {
                         size="sm"
                         variant="solid"
                         icon={<HiOutlinePlus />}
-                        onClick={() => setOpen(true)}
+                        onClick={openCreate}
                     >
                         New Contract
                     </Button>

@@ -388,10 +388,11 @@ export class ScannerEventService {
             )
         }
 
-        const gr = await this.receivingService.receive({
+        const receiveResult = await this.receivingService.receive({
             expectedReceiptId: dto.expectedReceiptId,
             receiverId: dto.userId,
             createdBy: dto.userId,
+            autoPost: true,
             lines: [
                 {
                     expectedReceiptLineId: dto.expectedReceiptLineId,
@@ -403,6 +404,15 @@ export class ScannerEventService {
                 },
             ],
         })
+        const gr =
+            receiveResult &&
+            typeof receiveResult === 'object' &&
+            'goodsReceipt' in receiveResult
+                ? (receiveResult as { goodsReceipt: { id: string; companyId: string; warehouseId: string; documentNumber: string; status: string } }).goodsReceipt
+                : (receiveResult as { id: string; companyId: string; warehouseId: string; documentNumber: string; status: string })
+        if (!gr?.id) {
+            throw new BadRequestException('Goods receipt was not created from receiving scan')
+        }
 
         return {
             companyId: gr.companyId,

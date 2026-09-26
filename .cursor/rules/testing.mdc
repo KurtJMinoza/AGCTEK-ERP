@@ -1,0 +1,19 @@
+---
+description: Validation and test requirements before claiming done
+globs: backend/**/*.spec.ts,backend/src/**/*
+alwaysApply: false
+---
+
+# Testing & Validation
+
+Read [AGENTS.md](../../AGENTS.md) §13 and Definition of Done.
+
+**Backend (MM):** `cd backend && npm run test:architecture` after MM structural changes.
+
+**Backend (general):** `npm run test` in `backend/` when touching tested domains.
+
+**Frontend:** `npm run lint`, `npm run build` (or `next build`) when changing app routes or shared UI.
+
+Report exactly which commands ran and their outcome. Do not state "tests passed" without execution.
+
+For non-trivial changes: add or update tests when the repo already tests similar behavior.

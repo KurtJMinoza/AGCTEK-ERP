@@ -35,8 +35,46 @@ export class CreatePurchaseContractLineDto {
     leadTimeDays?: number
 
     @IsOptional()
+    @IsNumber()
+    @Min(0)
+    contractQuantity?: number
+
+    @IsOptional()
     @IsString()
     remarks?: string
+}
+
+export class CreateContractReleaseLineDto {
+    @IsString()
+    @IsNotEmpty()
+    contractLineId!: string
+
+    @IsNumber()
+    @Min(0.000001)
+    quantity!: number
+}
+
+export class CreateContractReleaseDto {
+    @IsString()
+    @IsNotEmpty()
+    buyerId!: string
+
+    @IsOptional()
+    @IsString()
+    warehouseId?: string
+
+    @IsOptional()
+    @IsString()
+    releasedBy?: string
+
+    @IsOptional()
+    @IsString()
+    notes?: string
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateContractReleaseLineDto)
+    lines!: CreateContractReleaseLineDto[]
 }
 
 export class CreatePurchaseContractDto {

@@ -61,23 +61,40 @@ function ModuleMenuItem({
 }) {
     const label = module.title
 
+    const linkClassName = 'flex h-full w-full items-center gap-2'
+    const linkBody = (
+        <>
+            <ErpIcon icon={module.icon} />
+            {!collapsed ? (
+                <span className="truncate">{module.title}</span>
+            ) : null}
+        </>
+    )
+
     const item = (
         <MenuItem eventKey={module.code}>
-            <Link
-                href={module.path}
-                onClick={onNavigate}
-                className="flex h-full w-full items-center gap-2"
-            >
-                <ErpIcon icon={module.icon} />
-                {!collapsed ? (
-                    <span className="truncate">{module.title}</span>
-                ) : null}
-            </Link>
+            {module.isExternalLink ? (
+                <a
+                    href={module.path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={onNavigate}
+                    className={linkClassName}
+                >
+                    {linkBody}
+                </a>
+            ) : (
+                <Link
+                    href={module.path}
+                    onClick={onNavigate}
+                    className={linkClassName}
+                >
+                    {linkBody}
+                </Link>
+            )}
         </MenuItem>
     )
 
-    // Always wrap Tooltip so Floating UI useId count stays identical on
-    // server and client (collapsed vs expanded must not change the tree).
     return (
         <Tooltip title={label} placement="right" disabled={!collapsed}>
             {item}

@@ -58,7 +58,10 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
 const MaterialsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(MATERIALS_PATH)
 
-    const { materialTypes, materialCategories } = useReferenceData()
+    const { materialTypes, materialCategories } = useReferenceData([
+        'materialTypes',
+        'materialCategories',
+    ])
 
     const typeFilterOptions = useMemo<FilterOption[]>(
         () => [
