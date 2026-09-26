@@ -172,14 +172,11 @@ export default function DriversPage() {
                 ),
             },
             {
-                header: 'User',
+                header: 'Job Position',
                 cell: ({ row }) => (
-                    <div className="text-sm">
-                        <p>{row.original.user?.userName ?? '—'}</p>
-                        <p className="text-xs text-gray-500">
-                            {row.original.user?.email ?? '—'}
-                        </p>
-                    </div>
+                    <span className="text-sm">
+                        {row.original.user?.jobPosition?.trim() || '—'}
+                    </span>
                 ),
             },
             {

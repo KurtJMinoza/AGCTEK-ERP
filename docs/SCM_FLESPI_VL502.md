@@ -2,7 +2,7 @@
 
 **flespi** is the active protocol decoder for VL502 testing. Nest stays local; **GpsLog** is the system of record; **SCM Live Tracking** (Leaflet + OSM) is the ERP map. Do not use TrackIt/TracSeek/flespi UI as the dispatcher map.
 
-Traccar (`docker-compose.traccar.yml` + `docs/SCM_TRACCAR_VL502.md`) remains optional for later self-hosted decoding — not required for this slice. No ngrok TCP / VPS needed when using flespi MQTT.
+No ngrok TCP / VPS needed when using flespi MQTT.
 
 ```text
 VL502 --TCP--> flespi channel (protocol_id = concox)
@@ -64,7 +64,7 @@ FLESPI_MQTT_PORT=8883
 
 # HTTP ingest fallback (stream / curl)
 TRACKING_INGEST_TOKEN=change-me-ingest-secret
-# or FLESPI_INGEST_TOKEN / TRACCAR_INGEST_TOKEN
+# or FLESPI_INGEST_TOKEN
 ```
 
 Restart Nest. Logs should show `Flespi MQTT connected` and `Subscribed flespi/message/gw/channels/{id}/+`.
@@ -115,4 +115,4 @@ Then open `/scm/tracking` — pin appears with other GPS vehicles when none sele
 - flespi UI inside `src/modules/scm`
 - TrackIt / TracSeek / second map product
 - OBD diagnostic console
-- Requiring Traccar `:5015` or ngrok TCP for this test path
+- Requiring ngrok TCP for the MQTT test path

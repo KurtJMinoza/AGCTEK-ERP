@@ -99,7 +99,7 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    /** SET scm:geofences {id} CIRCLE lat lng radiusM */
+    /** SET scm:geofences {id} OBJECT (circle approximated as GeoJSON Polygon). */
     async setGeofenceCircle(
         id: string,
         lat: number,
@@ -108,14 +108,14 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
     ) {
         if (!this.ready || !this.client) return false
         try {
+            // Tile38 1.x no longer accepts SET … CIRCLE; store a polygon ring.
+            const geojson = circleToPolygonGeoJson(lat, lng, radiusM)
             await this.client.call(
                 'SET',
                 GEOFENCE_KEY,
                 id,
-                'CIRCLE',
-                String(lat),
-                String(lng),
-                String(radiusM),
+                'OBJECT',
+                geojson,
             )
             return true
         } catch (err) {
@@ -143,6 +143,7 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
     /**
      * Live fence around a hub: when fleet points enter/exit the circle,
      * Tile38 POSTs to TILE38_HOOK_BASE_URL/scm/tracking/geofence-hook
+     * (set TILE38_HOOK_BASE_URL to http://127.0.0.1:3001/api/v1 for standalone).
      */
     async syncNearbyHook(
         geofenceId: string,
@@ -155,7 +156,7 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
         const base =
             process.env.TILE38_HOOK_BASE_URL ||
             process.env.API_PUBLIC_URL ||
-            'http://host.docker.internal:3001'
+            'http://127.0.0.1:3001/api/v1'
         const endpoint = `${base.replace(/\/$/, '')}/scm/tracking/geofence-hook`
         const name = this.hookName(geofenceId)
 
@@ -223,6 +224,35 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
     hookName(geofenceId: string) {
         return `scm:hook:${geofenceId}`
     }
+}
+
+/** Approx. a circle as a closed GeoJSON Polygon (lon,lat rings) for Tile38 SET OBJECT. */
+function circleToPolygonGeoJson(
+    lat: number,
+    lng: number,
+    radiusM: number,
+    steps = 32,
+): string {
+    const R = 6378137
+    const latR = (lat * Math.PI) / 180
+    const lngR = (lng * Math.PI) / 180
+    const d = Math.max(radiusM, 1) / R
+    const ring: [number, number][] = []
+    for (let i = 0; i <= steps; i++) {
+        const brng = (2 * Math.PI * i) / steps
+        const lat2 = Math.asin(
+            Math.sin(latR) * Math.cos(d) +
+                Math.cos(latR) * Math.sin(d) * Math.cos(brng),
+        )
+        const lng2 =
+            lngR +
+            Math.atan2(
+                Math.sin(brng) * Math.sin(d) * Math.cos(latR),
+                Math.cos(d) - Math.sin(latR) * Math.sin(lat2),
+            )
+        ring.push([(lng2 * 180) / Math.PI, (lat2 * 180) / Math.PI])
+    }
+    return JSON.stringify({ type: 'Polygon', coordinates: [ring] })
 }
 
 function flattenIds(raw: unknown): string[] {
