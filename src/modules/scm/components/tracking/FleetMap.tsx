@@ -18,6 +18,7 @@ import type { GeofenceZone } from '../../utils/geofences'
 import { formatStatusLabel } from '../../utils/status'
 import {
     MAP_PIN,
+    getCachedMapOriginIcon,
     getCachedMapPinIcon,
     resolveStopPinColor,
 } from '../../utils/mapPins'
@@ -26,6 +27,13 @@ import {
     markerKindColor,
 } from '../../utils/trackingMetrics'
 import SmoothMarker from './SmoothMarker'
+import GeofenceDrawLayer, {
+    EnsureFleetMarkerPane,
+    EnsureGeofencePane,
+    type GeofenceDraft,
+} from './GeofenceDrawLayer'
+
+export type { GeofenceDraft }
 
 export type FleetMapProps = {
     items: FleetTrackingItem[]
@@ -35,6 +43,12 @@ export type FleetMapProps = {
     geofences?: GeofenceZone[]
     /** Increment to re-center on the selected unit */
     centerRequest?: number
+    /** Geofence id to fly to (hub list click) */
+    focusGeofenceId?: string | null
+    /** When true, click-drag on the map places/resizes a draft geofence */
+    drawGeofenceEnabled?: boolean
+    draftGeofence?: GeofenceDraft | null
+    onDraftGeofenceChange?: (draft: GeofenceDraft) => void
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]
@@ -63,11 +77,34 @@ export default function FleetMap({
     history = [],
     geofences = [],
     centerRequest = 0,
+    focusGeofenceId = null,
+    drawGeofenceEnabled = false,
+    draftGeofence = null,
+    onDraftGeofenceChange,
 }: FleetMapProps) {
     const positioned = useMemo(
         () => items.filter((item) => item.latest != null),
         [items],
     )
+
+    /** Nudge coincident GPS points so stacked units don't fully hide each other. */
+    const markerPositions = useMemo(() => {
+        const counts = new Map<string, number>()
+        const result = new Map<string, [number, number]>()
+        for (const item of positioned) {
+            const latest = item.latest!
+            const key = `${latest.latitude.toFixed(5)},${latest.longitude.toFixed(5)}`
+            const n = counts.get(key) ?? 0
+            counts.set(key, n + 1)
+            // ~8 m east per duplicate at equator-ish; fine for PH latitudes
+            const lngNudge = n * 0.00008
+            result.set(item.vehicle.id, [
+                latest.latitude,
+                latest.longitude + lngNudge,
+            ])
+        }
+        return result
+    }, [positioned])
 
     const selectedItem = useMemo(
         () =>
@@ -94,7 +131,9 @@ export default function FleetMap({
     if (
         positioned.length === 0 &&
         stopMarkers.length === 0 &&
-        geofences.length === 0
+        geofences.length === 0 &&
+        !drawGeofenceEnabled &&
+        !draftGeofence
     ) {
         return (
             <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 text-center dark:border-gray-600 dark:bg-gray-800/40">
@@ -113,14 +152,21 @@ export default function FleetMap({
     return (
         <div className="scm-fleet-map relative z-0 h-full min-h-[420px] overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 isolate">
             <style>{`
+              /* Reset Leaflet DivIcon chrome only — never zero out margin
+                 (Leaflet uses margin for iconAnchor / tip placement). */
               .scm-map-pin.leaflet-marker-icon,
-              .scm-map-pin {
+              .scm-map-origin.leaflet-marker-icon,
+              .scm-geofence-ref-point.leaflet-marker-icon {
                 background: transparent !important;
                 border: none !important;
-                margin: 0 !important;
-                padding: 0 !important;
               }
             `}</style>
+            {drawGeofenceEnabled ? (
+                <div className="pointer-events-none absolute left-1/2 top-3 z-[500] max-w-[90%] -translate-x-1/2 rounded-lg border border-sky-200 bg-sky-50/95 px-3 py-1.5 text-center text-xs text-sky-900 shadow-sm dark:border-sky-800 dark:bg-sky-950/90 dark:text-sky-100">
+                    Click the map to set the center, then drag the circle edge
+                    to set the radius. Drag elsewhere to pan.
+                </div>
+            ) : null}
             <MapContainer
                 key="osm-basemap"
                 center={DEFAULT_CENTER}
@@ -136,18 +182,33 @@ export default function FleetMap({
                     maxZoom={19}
                 />
 
+                <EnsureGeofencePane />
+                <EnsureFleetMarkerPane />
+
                 <FitFleetBounds
                     vehiclePoints={positioned}
                     stopPoints={stopMarkers}
+                    geofences={geofences}
                     selectedVehicleId={selectedVehicleId}
                     centerRequest={centerRequest}
+                    focusGeofenceId={focusGeofenceId}
                 />
+
+                {drawGeofenceEnabled && onDraftGeofenceChange ? (
+                    <GeofenceDrawLayer
+                        enabled={drawGeofenceEnabled}
+                        draft={draftGeofence}
+                        onChange={onDraftGeofenceChange}
+                    />
+                ) : null}
 
                 {geofences.map((zone) => (
                     <Circle
                         key={zone.id}
                         center={[zone.lat, zone.lng]}
                         radius={zone.radiusM}
+                        pane="geofencePane"
+                        interactive={!drawGeofenceEnabled}
                         pathOptions={{
                             color: zone.color ?? '#38bdf8',
                             fillColor: zone.color ?? '#38bdf8',
@@ -156,14 +217,16 @@ export default function FleetMap({
                             dashArray: zone.kind === 'HUB' ? undefined : '6 6',
                         }}
                     >
-                        <Popup>
-                            <div className="text-sm">
-                                <p className="font-semibold">{zone.name}</p>
-                                <p className="text-gray-600">
-                                    {zone.kind} · {zone.radiusM} m
-                                </p>
-                            </div>
-                        </Popup>
+                        {!drawGeofenceEnabled ? (
+                            <Popup>
+                                <div className="text-sm">
+                                    <p className="font-semibold">{zone.name}</p>
+                                    <p className="text-gray-600">
+                                        {zone.kind} · {zone.radiusM} m
+                                    </p>
+                                </div>
+                            </Popup>
+                        ) : null}
                     </Circle>
                 ))}
 
@@ -185,19 +248,25 @@ export default function FleetMap({
                     const color = selected
                         ? MAP_PIN.vehicle
                         : markerKindColor(kind)
+                    const position =
+                        markerPositions.get(item.vehicle.id) ?? [
+                            latest.latitude,
+                            latest.longitude,
+                        ]
                     return (
                         <SmoothMarker
                             key={item.vehicle.id}
-                            position={[latest.latitude, latest.longitude]}
+                            position={position}
                             durationMs={selected ? 500 : 400}
-                            icon={getCachedMapPinIcon({
+                            pane="fleetMarkerPane"
+                            icon={getCachedMapOriginIcon({
                                 color,
                                 label: selected
                                     ? 'V'
                                     : item.vehicle.plateNumber.slice(0, 3),
                                 selected,
                             })}
-                            zIndexOffset={selected ? 600 : 400}
+                            zIndexOffset={selected ? 1000 : 800}
                             eventHandlers={{
                                 click: () => onSelect(item.vehicle.id),
                             }}
@@ -239,7 +308,7 @@ export default function FleetMap({
                                     ? 'D'
                                     : String(stop.sequence),
                         })}
-                        zIndexOffset={stop.kind === 'destination' ? 500 : 300}
+                        zIndexOffset={stop.kind === 'destination' ? 700 : 600}
                     >
                         <Popup>
                             <div className="min-w-[140px] text-sm">
@@ -253,25 +322,6 @@ export default function FleetMap({
                                 <p className="mt-1 text-xs text-gray-500">
                                     {formatStatusLabel(stop.status)}
                                 </p>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
-
-                {geofences.map((zone) => (
-                    <Marker
-                        key={`hub-${zone.id}`}
-                        position={[zone.lat, zone.lng]}
-                        icon={getCachedMapPinIcon({
-                            color: zone.color ?? '#38bdf8',
-                            label: zone.kind === 'HUB' ? 'H' : 'C',
-                        })}
-                        zIndexOffset={200}
-                    >
-                        <Popup>
-                            <div className="text-sm">
-                                <p className="font-semibold">{zone.name}</p>
-                                <p className="text-gray-600">{zone.kind}</p>
                             </div>
                         </Popup>
                     </Marker>
@@ -345,18 +395,23 @@ function buildStopMarkers(
 function FitFleetBounds({
     vehiclePoints,
     stopPoints,
+    geofences,
     selectedVehicleId,
     centerRequest,
+    focusGeofenceId,
 }: {
     vehiclePoints: FleetTrackingItem[]
     stopPoints: StopMarker[]
+    geofences: GeofenceZone[]
     selectedVehicleId: string | null
     centerRequest: number
+    focusGeofenceId: string | null
 }) {
     const map = useMap()
     const prevSelectedRef = useRef<string | null | undefined>(undefined)
     const didInitialFitRef = useRef(false)
     const lastCenterReqRef = useRef(0)
+    const lastFocusGeofenceRef = useRef<string | null>(null)
 
     const fleetLatLngs = useMemo((): [number, number][] => {
         return vehiclePoints
@@ -366,6 +421,38 @@ function FitFleetBounds({
                 item.latest!.longitude,
             ])
     }, [vehiclePoints])
+
+    useEffect(() => {
+        if (!focusGeofenceId || focusGeofenceId === lastFocusGeofenceRef.current) {
+            return
+        }
+        lastFocusGeofenceRef.current = focusGeofenceId
+        const geofenceId = focusGeofenceId.split(':')[0]
+        const zone = geofences.find((g) => g.id === geofenceId)
+        if (!zone) return
+
+        const focus: L.LatLngExpression[] = [[zone.lat, zone.lng]]
+        // Keep nearby fleet pins in frame (≈400 m) so a hub doesn't "eat" the view.
+        for (const item of vehiclePoints) {
+            if (!item.latest) continue
+            const d = map.distance(
+                [zone.lat, zone.lng],
+                [item.latest.latitude, item.latest.longitude],
+            )
+            if (d <= Math.max(400, zone.radiusM * 3)) {
+                focus.push([item.latest.latitude, item.latest.longitude])
+            }
+        }
+
+        if (focus.length === 1) {
+            map.flyTo(focus[0], 16, { duration: 0.55 })
+        } else {
+            map.flyToBounds(L.latLngBounds(focus).pad(0.35), {
+                duration: 0.55,
+                maxZoom: 16,
+            })
+        }
+    }, [focusGeofenceId, geofences, vehiclePoints, map])
 
     useEffect(() => {
         const prev = prevSelectedRef.current
@@ -419,12 +506,12 @@ function FitFleetBounds({
             }
         }
     }, [
+        selectedVehicleId,
         centerRequest,
         fleetLatLngs,
-        map,
-        selectedVehicleId,
-        stopPoints,
         vehiclePoints,
+        stopPoints,
+        map,
     ])
 
     return null

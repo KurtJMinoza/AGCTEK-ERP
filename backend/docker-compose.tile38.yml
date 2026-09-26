@@ -1,4 +1,8 @@
-# Optional Docker alternative — prefer standalone: scripts/start-tile38.ps1
+# OPTIONAL / LEGACY — prefer standalone Tile38 on Windows.
+# See scripts/start-tile38.ps1 (native tile38-server.exe on :9851).
+#
+#   docker compose -f docker-compose.tile38.yml up -d
+#
 services:
   tile38:
     image: tile38/tile38:latest

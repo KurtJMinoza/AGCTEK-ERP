@@ -38,7 +38,7 @@ type GpsPingBody = {
 }
 
 /**
- * Flat ingest fields after normalizing Traccar / flespi payloads.
+ * Flat ingest fields after normalizing flespi / flat payloads.
  */
 @Injectable()
 export class TrackingService {
@@ -52,26 +52,24 @@ export class TrackingService {
     ) {}
 
     /**
-     * Shared secret for HTTP GPS ingest (flespi stream / Traccar forward).
-     * Accepts TRACKING_INGEST_TOKEN, FLESPI_INGEST_TOKEN, or TRACCAR_INGEST_TOKEN.
-     * Headers: X-Traccar-Token | X-Flespi-Token | Authorization: Bearer
+     * Shared secret for HTTP GPS ingest (flespi stream fallback / tools).
+     * Accepts TRACKING_INGEST_TOKEN or FLESPI_INGEST_TOKEN.
+     * Headers: X-Flespi-Token | Authorization: Bearer
      */
     assertIngestAuth(headers: {
-        traccarToken?: string
         flespiToken?: string
         authorization?: string
     }) {
         const expected = [
             process.env.TRACKING_INGEST_TOKEN,
             process.env.FLESPI_INGEST_TOKEN,
-            process.env.TRACCAR_INGEST_TOKEN,
         ]
             .map((v) => v?.trim())
             .filter((v): v is string => Boolean(v))
 
         if (expected.length === 0) {
             throw new UnauthorizedException(
-                'Set TRACKING_INGEST_TOKEN (or FLESPI_INGEST_TOKEN / TRACCAR_INGEST_TOKEN) on the API',
+                'Set TRACKING_INGEST_TOKEN (or FLESPI_INGEST_TOKEN) on the API',
             )
         }
 
@@ -79,9 +77,7 @@ export class TrackingService {
             ? headers.authorization.slice(7).trim()
             : null
         const provided =
-            optionalTrim(headers.flespiToken) ||
-            optionalTrim(headers.traccarToken) ||
-            optionalTrim(bearer)
+            optionalTrim(headers.flespiToken) || optionalTrim(bearer)
 
         if (!provided || !expected.includes(provided)) {
             throw new UnauthorizedException('Invalid or missing ingest token')
@@ -226,7 +222,7 @@ export class TrackingService {
     }
 
     /**
-     * GPS ingest — flespi MQTT/HTTP stream, Traccar forward, or flat body.
+     * GPS ingest — flespi MQTT/HTTP stream or flat body.
      * Accepts a single message object or an array / `{ result|messages|data: [] }`.
      * Resolves Vehicle by telematicsDeviceId = flespi 14-digit ident (or IMEI).
      * Unknown devices are ignored (logged) so forwarders do not fail.
@@ -251,7 +247,7 @@ export class TrackingService {
     private async ingestOne(body: Record<string, unknown>) {
         const normalized: NormalizedGpsIngest = isFlespiMessage(body)
             ? mapFlespiMessageToIngest(body)
-            : normalizeTraccarIngestBody(body)
+            : normalizeFlatIngestBody(body)
 
         const deviceKey =
             optionalTrim(normalized.telematicsDeviceId) ||
@@ -537,68 +533,14 @@ function firstNumber(...values: unknown[]): number | null {
     return null
 }
 
-/**
- * Flatten Traccar `forward.type=json` body:
- * `{ device: { uniqueId }, position: { latitude, longitude, speed (kn), course, fixTime, attributes } }`
- * Flat / legacy payloads pass through with lat/lng aliases normalized.
- */
-function normalizeTraccarIngestBody(
+/** Flat / legacy HTTP ingest — lat/lng aliases normalized. */
+function normalizeFlatIngestBody(
     body: Record<string, unknown>,
 ): NormalizedGpsIngest {
-    const position =
-        body.position && typeof body.position === 'object'
-            ? (body.position as Record<string, unknown>)
-            : null
-    const device =
-        body.device && typeof body.device === 'object'
-            ? (body.device as Record<string, unknown>)
-            : null
-
-    if (!position && !device) {
-        return {
-            telematicsDeviceId:
-                optionalTrim(body.telematicsDeviceId) ?? undefined,
-            uniqueId: optionalTrim(body.uniqueId) ?? undefined,
-            deviceId: optionalTrim(body.deviceId) ?? undefined,
-            vehicleId:
-                body.vehicleId != null ? String(body.vehicleId) : undefined,
-            tripId:
-                body.tripId === null
-                    ? null
-                    : body.tripId != null
-                      ? String(body.tripId)
-                      : undefined,
-            latitude:
-                firstNumber(body.latitude, body.lat) ?? undefined,
-            longitude:
-                firstNumber(body.longitude, body.lng, body.lon) ??
-                undefined,
-            speedKmh: optionalNumber(body.speedKmh),
-            speed: firstNumber(body.speed) ?? undefined,
-            speedUnit: body.speedUnit as 'kmh' | 'kn' | undefined,
-            heading: optionalNumber(body.heading) ?? undefined,
-            course: firstNumber(body.course) ?? undefined,
-            recordedAt: body.recordedAt as string | Date | undefined,
-            fixTime: body.fixTime as string | Date | undefined,
-            deviceTime: body.deviceTime as string | Date | undefined,
-            rawPayload:
-                body.rawPayload && typeof body.rawPayload === 'object'
-                    ? (body.rawPayload as Record<string, unknown>)
-                    : body,
-            source: 'flat',
-        }
-    }
-
-    const nestedSpeed = position != null && position.speed != null
-    const uniqueId =
-        optionalTrim(device?.uniqueId) ||
-        optionalTrim(body.uniqueId) ||
-        optionalTrim(body.telematicsDeviceId)
-
     return {
         telematicsDeviceId:
             optionalTrim(body.telematicsDeviceId) ?? undefined,
-        uniqueId: uniqueId ?? undefined,
+        uniqueId: optionalTrim(body.uniqueId) ?? undefined,
         deviceId: optionalTrim(body.deviceId) ?? undefined,
         vehicleId:
             body.vehicleId != null ? String(body.vehicleId) : undefined,
@@ -608,60 +550,32 @@ function normalizeTraccarIngestBody(
                 : body.tripId != null
                   ? String(body.tripId)
                   : undefined,
-        latitude:
-            firstNumber(position?.latitude, body.latitude, body.lat) ??
-            undefined,
+        latitude: firstNumber(body.latitude, body.lat) ?? undefined,
         longitude:
-            firstNumber(
-                position?.longitude,
-                body.longitude,
-                body.lng,
-                body.lon,
-            ) ?? undefined,
+            firstNumber(body.longitude, body.lng, body.lon) ?? undefined,
         speedKmh: optionalNumber(body.speedKmh),
-        speed: firstNumber(position?.speed, body.speed) ?? undefined,
-        // Traccar Position.speed is knots when nested
-        speedUnit: nestedSpeed
-            ? 'kn'
-            : ((body.speedUnit as 'kmh' | 'kn' | undefined) ?? undefined),
-        course:
-            firstNumber(position?.course, body.course, body.heading) ??
-            undefined,
+        speed: firstNumber(body.speed) ?? undefined,
+        speedUnit: body.speedUnit as 'kmh' | 'kn' | undefined,
         heading: optionalNumber(body.heading) ?? undefined,
-        fixTime: (position?.fixTime ?? body.fixTime) as
-            | string
-            | Date
-            | undefined,
-        deviceTime: (position?.deviceTime ?? body.deviceTime) as
-            | string
-            | Date
-            | undefined,
+        course: firstNumber(body.course) ?? undefined,
         recordedAt: body.recordedAt as string | Date | undefined,
+        fixTime: body.fixTime as string | Date | undefined,
+        deviceTime: body.deviceTime as string | Date | undefined,
         rawPayload:
             body.rawPayload && typeof body.rawPayload === 'object'
                 ? (body.rawPayload as Record<string, unknown>)
                 : body,
-        source: 'traccar',
+        source: 'flat',
     }
 }
 
-/** Traccar-style attributes: odometer / totalDistance (often meters). */
+/** Odometer from raw payload attributes (meters → km when needed). */
 function extractDeviceOdometerKm(
     rawPayload: Record<string, unknown> | null | undefined,
 ): number | null {
     if (!rawPayload || typeof rawPayload !== 'object') return null
 
-    const position =
-        rawPayload.position && typeof rawPayload.position === 'object'
-            ? (rawPayload.position as Record<string, unknown>)
-            : null
-
     const attrsCandidates: Array<Record<string, unknown>> = []
-    if (position?.attributes && typeof position.attributes === 'object') {
-        attrsCandidates.push(
-            position.attributes as Record<string, unknown>,
-        )
-    }
     if (rawPayload.attributes && typeof rawPayload.attributes === 'object') {
         attrsCandidates.push(
             rawPayload.attributes as Record<string, unknown>,

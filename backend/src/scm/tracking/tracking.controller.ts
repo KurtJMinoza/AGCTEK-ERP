@@ -42,21 +42,19 @@ export class TrackingController {
     }
 
     /**
-     * GPS ingest → GpsLog (flespi HTTP stream fallback, Traccar forward, or flat).
-     * Preferred path for VL502 testing: Nest MQTT → flespi (no tunnel).
-     * Auth: X-Flespi-Token | X-Traccar-Token | Authorization: Bearer
-     *   (= TRACKING_INGEST_TOKEN / FLESPI_INGEST_TOKEN / TRACCAR_INGEST_TOKEN)
+     * GPS ingest → GpsLog (flespi HTTP stream fallback or flat body).
+     * Preferred path: Nest MQTT → flespi (no tunnel).
+     * Auth: X-Flespi-Token | Authorization: Bearer
+     *   (= TRACKING_INGEST_TOKEN / FLESPI_INGEST_TOKEN)
      * Ident: flespi 14-digit JT808 ident → Vehicle.telematicsDeviceId
      */
     @Post('ingest')
     ingest(
         @Body() body: unknown,
-        @Headers('x-traccar-token') traccarToken?: string,
         @Headers('x-flespi-token') flespiToken?: string,
         @Headers('authorization') authorization?: string,
     ) {
         this.trackingService.assertIngestAuth({
-            traccarToken,
             flespiToken,
             authorization,
         })
@@ -65,7 +63,8 @@ export class TrackingController {
 
     /**
      * Tile38 SETHOOK callback — enter/exit for circular hubs.
-     * Configure TILE38_HOOK_BASE_URL so Tile38 can reach this API.
+     * Configure TILE38_HOOK_BASE_URL (e.g. http://127.0.0.1:3001/api/v1)
+     * so Tile38 can reach this API — see docs/SCM_TILE38_STANDALONE.md.
      */
     @Post('geofence-hook')
     geofenceHook(@Body() body: Record<string, unknown>) {

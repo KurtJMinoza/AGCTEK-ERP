@@ -147,6 +147,7 @@ export type Driver = {
         email: string
         userName: string
         role: string
+        jobPosition?: string
     }
 }
 

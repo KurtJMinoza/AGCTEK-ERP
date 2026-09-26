@@ -34,6 +34,7 @@ const driverInclude = {
             email: true,
             userName: true,
             role: true,
+            jobPosition: true,
         },
     },
 } satisfies Prisma.DriverInclude

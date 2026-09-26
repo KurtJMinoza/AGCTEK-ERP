@@ -25,7 +25,7 @@ import type {
 
 dayjs.extend(relativeTime)
 
-/** Keys we may surface from GpsLog.rawPayload (OBD / flespi / Traccar). */
+/** Keys we may surface from GpsLog.rawPayload (OBD / flespi). */
 const DIAGNOSTIC_ALIASES = {
     rpm: [
         'rpm',
