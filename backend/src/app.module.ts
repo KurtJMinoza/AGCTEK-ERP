@@ -7,6 +7,7 @@ import { NotificationsModule } from './notifications/notifications.module'
 import { AuthModule } from './auth/auth.module'
 import { ScmModule } from './scm/scm.module'
 import { MmModule } from './mm/mm.module'
+import { RetailModule } from './retail/retail.module'
 
 @Module({
     imports: [
@@ -16,6 +17,7 @@ import { MmModule } from './mm/mm.module'
         AuthModule,
         ScmModule,
         MmModule,
+        RetailModule,
     ],
     controllers: [AppController],
     providers: [AppService],
