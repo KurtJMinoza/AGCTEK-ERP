@@ -1,14 +1,15 @@
 import axios from 'axios'
 import { getSession } from 'next-auth/react'
-import appConfig from '@/configs/app.config'
+import { resolveErpApiBaseUrl } from '@/configs/app.config'
 
 const ErpAxiosBase = axios.create({
     timeout: 60000,
-    baseURL: `${appConfig.apiBaseUrl}/api/v1`,
     withCredentials: true,
 })
 
 ErpAxiosBase.interceptors.request.use(async (config) => {
+    config.baseURL = resolveErpApiBaseUrl()
+
     if (config.data instanceof FormData) {
         config.headers.delete('Content-Type')
     }

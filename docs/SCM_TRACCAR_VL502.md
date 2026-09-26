@@ -1,7 +1,7 @@
-# SCM vehicle GPS — Traccar + Jimi VL502 (optional / later)
+# SCM vehicle GPS — Traccar + Jimi VL502 (paused / later)
 
-> **Active decoder for local VL502 testing is flespi** — see **`docs/SCM_FLESPI_VL502.md`** (MQTT, no ngrok TCP).  
-> This Traccar compose/docs path remains for optional self-hosted Huabao `:5015` later.
+> **Paused for now.** Active decoder is **flespi** — see **`docs/SCM_FLESPI_VL502.md`** (MQTT, no ngrok TCP).  
+> Keep this doc for a future self-hosted Huabao `:5015` revive. Do not start Traccar or nginx telematics in the meantime.
 
 Traccar can decode Huabao; AGCTEK stores positions in **GpsLog** and shows them on **SCM Live Tracking** (Leaflet + OSM). Do not use Traccar’s map as the ERP map.
 

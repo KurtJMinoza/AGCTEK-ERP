@@ -16,6 +16,7 @@ import {
     type MmNonconformance,
     type MmCorrectiveAction,
     type CreateCapaPayload,
+    type TransitionCapaPayload,
 } from '../services/qualityService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -93,8 +94,9 @@ export default function NonconformancePage() {
 
     const handleTransition = useCallback(
         async (capaId: string, targetStatus: string) => {
-            const data: Record<string, string> = { targetStatus }
-            await qualityService.transitionCapa(capaId, data)
+            await qualityService.transitionCapa(capaId, {
+                targetStatus,
+            } satisfies TransitionCapaPayload)
             if (expandedNcId) void loadCapa(expandedNcId)
         },
         [expandedNcId, loadCapa],

@@ -7,6 +7,7 @@ import {
     apiGetGeofences,
     apiUpdateGeofence,
 } from '../services/scmApi'
+import { getApiErrorMessage } from '../utils/apiError'
 import type { GeofenceZone } from '../utils/geofences'
 
 export function useGeofences() {
@@ -25,11 +26,7 @@ export function useGeofences() {
             })
             setData(result.data)
         } catch (err) {
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Failed to load geofences',
-            )
+            setError(getApiErrorMessage(err, 'Failed to load geofences'))
             setData([])
         } finally {
             setLoading(false)

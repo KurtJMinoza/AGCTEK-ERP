@@ -473,6 +473,17 @@ export const ERP_MODULES: ErpModule[] = [
             },
         ],
     },
+    {
+        code: 'hcm',
+        shortTitle: 'HCM',
+        title: 'Human Capital Management',
+        description:
+            'HRIS — people, attendance, payroll, and workforce operations.',
+        path: 'https://hris.agctek.co/',
+        icon: 'users',
+        isExternalLink: true,
+        categories: [],
+    },
 ]
 
 /** Lookup helpers — use these instead of scanning the array directly */
@@ -481,11 +492,10 @@ export function getErpModule(code: string): ErpModule | undefined {
 }
 
 export function getErpModuleByPath(pathname: string): ErpModule | undefined {
-    return ERP_MODULES.find(
-        (m) =>
-            pathname === m.path ||
-            pathname.startsWith(`${m.path}/`),
-    )
+    return ERP_MODULES.find((m) => {
+        if (m.isExternalLink) return false
+        return pathname === m.path || pathname.startsWith(`${m.path}/`)
+    })
 }
 
 export function getAllSubmodules(module: ErpModule) {

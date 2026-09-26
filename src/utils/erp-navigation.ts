@@ -92,7 +92,11 @@ export function getActiveModuleCode(pathname: string): string | undefined {
     let best: { code: string; length: number } | undefined
 
     for (const module of modules) {
-        if (pathname === module.path || pathname.startsWith(`${module.path}/`)) {
+        if (
+            !module.isExternalLink &&
+            (pathname === module.path ||
+                pathname.startsWith(`${module.path}/`))
+        ) {
             const length = module.path.length
             if (!best || length > best.length) {
                 best = { code: module.code, length }

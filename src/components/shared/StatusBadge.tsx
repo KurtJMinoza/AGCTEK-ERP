@@ -10,7 +10,9 @@ export type StatusTone =
     | 'info'
 
 type StatusBadgeProps = {
-    children: ReactNode
+    children?: ReactNode
+    /** Convenience alias — rendered as children when children are omitted. */
+    status?: ReactNode
     tone?: StatusTone
     className?: string
     prefix?: ReactNode
@@ -26,6 +28,7 @@ const toneClass: Record<StatusTone, string> = {
 
 const StatusBadge = ({
     children,
+    status,
     tone = 'default',
     className,
     prefix,
@@ -39,7 +42,7 @@ const StatusBadge = ({
             )}
             prefix={prefix}
         >
-            {children}
+            {children ?? status}
         </Tag>
     )
 }

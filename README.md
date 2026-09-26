@@ -29,7 +29,9 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). After sign-in, you'll land on the Home page.
+Open [http://localhost:3010](http://localhost:3010). After sign-in, you'll land on the Home page.
+
+Production hostname: [https://erp.agctek.co](https://erp.agctek.co) (`AUTH_URL` / `FRONTEND_URL` / `NEXT_PUBLIC_API_BASE_URL`). Cloudflare points at `:3010` (`erp-edge`), which proxies `/api/v1` + `/socket.io` to Nest `:3011` and everything else to Next `:3020`.
 
 ### Driver mobile (Expo)
 
@@ -52,9 +54,28 @@ npm run prisma:migrate
 npm run start:dev
 ```
 
-API runs at [http://localhost:3001](http://localhost:3001)
+API runs at [http://localhost:3011](http://localhost:3011)
 
-Health check: [http://localhost:3001/health](http://localhost:3001/health)
+Health check: [http://localhost:3011/api/v1/health](http://localhost:3011/api/v1/health)
+
+### Tile38 (standalone, no Docker)
+
+Geofencing uses [Tile38](https://tile38.com). Binaries live under `tools/tile38` (Windows amd64).
+
+```powershell
+# from repo root
+.\scripts\start-tile38.ps1
+```
+
+Default listen: `127.0.0.1:9851`. Point Nest at it via `TILE38_HOST` / `TILE38_PORT` / `TILE38_HOOK_BASE_URL` in `backend/.env`.
+
+### Telematics (flespi — active)
+
+Active path: **flespi** MQTT → Nest → `GpsLog` → SCM Live Tracking. See **`docs/SCM_FLESPI_VL502.md`**.
+
+Set `FLESPI_TOKEN` + `FLESPI_CHANNEL_ID` in `backend/.env` (Nest dials out to `mqtt.flespi.io`; no inbound TCP tunnel).
+
+Traccar / nginx `:5023` is **paused for now** (optional later — `docs/SCM_TRACCAR_VL502.md`, `docs/SCM_NGINX_TRACCAR.md`).
 
 ### SCM places autocomplete (Photon)
 

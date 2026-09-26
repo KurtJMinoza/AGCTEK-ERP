@@ -71,7 +71,7 @@ Removed from hub: Supply Network, Product Locations, Warehouse Operations (MM te
 - Full VRP / traffic / HOS
 - Demand planning MM↔SCM forecast sync
 
-## Vehicle GPS (flespi + optional Traccar)
+## Vehicle GPS (flespi; Traccar paused)
 
 **Active:** flespi `concox` channel → Nest MQTT (`mqtt.flespi.io`) → `GpsLog` → Live Tracking.  
 Ident = **first 14 digits of IMEI** → `Vehicle.telematicsDeviceId`. See **`docs/SCM_FLESPI_VL502.md`**.

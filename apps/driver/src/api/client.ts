@@ -24,13 +24,13 @@ function resolveApiBase(): string {
         metroHost !== '127.0.0.1' &&
         !metroHost.includes('exp.direct')
     ) {
-        return `http://${metroHost}:3001`
+        return `http://${metroHost}:3011`
     }
 
     if (Platform.OS === 'android') {
-        return 'http://10.0.2.2:3001'
+        return 'http://10.0.2.2:3011'
     }
-    return 'http://localhost:3001'
+    return 'http://localhost:3011'
 }
 
 export const API_BASE = resolveApiBase()

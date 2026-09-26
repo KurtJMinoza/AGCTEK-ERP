@@ -83,7 +83,7 @@ const SupplierMaterialsPage = () => {
 
     const err = (key: string) => visibleError(fieldErrors, touched, key, forceValidate)
 
-    const setField = (key: string, value: string) => {
+    const setField = (key: string, value: string | boolean) => {
         setForm((p: any) => ({ ...p, [key]: value }))
         setTouched((t) => ({ ...t, [key]: true }))
     }

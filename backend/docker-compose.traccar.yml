@@ -1,5 +1,5 @@
-# Traccar GPS protocol server (OPTIONAL — prefer flespi for VL502 testing).
-# See docs/SCM_FLESPI_VL502.md (active) and docs/SCM_TRACCAR_VL502.md (optional).
+# Traccar GPS protocol server (PAUSED — use flespi for VL502).
+# See docs/SCM_FLESPI_VL502.md (active) and docs/SCM_TRACCAR_VL502.md (paused / later).
 # UI: http://localhost:8082
 # Device TCP: host:5015  ← Huabao/JT808 for Jimi VL502 (packets start 0x7e). NOT GT06 (5023).
 #

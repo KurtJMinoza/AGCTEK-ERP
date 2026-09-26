@@ -16,6 +16,7 @@ import {
 } from '../scm.utils'
 import { TrackingGateway } from './tracking.gateway'
 import { Tile38Service } from '../tile38/tile38.service'
+import { GeofencesService } from '../geofences/geofences.service'
 import {
     expandIngestBodies,
     flespiMessageHasTelematicsEvent,
@@ -47,6 +48,7 @@ export class TrackingService {
         private readonly prisma: PrismaService,
         private readonly trackingGateway: TrackingGateway,
         private readonly tile38: Tile38Service,
+        private readonly geofencesService: GeofencesService,
     ) {}
 
     /**
@@ -452,7 +454,22 @@ export class TrackingService {
         })
 
         // Tile38 live geofence: update fleet point (NEARBY FENCE hooks fire enter/exit)
-        void this.tile38.setFleetPoint(vehicle.id, log.latitude, log.longitude)
+        void this.tile38
+            .setFleetPoint(vehicle.id, log.latitude, log.longitude)
+            .then(() =>
+                this.geofencesService.detectIntersectsFallback(
+                    vehicle.id,
+                    log.latitude,
+                    log.longitude,
+                ),
+            )
+            .catch((err) => {
+                this.logger.warn(
+                    `Geofence detect after GPS failed: ${
+                        err instanceof Error ? err.message : String(err)
+                    }`,
+                )
+            })
 
         return log
     }

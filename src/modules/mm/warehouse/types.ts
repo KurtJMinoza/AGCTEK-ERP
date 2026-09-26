@@ -147,6 +147,7 @@ export interface StorageBinQueryParams {
     page?: number
     limit?: number
     search?: string
+    warehouseId?: string
     storageSectionId?: string
     status?: string
     sortBy?: string

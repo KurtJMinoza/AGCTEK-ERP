@@ -25,14 +25,14 @@ Default:
 
 | Client | Base URL |
 | --- | --- |
-| iOS simulator / web | `http://localhost:3001` |
-| Android emulator | `http://10.0.2.2:3001` |
-| Physical device | set `EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001` |
+| iOS simulator / web | `http://localhost:3011` |
+| Android emulator | `http://10.0.2.2:3011` |
+| Physical device | set `EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3011` |
 
 Example:
 
 ```bash
-EXPO_PUBLIC_API_URL=http://192.168.1.10:3001 npx expo start
+EXPO_PUBLIC_API_URL=http://192.168.1.10:3011 npx expo start
 ```
 
 ## Auth

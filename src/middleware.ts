@@ -21,11 +21,13 @@ export default auth((req) => {
     const isSignedIn = !!req.auth
 
     const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
+    const isNestApiRoute = nextUrl.pathname.startsWith('/api/v1')
+    const isSocketRoute = nextUrl.pathname.startsWith('/socket.io')
     const isPublicRoute = publicRoutes.includes(nextUrl.pathname)
     const isAuthRoute = authRoutes.includes(nextUrl.pathname)
 
-    /** Skip auth middleware for api routes */
-    if (isApiAuthRoute) return
+    /** NextAuth handlers, Nest rewrite (`/api/v1`), and Socket.IO proxy skip page auth. */
+    if (isApiAuthRoute || isNestApiRoute || isSocketRoute) return
 
     if (isAuthRoute) {
         if (isSignedIn) {

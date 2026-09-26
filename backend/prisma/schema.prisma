@@ -5747,7 +5747,7 @@ model ScmPlanningSettings {
   updatedAt      DateTime           @updatedAt
 }
 
-/// Kept for future Demand Planning ΓÇö no API/UI yet
+/// Demand Planning stub — manual forecast rows (does not drive load building)
 model DemandForecast {
   id           String   @id @default(cuid())
   productCode  String

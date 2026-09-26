@@ -1,8 +1,8 @@
-# SCM vehicle GPS — flespi + Jimi VL502 (active for local testing)
+# SCM vehicle GPS — flespi + Jimi VL502 (active)
 
-**flespi** is the active protocol decoder for VL502 testing. Nest stays local; **GpsLog** is the system of record; **SCM Live Tracking** (Leaflet + OSM) is the ERP map. Do not use TrackIt/TracSeek/flespi UI as the dispatcher map.
+**flespi** is the active protocol decoder. Nest stays local; **GpsLog** is the system of record; **SCM Live Tracking** (Leaflet + OSM) is the ERP map. Do not use TrackIt/TracSeek/flespi UI as the dispatcher map.
 
-Traccar (`docker-compose.traccar.yml` + `docs/SCM_TRACCAR_VL502.md`) remains optional for later self-hosted decoding — not required for this slice. No ngrok TCP / VPS needed when using flespi MQTT.
+Traccar is **paused for now** (`docker-compose.traccar.yml`, Windows `traccar` service, nginx `:5023`). Revive later via `docs/SCM_TRACCAR_VL502.md` if needed. No ngrok TCP / VPS needed when using flespi MQTT.
 
 ```text
 VL502 --TCP--> flespi channel (protocol_id = concox)

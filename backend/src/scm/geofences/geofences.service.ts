@@ -90,6 +90,8 @@ const SEED: Array<{
 @Injectable()
 export class GeofencesService implements OnModuleInit {
     private readonly logger = new Logger(GeofencesService.name)
+    /** In-process inside-set used by INTERSECTS enter/exit fallback. */
+    private readonly insideByVehicle = new Map<string, Set<string>>()
 
     constructor(
         private readonly prisma: PrismaService,
@@ -328,6 +330,8 @@ export class GeofencesService implements OnModuleInit {
             return { ignored: true, reason: 'geofence_inactive' }
         }
 
+        this.markInside(vehicleId, geofenceId, detect)
+
         const event = await this.prisma.geofenceEvent.create({
             data: {
                 geofenceId,
@@ -355,26 +359,64 @@ export class GeofencesService implements OnModuleInit {
         return { ok: true, eventId: event.id }
     }
 
-    /** After GPS SET on fleet, optionally emit enter events via INTERSECTS fallback */
+    /**
+     * When Tile38 HTTP hooks cannot reach Nest, detect enter/exit via INTERSECTS.
+     * Tracks the in-process inside-set so we do not spam INSIDE events every ping.
+     */
     async detectIntersectsFallback(
         vehicleId: string,
         lat: number,
         lng: number,
     ) {
-        const ids = await this.tile38.intersectsGeofences(lat, lng)
+        const ids = new Set(await this.tile38.intersectsGeofences(lat, lng))
+        const previous = this.insideByVehicle.get(vehicleId) ?? new Set<string>()
+        const object = {
+            type: 'Point',
+            coordinates: [lng, lat],
+        }
+
         for (const geofenceId of ids) {
+            if (previous.has(geofenceId)) continue
             await this.handleTile38Hook({
-                detect: 'inside',
+                detect: 'enter',
                 id: vehicleId,
                 geofenceId,
                 hook: this.tile38.hookName(geofenceId),
-                object: {
-                    type: 'Point',
-                    coordinates: [lng, lat],
-                },
+                object,
                 source: 'intersects_fallback',
             })
         }
+
+        for (const geofenceId of previous) {
+            if (ids.has(geofenceId)) continue
+            await this.handleTile38Hook({
+                detect: 'exit',
+                id: vehicleId,
+                geofenceId,
+                hook: this.tile38.hookName(geofenceId),
+                object,
+                source: 'intersects_fallback',
+            })
+        }
+
+        this.insideByVehicle.set(vehicleId, ids)
+    }
+
+    private markInside(
+        vehicleId: string,
+        geofenceId: string,
+        detect: GeofenceDetect,
+    ) {
+        const current = this.insideByVehicle.get(vehicleId) ?? new Set<string>()
+        if (detect === GeofenceDetect.ENTER || detect === GeofenceDetect.INSIDE) {
+            current.add(geofenceId)
+        } else if (
+            detect === GeofenceDetect.EXIT ||
+            detect === GeofenceDetect.OUTSIDE
+        ) {
+            current.delete(geofenceId)
+        }
+        this.insideByVehicle.set(vehicleId, current)
     }
 
     private async syncOneToTile38(geofence: {

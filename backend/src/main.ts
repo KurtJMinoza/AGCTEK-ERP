@@ -43,7 +43,7 @@ async function bootstrap() {
         methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })
 
-    const port = Number(process.env.PORT) || 3001
+    const port = Number(process.env.PORT) || 3011
     await app.listen({ port, host: '0.0.0.0' })
 
     console.log(`AGCTEK ERP API running on http://localhost:${port}`)
