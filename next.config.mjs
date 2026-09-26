@@ -12,6 +12,14 @@ const nextConfig = {
         // Prefer shipping a working build; clean these up in a follow-up.
         ignoreBuildErrors: true,
     },
+    images: {
+        remotePatterns: [
+            {
+                protocol: 'https',
+                hostname: 'images.unsplash.com',
+            },
+        ],
+    },
     async rewrites() {
         return [
             {
