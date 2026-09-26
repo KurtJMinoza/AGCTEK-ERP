@@ -7,6 +7,8 @@ Before inventing a new pattern, **find and follow** the references below.
 | Concern | Canonical path |
 | --- | --- |
 | **Master enterprise system flow** | [`docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) |
+| **Current architecture (all modules)** | [`docs/CURRENT_ENTERPRISE_ARCHITECTURE.md`](./CURRENT_ENTERPRISE_ARCHITECTURE.md) |
+| **Module flows (step-by-step)** | [`docs/MODULE_FLOWS_DETAILED.md`](./MODULE_FLOWS_DETAILED.md) |
 | Agent operating contract | [`AGENTS.md`](../AGENTS.md) |
 
 ---
