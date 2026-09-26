@@ -25,6 +25,8 @@ import { PlanningSettingsController } from './planning-settings/planning-setting
 import { PlanningSettingsService } from './planning-settings/planning-settings.service'
 import { DashboardController } from './dashboard/dashboard.controller'
 import { DashboardService } from './dashboard/dashboard.service'
+import { ForecastsController } from './forecasts/forecasts.controller'
+import { ForecastsService } from './forecasts/forecasts.service'
 import { MmModule } from '../mm/mm.module'
 
 @Module({
@@ -42,6 +44,7 @@ import { MmModule } from '../mm/mm.module'
         PlacesController,
         PlanningSettingsController,
         DashboardController,
+        ForecastsController,
     ],
     providers: [
         VehiclesService,
@@ -58,6 +61,7 @@ import { MmModule } from '../mm/mm.module'
         PlacesService,
         PlanningSettingsService,
         DashboardService,
+        ForecastsService,
     ],
     exports: [ShipmentsService],
 })

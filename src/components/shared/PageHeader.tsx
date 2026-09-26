@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 type PageHeaderProps = {
     title: ReactNode
     description?: ReactNode
+    icon?: ReactNode
     actions?: ReactNode
     breadcrumbs?: BreadcrumbItem[]
     className?: string
@@ -14,6 +15,7 @@ type PageHeaderProps = {
 const PageHeader = ({
     title,
     description,
+    icon,
     actions,
     breadcrumbs,
     className,
@@ -29,7 +31,8 @@ const PageHeader = ({
                 {breadcrumbs?.length ? (
                     <Breadcrumb items={breadcrumbs} className="mb-2" />
                 ) : null}
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                <h2 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {icon}
                     {title}
                 </h2>
                 {description ? (

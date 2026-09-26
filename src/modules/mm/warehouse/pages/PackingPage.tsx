@@ -60,7 +60,7 @@ const STATUS_TABS = ['All', 'OPEN', 'PACKING', 'VERIFIED', 'SEALED', 'READY_FOR_
 
 type FilterOption = { value: string; label: string }
 
-function pushToast(type: 'success' | 'danger', title: string, msg: string) {
+function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 

@@ -32,9 +32,11 @@ const toneClasses: Record<StatCardTone, { icon: string; text: string }> = {
 }
 
 export type StatCardProps = {
-    label: string
+    label?: string
+    /** Alias for label (older MM call sites). */
+    title?: string
     value: ReactNode
-    icon: ReactNode
+    icon?: ReactNode
     tone?: StatCardTone
     href?: string
     loading?: boolean
@@ -45,6 +47,7 @@ export type StatCardProps = {
 
 const StatCard = ({
     label,
+    title,
     value,
     icon,
     tone = 'default',
@@ -54,6 +57,7 @@ const StatCard = ({
     size = 'default',
     badge,
 }: StatCardProps) => {
+    const displayLabel = label ?? title ?? ''
     const card = (
         <AdaptiveCard
             className={classNames(
@@ -64,7 +68,9 @@ const StatCard = ({
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                        {displayLabel}
+                    </p>
                     {loading ? (
                         <div
                             className={classNames(
@@ -89,15 +95,17 @@ const StatCard = ({
                         </StatusBadge>
                     )}
                 </div>
-                <span
-                    className={classNames(
-                        'flex shrink-0 items-center justify-center rounded-xl',
-                        toneClasses[tone].icon,
-                        size === 'lg' ? 'h-12 w-12 text-xl' : 'h-11 w-11 text-lg',
-                    )}
-                >
-                    {icon}
-                </span>
+                {icon ? (
+                    <span
+                        className={classNames(
+                            'flex shrink-0 items-center justify-center rounded-xl',
+                            toneClasses[tone].icon,
+                            size === 'lg' ? 'h-12 w-12 text-xl' : 'h-11 w-11 text-lg',
+                        )}
+                    >
+                        {icon}
+                    </span>
+                ) : null}
             </div>
         </AdaptiveCard>
     )

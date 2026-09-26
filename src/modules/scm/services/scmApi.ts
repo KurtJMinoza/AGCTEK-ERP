@@ -1,6 +1,8 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
     ComplianceSummary,
+    CreateDemandForecastInput,
+    DemandForecast,
     Driver,
     FleetTrackingResponse,
     GpsLog,
@@ -465,6 +467,29 @@ export async function apiGeocodeReverse(lat: number, lng: number) {
         lat: number
         lng: number
     }>('/scm/geocode/reverse', { params: { lat, lng } })
+    return data
+}
+
+export async function apiGetForecasts(params?: ListParams) {
+    const { data } = await ErpAxiosBase.get<Paginated<DemandForecast>>(
+        '/scm/forecasts',
+        { params: toQuery(params) },
+    )
+    return data
+}
+
+export async function apiCreateForecast(body: CreateDemandForecastInput) {
+    const { data } = await ErpAxiosBase.post<DemandForecast>(
+        '/scm/forecasts',
+        body,
+    )
+    return data
+}
+
+export async function apiDeleteForecast(id: string) {
+    const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
+        `/scm/forecasts/${id}`,
+    )
     return data
 }
 

@@ -1,6 +1,6 @@
-# SCM vehicle GPS — flespi + Jimi VL502 (active for local testing)
+# SCM vehicle GPS — flespi + Jimi VL502 (active)
 
-**flespi** is the active protocol decoder for VL502 testing. Nest stays local; **GpsLog** is the system of record; **SCM Live Tracking** (Leaflet + OSM) is the ERP map. Do not use TrackIt/TracSeek/flespi UI as the dispatcher map.
+**flespi** is the active protocol decoder. Nest stays local; **GpsLog** is the system of record; **SCM Live Tracking** (Leaflet + OSM) is the ERP map. Do not use TrackIt/TracSeek/flespi UI as the dispatcher map.
 
 No ngrok TCP / VPS needed when using flespi MQTT.
 

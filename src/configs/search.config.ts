@@ -9,6 +9,7 @@ export type SearchItem = {
     categoryTitle: string
     /** Extra text included when matching search queries */
     searchText?: string
+    isExternalLink?: boolean
 }
 
 export type SearchResultGroup = {
@@ -63,6 +64,7 @@ export function getErpSearchItems(): SearchItem[] {
             category: 'erp-modules',
             categoryTitle: 'Modules',
             searchText: `${module.shortTitle} ${module.title} ${module.description}`,
+            isExternalLink: module.isExternalLink,
         })
 
         for (const category of module.categories) {

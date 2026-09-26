@@ -1,8 +1,8 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import ModuleLandingPage, {
     getModuleStaticParams,
 } from '@/components/erp/ModuleLandingPage'
-import { isValidModuleCode } from '@/configs/erp-modules'
+import { getErpModule, isValidModuleCode } from '@/configs/erp-modules'
 
 type PageProps = {
     params: Promise<{ moduleCode: string }>
@@ -14,7 +14,6 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps) {
     const { moduleCode } = await params
-    const { getErpModule } = await import('@/configs/erp-modules')
     const module = getErpModule(moduleCode)
 
     if (!module) {
@@ -32,6 +31,11 @@ export default async function Page({ params }: PageProps) {
 
     if (!isValidModuleCode(moduleCode)) {
         notFound()
+    }
+
+    const module = getErpModule(moduleCode)
+    if (module?.isExternalLink) {
+        redirect(module.path)
     }
 
     return <ModuleLandingPage moduleCode={moduleCode} />

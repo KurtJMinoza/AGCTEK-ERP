@@ -37,6 +37,9 @@
   ],
   "exclude": [
     "node_modules",
-    "backend"
+    "backend",
+    "apps",
+    "tools",
+    "docs"
   ]
 }

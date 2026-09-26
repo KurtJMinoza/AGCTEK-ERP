@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiGetFleetTracking } from '../services/scmApi'
 import { useScmTrackingSocket } from './useScmTrackingSocket'
+import { getApiErrorMessage } from '../utils/apiError'
 import type { VehiclePositionEvent } from '../services/scmTrackingSocket'
 import type { FleetTrackingItem, GpsLog, VehicleStatus } from '../types'
 
@@ -65,9 +66,7 @@ export function useFleetTracking(initial?: FleetFilters) {
             })
         } catch (err) {
             setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Failed to load fleet tracking',
+                getApiErrorMessage(err, 'Failed to load fleet tracking'),
             )
             if (!opts?.quiet) setItems([])
         } finally {

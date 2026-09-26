@@ -31,6 +31,12 @@ yarn-error.log*
 # env files
 .env
 
+# Tile38 standalone binary + local data (download via scripts/start-tile38.ps1)
+/tools/tile38/
+
+# nginx Windows binary + runtime logs/temp (conf is under version dir; keep docs)
+/tools/nginx/
+
 # vercel
 .vercel
 

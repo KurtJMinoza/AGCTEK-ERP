@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
-import appConfig from '@/configs/app.config'
+import { resolveErpSocketOrigin } from '@/configs/app.config'
 
 /** Payload from Nest `TrackingGateway.emitVehiclePosition`. */
 export type VehiclePositionEvent = {
@@ -44,7 +44,7 @@ export function acquireScmTrackingSocket(): Socket {
     refCount += 1
     if (socket) return socket
 
-    socket = io(`${appConfig.apiBaseUrl}/scm-tracking`, {
+    socket = io(`${resolveErpSocketOrigin()}/scm-tracking`, {
         path: '/socket.io',
         // WS first; polling fallback (Brave Shields often blocks pure WS).
         transports: ['websocket', 'polling'],
@@ -57,22 +57,20 @@ export function acquireScmTrackingSocket(): Socket {
         timeout: 12_000,
     })
 
-    if (process.env.NODE_ENV === 'development') {
-        socket.on('connect', () => {
-            console.info(
-                '[scm-tracking] connected',
-                socket?.id,
-                'via',
-                socket?.io.engine.transport.name,
-            )
-        })
-        socket.on('disconnect', (reason) => {
-            console.warn('[scm-tracking] disconnect:', reason)
-        })
-        socket.on('connect_error', (err) => {
-            console.warn('[scm-tracking] connect_error:', err.message)
-        })
-    }
+    socket.on('connect', () => {
+        console.info(
+            '[scm-tracking] connected',
+            socket?.id,
+            'via',
+            socket?.io.engine.transport.name,
+        )
+    })
+    socket.on('disconnect', (reason) => {
+        console.warn('[scm-tracking] disconnect:', reason)
+    })
+    socket.on('connect_error', (err) => {
+        console.warn('[scm-tracking] connect_error:', err.message)
+    })
 
     return socket
 }

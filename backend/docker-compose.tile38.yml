@@ -1,5 +1,5 @@
 # OPTIONAL / LEGACY — prefer standalone Tile38 on Windows.
-# See docs/SCM_TILE38_STANDALONE.md (native tile38-server.exe on :9851).
+# See scripts/start-tile38.ps1 (native tile38-server.exe on :9851).
 #
 #   docker compose -f docker-compose.tile38.yml up -d
 #

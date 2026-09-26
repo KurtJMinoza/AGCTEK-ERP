@@ -5747,7 +5747,7 @@ model ScmPlanningSettings {
   updatedAt      DateTime           @updatedAt
 }
 
-/// Kept for future Demand Planning ΓÇö no API/UI yet
+/// Demand Planning stub — manual forecast rows (does not drive load building)
 model DemandForecast {
   id           String   @id @default(cuid())
   productCode  String
@@ -5761,4 +5761,40 @@ model DemandForecast {
   updatedAt    DateTime @updatedAt
 
   @@index([productCode, locationCode, periodStart])
+}
+
+// ─── Retail storefront clients ───────────────────────────────────────────────
+
+/// Shop customer account (separate from ERP User) — delivery profile + saved cart
+model RetailClient {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  passwordHash  String
+  fullName      String
+  phone         String           @default("")
+  addressLine1  String           @default("")
+  city          String           @default("")
+  region        String           @default("")
+  postalCode    String           @default("")
+  country       String           @default("PH")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  cartItems     RetailCartItem[]
+
+  @@index([email])
+}
+
+model RetailCartItem {
+  id        String       @id @default(cuid())
+  clientId  String
+  client    RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sku       String
+  quantity  Int          @default(1)
+  /// Snapshot of RetailProduct fields for cart restore without catalog dependency
+  product   Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([clientId, sku])
+  @@index([clientId])
 }

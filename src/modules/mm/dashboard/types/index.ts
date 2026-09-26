@@ -9,11 +9,11 @@ export type MmDashboard = {
     filters: Record<string, unknown>
     visibility: DashboardVisibility
     analytics: {
-        aging?: Record<string, unknown>
-        turnover?: Record<string, unknown>
-        deadStock?: Record<string, unknown>
-        movement?: Record<string, unknown>
-        spend?: Record<string, unknown>
-        suppliers?: Record<string, unknown>
+        aging?: { buckets?: unknown[] } & Record<string, unknown>
+        turnover?: { rows?: unknown[] } & Record<string, unknown>
+        deadStock?: { rows?: unknown[] } & Record<string, unknown>
+        movement?: { series?: unknown[] } & Record<string, unknown>
+        spend?: { bySupplier?: unknown[] } & Record<string, unknown>
+        suppliers?: { top?: unknown[]; bottom?: unknown[] } & Record<string, unknown>
     } | null
 }

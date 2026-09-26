@@ -129,4 +129,5 @@ export interface SupplierQueryParams {
     search?: string
     page?: number
     pageSize?: number
+    limit?: number
 }

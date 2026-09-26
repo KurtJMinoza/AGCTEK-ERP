@@ -396,6 +396,29 @@ export type MaintenanceRecord = {
 
 export type PlanningBucketSize = 'DAY' | 'WEEK'
 
+export type DemandForecast = {
+    id: string
+    productCode: string
+    locationCode: string
+    periodStart: string
+    periodEnd: string
+    quantity: number
+    unit: string
+    source: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type CreateDemandForecastInput = {
+    productCode: string
+    locationCode: string
+    periodStart: string
+    periodEnd: string
+    quantity: number
+    unit?: string
+    source?: string | null
+}
+
 export type ScmPlanningSettings = {
     id: string
     horizonWeeks: number

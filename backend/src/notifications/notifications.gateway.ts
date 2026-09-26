@@ -9,7 +9,17 @@ import type { NotificationRecord } from './notification.types'
 @WebSocketGateway({
     namespace: '/notifications',
     cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: (
+            process.env.FRONTEND_URL || 'https://erp.agctek.co'
+        )
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .concat([
+                'https://erp.agctek.co',
+                'http://erp.agctek.co',
+                'http://localhost:3010',
+            ]),
         credentials: true,
     },
 })

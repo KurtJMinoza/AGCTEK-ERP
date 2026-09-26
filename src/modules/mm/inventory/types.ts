@@ -166,7 +166,7 @@ export interface WarehouseTransferOrder {
 export interface AdjustmentLine {
     id: string
     materialId: string
-    material?: { id: string; code: string; name: string }
+    material?: { id: string; code: string; name: string; materialCode?: string; materialName?: string }
     quantity: number | string
     uomId: string
     uom?: { id: string; code: string; name: string }
