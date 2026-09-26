@@ -526,6 +526,82 @@ export function findSubmoduleByPath(pathname: string) {
     return undefined
 }
 
+/** App Router segment path for a submodule hub (always under /modules). */
+export function erpSubmoduleRoutePath(
+    moduleCode: string,
+    submoduleCode: string,
+) {
+    return `/modules/${moduleCode}/${submoduleCode}`
+}
+
+/** App Router segment path for a nested feature under a submodule hub. */
+export function erpFeatureRoutePath(
+    moduleCode: string,
+    submoduleCode: string,
+    featureCode: string,
+) {
+    return `/modules/${moduleCode}/${submoduleCode}/${featureCode}`
+}
+
+/** Resolve submodule by URL segments (works when canonical path is /scm/* etc.). */
+export function findSubmoduleByRoute(
+    moduleCode: string,
+    submoduleCode: string,
+) {
+    const module = getErpModule(moduleCode)
+    if (!module) return undefined
+
+    for (const category of module.categories) {
+        for (const submodule of category.submodules) {
+            if (submodule.code === submoduleCode) {
+                return { module, category, submodule }
+            }
+        }
+    }
+    return undefined
+}
+
+/** Resolve nested feature by URL segments. */
+export function findFeatureByRoute(
+    moduleCode: string,
+    submoduleCode: string,
+    featureCode: string,
+) {
+    const base = findSubmoduleByRoute(moduleCode, submoduleCode)
+    if (!base) return undefined
+
+    const child = (base.submodule.children ?? []).find(
+        (item) => item.code === featureCode,
+    )
+    if (!child) return undefined
+
+    return { ...base, child }
+}
+
+/**
+ * When a module uses non-/modules paths (SCM → /scm/*), map
+ * /modules/scm/vehicles → child "vehicles" for redirect.
+ */
+export function findChildByRouteInModule(
+    moduleCode: string,
+    childCode: string,
+) {
+    const module = getErpModule(moduleCode)
+    if (!module) return undefined
+
+    for (const category of module.categories) {
+        for (const submodule of category.submodules) {
+            const child = (submodule.children ?? []).find(
+                (item) => item.code === childCode,
+            )
+            if (child) {
+                return { module, category, submodule, child }
+            }
+        }
+    }
+    return undefined
+}
+
 export function submoduleHasChildren(submodule: { children?: unknown[] }) {
     return Boolean(submodule.children && submodule.children.length > 0)
 }

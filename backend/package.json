@@ -15,6 +15,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
     "prisma:seed-mm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
+    "prisma:seed-mm-scm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-scm-reset.ts",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
   },

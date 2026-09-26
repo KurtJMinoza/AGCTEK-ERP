@@ -12,6 +12,8 @@ You are working on an **existing enterprise ERP** (AGCTEK). This file is the **p
 
 **Canonical business-system contract:** [`docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`](docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md)
 
+**Primary E2E acceptance scenario:** [`docs/MASTER_E2E_SALES_ORDER_SCENARIO.md`](docs/MASTER_E2E_SALES_ORDER_SCENARIO.md) — validate cross-module work against §32 post-conditions.
+
 That document defines module ownership (CRM · SD · MM · SCM · FICO · PP), end-to-end flows (O2C, P2P, MRP, QI, warehouse, MM→SCM, GI→FICO), forbidden overlaps, and the enterprise principles:
 
 ```text

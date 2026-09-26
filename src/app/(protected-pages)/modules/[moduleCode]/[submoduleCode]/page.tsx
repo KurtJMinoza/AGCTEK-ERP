@@ -1,8 +1,10 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import SubmoduleHubPage from '@/components/erp/SubmoduleHubPage'
 import SubmodulePlaceholderPage from '@/components/erp/SubmodulePlaceholderPage'
 import {
-    findSubmoduleByPath,
+    erpSubmoduleRoutePath,
+    findChildByRouteInModule,
+    findSubmoduleByRoute,
     getResolvedErpModules,
     submoduleHasChildren,
 } from '@/configs/erp-modules'
@@ -24,31 +26,49 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps) {
     const { moduleCode, submoduleCode } = await params
-    const pathname = `/modules/${moduleCode}/${submoduleCode}`
-    const match = findSubmoduleByPath(pathname)
+    const match =
+        findSubmoduleByRoute(moduleCode, submoduleCode) ??
+        findChildByRouteInModule(moduleCode, submoduleCode)
 
     if (!match) {
         return { title: 'Submodule Not Found' }
     }
 
+    const pageItem = 'child' in match ? match.child : match.submodule
+
     return {
-        title: `${match.submodule.title} | ${match.module.shortTitle} | AGCTEK ERP`,
-        description: match.submodule.description,
+        title: `${pageItem.title} | ${match.module.shortTitle} | AGCTEK ERP`,
+        description: pageItem.description,
     }
 }
 
 export default async function Page({ params }: PageProps) {
     const { moduleCode, submoduleCode } = await params
-    const pathname = `/modules/${moduleCode}/${submoduleCode}`
-    const match = findSubmoduleByPath(pathname)
+    const segmentPath = erpSubmoduleRoutePath(moduleCode, submoduleCode)
 
-    if (!match || match.child) {
+    const childMatch = findChildByRouteInModule(moduleCode, submoduleCode)
+    if (childMatch) {
+        redirect(childMatch.child.path)
+    }
+
+    const match = findSubmoduleByRoute(moduleCode, submoduleCode)
+    if (!match) {
         notFound()
     }
 
-    if (submoduleHasChildren(match.submodule)) {
-        return <SubmoduleHubPage pathname={pathname} />
+    const { submodule } = match
+    if (submodule.path !== segmentPath) {
+        redirect(submodule.path)
     }
 
-    return <SubmodulePlaceholderPage pathname={pathname} />
+    if (submoduleHasChildren(submodule)) {
+        return (
+            <SubmoduleHubPage
+                moduleCode={moduleCode}
+                submoduleCode={submoduleCode}
+            />
+        )
+    }
+
+    return <SubmodulePlaceholderPage pathname={segmentPath} />
 }

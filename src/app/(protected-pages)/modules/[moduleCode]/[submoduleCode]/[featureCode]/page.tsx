@@ -1,7 +1,8 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import SubmodulePlaceholderPage from '@/components/erp/SubmodulePlaceholderPage'
 import {
-    findSubmoduleByPath,
+    erpFeatureRoutePath,
+    findFeatureByRoute,
     getNestedSubmoduleStaticParams,
 } from '@/configs/erp-modules'
 
@@ -19,10 +20,13 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps) {
     const { moduleCode, submoduleCode, featureCode } = await params
-    const pathname = `/modules/${moduleCode}/${submoduleCode}/${featureCode}`
-    const match = findSubmoduleByPath(pathname)
+    const match = findFeatureByRoute(
+        moduleCode,
+        submoduleCode,
+        featureCode,
+    )
 
-    if (!match?.child) {
+    if (!match) {
         return { title: 'Feature Not Found' }
     }
 
@@ -34,12 +38,24 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function Page({ params }: PageProps) {
     const { moduleCode, submoduleCode, featureCode } = await params
-    const pathname = `/modules/${moduleCode}/${submoduleCode}/${featureCode}`
-    const match = findSubmoduleByPath(pathname)
+    const segmentPath = erpFeatureRoutePath(
+        moduleCode,
+        submoduleCode,
+        featureCode,
+    )
 
-    if (!match?.child) {
+    const match = findFeatureByRoute(
+        moduleCode,
+        submoduleCode,
+        featureCode,
+    )
+    if (!match) {
         notFound()
     }
 
-    return <SubmodulePlaceholderPage pathname={pathname} />
+    if (match.child.path !== segmentPath) {
+        redirect(match.child.path)
+    }
+
+    return <SubmodulePlaceholderPage pathname={segmentPath} />
 }

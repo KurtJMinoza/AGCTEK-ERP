@@ -107,6 +107,19 @@ CRM
 
 CRM owns relationship and opportunity. **Closed Won** hands off to SD for formal Sales Order creation.
 
+### 2.1 Canonical customer identity
+
+One ERP customer — not three unrelated masters:
+
+```text
+Customer (identity, contacts, addresses)
+  ├── CRM profile (relationship, pipeline, support context)
+  ├── SD profile (commercial, pricing, delivery preferences)
+  └── FICO profile (credit, AR, payment terms)
+```
+
+CRM displays consolidated history (SO, shipment, invoice, POD) but **does not own** those transactions.
+
 ---
 
 ## 3. SD order-to-cash
@@ -140,6 +153,10 @@ AR / Revenue ─────────────► FICO
 ```
 
 SD owns pricing, order management, and billing. MM provides availability. FICO provides credit and accounting services.
+
+**SD Sales Order ≠ SCM Shipment** — one order may split into multiple shipments (partial fulfillment, backorder, warehouses, routes).
+
+**Billing policy (configurable):** distinguish **Goods Issue** (inventory), **Delivered** (POD), and **Invoice** (SD → FICO). Triggers may be GI, delivery, POD, or contract milestone — not one hardcoded global rule.
 
 ---
 
@@ -732,6 +749,16 @@ Business Transaction → DB Transaction → Business Record + Outbox Event
 
 Prefer: domain transaction → outbox → typed event → consumer → consumer-owned transaction.
 
+**SCM ↔ MM decoupling target:** replace long-term `forwardRef` + direct GI injection with:
+
+```text
+MM → PackageReadyForDispatch → SCM
+SCM → DispatchRequested / ShipmentDispatched → MM integration port / SD / CRM
+MM → GoodsIssuePosted → FICO / SD / SCM
+```
+
+**Correlation:** propagate `correlationId` (and `causationId`) on all events in one commercial or procurement process for audit, support, and replay.
+
 ---
 
 ## 27. Integration event examples
@@ -851,3 +878,31 @@ CUSTOMER / MARKET → CRM → SD (Quote / Pricing / Credit) → SALES ORDER → 
 | Driver mobile | `apps/driver/` |
 
 When code and this contract disagree on an **invariant** (posting, ATP owner, MRP non-posting, event ownership), **fix the code** or escalate — do not silently invent a second engine.
+
+---
+
+## 34. Package as MM↔SCM integration object
+
+MM owns packing and package state; SCM owns shipment, route, trip, fleet, POD. **Package** carries the handoff (items, weight, barcode, label, status, optional `shipmentId`). MM announces readiness; SCM plans transport — MM does not assign routes or vehicles.
+
+---
+
+## 35. SCM forecast vs MM MRP
+
+SCM may emit **demand / forecast signals**; MM **MRP** performs netting, safety stock, and supply proposals. PP supplies BOM/production demand. Do not build two independent supply planning engines.
+
+---
+
+## 36. Evolution roadmap (what to build next)
+
+MM and SCM are **deep enough to treat as stable**. Primary target: full **CRM → SD → MM → SCM → SD → FICO → CRM** cycle on one real Sales Order. Phased plan: SD Core → SD Fulfillment → SCM↔MM hardening → FICO Core → CRM → ERP-wide document flow / exceptions / correlation.
+
+Detail: [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
+
+---
+
+## 37. Master E2E acceptance scenario
+
+The **single most important integration test** for the ERP: one Sales Order from CRM Closed Won through SD, MM, SCM, delivery, SD billing, FICO AR, and CRM customer history — with post-conditions on inventory ledger, reservations, POD, COGS, invoice, and event correlation.
+
+Canonical script: [`MASTER_E2E_SALES_ORDER_SCENARIO.md`](./MASTER_E2E_SALES_ORDER_SCENARIO.md).
