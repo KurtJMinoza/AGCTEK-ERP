@@ -8,7 +8,11 @@ import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import { findSubmoduleByPath, getResolvedErpModules } from '@/configs/erp-modules'
+import {
+    findSubmoduleByPath,
+    findSubmoduleByRoute,
+    getResolvedErpModules,
+} from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 type SubmodulePlaceholderPageProps = {
@@ -18,7 +22,13 @@ type SubmodulePlaceholderPageProps = {
 export default function SubmodulePlaceholderPage({
     pathname,
 }: SubmodulePlaceholderPageProps) {
-    const match = findSubmoduleByPath(pathname)
+    const match =
+        findSubmoduleByPath(pathname) ??
+        (() => {
+            const parts = pathname.split('/').filter(Boolean)
+            if (parts[0] !== 'modules' || parts.length < 3) return undefined
+            return findSubmoduleByRoute(parts[1], parts[2])
+        })()
 
     if (!match) {
         return null
