@@ -898,3 +898,11 @@ SCM may emit **demand / forecast signals**; MM **MRP** performs netting, safety 
 MM and SCM are **deep enough to treat as stable**. Primary target: full **CRM → SD → MM → SCM → SD → FICO → CRM** cycle on one real Sales Order. Phased plan: SD Core → SD Fulfillment → SCM↔MM hardening → FICO Core → CRM → ERP-wide document flow / exceptions / correlation.
 
 Detail: [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
+
+---
+
+## 37. Master E2E acceptance scenario
+
+The **single most important integration test** for the ERP: one Sales Order from CRM Closed Won through SD, MM, SCM, delivery, SD billing, FICO AR, and CRM customer history — with post-conditions on inventory ledger, reservations, POD, COGS, invoice, and event correlation.
+
+Canonical script: [`MASTER_E2E_SALES_ORDER_SCENARIO.md`](./MASTER_E2E_SALES_ORDER_SCENARIO.md).

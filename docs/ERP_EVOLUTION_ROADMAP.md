@@ -58,6 +58,8 @@ CRM Lead → Opportunity → Closed Won
 
 > One real Sales Order can travel from CRM/SD → MM → SCM → delivery → SD billing → FICO accounting, while every module keeps its own ownership and no module bypasses another module's authoritative engine.
 
+**Acceptance test contract:** [`MASTER_E2E_SALES_ORDER_SCENARIO.md`](./MASTER_E2E_SALES_ORDER_SCENARIO.md) — step-by-step scenario, post-conditions, and phased test rollout (§32).
+
 ---
 
 ## 3. Master business architecture (reference)

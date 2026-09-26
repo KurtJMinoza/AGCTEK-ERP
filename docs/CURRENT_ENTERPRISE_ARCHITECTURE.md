@@ -28,9 +28,11 @@ This document answers: **what each module owns, how value flows today, what is i
 
 **Strategic posture:** MM and SCM are **deep enough to freeze**; do not redesign MM again. The imbalance is maturity across modules — next work is **cross-module business cycles**, not more MM surface area. See [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
 
-**Primary ERP milestone:**
+**Primary ERP milestone & acceptance test:**
 
 > One real Sales Order travels **CRM/SD → MM → SCM → delivery → SD billing → FICO**, with clear module ownership and no bypass of authoritative engines (inventory, ATP, GL).
+
+Full scenario + post-conditions: [`MASTER_E2E_SALES_ORDER_SCENARIO.md`](./MASTER_E2E_SALES_ORDER_SCENARIO.md).
 
 **Runnable today vs target:**
 
@@ -572,8 +574,9 @@ Full AP payment cockpit · Full CRM customer 360 from SCM events
 
 | Doc | Purpose |
 | --- | --- |
-| [`MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) | Canonical enterprise contract (all flows §§1–36) |
+| [`MASTER_ENTERPRISE_SYSTEM_FLOW.md`](./MASTER_ENTERPRISE_SYSTEM_FLOW.md) | Canonical enterprise contract (all flows §§1–37) |
 | [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md) | Maturity balance, O2C target, phases, integration hardening |
+| [`MASTER_E2E_SALES_ORDER_SCENARIO.md`](./MASTER_E2E_SALES_ORDER_SCENARIO.md) | Primary O2C scenario + acceptance test (§32) |
 | **This file** | Current maturity + module detail + runnable paths |
 | [`MM_ARCHITECTURE.md`](./MM_ARCHITECTURE.md) | MM posting & MM-01…15 |
 | [`SCM_PROCESS_FLOW.md`](./SCM_PROCESS_FLOW.md) | MM↔SCM logistics |
