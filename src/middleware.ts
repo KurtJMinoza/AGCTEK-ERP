@@ -16,9 +16,19 @@ const authRoutes = Object.entries(_authRoutes).map(([key]) => key)
 
 const apiAuthPrefix = `${appConfig.apiPrefix}/auth`
 
+function isSessionActive(
+    auth: { user?: unknown; expires?: string } | null | undefined,
+): boolean {
+    if (!auth?.user) return false
+    if (auth.expires && new Date(auth.expires).getTime() <= Date.now()) {
+        return false
+    }
+    return true
+}
+
 export default auth((req) => {
     const { nextUrl } = req
-    const isSignedIn = !!req.auth
+    const isSignedIn = isSessionActive(req.auth)
 
     const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
     const isNestApiRoute = nextUrl.pathname.startsWith('/api/v1')
