@@ -29,6 +29,7 @@ export class TripsController {
         return this.tripsService.findActiveForDriver(driverId)
     }
 
+    /** @deprecated Use POST /scm/tms/load-plans/:id/lines (cargo-first load building). */
     @Post('assign-load')
     assignLoad(@Body() body: Record<string, unknown>) {
         return this.tripsService.assignLoad(body as never)
@@ -39,6 +40,7 @@ export class TripsController {
         return this.tripsService.findOne(id)
     }
 
+    /** @deprecated with shipment stops — use POST /scm/tms/trips from a READY load plan. */
     @Post()
     create(@Body() body: Record<string, unknown>) {
         return this.tripsService.create(body as never)

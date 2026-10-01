@@ -35,7 +35,6 @@ type GeofenceBody = {
 
 const GEOFENCE_KINDS = new Set(Object.values(GeofenceKind))
 
-/** Regional MM hubs — coords aligned with prisma/seed shipment origins. */
 const SEED: Array<{
     code: string
     name: string
@@ -44,37 +43,15 @@ const SEED: Array<{
     lng: number
     radiusM: number
     color: string
-    notes?: string
 }> = [
     {
-        code: 'HUB-LUZON',
-        name: 'AGC Luzon Hub — Manila',
+        code: 'HUB-MANILA',
+        name: 'Logistics Hub',
         kind: GeofenceKind.HUB,
-        lat: 14.6085,
-        lng: 120.9645,
+        lat: 14.5995,
+        lng: 120.9842,
         radiusM: 900,
         color: '#38bdf8',
-        notes: 'North Harbor, Manila',
-    },
-    {
-        code: 'HUB-VISAYAS',
-        name: 'AGC Logistics Hub — Cebu',
-        kind: GeofenceKind.HUB,
-        lat: 10.3181,
-        lng: 123.9054,
-        radiusM: 900,
-        color: '#34d399',
-        notes: 'Cebu Business Park, Cebu City',
-    },
-    {
-        code: 'HUB-MINDANAO',
-        name: 'AGC Mindanao Hub — Davao',
-        kind: GeofenceKind.HUB,
-        lat: 7.0905,
-        lng: 125.6082,
-        radiusM: 900,
-        color: '#fbbf24',
-        notes: 'JP Laurel Ave, Davao City',
     },
     {
         code: 'CP-NORTH',
@@ -101,34 +78,11 @@ export class GeofencesService implements OnModuleInit {
 
     async onModuleInit() {
         try {
-            let upserted = 0
-            for (const row of SEED) {
-                await this.prisma.geofence.upsert({
-                    where: { code: row.code },
-                    create: {
-                        code: row.code,
-                        name: row.name,
-                        kind: row.kind,
-                        lat: row.lat,
-                        lng: row.lng,
-                        radiusM: row.radiusM,
-                        color: row.color,
-                        notes: row.notes ?? null,
-                        active: true,
-                    },
-                    update: {
-                        name: row.name,
-                        kind: row.kind,
-                        lat: row.lat,
-                        lng: row.lng,
-                        radiusM: row.radiusM,
-                        color: row.color,
-                        notes: row.notes ?? null,
-                    },
-                })
-                upserted += 1
+            const count = await this.prisma.geofence.count()
+            if (count === 0) {
+                await this.prisma.geofence.createMany({ data: SEED })
+                this.logger.log('Seeded default SCM geofence hubs')
             }
-            this.logger.log(`Upserted ${upserted} default SCM geofences`)
             // Tile38 connects in parallel; wait briefly so bootstrap sync is not a no-op.
             for (let i = 0; i < 20 && !this.tile38.isReady; i++) {
                 await new Promise((r) => setTimeout(r, 250))

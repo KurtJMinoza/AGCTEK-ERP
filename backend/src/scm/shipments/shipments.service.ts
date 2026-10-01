@@ -1,5 +1,6 @@
 import {
     BadRequestException,
+    ConflictException,
     Injectable,
 } from '@nestjs/common'
 import { Prisma, ShipmentMovementType, ShipmentStatus } from '@prisma/client'
@@ -127,22 +128,49 @@ export class ShipmentsService {
             )
         }
 
+        const materialCode = optionalString(body.materialCode) ?? null
+        const description = optionalString(body.description) ?? null
+        const originLat = optionalNumber(body.originLat)
+        const originLng = optionalNumber(body.originLng)
+        const destAddress = requireString(body.destAddress, 'destAddress')
+        const destLat = optionalNumber(body.destLat)
+        const destLng = optionalNumber(body.destLng)
+        const quantity = requireInt(body.quantity, 'quantity')
+        const weightKg = optionalNumber(body.weightKg) ?? 0
+        const volumeM3 = optionalNumber(body.volumeM3) ?? 0
+
         return this.prisma.shipment.create({
             data: {
                 reference: requireString(body.reference, 'reference'),
                 customerName: optionalString(body.customerName) ?? null,
                 externalOrderId: optionalString(body.externalOrderId) ?? null,
-                materialCode: optionalString(body.materialCode) ?? null,
-                description: optionalString(body.description) ?? null,
+                materialCode,
+                description,
                 originAddress,
-                originLat: optionalNumber(body.originLat),
-                originLng: optionalNumber(body.originLng),
-                destAddress: requireString(body.destAddress, 'destAddress'),
-                destLat: optionalNumber(body.destLat),
-                destLng: optionalNumber(body.destLng),
-                quantity: requireInt(body.quantity, 'quantity'),
-                weightKg: optionalNumber(body.weightKg) ?? 0,
-                volumeM3: optionalNumber(body.volumeM3) ?? 0,
+                originLat,
+                originLng,
+                destAddress,
+                destLat,
+                destLng,
+                quantity,
+                weightKg,
+                volumeM3,
+                lines: {
+                    create: {
+                        lineNo: 1,
+                        materialCode,
+                        description,
+                        quantity,
+                        weightKg,
+                        volumeM3,
+                        shipFromAddress: originAddress,
+                        shipFromLat: originLat ?? null,
+                        shipFromLng: originLng ?? null,
+                        shipToAddress: destAddress,
+                        shipToLat: destLat ?? null,
+                        shipToLng: destLng ?? null,
+                    },
+                },
                 movementType,
                 status,
                 requestedPickupAt: optionalDate(body.requestedPickupAt),
@@ -266,7 +294,77 @@ export class ShipmentsService {
             }
         }
 
-        return this.prisma.shipment.update({ where: { id }, data })
+        const cargoChanged = [
+            body.quantity,
+            body.weightKg,
+            body.volumeM3,
+            body.originAddress,
+            body.originLat,
+            body.originLng,
+            body.destAddress,
+            body.destLat,
+            body.destLng,
+            body.materialCode,
+            body.description,
+        ].some((v) => v !== undefined)
+
+        if (!cargoChanged) {
+            return this.prisma.shipment.update({ where: { id }, data })
+        }
+
+        const lines = await this.prisma.shipmentLine.findMany({
+            where: { shipmentId: id },
+            include: { loadPlanLine: { select: { id: true } } },
+        })
+        if (lines.some((line) => line.loadPlanLine)) {
+            throw new ConflictException(
+                'Shipment cargo is on a load plan — remove it in Load Building before editing quantity or addresses',
+            )
+        }
+        if (
+            lines.length > 1 &&
+            [body.quantity, body.weightKg, body.volumeM3].some((v) => v !== undefined)
+        ) {
+            throw new BadRequestException(
+                'Multi-line shipment quantities come from its lines (MM package items)',
+            )
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            const updated = await tx.shipment.update({ where: { id }, data })
+            // single-line shipments mirror the header; multi-line (MM package) lines stay as released
+            if (lines.length === 1) {
+                await tx.shipmentLine.update({
+                    where: { id: lines[0].id },
+                    data: {
+                        materialCode: updated.materialCode,
+                        description: updated.description,
+                        quantity: updated.quantity,
+                        weightKg: updated.weightKg,
+                        volumeM3: updated.volumeM3,
+                        shipFromAddress: updated.originAddress,
+                        shipFromLat: updated.originLat,
+                        shipFromLng: updated.originLng,
+                        shipToAddress: updated.destAddress,
+                        shipToLat: updated.destLat,
+                        shipToLng: updated.destLng,
+                    },
+                })
+            } else if (lines.length > 1) {
+                await tx.shipmentLine.updateMany({
+                    where: { shipmentId: id },
+                    data: {
+                        shipFromAddress: updated.originAddress,
+                        shipFromLat: updated.originLat,
+                        shipFromLng: updated.originLng,
+                        shipToAddress: updated.destAddress,
+                        shipToLat: updated.destLat,
+                        shipToLng: updated.destLng,
+                    },
+                })
+            }
+            return updated
+        })
     }
 
     async remove(id: string) {
@@ -310,15 +408,11 @@ export class ShipmentsService {
             )
         }
 
-        const quantity = Math.max(
-            1,
-            Math.round(
-                pkg.items.reduce(
-                    (sum, item) => sum + Number(item.scannedQty),
-                    0,
-                ),
-            ),
-        )
+        const itemLines = pkg.items
+            .map((item) => ({ item, qty: Math.round(Number(item.scannedQty)) }))
+            .filter((row) => row.qty > 0)
+        const itemQtyTotal = itemLines.reduce((sum, row) => sum + row.qty, 0)
+        const quantity = Math.max(1, itemQtyTotal)
 
         const materialCodes = [
             ...new Set(
@@ -349,6 +443,41 @@ export class ShipmentsService {
             ? `MM-${pkg.packageNumber}-${Date.now().toString(36).slice(-4)}`
             : reference
 
+        const safeWeight = Number.isFinite(weightKg) ? weightKg : 0
+        const lineBase = {
+            shipFromWarehouseId: pkg.warehouseId,
+            shipFromAddress: originAddress,
+            shipToAddress: destAddress,
+            shipToLat: pkg.shipToLat ?? null,
+            shipToLng: pkg.shipToLng ?? null,
+            volumeM3: 0,
+        }
+        // one line per package item; package weight split by quantity share
+        const lines =
+            itemLines.length > 0
+                ? itemLines.map((row, index) => ({
+                      ...lineBase,
+                      lineNo: index + 1,
+                      packageItemId: row.item.id,
+                      materialCode: row.item.material?.materialCode ?? null,
+                      description: row.item.material?.description ?? null,
+                      quantity: row.qty,
+                      weightKg:
+                          itemQtyTotal > 0
+                              ? Math.round((safeWeight * row.qty * 1000) / itemQtyTotal) / 1000
+                              : 0,
+                  }))
+                : [
+                      {
+                          ...lineBase,
+                          lineNo: 1,
+                          materialCode,
+                          description,
+                          quantity,
+                          weightKg: safeWeight,
+                      },
+                  ]
+
         return this.prisma.shipment.create({
             data: {
                 reference: finalRef,
@@ -362,8 +491,9 @@ export class ShipmentsService {
                 destLat: pkg.shipToLat ?? null,
                 destLng: pkg.shipToLng ?? null,
                 quantity,
-                weightKg: Number.isFinite(weightKg) ? weightKg : 0,
+                weightKg: safeWeight,
                 volumeM3: 0,
+                lines: { create: lines },
                 movementType: ShipmentMovementType.DELIVERY,
                 status: ShipmentStatus.READY,
                 notes: pkg.carrier

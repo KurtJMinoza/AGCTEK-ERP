@@ -9,6 +9,7 @@ const tone: Record<string, { bg: string; fg: string }> = {
     FAILED: { bg: '#fee2e2', fg: '#b91c1c' },
     SKIPPED: { bg: '#fef3c7', fg: '#b45309' },
     ASSIGNED: { bg: '#e0e7ff', fg: '#3730a3' },
+    DISPATCHED: { bg: '#e0e7ff', fg: '#3730a3' },
     IN_TRANSIT: { bg: '#dbeafe', fg: '#1d4ed8' },
 }
 

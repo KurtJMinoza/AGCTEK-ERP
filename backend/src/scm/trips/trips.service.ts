@@ -2,9 +2,11 @@ import {
     BadRequestException,
     Inject,
     Injectable,
+    Logger,
     forwardRef,
 } from '@nestjs/common'
-import { Prisma, ShipmentMovementType, ShipmentStatus, StopStatus, TripStatus, VehicleStatus, DriverStatus } from '@prisma/client'
+import { LoadPlanStatus, Prisma, ShipmentMovementType, ShipmentStatus, StopStatus, TripStatus, VehicleStatus, DriverStatus } from '@prisma/client'
+import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { VehiclesService } from '../vehicles/vehicles.service'
 import { MaintenanceService } from '../maintenance/maintenance.service'
@@ -89,6 +91,8 @@ const tripInclude = {
 
 @Injectable()
 export class TripsService {
+    private readonly logger = new Logger(TripsService.name)
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly vehiclesService: VehiclesService,
@@ -147,13 +151,19 @@ export class TripsService {
         const id = requireString(driverId, 'driverId')
         const activeStatuses: TripStatus[] = [
             TripStatus.IN_TRANSIT,
+            TripStatus.DISPATCHED,
             TripStatus.ASSIGNED,
             TripStatus.PLANNED,
         ]
 
         for (const status of activeStatuses) {
             const trip = await this.prisma.trip.findFirst({
-                where: { driverId: id, status },
+                where: {
+                    driverId: id,
+                    status,
+                    // cargo-first trips reach the driver only once dispatched
+                    ...(status === TripStatus.PLANNED ? { loadPlanId: null } : {}),
+                },
                 include: tripInclude,
                 orderBy: { updatedAt: 'desc' },
             })
@@ -163,18 +173,21 @@ export class TripsService {
         return null
     }
 
-    /** Driver 5.1 — start route (PLANNED/ASSIGNED → IN_TRANSIT). */
+    /**
+     * Driver 5.1 — start route → IN_TRANSIT.
+     * Cargo-first trips: DISPATCHED only. Legacy trips: PLANNED / ASSIGNED.
+     */
     async startTrip(id: string) {
         const trip = await this.findOne(id)
-        if (
-            trip.status !== TripStatus.ASSIGNED &&
-            trip.status !== TripStatus.PLANNED
-        ) {
-            if (trip.status === TripStatus.IN_TRANSIT) {
-                return trip
-            }
+        if (trip.status === TripStatus.IN_TRANSIT) return trip
+        const startable: TripStatus[] = trip.loadPlanId
+            ? [TripStatus.DISPATCHED]
+            : [TripStatus.ASSIGNED, TripStatus.PLANNED, TripStatus.DISPATCHED]
+        if (!startable.includes(trip.status)) {
             throw new BadRequestException(
-                `Cannot start trip from status ${trip.status}`,
+                trip.loadPlanId
+                    ? `Trip must be dispatched before it can start (current: ${trip.status})`
+                    : `Cannot start trip from status ${trip.status}`,
             )
         }
         return this.updateStatus(id, TripStatus.IN_TRANSIT)
@@ -431,7 +444,16 @@ export class TripsService {
         }
     }
 
+    /**
+     * @deprecated Creating trips with shipment stops directly bypasses load building.
+     * Use POST /scm/tms/load-plans → READY → POST /scm/tms/trips.
+     */
     async create(body: CreateTripBody) {
+        if (body.stops?.some((stop) => stop.shipments?.length)) {
+            this.logger.warn(
+                'Deprecated: POST /scm/trips with shipment stops — use /scm/tms (cargo-first)',
+            )
+        }
         const status = body.status ?? TripStatus.DRAFT
         if (!TRIP_STATUSES.has(status)) {
             throw new BadRequestException('Invalid trip status')
@@ -479,6 +501,7 @@ export class TripsService {
                     `Only READY shipments can be planned (${notReady.map((s) => s.reference).join(', ')})`,
                 )
             }
+            await this.assertNotOnLoadPlan(shipmentIds)
 
             const alreadyLinked = await this.prisma.tripStopShipment.findFirst({
                 where: {
@@ -549,7 +572,17 @@ export class TripsService {
     }
 
     async update(id: string, body: CreateTripBody) {
-        await this.findOne(id)
+        const existing = await this.findOne(id)
+        if (existing.loadPlanId) {
+            if (body.vehicleId !== undefined && body.vehicleId !== existing.vehicleId) {
+                throw new BadRequestException(
+                    'Vehicle is fixed by the load plan on cargo-first trips',
+                )
+            }
+            if (body.status !== undefined && body.status !== existing.status) {
+                this.assertCargoFirstStatusChange(existing.status, body.status)
+            }
+        }
 
         if (body.vehicleId !== undefined) {
             await this.assertVehicleAssignable(body.vehicleId)
@@ -601,6 +634,10 @@ export class TripsService {
             status === TripStatus.COMPLETED &&
             trip.status !== TripStatus.COMPLETED
 
+        if (trip.loadPlanId && status !== trip.status) {
+            this.assertCargoFirstStatusChange(trip.status, status)
+        }
+
         if (
             (status === TripStatus.PLANNED ||
                 status === TripStatus.ASSIGNED ||
@@ -637,10 +674,17 @@ export class TripsService {
             data.completedAt = trip.completedAt ?? new Date()
         }
 
-        await this.prisma.trip.update({
-            where: { id },
-            data,
-            include: tripInclude,
+        await this.prisma.$transaction(async (tx) => {
+            await tx.trip.update({ where: { id }, data })
+            if (trip.loadPlanId && completing) {
+                await tx.loadPlan.updateMany({
+                    where: { id: trip.loadPlanId },
+                    data: { status: LoadPlanStatus.COMPLETED },
+                })
+            }
+            if (trip.loadPlanId && status === TripStatus.CANCELLED) {
+                await releaseLoadPlanForTrip(tx, trip.loadPlanId)
+            }
         })
 
         const shipmentIds = [
@@ -675,7 +719,9 @@ export class TripsService {
             await this.prisma.shipment.updateMany({
                 where: {
                     id: { in: shipmentIds },
-                    status: { not: ShipmentStatus.DELIVERED },
+                    status: {
+                        notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED],
+                    },
                 },
                 data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
             })
@@ -698,6 +744,48 @@ export class TripsService {
         }
 
         return this.findOne(id)
+    }
+
+    /**
+     * Cargo-first trips move through /scm/tms (validate, dispatch, cancel);
+     * the generic status endpoint only drives execution (start / complete / cancel).
+     */
+    private assertCargoFirstStatusChange(from: TripStatus, to: TripStatus) {
+        const allowed =
+            (to === TripStatus.IN_TRANSIT && from === TripStatus.DISPATCHED) ||
+            (to === TripStatus.COMPLETED && from === TripStatus.IN_TRANSIT) ||
+            (to === TripStatus.CANCELLED &&
+                (from === TripStatus.PLANNED ||
+                    from === TripStatus.READY ||
+                    from === TripStatus.DISPATCHED))
+        if (!allowed) {
+            throw new BadRequestException(
+                `Cargo-first trip cannot go ${from} → ${to} here — use Trip Planning (/scm/tms/trips)`,
+            )
+        }
+    }
+
+    private async assertNotOnLoadPlan(shipmentIds: string[]) {
+        const loaded = await this.prisma.loadPlanLine.findFirst({
+            where: { shipmentLine: { shipmentId: { in: shipmentIds } } },
+            select: {
+                loadPlan: { select: { code: true } },
+                shipmentLine: { select: { shipment: { select: { reference: true } } } },
+            },
+        })
+        if (loaded) {
+            throw new BadRequestException(
+                `Shipment ${loaded.shipmentLine.shipment.reference} has cargo on load plan ${loaded.loadPlan.code}`,
+            )
+        }
+    }
+
+    private assertNotCargoFirst(trip: { loadPlanId: string | null }, action: string) {
+        if (trip.loadPlanId) {
+            throw new BadRequestException(
+                `Cannot ${action} on a cargo-first trip — stops are derived from its load plan`,
+            )
+        }
     }
 
     /**
@@ -727,7 +815,7 @@ export class TripsService {
     }
 
     async addStop(tripId: string, body: StopInput) {
-        await this.findOne(tripId)
+        this.assertNotCargoFirst(await this.findOne(tripId), 'add stops')
 
         const sequence =
             body.sequence != null
@@ -835,7 +923,7 @@ export class TripsService {
     }
 
     async removeStop(tripId: string, stopId: string) {
-        await this.findOne(tripId)
+        this.assertNotCargoFirst(await this.findOne(tripId), 'remove stops')
         assertFound(
             await this.prisma.tripStop.findFirst({
                 where: { id: stopId, tripId },
@@ -847,8 +935,23 @@ export class TripsService {
     }
 
     async remove(id: string) {
-        await this.findOne(id)
-        await this.prisma.trip.delete({ where: { id } })
+        const trip = await this.findOne(id)
+        if (
+            trip.loadPlanId &&
+            trip.status !== TripStatus.PLANNED &&
+            trip.status !== TripStatus.READY &&
+            trip.status !== TripStatus.CANCELLED
+        ) {
+            throw new BadRequestException(
+                `Cannot delete a ${trip.status} cargo-first trip`,
+            )
+        }
+        await this.prisma.$transaction(async (tx) => {
+            await tx.trip.delete({ where: { id } })
+            if (trip.status !== TripStatus.CANCELLED) {
+                await releaseLoadPlanForTrip(tx, trip.loadPlanId)
+            }
+        })
         return { ok: true }
     }
 
@@ -857,8 +960,13 @@ export class TripsService {
      * Reuses an existing DRAFT/PLANNED trip for the vehicle when tripId is set,
      * or when one already exists (unless forceNewTrip).
      * Re-validates item quantity vs vehicle.capacityQty server-side.
+     *
+     * @deprecated Replaced by cargo-first load building (POST /scm/tms/load-plans/:id/lines).
      */
     async assignLoad(body: AssignLoadBody) {
+        this.logger.warn(
+            'Deprecated: POST /scm/trips/assign-load — use /scm/tms/load-plans (cargo-first)',
+        )
         const vehicleId = requireString(body.vehicleId, 'vehicleId')
         const shipmentIds = Array.isArray(body.shipmentIds)
             ? [
@@ -902,6 +1010,7 @@ export class TripsService {
                 `Only READY shipments can be assigned (${notReady.map((s) => s.reference).join(', ')})`,
             )
         }
+        await this.assertNotOnLoadPlan(shipmentIds)
 
         const alreadyLinked = await this.prisma.tripStopShipment.findFirst({
             where: {
@@ -1403,9 +1512,15 @@ export class TripsService {
     private async issueGoodsForTripShipments(
         trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>,
     ) {
-        const shipments = (trip.stops ?? []).flatMap((stop) =>
-            (stop.shipments ?? []).map((link) => link.shipment),
-        )
+        // a shipment is linked on both its pickup and drop-off stop — issue once
+        const shipments = [
+            ...new Map(
+                (trip.stops ?? [])
+                    .flatMap((stop) => (stop.shipments ?? []).map((link) => link.shipment))
+                    .filter((shipment) => shipment != null)
+                    .map((shipment) => [shipment.id, shipment]),
+            ).values(),
+        ]
 
         for (const shipment of shipments) {
             if (!shipment?.packageId) continue

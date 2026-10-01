@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common'
 import { TrackingService } from './tracking.service'
 import { GeofencesService } from '../geofences/geofences.service'
+import type { ListQuery } from '../scm.utils'
 
 @Controller('scm/tracking')
 export class TrackingController {
@@ -33,6 +34,16 @@ export class TrackingController {
         @Query() query: { from?: string; to?: string; limit?: string },
     ) {
         return this.trackingService.history(vehicleId, query)
+    }
+
+    /** Paginated audit trail of stored GpsLog rows (read-only). */
+    @Get('vehicles/:vehicleId/telematics-history')
+    telematicsHistory(
+        @Param('vehicleId') vehicleId: string,
+        @Query()
+        query: ListQuery & { from?: string; to?: string; source?: string },
+    ) {
+        return this.trackingService.telematicsHistory(vehicleId, query)
     }
 
     /** Manual / internal ping by vehicleId (driver app / tools). */

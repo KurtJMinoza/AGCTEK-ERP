@@ -21,12 +21,14 @@ import { GeofencesService } from './geofences/geofences.service'
 import { GeocodeController } from './geocode/geocode.controller'
 import { PlacesController } from './places/places.controller'
 import { PlacesService } from './places/places.service'
-import { PlanningSettingsController } from './planning-settings/planning-settings.controller'
-import { PlanningSettingsService } from './planning-settings/planning-settings.service'
 import { DashboardController } from './dashboard/dashboard.controller'
 import { DashboardService } from './dashboard/dashboard.service'
-import { ForecastsController } from './forecasts/forecasts.controller'
-import { ForecastsService } from './forecasts/forecasts.service'
+import { DemandPlanController } from './demand-plan/demand-plan.controller'
+import { DemandPlanService } from './demand-plan/demand-plan.service'
+import { DemandSalesService } from './demand-plan/demand-plan.sales'
+import { TmsController } from './tms/tms.controller'
+import { TmsLoadPlansService } from './tms/tms-load-plans.service'
+import { TmsTripsService } from './tms/tms-trips.service'
 import { MmModule } from '../mm/mm.module'
 
 @Module({
@@ -42,9 +44,9 @@ import { MmModule } from '../mm/mm.module'
         GeofencesController,
         GeocodeController,
         PlacesController,
-        PlanningSettingsController,
         DashboardController,
-        ForecastsController,
+        DemandPlanController,
+        TmsController,
     ],
     providers: [
         VehiclesService,
@@ -59,9 +61,11 @@ import { MmModule } from '../mm/mm.module'
         Tile38Service,
         GeofencesService,
         PlacesService,
-        PlanningSettingsService,
         DashboardService,
-        ForecastsService,
+        DemandPlanService,
+        DemandSalesService,
+        TmsLoadPlansService,
+        TmsTripsService,
     ],
     exports: [ShipmentsService],
 })

@@ -11,6 +11,9 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
+import SafetyStockChart, {
+    filterSafetyStockRows,
+} from '../components/SafetyStockChart'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialRequirement } from '../types'
@@ -32,7 +35,10 @@ const SafetyStockPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialRequirement[]>([])
     const [loading, setLoading] = useState(true)
-    const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
+    const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs(
+        'companies',
+        'warehouses',
+    )
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
 
@@ -49,15 +55,13 @@ const SafetyStockPage = () => {
                 warehouseId: warehouseId || undefined,
                 limit: 200,
             })
-            setRows(
-                res.data.filter(
-                    (r) =>
-                        Number(r.safetyStock) > 0 ||
-                        Number(r.availableQty) < Number(r.safetyStock),
-                ),
-            )
+            setRows(filterSafetyStockRows(res.data))
         } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message || 'Load failed')
+            pushToast(
+                'danger',
+                'Error',
+                e?.response?.data?.message || 'Load failed',
+            )
         } finally {
             setLoading(false)
         }
@@ -127,7 +131,9 @@ const SafetyStockPage = () => {
                         <Select
                             options={companies}
                             value={companies.find((o) => o.value === companyId)}
-                            onChange={(o: any) => setCompanyId(o?.value || '')}
+                            onChange={(o: Opt | null) =>
+                                setCompanyId(o?.value || '')
+                            }
                         />
                     </FormItem>
                     <FormItem label="Warehouse">
@@ -135,14 +141,27 @@ const SafetyStockPage = () => {
                             isClearable
                             options={warehouses}
                             value={
-                                warehouses.find((o) => o.value === warehouseId) ||
-                                null
+                                warehouses.find(
+                                    (o) => o.value === warehouseId,
+                                ) || null
                             }
-                            onChange={(o: any) => setWarehouseId(o?.value || '')}
+                            onChange={(o: Opt | null) =>
+                                setWarehouseId(o?.value || '')
+                            }
                         />
                     </FormItem>
                 </div>
             </AdaptiveCard>
+
+            {companyId ? (
+                <div className="mb-4">
+                    <SafetyStockChart
+                        companyId={companyId}
+                        warehouseId={warehouseId || undefined}
+                    />
+                </div>
+            ) : null}
+
             <AdaptiveCard>
                 <DataTable columns={columns} data={rows} loading={loading} />
             </AdaptiveCard>
