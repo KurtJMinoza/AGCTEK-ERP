@@ -25,10 +25,3 @@ export function isAwicStorefrontHost(hostname: string): boolean {
             .filter(Boolean) ?? []
     return extra.includes(host)
 }
-
-/** September Sale discount applied to highlighted products */
-export const SEPTEMBER_SALE_DISCOUNT = 0.2 as const
-
-export function getSeptemberSalePrice(basePrice: number): number {
-    return Math.round(basePrice * (1 - SEPTEMBER_SALE_DISCOUNT))
-}

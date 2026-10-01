@@ -152,6 +152,22 @@ export const protectedRoutes: Routes = {
 }
 
 export const publicRoutes: Routes = {
+    '/mconpinco': {
+        key: 'mconpincoShop',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/lpg': {
+        key: 'lpgShop',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/awic': {
         key: 'retailShop',
         authority: [],

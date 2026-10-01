@@ -1,10 +1,16 @@
 import {
+    ArrayMinSize,
+    IsEmail,
+    IsIn,
+    IsInt,
     IsString,
     IsNotEmpty,
     IsOptional,
     IsArray,
     ValidateNested,
     IsNumber,
+    Max,
+    MaxLength,
     Min,
 } from 'class-validator'
 import { Type } from 'class-transformer'
@@ -50,6 +56,158 @@ export class ChangeSalesOrderLineQtyDto {
     @IsNumber()
     @Min(0)
     quantity!: number
+}
+
+export const SALES_ORDER_CHANNELS = ['STANDARD', 'POS', 'ECOMMERCE'] as const
+export type SalesOrderChannel = (typeof SALES_ORDER_CHANNELS)[number]
+export const RETAIL_SALES_ORDER_CHANNELS = ['POS', 'ECOMMERCE'] as const
+/** Storefront divisions allowed to capture retail orders (AWIC, LPG, MCONPINCO appliances). */
+export const RETAIL_SALES_DIVISIONS = ['DIV_RETAIL', 'DIV_LPG', 'DIV_APPLIANCES'] as const
+/**
+ * Selling branch codes (mirrors `src/modules/sd/catalogs/branchCatalog.ts`).
+ * Plain codes until stores are modelled in the MM `Branch` master.
+ */
+export const RETAIL_BRANCH_IDS = [
+    'BR_AWIC_DAVAO_MAIN',
+    'BR_MCONPINCO_01',
+    'BR_LPG_01',
+] as const
+
+export const SALES_ORDER_DATE_RANGES = ['today', 'last7days', 'last30days', 'all'] as const
+export type SalesOrderDateRange = (typeof SALES_ORDER_DATE_RANGES)[number]
+
+export class ListSalesOrdersQueryDto {
+    @IsOptional()
+    @IsIn(SALES_ORDER_CHANNELS)
+    channel?: SalesOrderChannel
+
+    /** Matches order number, customer name or customer email (case-insensitive). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    search?: string
+
+    /** Exact customer (storefront client id), e.g. for a shopper's order history. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    customerId?: string
+
+    @IsOptional()
+    @IsIn(RETAIL_SALES_DIVISIONS)
+    divisionId?: string
+
+    @IsOptional()
+    @IsIn(RETAIL_BRANCH_IDS)
+    branchId?: string
+
+    @IsOptional()
+    @IsIn(SALES_ORDER_DATE_RANGES)
+    dateRange?: SalesOrderDateRange
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(500)
+    limit?: number
+}
+
+export class CreateRetailSalesOrderLineDto {
+    @IsString()
+    @IsNotEmpty()
+    sku!: string
+
+    @IsString()
+    @IsNotEmpty()
+    description!: string
+
+    @IsInt()
+    @Min(1)
+    quantity!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    unitPrice!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    lineTotal!: number
+}
+
+/** Priced retail capture (POS fast-track / e-commerce standard) from SD pricing. */
+export class CreateRetailSalesOrderDto {
+    @IsIn(RETAIL_SALES_ORDER_CHANNELS)
+    channel!: (typeof RETAIL_SALES_ORDER_CHANNELS)[number]
+
+    @IsString()
+    @IsNotEmpty()
+    idempotencyKey!: string
+
+    @IsIn(RETAIL_SALES_DIVISIONS)
+    divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
+
+    /** Required for POS sales; optional for e-commerce. */
+    @IsOptional()
+    @IsIn(RETAIL_BRANCH_IDS)
+    branchId?: (typeof RETAIL_BRANCH_IDS)[number]
+
+    @IsString()
+    @IsNotEmpty()
+    customerId!: string
+
+    @IsString()
+    @IsNotEmpty()
+    customerName!: string
+
+    @IsOptional()
+    @IsEmail()
+    customerEmail?: string
+
+    @IsArray()
+    @ArrayMinSize(1)
+    @ValidateNested({ each: true })
+    @Type(() => CreateRetailSalesOrderLineDto)
+    lines!: CreateRetailSalesOrderLineDto[]
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    subtotal!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    discountAmount!: number
+
+    @IsOptional()
+    @IsString()
+    promoCode?: string
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    shippingAmount!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    totalAmount!: number
+
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    paymentReceived?: number
+
+    @IsOptional()
+    @IsString()
+    createdBy?: string
+}
+
+export const RETAIL_STATUS_TARGETS = ['COMPLETED', 'CANCELLED'] as const
+
+export class UpdateRetailSalesOrderStatusDto {
+    @IsIn(RETAIL_STATUS_TARGETS)
+    status!: (typeof RETAIL_STATUS_TARGETS)[number]
+
+    @IsOptional()
+    @IsString()
+    updatedBy?: string
 }
 
 export class IssueSalesOrderDto {

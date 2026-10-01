@@ -11,6 +11,7 @@ import {
 import * as bcrypt from 'bcryptjs'
 import { seedMmOrg } from './seed-mm-org'
 import { seedMmScmHandoff } from './seed-mm-scm-handoff'
+import { seedSdProducts } from './seed-sd-products'
 
 const prisma = new PrismaClient()
 
@@ -470,6 +471,7 @@ async function main() {
 
     // Package-linked MM → SCM handoff (GI-capable on trip start)
     await seedMmScmHandoff(prisma)
+    await seedSdProducts(prisma)
 
     // Fleet for load plan / dispatch (AVAILABLE, capacityQty > 0)
     const fleetVehicles = [

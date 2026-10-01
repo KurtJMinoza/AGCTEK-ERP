@@ -8,6 +8,7 @@ import {
     type ReactNode,
 } from 'react'
 import Image from 'next/image'
+import { isUnoptimizedImage } from '@/utils/productImage'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { HiOutlineLockClosed, HiOutlineTrash } from 'react-icons/hi'
@@ -22,9 +23,17 @@ import classNames from '@/utils/classNames'
 import { AWIC_BRAND } from '@/modules/storefront/retail/brand'
 import { useRetailCartStore } from '@/modules/storefront/retail/store/retailCartStore'
 import { useRetailClientStore } from '@/modules/storefront/retail/store/retailClientStore'
+import { useSignedInAction } from '@/modules/storefront/retail/hooks/useSignedInAction'
 import { useRetailCartSync } from '@/modules/storefront/retail/hooks/useRetailCartSync'
-import { submitSalesOrder } from '@/services/storefront/retailService'
-import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
+import { useCartPricing } from '@/modules/storefront/retail/hooks/useCartPricing'
+import {
+    submitSalesOrder,
+    toPricingItems,
+} from '@/services/storefront/retailService'
+import {
+    calculateCartPricing,
+    type EcommerceOrderResult,
+} from '@/modules/sd/services/ecommerceService'
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -139,10 +148,17 @@ export default function RetailCheckoutPage() {
     const router = useRouter()
     useRetailCartSync()
 
-    const { items, clearCart, subtotal, updateQuantity, removeItem } =
-        useRetailCartStore()
+    const {
+        items,
+        discountCode,
+        setDiscountCode,
+        clearCart,
+        updateQuantity,
+        removeItem,
+    } = useRetailCartStore()
     const { client, openLogin } = useRetailClientStore()
-    const total = subtotal()
+    const runSignedIn = useSignedInAction()
+    const pricing = useCartPricing()
 
     const [form, setForm] = useState<CheckoutForm>({
         email: '',
@@ -164,8 +180,9 @@ export default function RetailCheckoutPage() {
     })
     const [submitting, setSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState<string | null>(null)
-    const [discountApplied, setDiscountApplied] = useState(false)
+    const [placedOrder, setPlacedOrder] = useState<EcommerceOrderResult | null>(
+        null,
+    )
     const [confirmPay, setConfirmPay] = useState(false)
     const [confirmDiscount, setConfirmDiscount] = useState(false)
     const [removeSku, setRemoveSku] = useState<string | null>(null)
@@ -194,7 +211,11 @@ export default function RetailCheckoutPage() {
 
     const update =
         (key: keyof CheckoutForm) =>
-        (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        (
+            event: ChangeEvent<
+                HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+            >,
+        ) => {
             const value =
                 event.target.type === 'checkbox'
                     ? (event.target as HTMLInputElement).checked
@@ -202,11 +223,8 @@ export default function RetailCheckoutPage() {
             setForm((prev) => ({ ...prev, [key]: value }))
         }
 
-    const discountAmount =
-        discountApplied && form.discountCode.trim().toUpperCase() === 'AWIC10'
-            ? total * 0.1
-            : 0
-    const payable = Math.max(0, total - discountAmount)
+    const lineTotal = (sku: string) =>
+        pricing?.lines.find((line) => line.sku === sku)?.lineTotal
 
     const handleApplyDiscount = () => {
         if (!form.discountCode.trim()) {
@@ -218,11 +236,13 @@ export default function RetailCheckoutPage() {
 
     const applyDiscountConfirmed = () => {
         setConfirmDiscount(false)
-        if (form.discountCode.trim().toUpperCase() === 'AWIC10') {
-            setDiscountApplied(true)
+        const code = form.discountCode.trim().toUpperCase()
+        try {
+            calculateCartPricing(toPricingItems(items), code)
+            setDiscountCode(code)
             setError(null)
-        } else {
-            setDiscountApplied(false)
+        } catch {
+            setDiscountCode(null)
             setError('Enter a valid discount code (try AWIC10).')
         }
     }
@@ -255,23 +275,22 @@ export default function RetailCheckoutPage() {
             return
         }
 
-        setConfirmPay(true)
+        runSignedIn(() => setConfirmPay(true))
     }
 
     const placeOrderConfirmed = async () => {
         setConfirmPay(false)
+        if (!client) {
+            runSignedIn(() => setConfirmPay(true))
+            return
+        }
         setSubmitting(true)
         setError(null)
         try {
             const result = await submitSalesOrder({
-                customerId: client?.customerId ?? `GUEST-${Date.now()}`,
-                divisionId: RETAIL_DIVISION_ID,
-                items: items.map((item) => ({
-                    sku: item.product.sku,
-                    quantity: item.quantity,
-                    unitPrice: item.product.basePrice,
-                    lineTotal: item.itemTotal,
-                })),
+                customerId: client.customerId,
+                items,
+                discountCode,
                 shipping: {
                     fullName: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
                     email: form.email.trim(),
@@ -288,18 +307,33 @@ export default function RetailCheckoutPage() {
                     postalCode: form.postalCode.trim(),
                     country: form.country.trim() || 'PH',
                 },
-                totalAmount: Number(payable.toFixed(2)),
             })
             clearCart()
-            setSuccess(result.message)
-        } catch {
-            setError('Unable to place order. Please try again.')
+            setPlacedOrder(result)
+        } catch (err) {
+            setError(
+                err instanceof Error
+                    ? `Unable to place order: ${err.message}`
+                    : 'Unable to place order. Please try again.',
+            )
         } finally {
             setSubmitting(false)
         }
     }
 
-    if (success) {
+    if (placedOrder) {
+        const summaryRows: Array<[string, string]> = [
+            ['Subtotal', formatPrice(placedOrder.subtotal)],
+            ...(placedOrder.promoCode
+                ? ([
+                      [
+                          `Discount (${placedOrder.promoCode})`,
+                          `−${formatPrice(placedOrder.discountAmount)}`,
+                      ],
+                  ] as Array<[string, string]>)
+                : []),
+            ['Shipping', formatPrice(placedOrder.shipping)],
+        ]
         return (
             <div className="min-h-screen bg-brand-canvas text-brand-ink">
                 <StorefrontSiteHeader />
@@ -313,8 +347,29 @@ export default function RetailCheckoutPage() {
                         Thank you
                     </h1>
                     <p className="mt-4 font-storefront-body text-base text-brand-ink/70">
-                        {success}
+                        {placedOrder.message}
                     </p>
+                    <div className="mt-8 space-y-2 border-t border-brand-line pt-5 text-left">
+                        {summaryRows.map(([label, value]) => (
+                            <div
+                                key={label}
+                                className="flex justify-between font-storefront-body text-sm"
+                            >
+                                <span className="text-brand-ink/65">{label}</span>
+                                <span className="font-semibold text-brand-ink">
+                                    {value}
+                                </span>
+                            </div>
+                        ))}
+                        <div className="flex items-baseline justify-between border-t border-brand-line pt-4">
+                            <span className="font-storefront-body text-base font-semibold text-brand-ink">
+                                Total
+                            </span>
+                            <span className="font-storefront-body text-2xl font-semibold text-brand-gold">
+                                {formatPrice(placedOrder.grandTotal)}
+                            </span>
+                        </div>
+                    </div>
                     <Button
                         className="mt-8"
                         variant="solid"
@@ -595,11 +650,11 @@ export default function RetailCheckoutPage() {
                                 </h2>
                                 <div className="border border-brand-gold/30 bg-brand-sage/40 px-4 py-4">
                                     <p className="font-storefront-body text-sm font-semibold text-brand-ink">
-                                        Free Shipping Nationwide
+                                        Standard Shipping Nationwide
                                     </p>
                                     <p className="mt-1 font-storefront-body text-sm text-brand-ink/60">
-                                        {form.addressLine1.trim()
-                                            ? 'Standard delivery · Free'
+                                        {form.addressLine1.trim() && pricing
+                                            ? `Standard delivery · ${formatPrice(pricing.shipping)}`
                                             : 'Enter your shipping address to view available shipping methods.'}
                                     </p>
                                 </div>
@@ -733,9 +788,7 @@ export default function RetailCheckoutPage() {
                                                     fill
                                                     className="object-cover"
                                                     sizes="64px"
-                                                    unoptimized={item.product.imageUrl.endsWith(
-                                                        '.svg',
-                                                    )}
+                                                    unoptimized={isUnoptimizedImage(item.product.imageUrl)}
                                                 />
                                             </div>
                                             <div className="min-w-0 flex-1">
@@ -746,7 +799,11 @@ export default function RetailCheckoutPage() {
                                                     {item.product.sku}
                                                 </p>
                                                 <p className="mt-2 font-storefront-body text-sm font-semibold text-brand-gold">
-                                                    {formatPrice(item.itemTotal)}
+                                                    {formatPrice(
+                                                        lineTotal(
+                                                            item.product.sku,
+                                                        ) ?? 0,
+                                                    )}
                                                 </p>
                                             </div>
                                             <button
@@ -827,16 +884,16 @@ export default function RetailCheckoutPage() {
                                         Subtotal
                                     </span>
                                     <span className="font-semibold text-brand-ink">
-                                        {formatPrice(total)}
+                                        {formatPrice(pricing?.subtotal ?? 0)}
                                     </span>
                                 </div>
-                                {discountApplied ? (
+                                {pricing?.promoCode ? (
                                     <div className="flex justify-between font-storefront-body text-sm">
-                                        <span className="text-brand-gold">
-                                            Discount (AWIC10)
+                                        <span className="text-emerald-600">
+                                            Discount ({pricing.promoCode})
                                         </span>
-                                        <span className="font-semibold text-brand-gold">
-                                            −{formatPrice(discountAmount)}
+                                        <span className="font-semibold text-emerald-600">
+                                            −{formatPrice(pricing.discountAmount)}
                                         </span>
                                     </div>
                                 ) : null}
@@ -845,9 +902,7 @@ export default function RetailCheckoutPage() {
                                         Shipping
                                     </span>
                                     <span className="font-semibold text-brand-ink">
-                                        {form.addressLine1.trim()
-                                            ? 'Free'
-                                            : 'Enter shipping address'}
+                                        {formatPrice(pricing?.shipping ?? 0)}
                                     </span>
                                 </div>
                                 <div className="flex items-baseline justify-between border-t border-brand-line pt-4">
@@ -858,7 +913,7 @@ export default function RetailCheckoutPage() {
                                         <span className="mr-1 text-sm font-medium text-brand-ink/45">
                                             PHP
                                         </span>
-                                        {formatPrice(payable)}
+                                        {formatPrice(pricing?.grandTotal ?? 0)}
                                     </span>
                                 </div>
                             </div>
@@ -921,7 +976,7 @@ export default function RetailCheckoutPage() {
                 <p>
                     Confirm payment of{' '}
                     <span className="font-semibold text-brand-gold">
-                        {formatPrice(payable)}
+                        {formatPrice(pricing?.grandTotal ?? 0)}
                     </span>{' '}
                     via{' '}
                     {form.payment === 'paymongo'
