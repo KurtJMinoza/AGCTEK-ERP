@@ -272,7 +272,12 @@ export class VehiclesService {
                 where: {
                     vehicleId,
                     status: {
-                        in: [TripStatus.ASSIGNED, TripStatus.PLANNED],
+                        in: [
+                            TripStatus.DISPATCHED,
+                            TripStatus.READY,
+                            TripStatus.ASSIGNED,
+                            TripStatus.PLANNED,
+                        ],
                     },
                 },
                 orderBy: { updatedAt: 'desc' },

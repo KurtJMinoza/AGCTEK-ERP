@@ -20,6 +20,8 @@ export type MapPinKind = 'vehicle' | 'destination' | 'stop'
 
 const PIN_WIDTH = 28
 const PIN_HEIGHT = 40
+const ORIGIN_SIZE = 18
+const ORIGIN_SIZE_SELECTED = 22
 
 export function resolveStopPinColor(
     sequence: number,
@@ -30,6 +32,57 @@ export function resolveStopPinColor(
     }
     const index = Math.max(0, sequence - 1) % STOP_PIN_PALETTE.length
     return STOP_PIN_PALETTE[index]
+}
+
+/**
+ * Centered reference point (lat/lng at icon center) — for vehicle GPS fixes.
+ * Prefer this over teardrop pins so the marker sits on the true coordinate.
+ */
+export function createMapOriginIcon(options: {
+    color: string
+    label?: string
+    selected?: boolean
+}): L.DivIcon {
+    const { color, label, selected } = options
+    const size = selected ? ORIGIN_SIZE_SELECTED : ORIGIN_SIZE
+    const r = selected ? 7 : 5.5
+    const cx = size / 2
+    const cy = size / 2
+    const ring = selected
+        ? `<circle cx="${cx}" cy="${cy}" r="${r + 3.5}" fill="none" stroke="${color}" stroke-width="2" stroke-opacity="0.45"/>`
+        : ''
+    const labelHtml = label
+        ? `<span style="
+            position:absolute;left:50%;top:${size + 1}px;transform:translateX(-50%);
+            color:${color};font:700 9px/1 system-ui,sans-serif;
+            background:#fff;padding:1px 3px;border-radius:3px;
+            box-shadow:0 0 0 1px ${color}55,0 1px 2px rgba(0,0,0,0.2);
+            white-space:nowrap;pointer-events:none;
+          ">${escapeHtml(label)}</span>`
+        : ''
+
+    return L.divIcon({
+        className: 'scm-map-origin',
+        html: `<div class="scm-map-origin-inner" style="
+            position:relative;
+            width:${size}px;
+            height:${size}px;
+            margin:0;
+            padding:0;
+            line-height:0;
+            box-sizing:border-box;
+          ">
+          <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible;">
+            ${ring}
+            <circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="${cx}" cy="${cy}" r="2" fill="#ffffff"/>
+          </svg>
+          ${labelHtml}
+        </div>`,
+        iconSize: [size, size],
+        iconAnchor: [cx, cy],
+        popupAnchor: [0, -(r + 6)],
+    })
 }
 
 /**
@@ -82,6 +135,7 @@ export function createMapPinIcon(options: {
 }
 
 const pinIconCache = new Map<string, L.DivIcon>()
+const originIconCache = new Map<string, L.DivIcon>()
 
 /** Stable DivIcon instances — avoids marker flicker from recreating icons each ping. */
 export function getCachedMapPinIcon(options: {
@@ -94,6 +148,21 @@ export function getCachedMapPinIcon(options: {
     if (!icon) {
         icon = createMapPinIcon(options)
         pinIconCache.set(key, icon)
+    }
+    return icon
+}
+
+/** Cached centered origin markers for vehicle GPS positions. */
+export function getCachedMapOriginIcon(options: {
+    color: string
+    label?: string
+    selected?: boolean
+}): L.DivIcon {
+    const key = `o|${options.color}|${options.label ?? ''}|${options.selected ? 1 : 0}`
+    let icon = originIconCache.get(key)
+    if (!icon) {
+        icon = createMapOriginIcon(options)
+        originIconCache.set(key, icon)
     }
     return icon
 }

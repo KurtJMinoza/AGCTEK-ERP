@@ -456,10 +456,118 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
         })
     }
 
-    // ── MRP run + requirement snapshot (Planning) ────────────────────
-    if (!(await prisma.mmMrpRun.findUnique({ where: { runNumber: 'MRP-FLOW-00001' } }))) {
-        const started = new Date(Date.now() - 3600000)
-        const mrp = await prisma.mmMrpRun.create({
+    // ── MRP run + requirement snapshot (feeds Safety Stock Chart) ─────
+    // Chart reads latest COMPLETED MmMaterialRequirement rows and keeps
+    // those with safetyStock > 0 (or available < safety). Snapshot values
+    // intentionally mix "OK" and "below safety" for a demo chart.
+    const matOil = await prisma.mmMaterial.findUnique({
+        where: { materialCode: 'MAT-OIL-001' },
+    })
+
+    const started = new Date(Date.now() - 3600000)
+    const completedAt = new Date()
+
+    const safetyChartRows: Array<{
+        materialId: string
+        availableQty: number
+        safetyStock: number
+        reorderPoint: number
+        grossDemand: number
+        netRequirement: number
+        recommendedQty: number
+        shortage: boolean
+        belowReorderPoint: boolean
+        recommendedAction: string
+        source: string
+        safetyStockViolationQty?: number
+    }> = [
+        {
+            // Steel — below safety (gap 30)
+            materialId: ctx.matA.id,
+            availableQty: 20,
+            safetyStock: 50,
+            reorderPoint: 100,
+            grossDemand: 150,
+            netRequirement: 180,
+            recommendedQty: 200,
+            shortage: true,
+            belowReorderPoint: true,
+            recommendedAction: 'CREATE_PR',
+            source: 'REORDER',
+            safetyStockViolationQty: 30,
+        },
+        {
+            // Laptop — above safety
+            materialId: ctx.matB.id,
+            availableQty: 18,
+            safetyStock: 3,
+            reorderPoint: 10,
+            grossDemand: 5,
+            netRequirement: 0,
+            recommendedQty: 0,
+            shortage: false,
+            belowReorderPoint: false,
+            recommendedAction: 'MONITOR',
+            source: 'REORDER',
+        },
+    ]
+
+    if (matBox) {
+        safetyChartRows.push({
+            // Boxes — below safety (gap 20)
+            materialId: matBox.id,
+            availableQty: 80,
+            safetyStock: 100,
+            reorderPoint: 500,
+            grossDemand: 200,
+            netRequirement: 220,
+            recommendedQty: 1000,
+            shortage: true,
+            belowReorderPoint: true,
+            recommendedAction: 'CREATE_PR',
+            source: 'REORDER',
+            safetyStockViolationQty: 20,
+        })
+    }
+    if (matGloves) {
+        safetyChartRows.push({
+            // Gloves — below safety (gap 40)
+            materialId: matGloves.id,
+            availableQty: 10,
+            safetyStock: 50,
+            reorderPoint: 200,
+            grossDemand: 80,
+            netRequirement: 120,
+            recommendedQty: 200,
+            shortage: true,
+            belowReorderPoint: true,
+            recommendedAction: 'CREATE_PR',
+            source: 'REORDER',
+            safetyStockViolationQty: 40,
+        })
+    }
+    if (matOil) {
+        safetyChartRows.push({
+            // Oil — above safety
+            materialId: matOil.id,
+            availableQty: 40,
+            safetyStock: 10,
+            reorderPoint: 20,
+            grossDemand: 5,
+            netRequirement: 0,
+            recommendedQty: 0,
+            shortage: false,
+            belowReorderPoint: false,
+            recommendedAction: 'NONE',
+            source: 'REORDER',
+        })
+    }
+
+    let mrp = await prisma.mmMrpRun.findUnique({
+        where: { runNumber: 'MRP-FLOW-00001' },
+    })
+    if (!mrp) {
+        mrp = await prisma.mmMrpRun.create({
             data: {
                 runNumber: 'MRP-FLOW-00001',
                 companyId: ctx.company.id,
@@ -467,31 +575,86 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
                 warehouseId: ctx.mainWarehouse.id,
                 status: 'COMPLETED',
                 startedAt: started,
-                completedAt: new Date(),
+                completedAt,
                 planningHorizonDays: 30,
-                resultsCount: 1,
+                resultsCount: safetyChartRows.length,
                 createdBy: 'seed',
-                parametersJson: { demo: DEMO },
+                parametersJson: {
+                    demo: DEMO,
+                    purpose: 'Safety Stock Chart sample from MM MRP snapshot',
+                },
             },
         })
-        await prisma.mmMaterialRequirement.create({
+    } else {
+        mrp = await prisma.mmMrpRun.update({
+            where: { id: mrp.id },
             data: {
-                mrpRunId: mrp.id,
-                companyId: ctx.company.id,
+                status: 'COMPLETED',
+                completedAt,
                 warehouseId: ctx.mainWarehouse.id,
-                materialId: ctx.matA.id,
-                unrestrictedQty: 250,
-                availableQty: 250,
-                grossDemand: 150,
-                netRequirement: 100,
-                recommendedQty: 200,
-                shortageQty: 0,
-                recommendedAction: 'CREATE_PR',
-                source: 'REORDER',
-                belowReorderPoint: false,
-                shortage: false,
+                plantId: ctx.plant.id,
+                resultsCount: safetyChartRows.length,
+                parametersJson: {
+                    demo: DEMO,
+                    purpose: 'Safety Stock Chart sample from MM MRP snapshot',
+                },
             },
         })
+    }
+
+    for (const row of safetyChartRows) {
+        const existing = await prisma.mmMaterialRequirement.findFirst({
+            where: {
+                mrpRunId: mrp.id,
+                warehouseId: ctx.mainWarehouse.id,
+                materialId: row.materialId,
+            },
+        })
+        const data = {
+            companyId: ctx.company.id,
+            unrestrictedQty: row.availableQty,
+            reservedQty: 0,
+            availableQty: row.availableQty,
+            grossDemand: row.grossDemand,
+            demandQty: row.grossDemand,
+            netRequirement: row.netRequirement,
+            recommendedQty: row.recommendedQty,
+            shortageQty: row.shortage ? Math.max(0, row.safetyStock - row.availableQty) : 0,
+            safetyStock: row.safetyStock,
+            reorderPoint: row.reorderPoint,
+            recommendedAction: row.recommendedAction,
+            source: row.source,
+            belowReorderPoint: row.belowReorderPoint,
+            shortage: row.shortage,
+            safetyStockViolationQty: row.safetyStockViolationQty ?? null,
+            projectedAvailable: row.availableQty - row.grossDemand,
+            leadTimeDays: 7,
+        }
+        if (existing) {
+            await prisma.mmMaterialRequirement.update({
+                where: { id: existing.id },
+                data,
+            })
+        } else {
+            await prisma.mmMaterialRequirement.create({
+                data: {
+                    mrpRunId: mrp.id,
+                    warehouseId: ctx.mainWarehouse.id,
+                    materialId: row.materialId,
+                    ...data,
+                },
+            })
+        }
+    }
+
+    const existingSuggestion = await prisma.mmProcurementSuggestion.findFirst({
+        where: {
+            mrpRunId: mrp.id,
+            materialId: ctx.matA.id,
+            suggestionType: 'PR_RECOMMENDATION',
+        },
+    })
+    if (!existingSuggestion) {
         await prisma.mmProcurementSuggestion.create({
             data: {
                 mrpRunId: mrp.id,
@@ -503,11 +666,16 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
                 uomId: ctx.matA.baseUomId,
                 requiredDate: new Date(Date.now() + 10 * 86400000),
                 status: 'OPEN',
-                reason: 'NET_REQUIREMENT',
-                explanation: DEMO,
+                reason: 'SAFETY_STOCK',
+                explanation: `${DEMO} · available below safety stock`,
+                safetyStockQty: 50,
             },
         })
     }
+
+    console.log(
+        `Seeded MRP-FLOW-00001 with ${safetyChartRows.length} requirement rows (safetyStock chart sample).`,
+    )
 
     // ── Defect code + hold (Quality master) ──────────────────────────
     await prisma.mmDefectCode.upsert({

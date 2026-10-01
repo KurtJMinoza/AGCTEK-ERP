@@ -16,6 +16,9 @@
     "prisma:seed": "prisma db seed",
     "prisma:seed-sd-products": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-products.ts",
     "prisma:seed-mm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
+    "prisma:seed-mm-scm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-scm-reset.ts",
+    "prisma:seed-demand-plan": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-demand-plan.ts",
+    "prisma:seed-tms": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-tms.ts",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
   },

@@ -22,6 +22,7 @@ import {
 } from '../components/VehicleDetailPanels'
 import CurrentCargoPanel from '../components/vehicles/CurrentCargoPanel'
 import VehicleMaintenanceSection from '../components/vehicles/VehicleMaintenanceSection'
+import VehicleTelematicsHistoryPanel from '../components/vehicles/VehicleTelematicsHistoryPanel'
 import { useVehicleDetail } from '../hooks/useVehicleDetail'
 import { scmVehicleBreadcrumbs } from '../utils/breadcrumbs'
 import { formatStatusLabel, statusTone } from '../utils/status'
@@ -226,6 +227,9 @@ export default function VehicleDetailPage() {
                     <TabList>
                         <TabNav value="overview">Overview</TabNav>
                         <TabNav value="telematics">Telematics</TabNav>
+                        <TabNav value="telematics-history">
+                            Telematics history
+                        </TabNav>
                         <TabNav value="maintenance">Maintenance</TabNav>
                         <TabNav value="trips">Trips</TabNav>
                     </TabList>
@@ -245,6 +249,11 @@ export default function VehicleDetailPage() {
                             <VehicleTelematicsPanel
                                 latest={latest}
                                 history={history}
+                            />
+                        </TabContent>
+                        <TabContent value="telematics-history">
+                            <VehicleTelematicsHistoryPanel
+                                vehicleId={vehicle.id}
                             />
                         </TabContent>
                         <TabContent value="maintenance">

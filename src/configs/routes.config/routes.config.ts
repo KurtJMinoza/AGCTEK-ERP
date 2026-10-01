@@ -74,6 +74,22 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/scm/load-building': {
+        key: 'scmLoadBuilding',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/trip-planning': {
+        key: 'scmTripPlanning',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/scm/shipments': {
         key: 'scmShipments',
         authority: [],

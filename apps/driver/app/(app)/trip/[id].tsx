@@ -75,7 +75,9 @@ export default function TripDetailScreen() {
     }
 
     const canStart =
-        trip.status === 'ASSIGNED' || trip.status === 'PLANNED'
+        trip.status === 'DISPATCHED' ||
+        trip.status === 'ASSIGNED' ||
+        trip.status === 'PLANNED'
 
     return (
         <ScrollView
