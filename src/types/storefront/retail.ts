@@ -38,10 +38,10 @@ export type InventoryATP = {
     physicalStock: number
 }
 
+/** Prices are not stored on the cart; SD pricing computes all totals. */
 export type CartItem = {
     product: RetailProduct
     quantity: number
-    itemTotal: number
 }
 
 export type SalesOrderShippingDetails = {
@@ -53,19 +53,6 @@ export type SalesOrderShippingDetails = {
     region: string
     postalCode: string
     country: string
-}
-
-export type SalesOrderPayload = {
-    customerId: string
-    divisionId: typeof RETAIL_DIVISION_ID
-    items: Array<{
-        sku: string
-        quantity: number
-        unitPrice: number
-        lineTotal: number
-    }>
-    shipping: SalesOrderShippingDetails
-    totalAmount: number
 }
 
 export type RetailCatalogCategoryFilter =

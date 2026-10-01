@@ -5,12 +5,14 @@
 import { PrismaClient } from '@prisma/client'
 import { seedMmOrg } from './seed-mm-org'
 import { seedScmConnectedDemo } from './seed-scm-connected'
+import { seedSdProducts } from './seed-sd-products'
 
 const prisma = new PrismaClient()
 
 async function main() {
     await seedMmOrg(prisma)
     await seedScmConnectedDemo(prisma)
+    await seedSdProducts(prisma)
 }
 
 main()

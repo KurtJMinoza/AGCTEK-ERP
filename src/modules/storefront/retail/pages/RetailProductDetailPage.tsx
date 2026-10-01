@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
+import { isUnoptimizedImage } from '@/utils/productImage'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { HiOutlineStar, HiStar } from 'react-icons/hi'
@@ -17,10 +18,7 @@ import {
 } from '@/services/storefront/retailService'
 import { useRetailCartStore } from '@/modules/storefront/retail/store/retailCartStore'
 import { useRetailCartSync } from '@/modules/storefront/retail/hooks/useRetailCartSync'
-import {
-    getSeptemberSalePrice,
-    SEPTEMBER_SALE_DISCOUNT,
-} from '@/modules/storefront/retail/brand'
+import { useSignedInAction } from '@/modules/storefront/retail/hooks/useSignedInAction'
 import type {
     InventoryATP,
     RetailProduct,
@@ -65,6 +63,7 @@ export default function RetailProductDetailPage() {
     useRetailCartSync()
 
     const addItem = useRetailCartStore((s) => s.addItem)
+    const runSignedIn = useSignedInAction()
 
     const [product, setProduct] = useState<RetailProduct | null>(null)
     const [atp, setAtp] = useState<InventoryATP | null>(null)
@@ -91,6 +90,11 @@ export default function RetailProductDetailPage() {
                 setAtp(nextAtp)
                 setQuantity(1)
             })
+            .catch(() => {
+                if (!active) return
+                setNotFound(true)
+                setProduct(null)
+            })
             .finally(() => {
                 if (active) setLoading(false)
             })
@@ -101,11 +105,6 @@ export default function RetailProductDetailPage() {
 
     const inStock = (atp?.availableQuantity ?? 0) > 0
     const soldOut = !loading && !!product && !inStock
-    const salePrice = product
-        ? getSeptemberSalePrice(product.basePrice)
-        : null
-    const salePercent = Math.round(SEPTEMBER_SALE_DISCOUNT * 100)
-
     const averageRating = useMemo(() => {
         if (!product?.reviews.length) return 0
         const sum = product.reviews.reduce((acc, r) => acc + r.rating, 0)
@@ -114,12 +113,12 @@ export default function RetailProductDetailPage() {
 
     const handleAddToCart = () => {
         if (!product || !inStock) return
-        setConfirmAction('add')
+        runSignedIn(() => setConfirmAction('add'))
     }
 
     const handleBuyNow = () => {
         if (!product || !inStock) return
-        setConfirmAction('buy')
+        runSignedIn(() => setConfirmAction('buy'))
     }
 
     const runConfirmedAction = () => {
@@ -194,16 +193,11 @@ export default function RetailProductDetailPage() {
                                     alt={product.name}
                                     fill
                                     priority
-                                    unoptimized={product.imageUrl.endsWith(
-                                        '.svg',
-                                    )}
+                                    unoptimized={isUnoptimizedImage(product.imageUrl)}
                                     className="object-cover"
                                     sizes="(max-width: 1024px) 100vw, 50vw"
                                 />
                                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-brand-deep/30 via-transparent to-transparent" />
-                                <span className="absolute left-4 top-4 bg-brand-gold px-3 py-1.5 font-storefront-body text-xs font-semibold uppercase tracking-[0.12em] text-brand-deep">
-                                    Sale · {salePercent}% off
-                                </span>
                             </div>
 
                             <div className="flex flex-col border border-brand-line bg-brand-sage/30 p-6 lg:p-8">
@@ -222,14 +216,9 @@ export default function RetailProductDetailPage() {
                                             : 's'}
                                     </span>
                                 </div>
-                                <div className="mt-5 flex w-fit items-baseline gap-3">
-                                    <span className="font-storefront-body text-lg font-medium text-brand-ink/40 line-through md:text-xl">
-                                        {formatPrice(product.basePrice)}
-                                    </span>
-                                    <span className="font-storefront-body text-3xl font-semibold text-brand-ink md:text-4xl">
-                                        {formatPrice(salePrice ?? product.basePrice)}
-                                    </span>
-                                </div>
+                                <p className="mt-5 font-storefront-body text-3xl font-semibold text-brand-ink md:text-4xl">
+                                    {formatPrice(product.basePrice)}
+                                </p>
                                 <p className="mt-6 font-storefront-body text-base leading-relaxed text-brand-ink/80">
                                     {product.description}
                                 </p>

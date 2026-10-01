@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { SdIntegrationService } from '../mm/integration/sd/sd-integration.service'
 import { GoodsIssueService } from '../mm/stock-ops/goods-issue.service'
 import { SalesOrderService } from './sales-order.service'
@@ -23,6 +23,11 @@ export class SdMmOrchestrationService {
         }
 
         const material = line.material
+        if (!order.companyId || !order.warehouseId || !line.materialId || !material) {
+            throw new BadRequestException(
+                'Sales order is not linked to an MM company, warehouse and material',
+            )
+        }
         const gi = await this.goodsIssue.create({
             companyId: order.companyId,
             warehouseId: order.warehouseId,

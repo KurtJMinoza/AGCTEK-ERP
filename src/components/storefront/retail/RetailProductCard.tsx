@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
+import { isUnoptimizedImage } from '@/utils/productImage'
 import Link from 'next/link'
 import classNames from '@/utils/classNames'
 import { checkStockATP } from '@/services/storefront/retailService'
@@ -9,10 +10,8 @@ import type { InventoryATP, RetailProduct } from '@/types/storefront/retail'
 
 type RetailProductCardProps = {
     product: RetailProduct
-    /** Optional overlay badge (e.g. sale callout) */
+    /** Optional overlay badge shown instead of the category */
     badge?: string
-    /** When set, shows as the sale price with basePrice struck through */
-    salePrice?: number
 }
 
 const formatPrice = (value: number) =>
@@ -26,7 +25,6 @@ const formatPrice = (value: number) =>
 export default function RetailProductCard({
     product,
     badge,
-    salePrice,
 }: RetailProductCardProps) {
     const [atp, setAtp] = useState<InventoryATP | null>(null)
     const [loadingStock, setLoadingStock] = useState(true)
@@ -64,7 +62,7 @@ export default function RetailProductCard({
                     src={product.imageUrl}
                     alt={product.name}
                     fill
-                    unoptimized={product.imageUrl.endsWith('.svg')}
+                    unoptimized={isUnoptimizedImage(product.imageUrl)}
                     className={classNames(
                         'object-cover transition duration-700 ease-out group-hover:scale-[1.04]',
                         !imageLoaded && 'opacity-0',
@@ -112,20 +110,9 @@ export default function RetailProductCard({
                         />
                     ) : null}
                 </div>
-                {salePrice != null && salePrice < product.basePrice ? (
-                    <p className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-storefront-body">
-                        <span className="text-base font-medium line-through opacity-45 md:text-lg">
-                            {formatPrice(product.basePrice)}
-                        </span>
-                        <span className="text-lg font-semibold text-brand-gold md:text-xl">
-                            {formatPrice(salePrice)}
-                        </span>
-                    </p>
-                ) : (
-                    <p className="font-storefront-body text-lg font-semibold text-brand-gold md:text-xl">
-                        {formatPrice(product.basePrice)}
-                    </p>
-                )}
+                <p className="font-storefront-body text-lg font-semibold text-brand-gold md:text-xl">
+                    {formatPrice(product.basePrice)}
+                </p>
             </Link>
         </article>
     )

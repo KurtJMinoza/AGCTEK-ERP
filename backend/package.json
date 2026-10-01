@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
+    "prisma:seed-sd-products": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-products.ts",
     "prisma:seed-mm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
     "prisma:seed-mm-scm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-scm-reset.ts",
     "prisma:seed-demand-plan": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-demand-plan.ts",

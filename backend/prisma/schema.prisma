@@ -3456,18 +3456,89 @@ model MmEventConsumerReceipt {
 }
 
 /// Phase 3B — SD sales order (SD owns; MM fulfills via reservation/GI).
+/// SD Customer Master — B2B sold-to accounts with commercial credit limit.
+model SdCustomer {
+  id              String   @id @default(cuid())
+  customerNumber  String   @unique
+  companyName     String
+  contactName     String
+  email           String   @unique
+  phone           String   @default("")
+  currency        String   @default("PHP")
+  creditLimit     Decimal  @default(0) @db.Decimal(18, 2)
+  /// creditLimit minus open exposure; server-maintained, negative when over limit.
+  availableCredit Decimal  @default(0) @db.Decimal(18, 2)
+  /// ACTIVE | BLOCKED
+  status          String   @default("ACTIVE")
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([companyName])
+  @@map("sd_customers")
+}
+
+/// SD storefront product listing per sales division (AWIC, LPG, MCONPINCO).
+/// `price` is the authoritative selling price; retail orders are verified against it.
+model SdProduct {
+  id            String   @id @default(cuid())
+  /// Sales division, e.g. DIV_RETAIL | DIV_LPG | DIV_APPLIANCES
+  divisionId    String
+  sku           String
+  name          String
+  description   String   @default("")
+  price         Decimal  @db.Decimal(18, 2)
+  /// Display-only "was" price; never charged.
+  originalPrice Decimal? @db.Decimal(18, 2)
+  category      String
+  imageUrl      String   @default("")
+  badge         String?
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  /// Division-specific storefront content (features, specs, includes, gallery, reviews).
+  attributes    Json?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([divisionId, sku])
+  @@index([divisionId, isActive, sortOrder])
+  @@map("sd_products")
+}
+
 model SdSalesOrder {
   id              String   @id @default(cuid())
   orderNumber     String   @unique
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  warehouseId     String
-  warehouse       Warehouse @relation(fields: [warehouseId], references: [id])
+  /// Required for STANDARD orders; retail channel orders may omit until org/warehouse mapping exists.
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouseId     String?
+  warehouse       Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   customerId      String
-  /// DRAFT | CONFIRMED | CANCELLED
+  /// STANDARD | POS | ECOMMERCE
+  channel         String   @default("STANDARD")
+  /// Sales division, e.g. DIV_RETAIL
+  divisionId      String?
+  /// Selling branch / store location code, e.g. BR_AWIC_DAVAO_MAIN (POS required).
+  branchId        String?
+  customerName    String?
+  customerEmail   String?
+  currency        String   @default("PHP")
+  subtotal        Decimal?
+  discountAmount  Decimal  @default(0)
+  promoCode       String?
+  shippingAmount  Decimal  @default(0)
+  totalAmount     Decimal?
+  /// POS cash tendered / change given
+  paymentReceived Decimal?
+  changeAmount    Decimal?
+  /// DRAFT | CONFIRMED | COMPLETED | CANCELLED
   status          String   @default("DRAFT")
   correlationId   String
-  idempotencyKey  String?
+  idempotencyKey  String?  @unique
   createdBy       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -3476,6 +3547,9 @@ model SdSalesOrder {
 
   @@index([companyId, status])
   @@index([correlationId])
+  @@index([channel, createdAt])
+  @@index([branchId, createdAt])
+  @@index([createdAt])
   @@map("sd_sales_orders")
 }
 
@@ -3484,8 +3558,13 @@ model SdSalesOrderLine {
   salesOrderId          String
   salesOrder            SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   lineNumber            Int
-  materialId            String
-  material              MmMaterial @relation(fields: [materialId], references: [id])
+  /// Required for MM-integrated orders; retail lines carry sku until mapped to MM-01.
+  materialId            String?
+  material              MmMaterial? @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  sku                   String?
+  description           String?
+  unitPrice             Decimal?
+  lineTotal             Decimal?
   quantity              Decimal
   reservedQuantity      Decimal  @default(0)
   issuedQuantity        Decimal  @default(0)

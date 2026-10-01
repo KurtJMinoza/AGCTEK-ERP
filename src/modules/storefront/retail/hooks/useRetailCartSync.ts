@@ -7,11 +7,15 @@ import {
     fetchRetailClientCart,
     saveRetailClientCart,
 } from '@/services/storefront/retailClientService'
+import { toRetailProduct } from '@/services/storefront/retailService'
+import { useDivisionProducts } from '@/modules/sd/hooks/useDivisionProducts'
+import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 
 /**
  * Keeps the logged-in client's cart in sync with the database:
  * - On session restore, load saved cart from the API
  * - On local cart changes, debounce-save to the API
+ * - Refreshes cart products from the live SD catalog (drops delisted SKUs)
  */
 export function useRetailCartSync() {
     const client = useRetailClientStore((s) => s.client)
@@ -65,4 +69,11 @@ export function useRetailCartSync() {
 
         return () => window.clearTimeout(timer)
     }, [clientId, items])
+
+    const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
+    const syncCatalog = useRetailCartStore((s) => s.syncCatalog)
+
+    useEffect(() => {
+        if (catalog.ready && items.length > 0) syncCatalog(catalog.products)
+    }, [catalog.ready, catalog.products, items, syncCatalog])
 }

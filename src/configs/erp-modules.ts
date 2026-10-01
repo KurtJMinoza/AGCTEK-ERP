@@ -14,6 +14,7 @@ export const ERP_MODULES: ErpModule[] = [
             'Manage the complete order-to-cash cycle — customers, pricing, sales orders, deliveries, and billing.',
         path: '/modules/sd',
         icon: 'shoppingCart',
+        sidebarShortcuts: ['product-catalog'],
         categories: [
             {
                 code: 'master-data',
@@ -26,6 +27,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Maintain customer accounts, credit limits, and partner functions.',
                         path: '/modules/sd/customer-master',
                         icon: 'users',
+                    },
+                    {
+                        code: 'product-catalog',
+                        title: 'Product Catalog',
+                        description:
+                            'Add, edit and price the products sold on the AWIC, LPG and MCONPINCO storefronts and POS.',
+                        path: '/modules/sd/product-catalog',
+                        icon: 'tag',
                     },
                     {
                         code: 'material-sales-view',
@@ -56,6 +65,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Create, change, and monitor customer sales orders.',
                         path: '/modules/sd/sales-orders',
                         icon: 'clipboard',
+                    },
+                    {
+                        code: 'pos',
+                        title: 'POS Terminal',
+                        description:
+                            'Over-the-counter cash sales with immediate stock deduction and billing.',
+                        path: '/modules/sd/pos',
+                        icon: 'creditCard',
                     },
                     {
                         code: 'deliveries',

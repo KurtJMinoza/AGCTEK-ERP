@@ -53,6 +53,8 @@ export type ErpModule = {
     categories: ErpCategory[]
     /** Opens path outside the ERP app (e.g. HRIS) */
     isExternalLink?: boolean
+    /** Submodule codes pinned under this module in the sidebar for one-click access */
+    sidebarShortcuts?: string[]
 }
 
 /** Flattened search result for sidebar filtering */

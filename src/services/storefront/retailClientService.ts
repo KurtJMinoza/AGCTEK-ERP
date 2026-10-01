@@ -96,15 +96,10 @@ export async function fetchRetailClientCart(
         '/retail/clients/cart',
         { params: { clientId } },
     )
-    return data.items.map((item) => {
-        const product = item.product as RetailProduct
-        const quantity = Math.max(1, item.quantity)
-        return {
-            product,
-            quantity,
-            itemTotal: Number((product.basePrice * quantity).toFixed(2)),
-        }
-    })
+    return data.items.map((item) => ({
+        product: item.product as RetailProduct,
+        quantity: Math.max(1, item.quantity),
+    }))
 }
 
 export async function saveRetailClientCart(

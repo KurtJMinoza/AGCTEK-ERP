@@ -3,10 +3,13 @@ import type { CartItem, RetailProduct } from '@/types/storefront/retail'
 
 type RetailCartState = {
     items: CartItem[]
+    /** Promo code accepted by SD pricing; totals come from calculateCartPricing. */
+    discountCode: string | null
     isDrawerOpen: boolean
     openDrawer: () => void
     closeDrawer: () => void
     setItems: (items: CartItem[]) => void
+    setDiscountCode: (code: string | null) => void
     addItem: (
         product: RetailProduct,
         quantity?: number,
@@ -16,21 +19,18 @@ type RetailCartState = {
     removeItem: (sku: string) => void
     clearCart: () => void
     itemCount: () => number
-    subtotal: () => number
+    /** Refreshes cart products from the live catalog and drops SKUs no longer sold. */
+    syncCatalog: (products: readonly RetailProduct[]) => void
 }
-
-const recalcItem = (product: RetailProduct, quantity: number): CartItem => ({
-    product,
-    quantity,
-    itemTotal: Number((product.basePrice * quantity).toFixed(2)),
-})
 
 export const useRetailCartStore = create<RetailCartState>((set, get) => ({
     items: [],
+    discountCode: null,
     isDrawerOpen: false,
     openDrawer: () => set({ isDrawerOpen: true }),
     closeDrawer: () => set({ isDrawerOpen: false }),
     setItems: (items) => set({ items }),
+    setDiscountCode: (discountCode) => set({ discountCode }),
     addItem: (product, quantity = 1, options) => {
         const qty = Math.max(1, quantity)
         const shouldOpenDrawer = options?.openDrawer !== false
@@ -42,7 +42,7 @@ export const useRetailCartStore = create<RetailCartState>((set, get) => ({
                 return {
                     items: state.items.map((item) =>
                         item.product.sku === product.sku
-                            ? recalcItem(product, existing.quantity + qty)
+                            ? { product, quantity: existing.quantity + qty }
                             : item,
                     ),
                     isDrawerOpen: shouldOpenDrawer
@@ -51,7 +51,7 @@ export const useRetailCartStore = create<RetailCartState>((set, get) => ({
                 }
             }
             return {
-                items: [...state.items, recalcItem(product, qty)],
+                items: [...state.items, { product, quantity: qty }],
                 isDrawerOpen: shouldOpenDrawer ? true : state.isDrawerOpen,
             }
         })
@@ -60,9 +60,7 @@ export const useRetailCartStore = create<RetailCartState>((set, get) => ({
         const qty = Math.max(1, quantity)
         set((state) => ({
             items: state.items.map((item) =>
-                item.product.sku === sku
-                    ? recalcItem(item.product, qty)
-                    : item,
+                item.product.sku === sku ? { ...item, quantity: qty } : item,
             ),
         }))
     },
@@ -70,13 +68,21 @@ export const useRetailCartStore = create<RetailCartState>((set, get) => ({
         set((state) => ({
             items: state.items.filter((item) => item.product.sku !== sku),
         })),
-    clearCart: () => set({ items: [] }),
+    clearCart: () => set({ items: [], discountCode: null }),
     itemCount: () =>
         get().items.reduce((sum, item) => sum + item.quantity, 0),
-    subtotal: () =>
-        Number(
-            get()
-                .items.reduce((sum, item) => sum + item.itemTotal, 0)
-                .toFixed(2),
-        ),
+    syncCatalog: (products) =>
+        set((state) => {
+            const bySku = new Map(products.map((p) => [p.sku, p]))
+            const unchanged = state.items.every(
+                (item) => bySku.get(item.product.sku) === item.product,
+            )
+            if (unchanged) return state
+            return {
+                items: state.items.flatMap((item) => {
+                    const product = bySku.get(item.product.sku)
+                    return product ? [{ ...item, product }] : []
+                }),
+            }
+        }),
 }))

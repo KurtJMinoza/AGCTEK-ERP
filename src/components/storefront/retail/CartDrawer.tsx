@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
+import { isUnoptimizedImage } from '@/utils/productImage'
 import { useRouter } from 'next/navigation'
 import Drawer from '@/components/ui/Drawer'
 import Button from '@/components/ui/Button'
@@ -10,13 +11,15 @@ import { HiOutlineTrash } from 'react-icons/hi'
 import classNames from '@/utils/classNames'
 import { useRetailCartStore } from '@/modules/storefront/retail/store/retailCartStore'
 import { useRetailClientStore } from '@/modules/storefront/retail/store/retailClientStore'
+import { useCartPricing } from '@/modules/storefront/retail/hooks/useCartPricing'
+import { useSignedInAction } from '@/modules/storefront/retail/hooks/useSignedInAction'
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
         style: 'currency',
         currency: 'PHP',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     }).format(value)
 
 export default function CartDrawer() {
@@ -27,10 +30,12 @@ export default function CartDrawer() {
         closeDrawer,
         updateQuantity,
         removeItem,
-        subtotal,
     } = useRetailCartStore()
     const { client, openLogin } = useRetailClientStore()
-    const total = subtotal()
+    const runSignedIn = useSignedInAction()
+    const pricing = useCartPricing()
+    const lineTotal = (sku: string) =>
+        pricing?.lines.find((line) => line.sku === sku)?.lineTotal ?? 0
 
     const [removeSku, setRemoveSku] = useState<string | null>(null)
     const [confirmCheckout, setConfirmCheckout] = useState(false)
@@ -39,7 +44,8 @@ export default function CartDrawer() {
 
     const handleCheckout = () => {
         if (items.length === 0) return
-        setConfirmCheckout(true)
+        if (!client) closeDrawer()
+        runSignedIn(() => setConfirmCheckout(true))
     }
 
     return (
@@ -80,13 +86,37 @@ export default function CartDrawer() {
                                 </button>
                             </div>
                         ) : null}
-                        <div className="flex items-baseline justify-between">
-                            <span className="font-storefront-body text-sm text-brand-ink/45">
-                                Subtotal
-                            </span>
-                            <span className="font-storefront-body text-lg font-semibold text-brand-gold">
-                                {formatPrice(total)}
-                            </span>
+                        <div className="space-y-1.5 font-storefront-body text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-brand-ink/45">Subtotal</span>
+                                <span className="text-brand-ink">
+                                    {formatPrice(pricing?.subtotal ?? 0)}
+                                </span>
+                            </div>
+                            {pricing?.promoCode ? (
+                                <div className="flex justify-between">
+                                    <span className="text-emerald-600">
+                                        Discount ({pricing.promoCode})
+                                    </span>
+                                    <span className="text-emerald-600">
+                                        −{formatPrice(pricing.discountAmount)}
+                                    </span>
+                                </div>
+                            ) : null}
+                            <div className="flex justify-between">
+                                <span className="text-brand-ink/45">Shipping</span>
+                                <span className="text-brand-ink">
+                                    {formatPrice(pricing?.shipping ?? 0)}
+                                </span>
+                            </div>
+                            <div className="flex items-baseline justify-between border-t border-brand-line pt-2">
+                                <span className="font-semibold text-brand-ink">
+                                    Total
+                                </span>
+                                <span className="text-lg font-semibold text-brand-gold">
+                                    {formatPrice(pricing?.grandTotal ?? 0)}
+                                </span>
+                            </div>
                         </div>
                         <Button
                             block
@@ -101,7 +131,7 @@ export default function CartDrawer() {
                             }
                             onClick={handleCheckout}
                         >
-                            Check out
+                            {client ? 'Check out' : 'Sign in to check out'}
                         </Button>
                     </div>
                 }
@@ -131,9 +161,7 @@ export default function CartDrawer() {
                                         src={item.product.imageUrl}
                                         alt={item.product.name}
                                         fill
-                                        unoptimized={item.product.imageUrl.endsWith(
-                                            '.svg',
-                                        )}
+                                        unoptimized={isUnoptimizedImage(item.product.imageUrl)}
                                         className="object-cover"
                                         sizes="64px"
                                     />
@@ -158,7 +186,9 @@ export default function CartDrawer() {
                                             className="h-8 w-14 border border-brand-line bg-transparent px-2 text-sm text-brand-ink"
                                         />
                                         <span className="text-base font-semibold text-brand-gold">
-                                            {formatPrice(item.itemTotal)}
+                                            {formatPrice(
+                                                lineTotal(item.product.sku),
+                                            )}
                                         </span>
                                     </div>
                                 </div>
@@ -214,7 +244,8 @@ export default function CartDrawer() {
             >
                 <p>
                     Proceed to checkout with {items.length} item
-                    {items.length === 1 ? '' : 's'} ({formatPrice(total)})?
+                    {items.length === 1 ? '' : 's'} (
+                    {formatPrice(pricing?.grandTotal ?? 0)})?
                 </p>
             </ConfirmDialog>
         </>

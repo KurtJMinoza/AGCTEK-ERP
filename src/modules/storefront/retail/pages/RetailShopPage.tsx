@@ -11,14 +11,17 @@ import StorefrontNavbar, {
 } from '@/components/storefront/retail/Navbar'
 import RetailProductCard from '@/components/storefront/retail/RetailProductCard'
 import StorefrontLogo from '@/components/storefront/retail/StorefrontLogo'
-import { fetchRetailProducts } from '@/services/storefront/retailService'
+import { toRetailProduct } from '@/services/storefront/retailService'
+import { useDivisionProducts } from '@/modules/sd/hooks/useDivisionProducts'
+import { isUnoptimizedImage } from '@/utils/productImage'
 import { useRetailCartStore } from '@/modules/storefront/retail/store/retailCartStore'
 import { useRetailCartSync } from '@/modules/storefront/retail/hooks/useRetailCartSync'
-import { AWIC_BRAND, getSeptemberSalePrice } from '@/modules/storefront/retail/brand'
+import { AWIC_BRAND } from '@/modules/storefront/retail/brand'
 import classNames from '@/utils/classNames'
-import type {
-    RetailCatalogCategoryFilter,
-    RetailProduct,
+import {
+    RETAIL_DIVISION_ID,
+    type RetailCatalogCategoryFilter,
+    type RetailProduct,
 } from '@/types/storefront/retail'
 
 function matchesCategoryFilter(
@@ -88,21 +91,15 @@ function ProductGrid({
     products,
     animate = false,
     badge,
-    salePricing = false,
 }: {
     products: RetailProduct[]
     animate?: boolean
     badge?: string
-    /** Apply September Sale discounted pricing display */
-    salePricing?: boolean
 }) {
     return (
         <div className="grid grid-cols-2 gap-x-5 gap-y-12 md:grid-cols-4 md:gap-x-8 md:gap-y-16">
-            {products.map((product, index) => {
-                const salePrice = salePricing
-                    ? getSeptemberSalePrice(product.basePrice)
-                    : undefined
-                return animate ? (
+            {products.map((product, index) =>
+                animate ? (
                     <motion.div
                         key={product.itemId}
                         initial={{ opacity: 0, y: 14 }}
@@ -110,28 +107,23 @@ function ProductGrid({
                         viewport={{ once: true, margin: '-60px' }}
                         transition={{ duration: 0.5, delay: index * 0.05 }}
                     >
-                        <RetailProductCard
-                            product={product}
-                            badge={badge}
-                            salePrice={salePrice}
-                        />
+                        <RetailProductCard product={product} badge={badge} />
                     </motion.div>
                 ) : (
                     <RetailProductCard
                         key={product.itemId}
                         product={product}
                         badge={badge}
-                        salePrice={salePrice}
                     />
-                )
-            })}
+                ),
+            )}
         </div>
     )
 }
 
 export default function RetailShopPage() {
-    const [products, setProducts] = useState<RetailProduct[]>([])
-    const [loading, setLoading] = useState(true)
+    const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
+    const { products, loading } = catalog
     const [query, setQuery] = useState('')
     const [category, setCategory] =
         useState<RetailCatalogCategoryFilter>('all')
@@ -140,20 +132,6 @@ export default function RetailShopPage() {
 
     const openDrawer = useRetailCartStore((state) => state.openDrawer)
     const cartCount = useRetailCartStore((state) => state.itemCount())
-
-    useEffect(() => {
-        let active = true
-        fetchRetailProducts()
-            .then((data) => {
-                if (active) setProducts(data)
-            })
-            .finally(() => {
-                if (active) setLoading(false)
-            })
-        return () => {
-            active = false
-        }
-    }, [])
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase()
@@ -177,7 +155,7 @@ export default function RetailShopPage() {
     const showSections = category === 'all' && !query.trim()
     const featuredBag = bags[0]
     const featuredVitamin = vitamins[0]
-    const septemberSale = useMemo(() => {
+    const highlightedPicks = useMemo(() => {
         const byCategory = (cat: RetailProduct['category']) =>
             filtered.filter((p) => p.category === cat)
         const picks: RetailProduct[] = []
@@ -199,7 +177,7 @@ export default function RetailShopPage() {
 
     const scrollToCatalog = () => {
         const target =
-            document.getElementById('september-sale') ??
+            document.getElementById('highlighted-picks') ??
             document.getElementById('catalog')
         target?.scrollIntoView({ behavior: 'smooth' })
     }
@@ -288,10 +266,10 @@ export default function RetailShopPage() {
                 </motion.div>
             </section>
 
-            {/* September Sale — lead hook */}
-            {!loading && showSections && septemberSale.length > 0 ? (
+            {/* Highlighted picks — lead hook */}
+            {!loading && showSections && highlightedPicks.length > 0 ? (
                 <section
-                    id="september-sale"
+                    id="highlighted-picks"
                     className="relative overflow-hidden bg-brand-deep px-6 py-20 lg:px-10 lg:py-24"
                 >
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_20%_0%,rgba(201,168,76,0.28),transparent_45%),radial-gradient(ellipse_at_90%_80%,rgba(201,168,76,0.12),transparent_40%)]" />
@@ -299,10 +277,10 @@ export default function RetailShopPage() {
                         <div className="mb-12 flex flex-col gap-4 sm:mb-14 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p className="mb-3 font-storefront-body text-sm font-semibold uppercase tracking-[0.18em] text-brand-gold">
-                                    Limited time
+                                    Highlighted
                                 </p>
                                 <h2 className="font-storefront-heading text-3xl font-semibold tracking-tight text-brand-canvas md:text-5xl">
-                                    September Sale!
+                                    This month&apos;s picks
                                 </h2>
                                 <p className="mt-4 max-w-md font-storefront-body text-base leading-relaxed text-brand-canvas/65">
                                     Highlighted picks across bags, vitamins,
@@ -313,10 +291,8 @@ export default function RetailShopPage() {
                         </div>
                         <div className="[&_h3]:text-brand-canvas [&_p]:text-brand-gold">
                             <ProductGrid
-                                products={septemberSale}
+                                products={highlightedPicks}
                                 animate
-                                badge="Sale"
-                                salePricing
                             />
                         </div>
                     </div>
@@ -341,9 +317,7 @@ export default function RetailShopPage() {
                                         src={featuredBag.imageUrl}
                                         alt={featuredBag.name}
                                         fill
-                                        unoptimized={featuredBag.imageUrl.endsWith(
-                                            '.svg',
-                                        )}
+                                        unoptimized={isUnoptimizedImage(featuredBag.imageUrl)}
                                         className="object-cover transition duration-700 group-hover:scale-105"
                                         sizes="(max-width: 768px) 100vw, 50vw"
                                     />
@@ -370,9 +344,7 @@ export default function RetailShopPage() {
                                         src={featuredVitamin.imageUrl}
                                         alt={featuredVitamin.name}
                                         fill
-                                        unoptimized={featuredVitamin.imageUrl.endsWith(
-                                            '.svg',
-                                        )}
+                                        unoptimized={isUnoptimizedImage(featuredVitamin.imageUrl)}
                                         className="object-cover transition duration-700 group-hover:scale-105"
                                         sizes="(max-width: 768px) 100vw, 50vw"
                                     />
@@ -404,6 +376,19 @@ export default function RetailShopPage() {
                                 className="aspect-[4/5] animate-pulse bg-brand-sage"
                             />
                         ))}
+                    </div>
+                ) : catalog.error ? (
+                    <div className="px-6 py-28 text-center">
+                        <p className="font-storefront-body text-base text-brand-ink">
+                            We couldn&apos;t load products right now.
+                        </p>
+                        <button
+                            type="button"
+                            className="mt-4 font-storefront-body text-sm font-semibold text-brand-gold underline underline-offset-4"
+                            onClick={catalog.reload}
+                        >
+                            Try again
+                        </button>
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="px-6 py-28 text-center">
