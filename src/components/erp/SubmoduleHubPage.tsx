@@ -9,18 +9,24 @@ import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
 import {
-    findSubmoduleByPath,
+    erpSubmoduleRoutePath,
+    findSubmoduleByRoute,
     getResolvedErpModules,
 } from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import type { ErpSubmodule } from '@/types/erp-modules'
 
 type SubmoduleHubPageProps = {
-    pathname: string
+    moduleCode: string
+    submoduleCode: string
 }
 
-export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
-    const match = findSubmoduleByPath(pathname)
+export default function SubmoduleHubPage({
+    moduleCode,
+    submoduleCode,
+}: SubmoduleHubPageProps) {
+    const pathname = erpSubmoduleRoutePath(moduleCode, submoduleCode)
+    const match = findSubmoduleByRoute(moduleCode, submoduleCode)
 
     if (!match || !match.submodule.children?.length) {
         return null
@@ -46,7 +52,9 @@ export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
         },
         [],
     )
-    const breadcrumbItems = buildErpBreadcrumbs(pathname)
+    const breadcrumbItems = buildErpBreadcrumbs(
+        resolvedSubmodule.path || pathname,
+    )
 
     return (
         <PageContainer>

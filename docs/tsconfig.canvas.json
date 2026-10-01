@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "lib": ["dom", "esnext"],
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["cursor-canvas.d.ts", "*.canvas.tsx"]
+}

@@ -1,3 +1,4 @@
+/// <reference path="./cursor-canvas.d.ts" />
 import {
   Callout,
   Card,
