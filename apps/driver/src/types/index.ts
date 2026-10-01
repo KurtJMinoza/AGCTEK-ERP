@@ -5,6 +5,8 @@ export type TripStatus =
     | 'IN_TRANSIT'
     | 'COMPLETED'
     | 'CANCELLED'
+    | 'READY'
+    | 'DISPATCHED'
 
 export type StopStatus =
     | 'PENDING'

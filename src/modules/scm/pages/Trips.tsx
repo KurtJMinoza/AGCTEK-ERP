@@ -13,13 +13,11 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
-import PlanTripWizard from '../components/trips/PlanTripWizard'
-import EditTripDialog from '../components/trips/EditTripDialog'
 import TripLoadManifestDialog from '../components/trips/TripLoadManifestDialog'
 import { useTrips } from '../hooks/useTrips'
 import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
-import type { Trip, TripStatus } from '../types'
+import type { Trip } from '../types'
 
 type Option = { value: string; label: string }
 
@@ -27,45 +25,18 @@ const statusOptions: Option[] = [
     { value: '', label: 'All statuses' },
     { value: 'DRAFT', label: 'Draft' },
     { value: 'PLANNED', label: 'Planned' },
+    { value: 'READY', label: 'Ready' },
+    { value: 'DISPATCHED', label: 'Dispatched' },
     { value: 'ASSIGNED', label: 'Assigned' },
     { value: 'IN_TRANSIT', label: 'In Transit' },
     { value: 'COMPLETED', label: 'Completed' },
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
-/** Phase 3.2 Dispatch → 3.3 Start → Complete */
-const nextStatus: Partial<Record<TripStatus, TripStatus>> = {
-    DRAFT: 'PLANNED',
-    PLANNED: 'ASSIGNED',
-    ASSIGNED: 'IN_TRANSIT',
-    IN_TRANSIT: 'COMPLETED',
-}
-
-const advanceLabel: Partial<Record<TripStatus, string>> = {
-    DRAFT: 'Approve plan',
-    PLANNED: 'Dispatch',
-    ASSIGNED: 'Start trip',
-    IN_TRANSIT: 'Complete',
-}
-
 export default function TripsPage() {
-    const {
-        data,
-        total,
-        page,
-        pageSize,
-        loading,
-        error,
-        params,
-        setParams,
-        updateStatus,
-        update,
-        remove,
-        reload,
-    } = useTrips()
+    const { data, total, page, pageSize, loading, error, params, setParams } =
+        useTrips()
 
-    const [wizardOpen, setWizardOpen] = useState(false)
-    const [editingTrip, setEditingTrip] = useState<Trip | null>(null)
     const [manifestTripId, setManifestTripId] = useState<string | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
@@ -136,75 +107,26 @@ export default function TripsPage() {
             {
                 header: '',
                 id: 'actions',
-                cell: ({ row }) => {
-                    const advance = nextStatus[row.original.status]
-                    const canEdit =
-                        row.original.status === 'DRAFT' ||
-                        row.original.status === 'PLANNED'
-                    return (
-                        <div className="flex flex-wrap items-center gap-1">
-                            <Button
-                                size="xs"
-                                variant="plain"
-                                icon={<HiOutlineEye />}
-                                aria-label={`View load manifest for ${row.original.code}`}
-                                onClick={() =>
-                                    setManifestTripId(row.original.id)
-                                }
-                            />
-                            {canEdit ? (
-                                <Button
-                                    size="xs"
-                                    onClick={() => setEditingTrip(row.original)}
-                                >
-                                    Edit
-                                </Button>
-                            ) : null}
-                            {advance ? (
-                                <Button
-                                    size="xs"
-                                    variant="solid"
-                                    onClick={() =>
-                                        void updateStatus(
-                                            row.original.id,
-                                            advance,
-                                        )
-                                    }
-                                >
-                                    {advanceLabel[row.original.status] ??
-                                        `→ ${formatStatusLabel(advance)}`}
-                                </Button>
-                            ) : null}
-                            <Button
-                                size="xs"
-                                variant="plain"
-                                className="text-red-600"
-                                onClick={() => void remove(row.original.id)}
-                            >
-                                Delete
-                            </Button>
-                        </div>
-                    )
-                },
+                cell: ({ row }) => (
+                    <Button
+                        size="xs"
+                        variant="plain"
+                        icon={<HiOutlineEye />}
+                        aria-label={`View load manifest for ${row.original.code}`}
+                        onClick={() => setManifestTripId(row.original.id)}
+                    />
+                ),
             },
         ],
-        [remove, updateStatus],
+        [],
     )
 
     return (
         <PageContainer>
             <PageHeader
                 title="Trips"
-                description="Fleet & Dispatch (3.2) → Start trip for In-Transit Monitoring (3.3). Plan trip builds load; Dispatch requires a vehicle."
+                description="Trip list and history. Trips are planned and dispatched in Trip Planning; drivers start and complete them in the driver app."
                 breadcrumbs={scmPageBreadcrumbs('Trips')}
-                actions={
-                    <Button
-                        variant="solid"
-                        onClick={() => setWizardOpen(true)}
-                    >
-                        Plan trip
-                    </Button>
-                }
             />
 
             {error ? (
@@ -269,23 +191,6 @@ export default function TripsPage() {
                     }
                 />
             </AdaptiveCard>
-
-            <PlanTripWizard
-                isOpen={wizardOpen}
-                onClose={() => setWizardOpen(false)}
-                onCreated={() => {
-                    void reload()
-                }}
-            />
-
-            <EditTripDialog
-                isOpen={Boolean(editingTrip)}
-                trip={editingTrip}
-                onClose={() => setEditingTrip(null)}
-                onSave={async (id, body) => {
-                    await update(id, body)
-                }}
-            />
 
             <TripLoadManifestDialog
                 isOpen={Boolean(manifestTripId)}
