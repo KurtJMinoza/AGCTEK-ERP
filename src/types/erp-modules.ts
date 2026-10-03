@@ -34,6 +34,7 @@ export type ErpCategory = {
 
 export type ErpModuleCode =
     | 'sd'
+    | 'ecommerce'
     | 'mm'
     | 'fico'
     | 'crm'
@@ -51,7 +52,7 @@ export type ErpModule = {
     path: string
     icon: ErpIconName
     categories: ErpCategory[]
-    /** Opens path outside the ERP app (e.g. HRIS) */
+    /** Opens path in a new tab outside the ERP shell (e.g. HRIS, the /shop marketplace) */
     isExternalLink?: boolean
     /** Submodule codes pinned under this module in the sidebar for one-click access */
     sidebarShortcuts?: string[]

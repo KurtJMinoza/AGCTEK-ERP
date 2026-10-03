@@ -1,189 +1,165 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
-import { HiOutlinePhotograph, HiOutlineStar, HiOutlineTrash } from 'react-icons/hi'
-import Button from '@/components/ui/Button'
-import Spinner from '@/components/ui/Spinner'
+import { HiOutlinePlus, HiX } from 'react-icons/hi'
 import Upload from '@/components/ui/Upload'
-import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
-import { uploadProductImage } from '../services/productCatalogService'
-
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
-const MAX_BYTES = 5 * 1024 * 1024
-const MAX_IMAGES = 8
+import { isUnoptimizedImage } from '@/utils/productImage'
+import { PRODUCT_GALLERY_MAX } from '../services/productCatalogService'
+import {
+    ACCEPTED_TYPES,
+    validateProductImage,
+    type PendingProductImage,
+} from './ProductImagePicker'
 
 type ProductGalleryPickerProps = {
-    /** Cover photo (first in storefront). */
-    coverUrl: string
-    /** Additional photos (stored in attributes.gallery). */
-    galleryUrls: string[]
-    onCoverChange: (url: string) => void
-    onGalleryChange: (urls: string[]) => void
-    onUploadingChange?: (uploading: boolean) => void
+    /** Saved gallery photos to keep, in order. */
+    kept: string[]
+    onKeptChange: (kept: string[]) => void
+    /** Newly chosen photos, uploaded when the form is saved. */
+    pending: PendingProductImage[]
+    onPendingChange: (pending: PendingProductImage[]) => void
     disabled?: boolean
 }
 
-const validate = (file: File) => {
-    if (!ACCEPTED_TYPES.includes(file.type)) return 'Use a PNG, JPG, WEBP or GIF image.'
-    if (file.size > MAX_BYTES) return 'Image must be 5 MB or smaller.'
-    return null
-}
+const Thumb = ({
+    src,
+    unoptimized,
+    label,
+    isNew,
+    disabled,
+    onRemove,
+}: {
+    src: string
+    unoptimized: boolean
+    label: string
+    isNew?: boolean
+    disabled?: boolean
+    onRemove: () => void
+}) => (
+    <li className="group relative aspect-square overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <Image
+            src={src}
+            alt={label}
+            fill
+            sizes="120px"
+            unoptimized={unoptimized}
+            className="object-contain p-1"
+        />
+        {isNew ? (
+            <span className="absolute bottom-1 left-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                New
+            </span>
+        ) : null}
+        <button
+            type="button"
+            aria-label={`Remove ${label}`}
+            disabled={disabled}
+            className="absolute right-1 top-1 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-white/90 text-gray-600 shadow-sm hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed"
+            onClick={onRemove}
+        >
+            <HiX />
+        </button>
+    </li>
+)
 
+/** Extra product photos shown in the storefront gallery after the main photo. */
 const ProductGalleryPicker = ({
-    coverUrl,
-    galleryUrls,
-    onCoverChange,
-    onGalleryChange,
-    onUploadingChange,
+    kept,
+    onKeptChange,
+    pending,
+    onPendingChange,
     disabled,
 }: ProductGalleryPickerProps) => {
-    const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const pendingRef = useRef(pending)
+    pendingRef.current = pending
 
-    const allUrls = [
-        ...(isRenderableImageSrc(coverUrl) ? [coverUrl] : []),
-        ...galleryUrls.filter((u) => u && u !== coverUrl),
-    ]
-
-    const upload = useCallback(
-        async (file: File, asCover: boolean) => {
-            const problem = validate(file)
-            if (problem) {
-                setError(problem)
-                return
-            }
-            if (allUrls.length >= MAX_IMAGES) {
-                setError(`Maximum ${MAX_IMAGES} photos per product.`)
-                return
-            }
-            setError(null)
-            setUploading(true)
-            onUploadingChange?.(true)
-            try {
-                const url = await uploadProductImage(file)
-                if (asCover || !isRenderableImageSrc(coverUrl)) {
-                    if (isRenderableImageSrc(coverUrl) && coverUrl !== url) {
-                        onGalleryChange([coverUrl, ...galleryUrls.filter((g) => g !== url)])
-                    }
-                    onCoverChange(url)
-                } else {
-                    onGalleryChange([...galleryUrls.filter((g) => g !== url), url])
-                }
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Upload failed.')
-            } finally {
-                setUploading(false)
-                onUploadingChange?.(false)
-            }
-        },
-        [
-            allUrls.length,
-            coverUrl,
-            galleryUrls,
-            onCoverChange,
-            onGalleryChange,
-            onUploadingChange,
-        ],
+    useEffect(
+        () => () =>
+            pendingRef.current.forEach((p) =>
+                URL.revokeObjectURL(p.previewUrl),
+            ),
+        [],
     )
 
-    const removeAt = (url: string) => {
-        if (url === coverUrl) {
-            const [next, ...rest] = galleryUrls
-            onCoverChange(next ?? '')
-            onGalleryChange(rest)
-            return
+    const total = kept.length + pending.length
+    const full = total >= PRODUCT_GALLERY_MAX
+
+    const add = (files: File[]) => {
+        const room = PRODUCT_GALLERY_MAX - total
+        const accepted: PendingProductImage[] = []
+        let problem: string | null = null
+        for (const file of files) {
+            const invalid = validateProductImage(file)
+            if (invalid) problem = invalid
+            else if (accepted.length < room) {
+                accepted.push({ file, previewUrl: URL.createObjectURL(file) })
+            } else
+                problem = `Up to ${PRODUCT_GALLERY_MAX} gallery photos per product.`
         }
-        onGalleryChange(galleryUrls.filter((g) => g !== url))
+        setError(problem)
+        if (accepted.length) onPendingChange([...pending, ...accepted])
     }
 
-    const setAsCover = (url: string) => {
-        if (url === coverUrl) return
-        const rest = [
-            ...(isRenderableImageSrc(coverUrl) ? [coverUrl] : []),
-            ...galleryUrls.filter((g) => g !== url),
-        ]
-        onCoverChange(url)
-        onGalleryChange(rest.filter((g) => g !== url))
+    const removePending = (index: number) => {
+        URL.revokeObjectURL(pending[index].previewUrl)
+        onPendingChange(pending.filter((_, i) => i !== index))
+        setError(null)
     }
 
     return (
-        <div className="space-y-3">
-            <div className="flex flex-wrap gap-3">
-                {allUrls.map((url) => (
-                    <div
-                        key={url}
-                        className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700"
-                    >
-                        <Image
-                            src={url}
-                            alt=""
-                            fill
-                            sizes="96px"
-                            unoptimized={isUnoptimizedImage(url)}
-                            className="object-cover"
-                        />
-                        {url === coverUrl ? (
-                            <span className="absolute left-1 top-1 rounded bg-primary px-1 text-[10px] font-semibold text-white">
-                                Cover
-                            </span>
-                        ) : null}
-                        <div className="absolute inset-x-0 bottom-0 flex gap-0.5 bg-black/50 p-0.5">
-                            {url !== coverUrl ? (
-                                <button
-                                    type="button"
-                                    title="Set as cover"
-                                    className="flex flex-1 items-center justify-center p-1 text-white"
-                                    disabled={disabled}
-                                    onClick={() => setAsCover(url)}
-                                >
-                                    <HiOutlineStar className="text-sm" />
-                                </button>
-                            ) : null}
-                            <button
-                                type="button"
-                                title="Remove"
-                                className="flex flex-1 items-center justify-center p-1 text-white"
-                                disabled={disabled}
-                                onClick={() => removeAt(url)}
-                            >
-                                <HiOutlineTrash className="text-sm" />
-                            </button>
-                        </div>
-                    </div>
+        <div className="flex flex-col gap-2">
+            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {kept.map((src, index) => (
+                    <Thumb
+                        key={src}
+                        src={src}
+                        unoptimized={isUnoptimizedImage(src)}
+                        label={`gallery photo ${index + 1}`}
+                        disabled={disabled}
+                        onRemove={() => {
+                            onKeptChange(kept.filter((url) => url !== src))
+                            setError(null)
+                        }}
+                    />
                 ))}
-                {!allUrls.length ? (
-                    <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800">
-                        <HiOutlinePhotograph className="text-2xl text-gray-400" />
-                    </div>
-                ) : null}
-            </div>
-            <Upload
-                draggable
-                showList={false}
-                accept={ACCEPTED_TYPES.join(',')}
-                disabled={disabled || uploading}
-                onChange={(files) => {
-                    const file = files[files.length - 1]
-                    if (file) void upload(file, !isRenderableImageSrc(coverUrl))
-                }}
-            >
-                <div className="rounded-lg border border-dashed border-gray-300 px-3 py-3 text-center text-sm dark:border-gray-600">
-                    {uploading ? (
-                        <span className="inline-flex items-center gap-2 text-gray-500">
-                            <Spinner size={20} /> Uploading…
-                        </span>
-                    ) : (
-                        <>
-                            <span className="font-semibold text-primary">Add photos</span>
-                            <span className="text-gray-500">
-                                {' '}
-                                — first image is the cover · up to {MAX_IMAGES}
+                {pending.map((item, index) => (
+                    <Thumb
+                        key={item.previewUrl}
+                        src={item.previewUrl}
+                        unoptimized
+                        isNew
+                        label={item.file.name}
+                        disabled={disabled}
+                        onRemove={() => removePending(index)}
+                    />
+                ))}
+                {!full ? (
+                    <li className="aspect-square">
+                        <Upload
+                            draggable
+                            multiple
+                            showList={false}
+                            accept={ACCEPTED_TYPES.join(',')}
+                            disabled={disabled}
+                            className="h-full min-h-0"
+                            onChange={(all, previous) =>
+                                add(all.slice(previous.length))
+                            }
+                        >
+                            <span className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center text-xs text-gray-500">
+                                <HiOutlinePlus className="text-xl" />
+                                Add photos
                             </span>
-                        </>
-                    )}
-                </div>
-            </Upload>
+                        </Upload>
+                    </li>
+                ) : null}
+            </ul>
+            <p className="text-xs text-gray-500">
+                {total}/{PRODUCT_GALLERY_MAX} · shown after the main photo on
+                the storefront. New photos upload when you click Save.
+            </p>
             {error ? <p className="text-xs text-red-600">{error}</p> : null}
         </div>
     )

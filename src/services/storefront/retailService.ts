@@ -14,12 +14,12 @@ import {
 } from '@/modules/sd/services/ecommerceService'
 import {
     productAttribute,
+    productImageGallery,
     type SdProductRecord,
 } from '@/modules/sd/services/productCatalogService'
 import { useProductCatalogStore } from '@/modules/sd/store/useProductCatalogStore'
 import { productImageSrc } from '@/utils/productImage'
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
-import { productImageGallery } from '@/modules/sd/services/productCatalogService'
 
 /** Maps an SD product (division DIV_RETAIL) to the AWIC storefront view. */
 export function toRetailProduct(record: SdProductRecord): RetailProduct {

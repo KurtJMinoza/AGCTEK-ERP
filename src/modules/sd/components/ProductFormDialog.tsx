@@ -13,7 +13,7 @@ import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
 import { Form, FormItem } from '@/components/ui/Form'
 import { isRenderableImageSrc } from '@/utils/productImage'
-import ProductGalleryPicker from './ProductGalleryPicker'
+import ProductCatalogImageGallery from './ProductCatalogImageGallery'
 import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
 import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
@@ -533,7 +533,7 @@ const ProductFormDialog = ({
                                     name="imageGallery"
                                     control={control}
                                     render={({ field: galleryField }) => (
-                                        <ProductGalleryPicker
+                                        <ProductCatalogImageGallery
                                             coverUrl={coverField.value}
                                             galleryUrls={galleryField.value}
                                             onCoverChange={coverField.onChange}

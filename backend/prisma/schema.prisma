@@ -3593,6 +3593,14 @@ model SdSalesOrder {
   branchId        String?
   customerName    String?
   customerEmail   String?
+  /// Delivery address captured at checkout (e-commerce); a snapshot, not a link to the customer profile.
+  shipToName         String?
+  shipToPhone        String?
+  shipToAddressLine1 String?
+  shipToCity         String?
+  shipToRegion       String?
+  shipToPostalCode   String?
+  shipToCountry      String?
   currency        String   @default("PHP")
   subtotal        Decimal?
   discountAmount  Decimal  @default(0)

@@ -10,14 +10,13 @@ import { PrismaService } from '../prisma/prisma.service'
 import {
     CreateProductDto,
     ListProductsQueryDto,
+    PRODUCT_GALLERY_MAX,
     UpdateProductDto,
 } from './dto/product.dto'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import {
     PRODUCT_IMAGE_MAX_BYTES,
-    PRODUCT_IMAGE_URL_PREFIX,
     deleteProductImageByUrl,
-    readProductImage,
     saveProductImage,
 } from './product-image-storage'
 
@@ -225,12 +224,91 @@ export class ProductService {
         }
     }
 
-    async update(id: string, dto: UpdateProductDto) {
+    async update(
+        id: string,
+        dto: UpdateProductDto,
+        image?: Buffer | null,
+        gallery: Buffer[] = [],
+    ) {
         const current = await this.findOne(id)
-        const { updatedBy, ...changes } = dto
-        if (Object.values(changes).every((value) => value === undefined)) {
+        const { updatedBy: _updatedBy, ...changes } = dto
+        if (
+            !image &&
+            gallery.length === 0 &&
+            Object.values(changes).every((value) => value === undefined)
+        ) {
             throw new BadRequestException('No changes supplied')
         }
+
+        const galleryChange = dto.galleryImages !== undefined || gallery.length > 0
+        if (!galleryChange) {
+            return this.withUploadedImage(image, dto, () => this.applyUpdate(current, dto))
+        }
+
+        const currentImages = this.galleryOf(current.attributes)
+        const kept = dto.galleryImages ?? currentImages
+        const unknown = kept.find((url) => !currentImages.includes(url))
+        if (unknown !== undefined) {
+            throw new BadRequestException(`Unknown gallery image: ${unknown}`)
+        }
+        if (new Set(kept).size !== kept.length) {
+            throw new BadRequestException('Gallery images must not repeat')
+        }
+        if (kept.length + gallery.length > PRODUCT_GALLERY_MAX) {
+            throw new BadRequestException(
+                `A product can have at most ${PRODUCT_GALLERY_MAX} gallery photos`,
+            )
+        }
+
+        const added: string[] = []
+        try {
+            for (const buffer of gallery) added.push(saveProductImage(buffer))
+        } catch (error) {
+            added.forEach(deleteProductImageByUrl)
+            throw new BadRequestException(
+                error instanceof Error ? error.message : 'Invalid gallery image',
+            )
+        }
+
+        const baseAttributes =
+            dto.attributes !== undefined ? dto.attributes : this.asObject(current.attributes)
+        dto.attributes = { ...(baseAttributes ?? {}), images: [...kept, ...added] }
+
+        let updated: Awaited<ReturnType<ProductService['applyUpdate']>>
+        try {
+            updated = await this.withUploadedImage(image, dto, () =>
+                this.applyUpdate(current, dto),
+            )
+        } catch (error) {
+            added.forEach(deleteProductImageByUrl)
+            throw error
+        }
+        currentImages
+            .filter((url) => !kept.includes(url) && url !== updated.imageUrl)
+            .forEach(deleteProductImageByUrl)
+        return updated
+    }
+
+    private asObject(value: Prisma.JsonValue | null): Record<string, unknown> | null {
+        return value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : null
+    }
+
+    /** Gallery photo URLs kept in `attributes.images`. */
+    private galleryOf(attributes: Prisma.JsonValue | null): string[] {
+        const images = this.asObject(attributes)?.images
+        return Array.isArray(images)
+            ? images.filter((url): url is string => typeof url === 'string')
+            : []
+    }
+
+    private async applyUpdate(
+        current: Awaited<ReturnType<ProductService['findOne']>>,
+        dto: UpdateProductDto,
+    ) {
+        const { id } = current
+        const { updatedBy } = dto
         this.assertOriginalPrice(
             dto.price ?? Number(current.price),
             dto.originalPrice === undefined
@@ -241,8 +319,6 @@ export class ProductService {
         )
 
         const data: Prisma.SdProductUpdateInput = { updatedBy }
-        if (dto.divisionId !== undefined) data.divisionId = dto.divisionId
-        if (dto.sku !== undefined) data.sku = dto.sku
         if (dto.name !== undefined) data.name = dto.name
         if (dto.description !== undefined) data.description = dto.description
         if (dto.price !== undefined) data.price = new Decimal(dto.price)
@@ -272,49 +348,37 @@ export class ProductService {
             )
         }
 
-        try {
-            const updated = await this.prisma.sdProduct.update({ where: { id }, data })
-            if (updated.imageUrl !== current.imageUrl) {
-                deleteProductImageByUrl(current.imageUrl)
-            }
-            return updated
-        } catch (error) {
-            throw this.mapUniqueViolation(
-                error,
-                dto.divisionId ?? current.divisionId,
-                dto.sku ?? current.sku,
-            )
+        const updated = await this.prisma.sdProduct.update({ where: { id }, data })
+        if (updated.imageUrl !== current.imageUrl) {
+            deleteProductImageByUrl(current.imageUrl)
         }
+        return updated
     }
 
-    /** Hard delete; past orders keep their own SKU/description/price snapshot. */
-    async remove(id: string) {
-        const current = await this.findOne(id)
-        await this.prisma.sdProduct.delete({ where: { id } })
-        deleteProductImageByUrl(current.imageUrl)
-        return { id, deleted: true }
-    }
-
-    /** Stores an uploaded product photo and returns the `imageUrl` to save on the product. */
-    uploadImage(buffer: Buffer | null) {
-        if (!buffer?.length) throw new BadRequestException('No image uploaded')
-        if (buffer.length > PRODUCT_IMAGE_MAX_BYTES) {
-            throw new BadRequestException('Image exceeds the 5 MB limit')
-        }
+    /**
+     * Saves `image` (if any) to public/uploads/products, sets `dto.imageUrl` to its
+     * public URL, then runs the write; the new file is removed if the write fails.
+     */
+    private async withUploadedImage<T>(
+        image: Buffer | null | undefined,
+        dto: { imageUrl?: string },
+        write: () => Promise<T>,
+    ): Promise<T> {
+        if (!image) return write()
+        let imageUrl: string
         try {
-            return { imageUrl: PRODUCT_IMAGE_URL_PREFIX + saveProductImage(buffer) }
+            imageUrl = saveProductImage(image)
         } catch (error) {
             throw new BadRequestException(
                 error instanceof Error ? error.message : 'Invalid image',
             )
         }
-    }
-
-    getImage(key: string) {
+        dto.imageUrl = imageUrl
         try {
-            return readProductImage(key)
-        } catch {
-            throw new NotFoundException('Image not found')
+            return await write()
+        } catch (error) {
+            deleteProductImageByUrl(imageUrl)
+            throw error
         }
     }
 
@@ -328,6 +392,30 @@ export class ProductService {
             select: { sku: true, price: true },
         })
         return new Map(rows.map((row) => [row.sku, new Decimal(row.price)]))
+    }
+
+    /** Hard delete; past orders keep their own SKU/description/price snapshot. */
+    async remove(id: string) {
+        const current = await this.findOne(id)
+        await this.prisma.sdProduct.delete({ where: { id } })
+        deleteProductImageByUrl(current.imageUrl)
+        this.galleryOf(current.attributes).forEach(deleteProductImageByUrl)
+        return { id, deleted: true }
+    }
+
+    /** Stores an uploaded product photo and returns the `imageUrl` to save on the product. */
+    uploadImage(buffer: Buffer | null) {
+        if (!buffer?.length) throw new BadRequestException('No image uploaded')
+        if (buffer.length > PRODUCT_IMAGE_MAX_BYTES) {
+            throw new BadRequestException('Image exceeds the 5 MB limit')
+        }
+        try {
+            return { imageUrl: saveProductImage(buffer) }
+        } catch (error) {
+            throw new BadRequestException(
+                error instanceof Error ? error.message : 'Invalid image',
+            )
+        }
     }
 
     private async resolveMaterialLinksForCreate(

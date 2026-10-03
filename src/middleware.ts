@@ -10,6 +10,10 @@ import {
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
 import appConfig from '@/configs/app.config'
 import {
+    MARKETPLACE_PATH,
+    isMarketplaceHost,
+} from '@/modules/storefront/marketplace/host'
+import {
     AWIC_STOREFRONT_PATH,
     isAwicStorefrontHost,
 } from '@/modules/storefront/retail/brand'
@@ -42,13 +46,36 @@ export default auth((req) => {
     }
 
     const hostname = (req.headers.get('host') ?? '').split(':')[0] ?? ''
+
+    /**
+     * Dedicated marketplace host (e.g. shop.localhost):
+     * `/` serves the marketplace; ERP paths are not exposed on this host.
+     */
+    if (isMarketplaceHost(hostname)) {
+        const path = nextUrl.pathname
+
+        if (
+            path.startsWith(apiAuthPrefix) ||
+            path.startsWith('/api') ||
+            path.startsWith('/_next')
+        ) {
+            return
+        }
+
+        if (path !== '/') {
+            return NextResponse.redirect(new URL(`/${nextUrl.search}`, req.url))
+        }
+
+        const rewriteUrl = nextUrl.clone()
+        rewriteUrl.pathname = MARKETPLACE_PATH
+        return NextResponse.rewrite(rewriteUrl)
+    }
+
     const onAwicHost = isAwicStorefrontHost(hostname)
 
     /**
-     * Dedicated AWIC host (e.g. awic.localhost / awic.com):
-     * - `/` serves the storefront
-     * - clean paths rewrite into `/awic/*`
-     * - ERP paths are not exposed on this host
+     * Dedicated AWIC retail host: `/` serves the storefront; clean paths rewrite
+     * into `/awic/*`. Checked after marketplace so shared hosts follow marketplace rules.
      */
     if (onAwicHost) {
         const path = nextUrl.pathname
@@ -61,7 +88,6 @@ export default auth((req) => {
             return
         }
 
-        // Prefer clean URLs: /awic → /
         if (path === AWIC_STOREFRONT_PATH) {
             return NextResponse.redirect(new URL(`/${nextUrl.search}`, req.url))
         }
@@ -72,7 +98,6 @@ export default auth((req) => {
             )
         }
 
-        // Only storefront surfaces on this host
         const isStorefrontPath =
             path === '/' ||
             path === '/checkout' ||
@@ -96,6 +121,7 @@ export default auth((req) => {
     const isSocketRoute = nextUrl.pathname.startsWith('/socket.io')
     const isPublicRoute =
         publicRoutes.includes(nextUrl.pathname) ||
+        nextUrl.pathname.startsWith(`${MARKETPLACE_PATH}/`) ||
         nextUrl.pathname.startsWith(`${AWIC_STOREFRONT_PATH}/`)
     const isAuthRoute = authRoutes.includes(nextUrl.pathname)
 
@@ -104,7 +130,6 @@ export default auth((req) => {
 
     if (isAuthRoute) {
         if (isSignedIn) {
-            /** Redirect to authenticated entry path if signed in & path is auth route */
             return Response.redirect(
                 new URL(appConfig.authenticatedEntryPath, nextUrl),
             )
@@ -112,7 +137,6 @@ export default auth((req) => {
         return
     }
 
-    /** Redirect to authenticated entry path if signed in & path is public route */
     if (!isSignedIn && !isPublicRoute) {
         let callbackUrl = nextUrl.pathname
         if (nextUrl.search) {
@@ -126,18 +150,6 @@ export default auth((req) => {
             ),
         )
     }
-
-    /** Uncomment this and `import { protectedRoutes } from '@/configs/routes.config'` if you want to enable role based access */
-    // if (isSignedIn && nextUrl.pathname !== '/access-denied' && !nextUrl.pathname.startsWith(appConfig.apiPrefix)) {
-    //     const routeMeta = protectedRoutes[nextUrl.pathname]
-    //     const existingRoute = routeMeta
-    //     const includedRole = routeMeta?.authority.some((role) => req.auth?.user?.authority.includes(role))
-    //     if (existingRoute && !includedRole) {
-    //         return Response.redirect(
-    //             new URL('/access-denied', nextUrl),
-    //         )
-    //     }
-    // }
 })
 
 export const config = {
