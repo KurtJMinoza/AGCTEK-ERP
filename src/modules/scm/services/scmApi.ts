@@ -1,20 +1,34 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
     ComplianceSummary,
-    CreateDemandForecastInput,
-    DemandForecast,
+    DemandCellAdjustment,
+    DemandHorizonKind,
+    DemandHorizonPreset,
+    DemandPlanDetail,
+    DemandPlanGrid,
+    DemandPlanGridQuery,
+    DemandPlanStatus,
+    DemandPlanVersion,
+    DemandPastSales,
+    DemandPastSalesQuery,
+    GenerateDemandForecastInput,
+    GenerateDemandForecastResult,
     Driver,
     FleetTrackingResponse,
     GpsLog,
     ListParams,
+    LoadPlan,
     MaintenanceRecord,
     Paginated,
     PlaceSuggestion,
     ScmDashboardSummary,
-    ScmPlanningSettings,
     Shipment,
+    ShipmentLine,
     Trip,
+    TripCandidate,
     CreateTripInput,
+    TelematicsHistoryQuery,
+    TelematicsHistoryResponse,
     Vehicle,
     VehicleCargoResponse,
     VehicleDocument,
@@ -151,24 +165,123 @@ export async function apiDeleteShipment(id: string) {
     return data
 }
 
-export async function apiAssignLoad(body: {
+// ─── Cargo-first TMS: Load Building → Trip Planning ───────────────────────
+
+export async function apiGetLoadPlans(
+    params?: ListParams & { active?: boolean },
+) {
+    const { data } = await ErpAxiosBase.get<Paginated<LoadPlan>>(
+        '/scm/tms/load-plans',
+        {
+            params: {
+                ...toQuery(params),
+                ...(params?.active ? { active: 'true' } : {}),
+            },
+        },
+    )
+    return data
+}
+
+export async function apiGetLoadPlan(id: string) {
+    const { data } = await ErpAxiosBase.get<LoadPlan>(`/scm/tms/load-plans/${id}`)
+    return data
+}
+
+export async function apiCreateLoadPlan(body: {
     vehicleId: string
-    shipmentIds: string[]
-    tripId?: string
-    forceNewTrip?: boolean
-    driverId?: string | null
-    tripCode?: string
-    plannedStartAt?: string | null
     notes?: string | null
-    /** draft → Trip DRAFT; approve → Trip PLANNED (ready for dispatch) */
-    planMode?: 'draft' | 'approve'
-    /** Delivery stop order keys (destAddress lowercased) */
-    stopOrder?: string[]
 }) {
-    const { data } = await ErpAxiosBase.post<Trip>(
-        '/scm/trips/assign-load',
+    const { data } = await ErpAxiosBase.post<LoadPlan>('/scm/tms/load-plans', body)
+    return data
+}
+
+export async function apiGetAvailableShipmentLines(search?: string) {
+    const { data } = await ErpAxiosBase.get<{ data: ShipmentLine[]; total: number }>(
+        '/scm/tms/shipment-lines/available',
+        { params: search ? { search } : undefined },
+    )
+    return data
+}
+
+export async function apiAddLoadPlanLine(
+    id: string,
+    body: { shipmentLineId: string; assignedQty?: number },
+) {
+    const { data } = await ErpAxiosBase.post<LoadPlan>(
+        `/scm/tms/load-plans/${id}/lines`,
         body,
     )
+    return data
+}
+
+export async function apiRemoveLoadPlanLine(id: string, lineId: string) {
+    const { data } = await ErpAxiosBase.delete<LoadPlan>(
+        `/scm/tms/load-plans/${id}/lines/${lineId}`,
+    )
+    return data
+}
+
+export async function apiLoadPlanAction(
+    id: string,
+    action: 'validate' | 'ready' | 'reopen' | 'cancel',
+) {
+    const { data } = await ErpAxiosBase.post<LoadPlan>(
+        `/scm/tms/load-plans/${id}/${action}`,
+    )
+    return data
+}
+
+export async function apiGetTripCandidates() {
+    const { data } = await ErpAxiosBase.get<{ data: TripCandidate[] }>(
+        '/scm/tms/trip-candidates',
+    )
+    return data
+}
+
+export async function apiGetTmsTrips(params?: ListParams) {
+    const { data } = await ErpAxiosBase.get<Paginated<Trip>>('/scm/tms/trips', {
+        params: toQuery(params),
+    })
+    return data
+}
+
+export async function apiCreateTmsTrip(body: {
+    loadPlanId: string
+    driverId?: string | null
+    plannedStartAt?: string | null
+    plannedEndAt?: string | null
+    notes?: string | null
+}) {
+    const { data } = await ErpAxiosBase.post<Trip>('/scm/tms/trips', body)
+    return data
+}
+
+export async function apiUpdateTmsTrip(
+    id: string,
+    body: {
+        driverId?: string | null
+        plannedStartAt?: string | null
+        plannedEndAt?: string | null
+        notes?: string | null
+    },
+) {
+    const { data } = await ErpAxiosBase.patch<Trip>(`/scm/tms/trips/${id}`, body)
+    return data
+}
+
+export async function apiReorderTmsTripStops(id: string, stopIds: string[]) {
+    const { data } = await ErpAxiosBase.patch<Trip>(
+        `/scm/tms/trips/${id}/stops/sequence`,
+        { stopIds },
+    )
+    return data
+}
+
+export async function apiTmsTripAction(
+    id: string,
+    action: 'validate' | 'dispatch' | 'cancel',
+) {
+    const { data } = await ErpAxiosBase.post<Trip>(`/scm/tms/trips/${id}/${action}`)
     return data
 }
 
@@ -233,6 +346,21 @@ export async function apiGetTrackingHistory(
     const { data } = await ErpAxiosBase.get<GpsLog[]>(
         `/scm/tracking/vehicles/${vehicleId}/history`,
         { params },
+    )
+    return data
+}
+
+export async function apiGetTelematicsHistory(
+    vehicleId: string,
+    params: TelematicsHistoryQuery,
+) {
+    const query: Record<string, string | number> = {}
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== '') query[key] = value
+    }
+    const { data } = await ErpAxiosBase.get<TelematicsHistoryResponse>(
+        `/scm/tracking/vehicles/${vehicleId}/telematics-history`,
+        { params: query },
     )
     return data
 }
@@ -470,47 +598,106 @@ export async function apiGeocodeReverse(lat: number, lng: number) {
     return data
 }
 
-export async function apiGetForecasts(params?: ListParams) {
-    const { data } = await ErpAxiosBase.get<Paginated<DemandForecast>>(
-        '/scm/forecasts',
-        { params: toQuery(params) },
+export async function apiGetDemandHorizonPresets() {
+    const { data } = await ErpAxiosBase.get<DemandHorizonPreset[]>(
+        '/scm/demand/horizon-presets',
     )
     return data
 }
 
-export async function apiCreateForecast(body: CreateDemandForecastInput) {
-    const { data } = await ErpAxiosBase.post<DemandForecast>(
-        '/scm/forecasts',
+export async function apiListDemandPlans(params?: {
+    status?: DemandPlanStatus
+    horizonKind?: DemandHorizonKind
+    pageSize?: number
+}) {
+    const { data } = await ErpAxiosBase.get<Paginated<DemandPlanVersion>>(
+        '/scm/demand/plans',
+        { params: { pageSize: 100, ...params } },
+    )
+    return data
+}
+
+export async function apiGetDemandPlan(id: string) {
+    const { data } = await ErpAxiosBase.get<DemandPlanDetail>(
+        `/scm/demand/plans/${id}`,
+    )
+    return data
+}
+
+export async function apiCreateDemandPlan(body: {
+    code?: string
+    horizonKind?: DemandHorizonKind
+    copyFromVersionId?: string
+    notes?: string
+}) {
+    const { data } = await ErpAxiosBase.post<DemandPlanVersion>(
+        '/scm/demand/plans',
         body,
     )
     return data
 }
 
-export async function apiDeleteForecast(id: string) {
-    const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
-        `/scm/forecasts/${id}`,
-    )
-    return data
-}
-
-export async function apiGetPlanningSettings() {
-    const { data } = await ErpAxiosBase.get<ScmPlanningSettings>(
-        '/scm/planning-settings',
-    )
-    return data
-}
-
-export async function apiUpdatePlanningSettings(
-    body: Partial<
-        Pick<
-            ScmPlanningSettings,
-            'horizonWeeks' | 'bucketSize' | 'frozenZoneDays'
-        >
-    >,
+export async function apiUpdateDemandPlan(
+    id: string,
+    body: {
+        status?: Exclude<DemandPlanStatus, 'PUBLISHED'>
+        viewLength?: number
+        freezeFencePeriods?: number
+        notes?: string | null
+    },
 ) {
-    const { data } = await ErpAxiosBase.put<ScmPlanningSettings>(
-        '/scm/planning-settings',
+    const { data } = await ErpAxiosBase.patch<DemandPlanDetail>(
+        `/scm/demand/plans/${id}`,
         body,
+    )
+    return data
+}
+
+/** Server returns rows already rolled up to the horizon grain — never pivot in the browser. */
+export async function apiGetDemandPastSales(query: DemandPastSalesQuery) {
+    const { data } = await ErpAxiosBase.get<DemandPastSales>(
+        '/scm/demand/past-sales',
+        { params: query },
+    )
+    return data
+}
+
+export async function apiGenerateDemandForecast(
+    id: string,
+    body: GenerateDemandForecastInput,
+) {
+    const { data } = await ErpAxiosBase.post<GenerateDemandForecastResult>(
+        `/scm/demand/plans/${id}/generate-forecast`,
+        body,
+    )
+    return data
+}
+
+export async function apiGetDemandPlanGrid(
+    id: string,
+    query: DemandPlanGridQuery,
+) {
+    const { data } = await ErpAxiosBase.get<DemandPlanGrid>(
+        `/scm/demand/plans/${id}/grid`,
+        { params: query },
+    )
+    return data
+}
+
+export async function apiAdjustDemandCells(
+    id: string,
+    cells: DemandCellAdjustment[],
+) {
+    const { data } = await ErpAxiosBase.patch<{ updated: number }>(
+        `/scm/demand/plans/${id}/cells`,
+        { cells },
+    )
+    return data
+}
+
+export async function apiPublishDemandPlan(id: string) {
+    const { data } = await ErpAxiosBase.post<DemandPlanDetail>(
+        `/scm/demand/plans/${id}/publish`,
     )
     return data
 }

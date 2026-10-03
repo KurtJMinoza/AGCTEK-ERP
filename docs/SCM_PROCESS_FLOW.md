@@ -26,18 +26,22 @@ Retry: `POST /mm/packages/:id/retry-scm-release` if package is READY but shipmen
 
 ## Step 3 — Load Building & Route Optimization
 
+Cargo-first since 2026-10 — full contract in [`SCM_TMS_CARGO_FIRST.md`](SCM_TMS_CARGO_FIRST.md).
+
 | Flow box | UI / API | Notes |
 | --- | --- | --- |
-| **3.1** Order Pooling & Consolidation | Shipments (READY filter) → multi-select → **Load plan** drawer | READY = MM packed release |
-| **3.2** Volume & Weight → **qty MVP** | `VehicleCapacityMonitor` + `computeCapacity` / server `assign-load` | Item quantity only |
-| **3.3** Route Planning & Sequence | Review step stop list; Up/Down deliver order; `stopOrder` on assign | Manual L0; no VRP |
-| **3.4** Time Windows | Shipment create windows → stop `windowStart`/`windowEnd`; soft warn if missing | Hard optimization N/A |
-| **3.5** Plan Review & Approval | Review manifest → **Save draft** (Trip `DRAFT`) / **Approve plan** (Trip `PLANNED`) | Shipments → `ASSIGNED` |
+| **3.1** Order Pooling & Consolidation | **Load Building** (`/scm/load-building`) — available lines of READY shipments | READY = MM packed release; one `ShipmentLine` per package item |
+| **3.2** Volume & Weight → **qty MVP** | `POST /scm/tms/load-plans/:id/lines` — server capacity check | Qty primary; weight/volume when vehicle limit > 0 |
+| **3.3** Route Planning & Sequence | **Trip Planning** (`/scm/trip-planning`) — stops generated from cargo; reorder TO stops | Manual L0; no VRP |
+| **3.4** Time Windows | Shipment windows → TO stop `windowStart`/`windowEnd`; TO baseline sorted by earliest window | Hard optimization N/A |
+| **3.5** Plan Review & Approval | Trip **Validate** (`READY`) → **Dispatch** (`DISPATCHED`) | Driver app starts DISPATCHED trips |
 
 ```text
-READY → Load plan → DRAFT (draft) or PLANNED (approved)
-PLANNED → Dispatch → ASSIGNED → Start (GI) → IN_TRANSIT
+Load plan: DRAFT → VALIDATED → READY → (trip) ASSIGNED → DISPATCHED → COMPLETED
+Trip:      PLANNED → READY → DISPATCHED → Start (GI) → IN_TRANSIT → COMPLETED
 ```
+
+Deprecated (API kept, removed from UI): `POST /scm/trips/assign-load`, `POST /scm/trips` with shipment stops.
 
 ## Broader EXECUTE mapping
 
@@ -48,7 +52,7 @@ PLANNED → Dispatch → ASSIGNED → Start (GI) → IN_TRANSIT
 | Load plan / Approve | **3.1–3.5** | Transportation Planning |
 | Dispatch | **3.2** Fleet assignment | Fleet & Dispatch Management |
 | Start trip + Tracking | **3.3** | In-Transit Monitoring (+ GI) |
-| Demand planning page | **1** stub | Demand & Supply Planning |
+| Demand Plan (versioned, horizon = scope) | **1** | Demand & Supply Planning — see [`SCM_DEMAND_PLAN.md`](SCM_DEMAND_PLAN.md) |
 
 ## SCM module hub (`/modules/scm`)
 
@@ -56,8 +60,7 @@ Aligned to PDF pillars. Hub tiles:
 
 | Tile | Role |
 | --- | --- |
-| Demand Planning | Pillar 1 stub |
-| Planning Horizons | Saved config: horizon weeks, bucket (DAY/WEEK), frozen-zone days (`GET/PUT /scm/planning-settings`) |
+| Demand Plan | Pillar 1: versioned demand plan (DRAFT → REVIEWED → APPROVED → PUBLISHED). Horizon (Operational / Tactical / Strategic) is a control on the plan, not a separate tile. API `/scm/demand/*` — see [`SCM_DEMAND_PLAN.md`](SCM_DEMAND_PLAN.md) |
 | Transportation Management | Pillars 2–4 (`/scm` logistics spine) |
 | Supply Chain Dashboard | Ops KPIs from shipments/trips/fleet/maintenance (`GET /scm/dashboard/summary`) — OTIF deferred |
 
@@ -71,11 +74,7 @@ Removed from hub: Supply Network, Product Locations, Warehouse Operations (MM te
 - Full VRP / traffic / HOS
 - Demand planning MM↔SCM forecast sync
 
-## Vehicle GPS (flespi; Traccar paused)
+## Vehicle GPS (flespi)
 
 **Active:** flespi `concox` channel → Nest MQTT (`mqtt.flespi.io`) → `GpsLog` → Live Tracking.  
 Ident = **first 14 digits of IMEI** → `Vehicle.telematicsDeviceId`. See **`docs/SCM_FLESPI_VL502.md`**.
-
-**Optional later:** Huabao **:5015** → Traccar → Nest ingest — **`docs/SCM_TRACCAR_VL502.md`**.
-
-**Optional VL512 (Windows):** GT06 **:5023** → nginx stream → native Traccar → Nest ingest — **`docs/SCM_TRACCAR_VL512.md`**.

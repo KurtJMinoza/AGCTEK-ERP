@@ -14,6 +14,7 @@ export const ERP_MODULES: ErpModule[] = [
             'Manage the complete order-to-cash cycle — customers, pricing, sales orders, deliveries, and billing.',
         path: '/modules/sd',
         icon: 'shoppingCart',
+        sidebarShortcuts: ['product-catalog'],
         categories: [
             {
                 code: 'master-data',
@@ -26,6 +27,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Maintain customer accounts, credit limits, and partner functions.',
                         path: '/modules/sd/customer-master',
                         icon: 'users',
+                    },
+                    {
+                        code: 'product-catalog',
+                        title: 'Product Catalog',
+                        description:
+                            'Add, edit and price the products sold on the AWIC, LPG and MCONPINCO storefronts and POS.',
+                        path: '/modules/sd/product-catalog',
+                        icon: 'tag',
                     },
                     {
                         code: 'material-sales-view',
@@ -56,6 +65,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Create, change, and monitor customer sales orders.',
                         path: '/modules/sd/sales-orders',
                         icon: 'clipboard',
+                    },
+                    {
+                        code: 'pos',
+                        title: 'POS Terminal',
+                        description:
+                            'Over-the-counter cash sales with immediate stock deduction and billing.',
+                        path: '/modules/sd/pos',
+                        icon: 'creditCard',
                     },
                     {
                         code: 'deliveries',
@@ -376,19 +393,11 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'demand-planning',
-                        title: 'Demand Planning',
+                        title: 'Demand Plan',
                         description:
-                            'Forecast demand and consensus plans (PDF pillar 1).',
+                            'Versioned demand by product × location × period. Horizon (operational / tactical / strategic) is a scope control on the plan.',
                         path: '/scm/demand-planning',
                         icon: 'lineChart',
-                    },
-                    {
-                        code: 'planning-horizons',
-                        title: 'Planning Horizons',
-                        description:
-                            'Horizon weeks, bucket size, and frozen-zone days for demand planning.',
-                        path: '/scm/planning-horizons',
-                        icon: 'settings',
                     },
                 ],
             },
@@ -400,58 +409,82 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'transportation',
                         title: 'Transportation Management',
                         description:
-                            'Shipments, load building, trips, fleet, drivers, tracking, and maintenance.',
+                            'Plan deliveries, load trucks, send them out, and keep track of your fleet.',
                         path: '/scm',
                         icon: 'truck',
                         childGroupTitle: 'Features',
                         children: [
                             {
-                                code: 'vehicles',
-                                title: 'Vehicles',
-                                description:
-                                    'Track and manage company fleet.',
-                                path: '/scm/vehicles',
-                                icon: 'truck',
-                            },
-                            {
-                                code: 'drivers',
-                                title: 'Drivers',
-                                description:
-                                    'Manage driver profiles and status.',
-                                path: '/scm/drivers',
-                                icon: 'users',
-                            },
-                            {
                                 code: 'shipments',
                                 title: 'Shipments',
                                 description:
-                                    'Process load building and shipment lifecycle.',
+                                    'See all orders waiting to be delivered.',
                                 path: '/scm/shipments',
                                 icon: 'package',
+                                group: 'Planning',
+                            },
+                            {
+                                code: 'load-building',
+                                title: 'Load Building',
+                                description:
+                                    'Choose what goes on each truck without overloading it.',
+                                path: '/scm/load-building',
+                                icon: 'layers',
+                                group: 'Planning',
+                            },
+                            {
+                                code: 'trip-planning',
+                                title: 'Trip Planning',
+                                description:
+                                    'Turn a loaded truck into a trip, pick a driver, and send it out.',
+                                path: '/scm/trip-planning',
+                                icon: 'gitBranch',
+                                group: 'Planning',
                             },
                             {
                                 code: 'trips',
                                 title: 'Trips',
                                 description:
-                                    'Plan and execute transportation trips.',
+                                    'See every trip and where it stands.',
                                 path: '/scm/trips',
-                                icon: 'gitBranch',
+                                icon: 'activity',
+                                group: 'Execution',
                             },
                             {
                                 code: 'tracking',
                                 title: 'Tracking',
                                 description:
-                                    'Real-time telematics and tracking.',
+                                    'See where your trucks are right now on a map.',
                                 path: '/scm/tracking',
                                 icon: 'activity',
+                                group: 'Execution',
+                            },
+                            {
+                                code: 'vehicles',
+                                title: 'Vehicles',
+                                description:
+                                    'Add and manage your company trucks.',
+                                path: '/scm/vehicles',
+                                icon: 'truck',
+                                group: 'Fleet & Resources',
+                            },
+                            {
+                                code: 'drivers',
+                                title: 'Drivers',
+                                description:
+                                    'Add drivers and see who is available.',
+                                path: '/scm/drivers',
+                                icon: 'users',
+                                group: 'Fleet & Resources',
                             },
                             {
                                 code: 'maintenance',
                                 title: 'Maintenance',
                                 description:
-                                    'Vehicle maintenance and service schedules.',
+                                    'Schedule and record truck repairs and servicing.',
                                 path: '/scm/maintenance',
                                 icon: 'settings',
+                                group: 'Fleet & Resources',
                             },
                         ],
                     },

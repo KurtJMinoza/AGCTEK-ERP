@@ -5,11 +5,15 @@ import {
     Param,
     Patch,
     Post,
+    Query,
 } from '@nestjs/common'
 import {
     ChangeSalesOrderLineQtyDto,
+    CreateRetailSalesOrderDto,
     CreateSalesOrderDto,
     IssueSalesOrderDto,
+    ListSalesOrdersQueryDto,
+    UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
@@ -21,9 +25,27 @@ export class SalesOrderController {
         private orchestration: SdMmOrchestrationService,
     ) {}
 
+    @Get()
+    list(@Query() query: ListSalesOrdersQueryDto) {
+        return this.salesOrders.list(query)
+    }
+
     @Post()
     create(@Body() dto: CreateSalesOrderDto) {
         return this.salesOrders.create(dto)
+    }
+
+    @Post('retail')
+    createRetail(@Body() dto: CreateRetailSalesOrderDto) {
+        return this.salesOrders.createRetail(dto)
+    }
+
+    @Patch('retail/:id/status')
+    updateRetailStatus(
+        @Param('id') id: string,
+        @Body() dto: UpdateRetailSalesOrderStatusDto,
+    ) {
+        return this.salesOrders.updateRetailStatus(id, dto)
     }
 
     @Get(':id')

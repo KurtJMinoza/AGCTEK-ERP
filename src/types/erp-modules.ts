@@ -10,6 +10,8 @@ export type ErpSubmodule = {
     /** App Router path, e.g. "/modules/sd/customer-master" */
     path: string
     icon?: ErpIconName
+    /** Hub-page section this feature belongs to (children only) */
+    group?: string
     /** Section label when this submodule has nested features */
     childGroupTitle?: string
     /** Nested features shown on the submodule hub page */
@@ -51,6 +53,8 @@ export type ErpModule = {
     categories: ErpCategory[]
     /** Opens path outside the ERP app (e.g. HRIS) */
     isExternalLink?: boolean
+    /** Submodule codes pinned under this module in the sidebar for one-click access */
+    sidebarShortcuts?: string[]
 }
 
 /** Flattened search result for sidebar filtering */

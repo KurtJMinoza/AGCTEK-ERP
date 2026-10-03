@@ -242,7 +242,9 @@ export class DashboardService {
             trips: {
                 byStatus: tripsByStatus,
                 activeCount:
-                    tripsByStatus.IN_TRANSIT + tripsByStatus.ASSIGNED,
+                    tripsByStatus.IN_TRANSIT +
+                    tripsByStatus.ASSIGNED +
+                    tripsByStatus.DISPATCHED,
                 inTransitCount: tripsByStatus.IN_TRANSIT,
                 completedCount: tripsByStatus.COMPLETED,
                 avgDurationHours: avgTripDurationHours,

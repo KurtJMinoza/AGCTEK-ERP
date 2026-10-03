@@ -74,6 +74,22 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/scm/load-building': {
+        key: 'scmLoadBuilding',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/trip-planning': {
+        key: 'scmTripPlanning',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/scm/shipments': {
         key: 'scmShipments',
         authority: [],
@@ -151,6 +167,48 @@ export const protectedRoutes: Routes = {
     },
 }
 
-export const publicRoutes: Routes = {}
+export const publicRoutes: Routes = {
+    '/mconpinco': {
+        key: 'mconpincoShop',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/lpg': {
+        key: 'lpgShop',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/awic': {
+        key: 'retailShop',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/awic/checkout': {
+        key: 'retailCheckout',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/awic/:sku': {
+        key: 'retailProductDetail',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+}
 
 export const authRoutes = authRoute

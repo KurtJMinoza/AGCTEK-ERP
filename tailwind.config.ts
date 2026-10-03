@@ -11,6 +11,20 @@ const config: Config = {
 	darkMode: 'class',
 	theme: {
 		fontFamily: {
+			'storefront-heading': [
+				'var(--font-storefront-heading)',
+				'Montserrat',
+				'ui-sans-serif',
+				'system-ui',
+				'sans-serif',
+			],
+			'storefront-body': [
+				'var(--font-storefront-body)',
+				'Inter',
+				'ui-sans-serif',
+				'system-ui',
+				'sans-serif',
+			],
 			sans: [
 				'Inter',
 				'ui-sans-serif',
@@ -56,7 +70,25 @@ const config: Config = {
 			'2xl': '1536px',
 		},
 		extend: {
+			keyframes: {
+				'retail-marquee': {
+					from: { transform: 'translateX(0)' },
+					to: { transform: 'translateX(-50%)' },
+				},
+			},
+			animation: {
+				'retail-marquee': 'retail-marquee 32s linear infinite',
+			},
 			colors: {
+				// World-class retail system: deep emerald + champagne gold on cool canvas
+				'brand-canvas': '#FAFBF9',
+				'brand-sage': '#F1F6F3',
+				'brand-ink': '#0F3D2E',
+				'brand-ink-soft': '#2A5C4A',
+				'brand-deep': '#0A2A20',
+				'brand-gold': '#C9A84C',
+				'brand-gold-soft': '#E2D09A',
+				'brand-line': '#D7E3DC',
 				'primary': 'var(--primary)',
 				'primary-deep': 'var(--primary-deep)',
 				'primary-mild': 'var(--primary-mild)',

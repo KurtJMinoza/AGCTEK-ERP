@@ -272,6 +272,9 @@ model Warehouse {
   sdSalesOrders          SdSalesOrder[]
   sdShipments            SdShipment[]
   ppProductionOrders     PpProductionOrder[]
+  scmShipmentLinesFrom   ShipmentLine[]                    @relation("ShipmentLineShipFrom")
+  scmShipmentLinesReturn ShipmentLine[]                    @relation("ShipmentLineReturn")
+  scmTripStops           TripStop[]                        @relation("TripStopWarehouse")
 
   @@index([plantId])
   @@index([branchId])
@@ -1245,15 +1248,14 @@ model MmInventoryReservation {
   pickingTasks          WmPickingTask[]
   packages              WmPackage[]
   goodsIssues           MmGoodsIssue[]
-
-  @@index([materialId])
-  @@index([warehouseId])
-  @@index([sourceDocumentId])
   reservationHeaderId String?
   reservationHeader   MmInventoryReservationHeader? @relation(fields: [reservationHeaderId], references: [id])
   reservationLineId   String?                       @unique
   reservationLine     MmInventoryReservationLine?   @relation(fields: [reservationLineId], references: [id])
 
+  @@index([materialId])
+  @@index([warehouseId])
+  @@index([sourceDocumentId])
   @@index([status])
   @@index([reservationHeaderId])
   @@map("mm_inventory_reservations")
@@ -1288,10 +1290,10 @@ model MmInventoryReservationHeader {
   stockTransferOrders   MmStockTransferOrder[]
   goodsIssues           MmGoodsIssue[]
 
+  @@unique([sourceModule, sourceDocumentType, sourceDocumentId, idempotencyKey])
   @@index([companyId, warehouseId, status])
   @@index([demandReferenceType, demandReferenceId])
   @@index([sourceDocumentId])
-  @@unique([sourceModule, sourceDocumentType, sourceDocumentId, idempotencyKey])
   @@map("mm_inventory_reservation_headers")
 }
 
@@ -3454,18 +3456,89 @@ model MmEventConsumerReceipt {
 }
 
 /// Phase 3B — SD sales order (SD owns; MM fulfills via reservation/GI).
+/// SD Customer Master — B2B sold-to accounts with commercial credit limit.
+model SdCustomer {
+  id              String   @id @default(cuid())
+  customerNumber  String   @unique
+  companyName     String
+  contactName     String
+  email           String   @unique
+  phone           String   @default("")
+  currency        String   @default("PHP")
+  creditLimit     Decimal  @default(0) @db.Decimal(18, 2)
+  /// creditLimit minus open exposure; server-maintained, negative when over limit.
+  availableCredit Decimal  @default(0) @db.Decimal(18, 2)
+  /// ACTIVE | BLOCKED
+  status          String   @default("ACTIVE")
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([companyName])
+  @@map("sd_customers")
+}
+
+/// SD storefront product listing per sales division (AWIC, LPG, MCONPINCO).
+/// `price` is the authoritative selling price; retail orders are verified against it.
+model SdProduct {
+  id            String   @id @default(cuid())
+  /// Sales division, e.g. DIV_RETAIL | DIV_LPG | DIV_APPLIANCES
+  divisionId    String
+  sku           String
+  name          String
+  description   String   @default("")
+  price         Decimal  @db.Decimal(18, 2)
+  /// Display-only "was" price; never charged.
+  originalPrice Decimal? @db.Decimal(18, 2)
+  category      String
+  imageUrl      String   @default("")
+  badge         String?
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  /// Division-specific storefront content (features, specs, includes, gallery, reviews).
+  attributes    Json?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([divisionId, sku])
+  @@index([divisionId, isActive, sortOrder])
+  @@map("sd_products")
+}
+
 model SdSalesOrder {
   id              String   @id @default(cuid())
   orderNumber     String   @unique
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  warehouseId     String
-  warehouse       Warehouse @relation(fields: [warehouseId], references: [id])
+  /// Required for STANDARD orders; retail channel orders may omit until org/warehouse mapping exists.
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouseId     String?
+  warehouse       Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   customerId      String
-  /// DRAFT | CONFIRMED | CANCELLED
+  /// STANDARD | POS | ECOMMERCE
+  channel         String   @default("STANDARD")
+  /// Sales division, e.g. DIV_RETAIL
+  divisionId      String?
+  /// Selling branch / store location code, e.g. BR_AWIC_DAVAO_MAIN (POS required).
+  branchId        String?
+  customerName    String?
+  customerEmail   String?
+  currency        String   @default("PHP")
+  subtotal        Decimal?
+  discountAmount  Decimal  @default(0)
+  promoCode       String?
+  shippingAmount  Decimal  @default(0)
+  totalAmount     Decimal?
+  /// POS cash tendered / change given
+  paymentReceived Decimal?
+  changeAmount    Decimal?
+  /// DRAFT | CONFIRMED | COMPLETED | CANCELLED
   status          String   @default("DRAFT")
   correlationId   String
-  idempotencyKey  String?
+  idempotencyKey  String?  @unique
   createdBy       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -3474,6 +3547,9 @@ model SdSalesOrder {
 
   @@index([companyId, status])
   @@index([correlationId])
+  @@index([channel, createdAt])
+  @@index([branchId, createdAt])
+  @@index([createdAt])
   @@map("sd_sales_orders")
 }
 
@@ -3482,8 +3558,13 @@ model SdSalesOrderLine {
   salesOrderId          String
   salesOrder            SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   lineNumber            Int
-  materialId            String
-  material              MmMaterial @relation(fields: [materialId], references: [id])
+  /// Required for MM-integrated orders; retail lines carry sku until mapped to MM-01.
+  materialId            String?
+  material              MmMaterial? @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  sku                   String?
+  description           String?
+  unitPrice             Decimal?
+  lineTotal             Decimal?
   quantity              Decimal
   reservedQuantity      Decimal  @default(0)
   issuedQuantity        Decimal  @default(0)
@@ -5395,6 +5476,30 @@ enum TripStatus {
   IN_TRANSIT
   COMPLETED
   CANCELLED
+  /// Cargo-first TMS: stops + driver validated, awaiting dispatch
+  READY
+  /// Cargo-first TMS: dispatched (plan locked), driver may start
+  DISPATCHED
+}
+
+/// Cargo-first TMS load plan lifecycle (1 vehicle - 1 active plan).
+enum LoadPlanStatus {
+  DRAFT
+  VALIDATED
+  READY
+  /// Trip created from this plan
+  ASSIGNED
+  DISPATCHED
+  /// Trip completed - plan closed, vehicle free for a new plan
+  COMPLETED
+  CANCELLED
+}
+
+/// Stop role derived from cargo lines: SHIP = pickup/load, TO = delivery, RETURN = return point.
+enum TripStopType {
+  SHIP
+  TO
+  RETURN
 }
 
 enum StopStatus {
@@ -5477,6 +5582,7 @@ model Vehicle {
   gpsLogs            GpsLog[]
   maintenanceRecords MaintenanceRecord[]
   documents          VehicleDocument[]
+  loadPlans              LoadPlan[]
 
   @@index([status])
   @@index([type])
@@ -5570,10 +5676,100 @@ model Shipment {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   tripStopShipments   TripStopShipment[]
+  lines               ShipmentLine[]
 
   @@index([status])
   @@index([movementType])
   @@index([packageId])
+}
+
+/// Cargo unit for load building. SHIP/RETURN prefer Warehouse master ids; TO is an address snapshot.
+model ShipmentLine {
+  id                  String         @id @default(cuid())
+  shipmentId          String
+  shipment            Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  lineNo              Int
+  materialCode        String?
+  description         String?
+  quantity            Int
+  weightKg            Float          @default(0)
+  volumeM3            Float          @default(0)
+  /// MM package item that produced this line (package release)
+  packageItemId       String?
+  shipFromWarehouseId String?
+  shipFromWarehouse   Warehouse?     @relation("ShipmentLineShipFrom", fields: [shipFromWarehouseId], references: [id], onDelete: SetNull)
+  shipFromAddress     String?
+  shipFromLat         Float?
+  shipFromLng         Float?
+  shipToAddress       String
+  shipToLat           Float?
+  shipToLng           Float?
+  returnWarehouseId   String?
+  returnWarehouse     Warehouse?     @relation("ShipmentLineReturn", fields: [returnWarehouseId], references: [id], onDelete: SetNull)
+  returnAddress       String?
+  returnLat           Float?
+  returnLng           Float?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  loadPlanLine        LoadPlanLine?
+  tripStopLines       TripStopLine[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([shipFromWarehouseId])
+}
+
+/// What is on which vehicle. Capacity enforced server-side on line assignment.
+model LoadPlan {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  vehicleId     String
+  vehicle       Vehicle        @relation(fields: [vehicleId], references: [id])
+  status        LoadPlanStatus @default(DRAFT)
+  totalQty      Int            @default(0)
+  totalWeightKg Float?
+  totalVolumeM3 Float?
+  notes         String?
+  createdBy     String?
+  validatedAt   DateTime?
+  readyAt       DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  lines         LoadPlanLine[]
+  trips         Trip[]
+
+  @@index([vehicleId, status])
+  @@index([status])
+}
+
+model LoadPlanLine {
+  id             String         @id @default(cuid())
+  loadPlanId     String
+  loadPlan       LoadPlan       @relation(fields: [loadPlanId], references: [id], onDelete: Cascade)
+  /// MVP: a shipment line sits on at most one load plan (no splitting)
+  shipmentLineId String         @unique
+  shipmentLine   ShipmentLine   @relation(fields: [shipmentLineId], references: [id])
+  assignedQty    Int
+  weightKg       Float?
+  volumeM3       Float?
+  createdAt      DateTime       @default(now())
+  tripStopLines  TripStopLine[]
+
+  @@index([loadPlanId])
+}
+
+/// Cargo line references on a generated stop (dedupe by location + stop type).
+model TripStopLine {
+  id             String       @id @default(cuid())
+  tripStopId     String
+  tripStop       TripStop     @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  loadPlanLineId String
+  loadPlanLine   LoadPlanLine @relation(fields: [loadPlanLineId], references: [id], onDelete: Cascade)
+  shipmentLineId String
+  shipmentLine   ShipmentLine @relation(fields: [shipmentLineId], references: [id], onDelete: Cascade)
+
+  @@unique([tripStopId, loadPlanLineId])
+  @@index([loadPlanLineId])
+  @@index([shipmentLineId])
 }
 
 model Trip {
@@ -5584,7 +5780,12 @@ model Trip {
   driverId       String?
   driver         Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
   status         TripStatus @default(DRAFT)
+  /// Cargo-first TMS: trip built from this READY load plan (null = legacy trip)
+  loadPlanId     String?
+  loadPlan       LoadPlan?  @relation(fields: [loadPlanId], references: [id], onDelete: SetNull)
   plannedStartAt DateTime?
+  plannedEndAt   DateTime?
+  dispatchedAt   DateTime?
   startedAt      DateTime?
   completedAt    DateTime?
   totalWeightKg  Float?
@@ -5599,6 +5800,7 @@ model Trip {
   @@index([status])
   @@index([vehicleId])
   @@index([driverId])
+  @@index([loadPlanId])
 }
 
 model TripStop {
@@ -5626,7 +5828,14 @@ model TripStop {
   failureReason   String?
   /// Optional map pin color for intermediate stops (hex, e.g. #f59e0b). Destination always uses red.
   pinColor   String?
+  /// Cargo-first TMS stop role (null = legacy stop)
+  stopType        TripStopType?
+  /// Dedupe key: WH:<warehouseId> or ADDR:<normalised address>
+  locationKey     String?
+  warehouseId     String?
+  warehouse       Warehouse?         @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
   shipments  TripStopShipment[]
+  lines           TripStopLine[]
 
   @@unique([tripId, sequence])
   @@index([tripId])
@@ -5737,7 +5946,8 @@ enum PlanningBucketSize {
   WEEK
 }
 
-/// Singleton planning-horizon parameters for Demand Planning (Phase 1).
+/// Legacy (unused): superseded by DemandPlanVersion horizon parameters + HORIZON_PRESETS.
+/// Table retained to avoid a destructive migration; no API reads or writes it.
 model ScmPlanningSettings {
   id             String             @id @default("default")
   horizonWeeks   Int                @default(12)
@@ -5747,18 +5957,159 @@ model ScmPlanningSettings {
   updatedAt      DateTime           @updatedAt
 }
 
-/// Demand Planning stub — manual forecast rows (does not drive load building)
-model DemandForecast {
+enum DemandPlanStatus {
+  DRAFT
+  REVIEWED
+  APPROVED
+  PUBLISHED
+}
+
+enum DemandHorizonKind {
+  OPERATIONAL
+  TACTICAL
+  STRATEGIC
+}
+
+enum DemandPlanBucket {
+  WEEK
+  MONTH
+  QUARTER
+}
+
+enum DemandPlanGranularity {
+  SKU
+  FAMILY
+}
+
+/// Demand plan version — horizon settings are parameters of the plan, not a separate object.
+/// Only APPROVED → PUBLISHED; the latest PUBLISHED version is the official downstream demand signal.
+model DemandPlanVersion {
+  id                 String                @id @default(cuid())
+  code               String                @unique
+  status             DemandPlanStatus      @default(DRAFT)
+  horizonKind        DemandHorizonKind     @default(OPERATIONAL)
+  bucket             DemandPlanBucket      @default(WEEK)
+  viewLength         Int                   @default(12)
+  /// Counted in `bucket` periods from the current period; cells inside the fence are read-only.
+  freezeFencePeriods Int                   @default(2)
+  granularity        DemandPlanGranularity @default(SKU)
+  notes              String?
+  createdBy          String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  approvedAt         DateTime?
+  publishedAt        DateTime?
+  /// Last system-baseline generation (method, window, bucket, overwrite flag, counts).
+  lastGeneratedAt    DateTime?
+  lastGeneratedBy    String?
+  generationParams   Json?
+
+  lines       DemandForecast[]
+  adjustments DemandPlanAdjustment[]
+
+  @@index([status])
+  @@index([horizonKind])
+}
+
+/// Past sales actuals at SKU × location × week (`periodStart` = Monday UTC).
+/// Demand Plan input: History column and baseline generation. Keyed by the same
+/// productCode / locationCode as DemandForecast. Loaded by seed/import today.
+model DemandSalesActual {
   id           String   @id @default(cuid())
   productCode  String
   locationCode String
   periodStart  DateTime
   periodEnd    DateTime
+  qty          Float
+  unit         String   @default("EA")
+  source       String   @default("IMPORT")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([productCode, locationCode, periodStart])
+  @@index([locationCode, periodStart])
+}
+
+/// Demand plan line at base grain (SKU × location × week). Coarser horizons are rolled up server-side.
+/// `quantity` = system forecast (systemForecastQty; set by baseline generation);
+/// `historicalQty` = past sales actual for that week; effective qty = consensusQty ?? adjustedQty ?? quantity.
+/// `source`: STAT | OVERRIDE | CONSENSUS (legacy rows may hold free text).
+model DemandForecast {
+  id           String   @id @default(cuid())
+  versionId        String?
+  version          DemandPlanVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  productCode  String
+  productFamily    String?
+  locationCode String
+  periodStart  DateTime
+  periodEnd    DateTime
   quantity     Float
+  historicalQty    Float?
+  adjustedQty      Float?
+  consensusQty     Float?
+  adjustmentReason String?
   unit         String   @default("EA")
   source       String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  adjustments DemandPlanAdjustment[]
+
+  @@unique([versionId, productCode, locationCode, periodStart])
   @@index([productCode, locationCode, periodStart])
+  @@index([versionId, periodStart])
+  @@index([versionId, productFamily])
+}
+
+/// Immutable audit trail of manual demand overrides.
+model DemandPlanAdjustment {
+  id          String            @id @default(cuid())
+  versionId   String
+  version     DemandPlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  forecastId  String
+  forecast    DemandForecast    @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  previousQty Float?
+  newQty      Float?
+  reason      String
+  adjustedBy  String?
+  createdAt   DateTime          @default(now())
+
+  @@index([versionId, createdAt])
+  @@index([forecastId])
+}
+
+// ─── Retail storefront clients ───────────────────────────────────────────────
+
+/// Shop customer account (separate from ERP User) — delivery profile + saved cart
+model RetailClient {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  passwordHash  String
+  fullName      String
+  phone         String           @default("")
+  addressLine1  String           @default("")
+  city          String           @default("")
+  region        String           @default("")
+  postalCode    String           @default("")
+  country       String           @default("PH")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  cartItems     RetailCartItem[]
+
+  @@index([email])
+}
+
+model RetailCartItem {
+  id        String       @id @default(cuid())
+  clientId  String
+  client    RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sku       String
+  quantity  Int          @default(1)
+  /// Snapshot of RetailProduct fields for cart restore without catalog dependency
+  product   Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([clientId, sku])
+  @@index([clientId])
 }

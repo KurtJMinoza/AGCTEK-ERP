@@ -26,18 +26,19 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps) {
     const { moduleCode, submoduleCode } = await params
-    const match =
-        findSubmoduleByRoute(moduleCode, submoduleCode) ??
-        findChildByRouteInModule(moduleCode, submoduleCode)
+    const submoduleMatch = findSubmoduleByRoute(moduleCode, submoduleCode)
+    const childMatch = submoduleMatch
+        ? undefined
+        : findChildByRouteInModule(moduleCode, submoduleCode)
+    const module = submoduleMatch?.module ?? childMatch?.module
+    const pageItem = submoduleMatch?.submodule ?? childMatch?.child
 
-    if (!match) {
+    if (!module || !pageItem) {
         return { title: 'Submodule Not Found' }
     }
 
-    const pageItem = 'child' in match ? match.child : match.submodule
-
     return {
-        title: `${pageItem.title} | ${match.module.shortTitle} | AGCTEK ERP`,
+        title: `${pageItem.title} | ${module.shortTitle} | AGCTEK ERP`,
         description: pageItem.description,
     }
 }

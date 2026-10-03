@@ -61,7 +61,7 @@ export default function HomeScreen() {
                 <View style={styles.empty}>
                     <Text style={styles.emptyTitle}>No active trip</Text>
                     <Text style={styles.emptyBody}>
-                        When dispatch assigns you a trip (ASSIGNED / IN_TRANSIT),
+                        When dispatch assigns you a trip (DISPATCHED / IN_TRANSIT),
                         it will appear here. Live Tracking stays on the
                         dispatcher web app.
                     </Text>

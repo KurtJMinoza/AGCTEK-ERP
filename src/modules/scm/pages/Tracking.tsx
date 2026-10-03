@@ -11,7 +11,7 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import FleetMapPanel from '../components/tracking/FleetMapPanel'
-import GeofenceEditorDialog from '../components/tracking/GeofenceEditorDialog'
+import GeofenceEditPanel from '../components/tracking/GeofenceEditPanel'
 import TrackingFleetList from '../components/tracking/TrackingFleetList'
 import TrackingStatsBar from '../components/tracking/TrackingStatsBar'
 import TrackingStatusChips from '../components/tracking/TrackingStatusChips'
@@ -22,6 +22,7 @@ import { useGeofences } from '../hooks/useGeofences'
 import { scmPageBreadcrumbs } from '../utils/breadcrumbs'
 import { computeTrackingMetrics } from '../utils/trackingMetrics'
 import type { GeofenceZone } from '../utils/geofences'
+import type { GeofenceDraft } from '../components/tracking/GeofenceDrawLayer'
 import { formatStatusLabel } from '../utils/status'
 
 type Option = { value: string; label: string }
@@ -58,8 +59,12 @@ export default function TrackingPage() {
     const geofences = useGeofences()
     const { history } = useFocusedVehicleTrail(selectedVehicleId, liveTrail)
     const [centerRequest, setCenterRequest] = useState(0)
-    const [editorOpen, setEditorOpen] = useState(false)
+    const [drawing, setDrawing] = useState(false)
     const [editing, setEditing] = useState<GeofenceZone | null>(null)
+    const [focusGeofenceId, setFocusGeofenceId] = useState<string | null>(null)
+    const [draftGeofence, setDraftGeofence] = useState<GeofenceDraft | null>(
+        null,
+    )
 
     const metrics = useMemo(
         () => computeTrackingMetrics(selected, history),
@@ -67,6 +72,29 @@ export default function TrackingPage() {
     )
 
     const withGpsCount = items.filter((item) => item.latest).length
+
+    const exitDrawMode = () => {
+        setDrawing(false)
+        setEditing(null)
+        setDraftGeofence(null)
+    }
+
+    const startAdd = () => {
+        setEditing(null)
+        setDraftGeofence(null)
+        setDrawing(true)
+    }
+
+    const startEdit = (zone: GeofenceZone) => {
+        setEditing(zone)
+        setDraftGeofence({
+            lat: zone.lat,
+            lng: zone.lng,
+            radiusM: zone.radiusM,
+            color: zone.color ?? '#38bdf8',
+        })
+        setDrawing(true)
+    }
 
     return (
         <PageContainer>
@@ -78,10 +106,8 @@ export default function TrackingPage() {
                     <div className="flex flex-wrap gap-2">
                         <Button
                             size="sm"
-                            onClick={() => {
-                                setEditing(null)
-                                setEditorOpen(true)
-                            }}
+                            variant={drawing && !editing ? 'solid' : undefined}
+                            onClick={startAdd}
                         >
                             Add hub / geofence
                         </Button>
@@ -186,7 +212,12 @@ export default function TrackingPage() {
                                 {geofences.data.map((zone) => (
                                     <li
                                         key={zone.id}
-                                        className="flex items-center justify-between gap-2 px-4 py-2"
+                                        className="flex cursor-pointer items-center justify-between gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                                        onClick={() =>
+                                            setFocusGeofenceId(
+                                                `${zone.id}:${Date.now()}`,
+                                            )
+                                        }
                                     >
                                         <div className="min-w-0">
                                             <p className="truncate text-sm font-medium">
@@ -198,13 +229,13 @@ export default function TrackingPage() {
                                                 {zone.radiusM} m
                                             </p>
                                         </div>
-                                        <div className="flex shrink-0 gap-1">
+                                        <div
+                                            className="flex shrink-0 gap-1"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
                                             <Button
                                                 size="xs"
-                                                onClick={() => {
-                                                    setEditing(zone)
-                                                    setEditorOpen(true)
-                                                }}
+                                                onClick={() => startEdit(zone)}
                                             >
                                                 Edit
                                             </Button>
@@ -226,8 +257,7 @@ export default function TrackingPage() {
                                 {geofences.data.length === 0 &&
                                 !geofences.loading ? (
                                     <li className="px-4 py-6 text-center text-xs text-gray-500">
-                                        No geofences yet — add a hub to sync
-                                        into Tile38.
+                                        No geofences yet — add a hub on the map.
                                     </li>
                                 ) : null}
                             </ul>
@@ -244,8 +274,18 @@ export default function TrackingPage() {
                         selectedVehicleId={selectedVehicleId}
                         onSelect={(id) => setSelectedVehicleId(id)}
                         history={history}
-                        geofences={geofences.data}
+                        geofences={
+                            drawing && editing
+                                ? geofences.data.filter(
+                                      (z) => z.id !== editing.id,
+                                  )
+                                : geofences.data
+                        }
                         centerRequest={centerRequest}
+                        focusGeofenceId={focusGeofenceId}
+                        drawGeofenceEnabled={drawing}
+                        draftGeofence={draftGeofence}
+                        onDraftGeofenceChange={setDraftGeofence}
                     />
                 </AdaptiveCard>
 
@@ -253,44 +293,55 @@ export default function TrackingPage() {
                     className="xl:col-span-3"
                     bodyClass="flex h-full flex-col"
                 >
-                    <TrackingUnitCallout
-                        item={selected}
-                        onClear={() => setSelectedVehicleId(null)}
-                        onCenter={() => {
-                            if (selectedVehicleId) {
-                                setCenterRequest((n) => n + 1)
-                            }
-                        }}
-                    />
-                    <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
-                        <StatusBadge tone="info">Tile38</StatusBadge>
-                        <p className="mt-2 text-xs text-gray-500">
-                            GPS ingest updates fleet points in Tile38. Active
-                            hubs register NEARBY FENCE hooks for enter/exit.
-                        </p>
-                    </div>
+                    {drawing ? (
+                        <GeofenceEditPanel
+                            initial={editing}
+                            draft={draftGeofence}
+                            onDraftChange={setDraftGeofence}
+                            onCancel={exitDrawMode}
+                            onSave={async (body) => {
+                                if (editing) {
+                                    await geofences.update(editing.id, body)
+                                    setFocusGeofenceId(
+                                        `${editing.id}:${Date.now()}`,
+                                    )
+                                } else {
+                                    const created =
+                                        await geofences.create(body)
+                                    setFocusGeofenceId(
+                                        `${created.id}:${Date.now()}`,
+                                    )
+                                }
+                                exitDrawMode()
+                            }}
+                        />
+                    ) : (
+                        <>
+                            <TrackingUnitCallout
+                                item={selected}
+                                onClear={() => setSelectedVehicleId(null)}
+                                onCenter={() => {
+                                    if (selectedVehicleId) {
+                                        setCenterRequest((n) => n + 1)
+                                    }
+                                }}
+                            />
+                            <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+                                <StatusBadge tone="info">Tile38</StatusBadge>
+                                <p className="mt-2 text-xs text-gray-500">
+                                    GPS ingest updates fleet points in Tile38.
+                                    Active hubs register NEARBY FENCE hooks for
+                                    enter/exit.
+                                </p>
+                            </div>
+                        </>
+                    )}
                 </AdaptiveCard>
             </div>
 
             <div className="mt-4">
                 <TrackingStatsBar metrics={metrics} />
             </div>
-
-            <GeofenceEditorDialog
-                isOpen={editorOpen}
-                initial={editing}
-                onClose={() => {
-                    setEditorOpen(false)
-                    setEditing(null)
-                }}
-                onSave={async (body) => {
-                    if (editing) {
-                        await geofences.update(editing.id, body)
-                    } else {
-                        await geofences.create(body)
-                    }
-                }}
-            />
         </PageContainer>
     )
 }

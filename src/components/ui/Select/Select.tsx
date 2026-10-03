@@ -19,6 +19,7 @@ import type {
 } from 'react-select'
 import type { AsyncProps } from 'react-select/async'
 import type { CreatableProps } from 'react-select/creatable'
+import { useId } from 'react'
 import type { Ref, JSX } from 'react'
 
 const DefaultDropdownIndicator = () => {
@@ -91,6 +92,7 @@ function Select<
         ...rest
     } = props
 
+    const autoInstanceId = useId()
     const { controlSize } = useConfig()
     const formControlSize = useForm()?.size
     const formItemInvalid = useFormItem()?.invalid
@@ -170,6 +172,7 @@ function Select<
                     ...classNames,
                 } as ClassNamesConfig<Option, IsMulti, Group>
             }
+            instanceId={autoInstanceId}
             classNamePrefix={'select'}
             styles={
                 {

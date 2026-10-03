@@ -14,6 +14,7 @@ import {
     getResolvedErpModules,
 } from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import type { ErpSubmodule } from '@/types/erp-modules'
 
 type SubmodulePlaceholderPageProps = {
     pathname: string
@@ -34,7 +35,9 @@ export default function SubmodulePlaceholderPage({
         return null
     }
 
-    const { module, category, submodule, child } = match
+    const { module, category, submodule } = match
+    const child: ErpSubmodule | undefined =
+        'child' in match ? (match.child as ErpSubmodule) : undefined
     const resolvedModule =
         getResolvedErpModules().find((item) => item.code === module.code) ??
         module

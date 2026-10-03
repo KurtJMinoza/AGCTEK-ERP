@@ -33,6 +33,10 @@ export type TripStatus =
     | 'IN_TRANSIT'
     | 'COMPLETED'
     | 'CANCELLED'
+    /** Cargo-first: stops + driver validated */
+    | 'READY'
+    /** Cargo-first: dispatched, driver may start */
+    | 'DISPATCHED'
 
 export type StopStatus =
     | 'PENDING'
@@ -147,6 +151,7 @@ export type Driver = {
         email: string
         userName: string
         role: string
+        jobPosition?: string
     }
 }
 
@@ -207,7 +212,13 @@ export type TripStop = {
     notes: string | null
     /** Hex color for intermediate stop pins (destination always red) */
     pinColor?: string | null
+    /** Cargo-first stop role (null on legacy stops) */
+    stopType?: TripStopType | null
+    locationKey?: string | null
+    warehouseId?: string | null
+    warehouse?: { id: string; code: string; name: string } | null
     shipments?: TripStopShipment[]
+    lines?: TripStopLine[]
 }
 
 export type Trip = {
@@ -216,6 +227,11 @@ export type Trip = {
     vehicleId: string | null
     driverId: string | null
     status: TripStatus
+    /** Cargo-first: trip built from this load plan (null = legacy trip) */
+    loadPlanId?: string | null
+    loadPlan?: Pick<LoadPlan, 'id' | 'code' | 'status' | 'totalQty'> | null
+    plannedEndAt?: string | null
+    dispatchedAt?: string | null
     plannedStartAt: string | null
     startedAt: string | null
     completedAt: string | null
@@ -241,6 +257,37 @@ export type GpsLog = {
     /** Sparse optional device metrics (fuelPct, rpm, …) — not a full OBD dump */
     rawPayload: Record<string, unknown> | null
     recordedAt: string
+}
+
+/** One stored GpsLog row as shown in the read-only telematics history. */
+export type TelematicsHistoryPoint = {
+    id: string
+    recordedAt: string
+    latitude: number
+    longitude: number
+    speedKmh: number
+    heading: number | null
+    tripId: string | null
+    tripCode: string | null
+    source: string | null
+    deviceId: string | null
+    ignition: boolean | null
+    alarmCode: number | null
+    alarmDescription: string | null
+    messageRef: string | null
+}
+
+export type TelematicsHistoryQuery = {
+    page?: number
+    pageSize?: number
+    from?: string
+    to?: string
+    search?: string
+    source?: string
+}
+
+export type TelematicsHistoryResponse = Paginated<TelematicsHistoryPoint> & {
+    generatedAt: string
 }
 
 export type FleetActiveTripStop = {
@@ -393,38 +440,249 @@ export type MaintenanceRecord = {
     vehicle?: Vehicle
 }
 
-export type PlanningBucketSize = 'DAY' | 'WEEK'
+export type DemandPlanStatus = 'DRAFT' | 'REVIEWED' | 'APPROVED' | 'PUBLISHED'
+export type DemandHorizonKind = 'OPERATIONAL' | 'TACTICAL' | 'STRATEGIC'
+export type DemandPlanBucket = 'WEEK' | 'MONTH' | 'QUARTER'
+export type DemandPlanGranularity = 'SKU' | 'FAMILY'
 
-export type DemandForecast = {
-    id: string
-    productCode: string
-    locationCode: string
-    periodStart: string
-    periodEnd: string
-    quantity: number
-    unit: string
-    source: string | null
-    createdAt: string
-    updatedAt: string
+export type DemandHorizonPreset = {
+    kind: DemandHorizonKind
+    label: string
+    bucket: DemandPlanBucket
+    viewLength: number
+    granularity: DemandPlanGranularity
+    freezeFencePeriods: number
+    readOnly: boolean
 }
 
-export type CreateDemandForecastInput = {
-    productCode: string
-    locationCode: string
-    periodStart: string
-    periodEnd: string
-    quantity: number
-    unit?: string
-    source?: string | null
-}
-
-export type ScmPlanningSettings = {
+export type DemandPlanVersion = {
     id: string
-    horizonWeeks: number
-    bucketSize: PlanningBucketSize
-    frozenZoneDays: number
+    code: string
+    status: DemandPlanStatus
+    horizonKind: DemandHorizonKind
+    bucket: DemandPlanBucket
+    viewLength: number
+    freezeFencePeriods: number
+    granularity: DemandPlanGranularity
+    notes: string | null
+    createdBy: string | null
     createdAt: string
     updatedAt: string
+    approvedAt: string | null
+    publishedAt: string | null
+    lastGeneratedAt?: string | null
+    lastGeneratedBy?: string | null
+    generationParams?: DemandForecastGeneration | null
+    _count?: { lines: number; adjustments?: number }
+}
+
+export type DemandPlanAdjustment = {
+    id: string
+    previousQty: number | null
+    newQty: number | null
+    reason: string
+    adjustedBy: string | null
+    createdAt: string
+    forecast?: {
+        productCode: string
+        locationCode: string
+        periodStart: string
+    }
+}
+
+export type DemandPlanDetail = DemandPlanVersion & {
+    freezeUntil: string
+    readOnly: boolean
+    readOnlyReason: string | null
+    /** Lines holding a planner override (adjustedQty) or consensus qty. */
+    overrideCount: number
+    adjustments: DemandPlanAdjustment[]
+}
+
+export type DemandPastSalesQuery = {
+    versionId?: string
+    locationCode?: string
+    bucket: DemandPlanBucket
+    historyLength: number
+}
+
+/** Past sales pivoted server-side to the requested bucket. */
+export type DemandPastSales = {
+    bucket: DemandPlanBucket
+    granularity: DemandPlanGranularity
+    locationCode: string | null
+    from: string
+    to: string
+    periods: Array<{ key: string; label: string; start: string }>
+    rows: Array<{
+        rowKey: string
+        productKey: string
+        family: string | null
+        locationCode: string
+        cells: Record<string, number>
+        total: number
+    }>
+    totals: Record<string, number>
+    grandTotal: number
+    /** Warehouse name by location code (MM warehouse master). */
+    locationNames: Record<string, string>
+}
+
+export type DemandMovingAverageWindow = 4 | 12
+
+export type GenerateDemandForecastInput = {
+    method: 'MOVING_AVERAGE'
+    window: DemandMovingAverageWindow
+    historyLength?: number
+    overwriteAdjustments?: boolean
+    horizonKind?: DemandHorizonKind
+    locationCode?: string
+    compareVersionId?: string
+    chartDensity?: DemandChartDensity
+}
+
+export type DemandForecastGeneration = {
+    method: 'MOVING_AVERAGE'
+    window: number
+    bucket: DemandPlanBucket
+    horizonKind: DemandHorizonKind
+    locationCode: string | null
+    historyLength: number
+    historyFrom: string
+    historyTo: string
+    overwriteAdjustments: boolean
+    periodsGenerated: number
+    frozenPeriodsSkipped: number
+    frozenWeeksSkipped: number
+    linesUpdated: number
+    linesCreated: number
+    preservedOverrides: number
+    clearedOverrides: number
+    productsWithoutHistory: string[]
+}
+
+export type GenerateDemandForecastResult = {
+    generation: DemandForecastGeneration
+    detail: DemandPlanDetail
+    grid: DemandPlanGrid
+}
+
+export type DemandPlanGridCell = {
+    qty: number
+    systemQty: number
+    adjusted: boolean
+    /** Only set at base grain (SKU × week) — the editable line. */
+    lineId: string | null
+    compareQty?: number | null
+}
+
+export type DemandPlanGridRow = {
+    rowKey: string
+    productKey: string
+    family: string | null
+    locationCode: string
+    cells: Record<string, DemandPlanGridCell>
+    total: number
+    systemTotal: number
+    /** Past sales over the prior window (from DemandSalesActual). */
+    historyQty: number | null
+    historyWeeks?: number
+}
+
+export type DemandPlanGridPeriod = {
+    key: string
+    label: string
+    start: string
+    end: string
+    frozen: boolean
+}
+
+export type DemandPlanGrid = {
+    version: Pick<DemandPlanVersion, 'id' | 'code' | 'status' | 'horizonKind'>
+    scope: {
+        horizonKind: DemandHorizonKind
+        bucket: DemandPlanBucket
+        viewLength: number
+        granularity: DemandPlanGranularity
+        locationCode: string | null
+        rangeStart: string
+        rangeEnd: string
+        freezeUntil: string
+        editable: boolean
+        readOnlyReason: string | null
+        compareVersionId: string | null
+    }
+    periods: DemandPlanGridPeriod[]
+    rows: DemandPlanGridRow[]
+    totals: Record<string, number>
+    grandTotal: number
+    locations: string[]
+    /** Warehouse name by location code (MM warehouse master). */
+    locationNames: Record<string, string>
+    chart: DemandPlanChart
+}
+
+export type DemandChartDensity = 'AUTO' | 'FAMILY'
+export type DemandChartDensityMode = 'FULL' | 'TOP5_OTHER' | 'FAMILY'
+
+export type DemandPlanChartSeries = {
+    key: string
+    label: string
+    productKey: string | null
+    family: string | null
+    values: Array<number | null>
+    compareValues: Array<number | null> | null
+    adjusted: boolean[]
+    total: number
+    baseTotal: number | null
+    varianceAbs: number | null
+    variancePct: number | null
+    memberCount: number
+}
+
+/** Server-built from the same aggregated rows as the grid. */
+export type DemandPlanChart = {
+    densityMode: DemandChartDensityMode
+    requestedDensity: DemandChartDensity
+    seriesCount: number
+    periodKeys: string[]
+    freezePeriodIndexes: number[]
+    series: DemandPlanChartSeries[]
+    systemTotals: number[]
+    finalTotals: number[]
+    /** Past sales totals for the periods right before the forecast window. */
+    history: Array<{ key: string; label: string; qty: number | null }>
+    kpis: {
+        forecastTotal: number
+        systemTotal: number
+        /** Actuals run-rate scaled to the forecast window. */
+        historyTotal: number | null
+        historyWeeks: number
+        compareTotal: number | null
+        varianceBasis: 'COMPARE' | 'HISTORY' | 'SYSTEM'
+        varianceAbs: number
+        variancePct: number | null
+        overrideCells: number
+    }
+    meta: {
+        horizonKind: DemandHorizonKind
+        bucket: DemandPlanBucket
+        granularity: DemandPlanGranularity
+        hasCompare: boolean
+    }
+}
+
+export type DemandPlanGridQuery = {
+    horizonKind?: DemandHorizonKind
+    locationCode?: string
+    compareVersionId?: string
+    chartDensity?: DemandChartDensity
+}
+
+export type DemandCellAdjustment = {
+    lineId: string
+    adjustedQty: number | null
+    reason: string
 }
 
 export type ScmDashboardSummary = {
@@ -464,4 +722,130 @@ export type ScmDashboardSummary = {
         label: string
         at: string
     }>
+}
+
+// ─── Cargo-first TMS (/scm/tms) ─────────────────────────────────────────────
+
+export type LoadPlanStatus =
+    | 'DRAFT'
+    | 'VALIDATED'
+    | 'READY'
+    | 'ASSIGNED'
+    | 'DISPATCHED'
+    | 'COMPLETED'
+    | 'CANCELLED'
+
+export type TripStopType = 'SHIP' | 'TO' | 'RETURN'
+
+type WarehouseRef = { id: string; code: string; name: string; address: string | null }
+
+export type ShipmentLine = {
+    id: string
+    shipmentId: string
+    lineNo: number
+    materialCode: string | null
+    description: string | null
+    quantity: number
+    weightKg: number
+    volumeM3: number
+    shipFromWarehouseId: string | null
+    shipFromAddress: string | null
+    shipToAddress: string
+    shipToLat: number | null
+    shipToLng: number | null
+    returnWarehouseId: string | null
+    returnAddress: string | null
+    shipment: Pick<
+        Shipment,
+        | 'id'
+        | 'reference'
+        | 'customerName'
+        | 'status'
+        | 'movementType'
+        | 'earliestDeliveryAt'
+        | 'latestDeliveryAt'
+        | 'isFragile'
+        | 'requiresColdChain'
+    >
+    shipFromWarehouse: WarehouseRef | null
+    returnWarehouse: WarehouseRef | null
+}
+
+export type LoadPlanLine = {
+    id: string
+    loadPlanId: string
+    shipmentLineId: string
+    assignedQty: number
+    weightKg: number | null
+    volumeM3: number | null
+    shipmentLine: ShipmentLine
+}
+
+export type LoadCapacity = {
+    totalQty: number
+    totalWeightKg: number
+    totalVolumeM3: number
+    capacityQty: number
+    capacityWeightKg: number | null
+    capacityVolumeM3: number | null
+    remainingQty: number
+    ok: boolean
+    message: string | null
+}
+
+export type LoadPlan = {
+    id: string
+    code: string
+    vehicleId: string
+    status: LoadPlanStatus
+    totalQty: number
+    totalWeightKg: number | null
+    totalVolumeM3: number | null
+    notes: string | null
+    validatedAt: string | null
+    readyAt: string | null
+    createdAt: string
+    updatedAt: string
+    vehicle: Vehicle
+    lines: LoadPlanLine[]
+    trips: Array<{ id: string; code: string; status: TripStatus }>
+    lineCount: number
+    capacity: LoadCapacity
+}
+
+export type TripStopLine = {
+    id: string
+    tripStopId: string
+    loadPlanLineId: string
+    shipmentLineId: string
+    shipmentLine?: {
+        id: string
+        lineNo: number
+        materialCode: string | null
+        description: string | null
+        quantity: number
+        shipment: { id: string; reference: string; customerName: string | null }
+    }
+}
+
+export type TripCandidate = {
+    loadPlanId: string
+    code: string
+    status: LoadPlanStatus
+    readyAt: string | null
+    vehicle: {
+        id: string
+        code: string
+        plateNumber: string
+        type: VehicleType
+        status: VehicleStatus
+        capacityQty: number
+        routingBlocked: boolean
+    }
+    totalQty: number
+    totalWeightKg: number | null
+    totalVolumeM3: number | null
+    lineCount: number
+    shipmentCount: number
+    stopPreview: { ship: number; to: number; ret: number }
 }

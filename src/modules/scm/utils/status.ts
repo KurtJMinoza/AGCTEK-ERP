@@ -10,6 +10,8 @@ const toneMap: Record<string, StatusTone> = {
     IN_PROGRESS: 'info',
     PLANNED: 'info',
     ASSIGNED: 'info',
+    DISPATCHED: 'info',
+    VALIDATED: 'info',
     ARRIVED: 'info',
     DRAFT: 'default',
     PENDING: 'default',
