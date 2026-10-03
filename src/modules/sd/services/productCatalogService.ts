@@ -38,7 +38,8 @@ export type ProductInput = {
     description?: string
     price: number
     originalPrice?: number | null
-    category: string
+    /** Stock items take the linked MM material's category server-side. */
+    category?: string
     imageUrl?: string
     badge?: string | null
     isActive?: boolean
@@ -65,22 +66,36 @@ export const productGallery = (record: Pick<SdProductRecord, 'attributes'>) =>
         (url): url is string => typeof url === 'string' && url.trim() !== '',
     )
 
-/** Cover plus gallery URLs for storefront cards (supports legacy `attributes.gallery`). */
-export function productImageGallery(
-    record: Pick<SdProductRecord, 'imageUrl' | 'attributes'>,
-): string[] {
-    const fromImages = productGallery(record)
-    const legacy = record.attributes?.gallery
-    const legacyGallery = Array.isArray(legacy)
-        ? legacy.filter(
+const stringList = (value: unknown) =>
+    Array.isArray(value)
+        ? value.filter(
               (u): u is string => typeof u === 'string' && u.trim().length > 0,
           )
         : []
-    const extra = fromImages.length ? fromImages : legacyGallery
+
+/**
+ * Cover first, then every extra photo — `attributes.images` plus the
+ * `attributes.gallery` list the Product Catalog form saves — without duplicates.
+ */
+export function productImageGallery(
+    record: Pick<SdProductRecord, 'imageUrl' | 'attributes'>,
+): string[] {
     const cover = record.imageUrl?.trim() ?? ''
-    if (!cover) return extra
-    return [cover, ...extra.filter((u) => u !== cover)]
+    return [
+        ...new Set([
+            ...(cover ? [cover] : []),
+            ...productGallery(record),
+            ...stringList(record.attributes?.gallery),
+        ]),
+    ]
 }
+
+/** Matches the server's PRODUCT_VIDEO_MAX. */
+export const PRODUCT_VIDEO_MAX = 4
+
+/** Product videos kept in `attributes.videos`. */
+export const productVideos = (record: Pick<SdProductRecord, 'attributes'>) =>
+    stringList(record.attributes?.videos)
 
 /** Reads one storefront attribute, falling back when absent. */
 export function productAttribute<T>(
@@ -118,6 +133,62 @@ export async function listProducts(
         return data.map(fromApi)
     } catch (error) {
         throw toError(error, 'Unable to load products')
+    }
+}
+
+export type StorefrontAvailability = {
+    sku: string
+    /** Commercial ATP (Product Catalog "Stock available"). */
+    availableQuantity: number
+    reservedQuantity: number
+    /** Company on-hand across warehouses (MM ledger). */
+    physicalStock: number
+    /** Company available across warehouses (MM ledger). */
+    ledgerAvailable?: number
+    state?:
+        | 'IN_STOCK'
+        | 'LOW_STOCK'
+        | 'OUT_OF_STOCK'
+        | 'NOT_MAPPED'
+        | 'NON_INVENTORY'
+}
+
+/** Storefront stock for one product, computed server-side by SD ↔ MM ATP. */
+export async function fetchStorefrontAvailability(
+    divisionId: string,
+    sku: string,
+): Promise<StorefrontAvailability> {
+    const empty: StorefrontAvailability = {
+        sku,
+        availableQuantity: 0,
+        reservedQuantity: 0,
+        physicalStock: 0,
+        ledgerAvailable: 0,
+        state: 'OUT_OF_STOCK',
+    }
+    try {
+        const { data } = await ErpAxiosBase.get<StorefrontAvailability>(
+            '/sd/products/storefront/availability',
+            { params: { divisionId, sku } },
+        )
+        return {
+            ...empty,
+            ...data,
+            ledgerAvailable:
+                data.ledgerAvailable ?? data.availableQuantity ?? 0,
+        }
+    } catch (error: unknown) {
+        const payload =
+            typeof error === 'object' &&
+            error !== null &&
+            'response' in error &&
+            typeof (error as { response?: { data?: StorefrontAvailability } })
+                .response?.data === 'object'
+                ? (error as { response: { data: StorefrontAvailability } })
+                      .response.data
+                : null
+        if (payload?.sku) return { ...empty, ...payload }
+        throw toError(error, 'Unable to load stock')
     }
 }
 
@@ -229,5 +300,21 @@ export async function uploadProductImage(file: File): Promise<string> {
         return data.imageUrl
     } catch (error) {
         throw toError(error, 'Unable to upload image')
+    }
+}
+
+/** Uploads a product video (MP4/WEBM/MOV); returns the URL for `attributes.videos`. */
+export async function uploadProductVideo(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await ErpAxiosBase.post<{ videoUrl: string }>(
+            '/sd/products/videos',
+            formData,
+            { timeout: 10 * 60_000 },
+        )
+        return data.videoUrl
+    } catch (error) {
+        throw toError(error, 'Unable to upload video')
     }
 }

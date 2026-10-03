@@ -55,6 +55,7 @@ import StorefrontCatalogStatus from '@/modules/storefront/shared/components/Stor
 import StorefrontOrdersDrawer from '@/modules/storefront/shared/components/StorefrontOrdersDrawer'
 import MarketplaceCartDrawer from '../components/MarketplaceCartDrawer'
 import MarketplaceCategoryGrid, {
+    marketplaceCategories,
     type MarketplaceCategory,
 } from '../components/MarketplaceCategoryGrid'
 import MarketplaceOfficialStores from '../components/MarketplaceOfficialStores'
@@ -112,10 +113,11 @@ const biggestDiscount = (products: SdProductRecord[]) =>
 
 /** Featured-store card copy; offers are read from the live catalogue, never invented. */
 const buildStorePromos = (records: SdProductRecord[]): StorePromo[] => {
-    const lpgRefills = records.filter(
-        (p) => p.divisionId === LPG_DIVISION_ID && p.category === 'Refill',
+    const refillFrom = lowestPrice(
+        records.filter(
+            (p) => p.divisionId === LPG_DIVISION_ID && !isLpgAddon(p),
+        ),
     )
-    const refillFrom = lowestPrice(lpgRefills)
     const applianceDiscount = biggestDiscount(
         records.filter((p) => p.divisionId === APPLIANCES_DIVISION_ID),
     )
@@ -149,7 +151,7 @@ const buildStorePromos = (records: SdProductRecord[]): StorePromo[] => {
             eyebrow: 'LPG Official Store',
             headline:
                 refillFrom !== null
-                    ? `Refills from ${formatPrice(refillFrom)}`
+                    ? `LPG from ${formatPrice(refillFrom)}`
                     : 'LPG to your door',
             body: 'Gas refills, brand-new tanks and stove add-ons, delivered to your home. Pay cash on delivery.',
             cta: 'Shop LPG',
@@ -401,16 +403,10 @@ const MarketplacePage = () => {
         [catalog.records],
     )
 
-    const categoryCounts = useMemo(() => {
-        const counts = new Map<string, number>()
-        for (const product of catalog.records) {
-            counts.set(
-                product.category,
-                (counts.get(product.category) ?? 0) + 1,
-            )
-        }
-        return counts
-    }, [catalog.records])
+    const shopCategories = useMemo(
+        () => marketplaceCategories(catalog.records),
+        [catalog.records],
+    )
 
     const quantityByKey = useMemo(
         () =>
@@ -626,6 +622,7 @@ const MarketplacePage = () => {
         }
         setSelectedCategories([category.name])
         if (
+            category.divisionId &&
             selectedStores.length > 0 &&
             !selectedStores.includes(category.divisionId)
         ) {
@@ -910,7 +907,7 @@ const MarketplacePage = () => {
                                     ? activeCategories[0]
                                     : null
                             }
-                            counts={categoryCounts}
+                            categories={shopCategories}
                             onSelect={selectCategory}
                         />
                     </section>
@@ -995,7 +992,7 @@ const MarketplacePage = () => {
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+                                    <div className="grid grid-cols-2 gap-4 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
                                         {visibleProducts.map((product) => (
                                             <Fragment key={productKey(product)}>
                                                 {renderCard(product)}

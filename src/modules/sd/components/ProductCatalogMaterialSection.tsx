@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Control } from 'react-hook-form'
 import { Controller, useWatch } from 'react-hook-form'
 import Button from '@/components/ui/Button'
@@ -30,6 +30,8 @@ type Props = {
     initialCompanyId?: string | null
     /** Bump to refetch MM stock after material threshold edits */
     mmStockRefreshKey?: number
+    /** Called with the linked materials (primary first) each time MM data loads. */
+    onMaterialsLoaded?: (materials: MaterialCatalogReference[]) => void
 }
 
 const fmt = (n: number) =>
@@ -63,14 +65,23 @@ const ProductCatalogMaterialSection = ({
     initialMaterialIds,
     initialCompanyId,
     mmStockRefreshKey = 0,
+    onMaterialsLoaded,
 }: Props) => {
-    const { ensure: ensureMmRefs, companies, materials, loading: mmRefsLoading } =
-        useLazyMmRefs()
+    const onMaterialsLoadedRef = useRef(onMaterialsLoaded)
+    onMaterialsLoadedRef.current = onMaterialsLoaded
+    const {
+        ensure: ensureMmRefs,
+        companies,
+        materials,
+        loading: mmRefsLoading,
+    } = useLazyMmRefs()
     const materialLinkMode = useWatch({ control, name: 'materialLinkMode' })
     const companyId = useWatch({ control, name: 'companyId' })
     const materialIds = useWatch({ control, name: 'materialIds' }) as string[]
 
-    const [batch, setBatch] = useState<MaterialCatalogReferenceBatch | null>(null)
+    const [batch, setBatch] = useState<MaterialCatalogReferenceBatch | null>(
+        null,
+    )
     const [batchLoading, setBatchLoading] = useState(false)
     const [batchError, setBatchError] = useState<string | null>(null)
 
@@ -83,8 +94,7 @@ const ProductCatalogMaterialSection = ({
         () => (Array.isArray(materialIds) ? materialIds.filter(Boolean) : []),
         [materialIds],
     )
-    const effectiveCompany =
-        companyId?.trim() || initialCompanyId?.trim() || ''
+    const effectiveCompany = companyId?.trim() || initialCompanyId?.trim() || ''
 
     useEffect(() => {
         if (!effectiveCompany || !ids.length) {
@@ -102,13 +112,17 @@ const ProductCatalogMaterialSection = ({
             mmStockRefreshKey > 0 ? mmStockRefreshKey : undefined,
         )
             .then((data) => {
-                if (!cancelled) setBatch(data)
+                if (cancelled) return
+                setBatch(data)
+                onMaterialsLoadedRef.current?.(data.materials)
             })
             .catch((err) => {
                 if (!cancelled) {
                     setBatch(null)
                     setBatchError(
-                        err instanceof Error ? err.message : 'Could not load MM stock',
+                        err instanceof Error
+                            ? err.message
+                            : 'Could not load MM stock',
                     )
                 }
             })
@@ -141,7 +155,11 @@ const ProductCatalogMaterialSection = ({
                                 <Button
                                     type="button"
                                     size="sm"
-                                    variant={field.value === 'single' ? 'solid' : 'default'}
+                                    variant={
+                                        field.value === 'single'
+                                            ? 'solid'
+                                            : 'default'
+                                    }
                                     onClick={() => field.onChange('single')}
                                 >
                                     One material
@@ -150,7 +168,9 @@ const ProductCatalogMaterialSection = ({
                                     type="button"
                                     size="sm"
                                     variant={
-                                        field.value === 'multiple' ? 'solid' : 'default'
+                                        field.value === 'multiple'
+                                            ? 'solid'
+                                            : 'default'
                                     }
                                     onClick={() => field.onChange('multiple')}
                                 >
@@ -167,11 +187,7 @@ const ProductCatalogMaterialSection = ({
                 </FormItem>
             ) : null}
 
-            <FormItem
-                label="Company (MM scope)"
-                asterisk
-                invalid={false}
-            >
+            <FormItem label="Company (MM scope)" asterisk invalid={false}>
                 <Controller
                     name="companyId"
                     control={control}
@@ -182,8 +198,14 @@ const ProductCatalogMaterialSection = ({
                             isDisabled={editing}
                             placeholder="Select company"
                             options={companies}
-                            value={companies.find((o) => o.value === field.value) ?? null}
-                            onChange={(option) => field.onChange(option?.value ?? '')}
+                            value={
+                                companies.find(
+                                    (o) => o.value === field.value,
+                                ) ?? null
+                            }
+                            onChange={(option) =>
+                                field.onChange(option?.value ?? '')
+                            }
                         />
                     )}
                 />
@@ -204,24 +226,33 @@ const ProductCatalogMaterialSection = ({
                             isLoading={mmRefsLoading}
                             isDisabled={editing}
                             placeholder={
-                                multi ? 'Select one or more materials' : 'Select material'
+                                multi
+                                    ? 'Select one or more materials'
+                                    : 'Select material'
                             }
                             options={materialOptions}
                             value={
                                 multi
                                     ? materialOptions.filter((o) =>
-                                          (field.value as string[]).includes(o.value),
+                                          (field.value as string[]).includes(
+                                              o.value,
+                                          ),
                                       )
-                                    : materialOptions.find(
-                                          (o) => o.value === (field.value as string[])?.[0],
-                                      ) ?? null
+                                    : (materialOptions.find(
+                                          (o) =>
+                                              o.value ===
+                                              (field.value as string[])?.[0],
+                                      ) ?? null)
                             }
                             onChange={(option) => {
                                 if (multi) {
-                                    const list = Array.isArray(option) ? option : []
+                                    const list = Array.isArray(option)
+                                        ? option
+                                        : []
                                     field.onChange(list.map((o) => o.value))
                                 } else {
-                                    const one = (option as Option | null) ?? null
+                                    const one =
+                                        (option as Option | null) ?? null
                                     field.onChange(one ? [one.value] : [])
                                 }
                             }}
@@ -251,22 +282,26 @@ const ProductCatalogMaterialSection = ({
                             loading={batchLoading}
                             available={
                                 batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory.availableQty ?? 0)
+                                    ? (batch.materials[0].inventory
+                                          .availableQty ?? 0)
                                     : (batch?.totals.stockAvailable ?? 0)
                             }
                             onHand={
                                 batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory.onHandQty ?? 0)
+                                    ? (batch.materials[0].inventory.onHandQty ??
+                                      0)
                                     : (batch?.totals.onHandQty ?? 0)
                             }
                             maxStock={
                                 batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory.maximumStock ?? 0)
+                                    ? (batch.materials[0].inventory
+                                          .maximumStock ?? 0)
                                     : (batch?.totals.maximumStock ?? 0)
                             }
                             safetyStock={
                                 batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory.safetyStock ?? 0)
+                                    ? (batch.materials[0].inventory
+                                          .safetyStock ?? 0)
                                     : (batch?.totals.safetyStock ?? 0)
                             }
                         />
@@ -287,68 +322,84 @@ const ProductCatalogMaterialSection = ({
                                 <tr>
                                     <th className="px-3 py-2">Material</th>
                                     <th className="px-3 py-2">Sales UOM</th>
-                                    <th className="px-3 py-2">Dimensions (L×W×H)</th>
+                                    <th className="px-3 py-2">
+                                        Dimensions (L×W×H)
+                                    </th>
                                     <th className="px-3 py-2">Expiry</th>
-                                    <th className="px-3 py-2 text-right">On hand</th>
+                                    <th className="px-3 py-2 text-right">
+                                        On hand
+                                    </th>
                                     <th className="px-3 py-2 text-right">
                                         Available (sellable)
                                     </th>
-                                    <th className="px-3 py-2 text-right">Max stock</th>
-                                    <th className="px-3 py-2 text-right">Safety stock</th>
+                                    <th className="px-3 py-2 text-right">
+                                        Max stock
+                                    </th>
+                                    <th className="px-3 py-2 text-right">
+                                        Safety stock
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {batch.materials.map((row: MaterialCatalogReference) => (
-                                    <tr
-                                        key={row.materialId}
-                                        className="border-t border-gray-100 dark:border-gray-800"
-                                    >
-                                        <td className="px-3 py-2">
-                                            <Link
-                                                href={`${MM_MATERIALS_SKUS_PATH}/${row.materialId}`}
-                                                className="font-medium text-primary hover:underline"
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                            >
-                                                {row.general.materialCode}
-                                            </Link>
-                                            <div className="text-xs text-gray-500">
-                                                {row.general.materialName}
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2 text-xs">
-                                            {salesUom(row)}
-                                            {row.uom.salesUomName &&
-                                            row.uom.salesUomName !== row.uom.salesUomCode ? (
-                                                <div className="text-gray-500">
-                                                    {row.uom.salesUomName}
+                                {batch.materials.map(
+                                    (row: MaterialCatalogReference) => (
+                                        <tr
+                                            key={row.materialId}
+                                            className="border-t border-gray-100 dark:border-gray-800"
+                                        >
+                                            <td className="px-3 py-2">
+                                                <Link
+                                                    href={`${MM_MATERIALS_SKUS_PATH}/${row.materialId}`}
+                                                    className="font-medium text-primary hover:underline"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    {row.general.materialCode}
+                                                </Link>
+                                                <div className="text-xs text-gray-500">
+                                                    {row.general.materialName}
                                                 </div>
-                                            ) : null}
-                                        </td>
-                                        <td className="px-3 py-2 text-xs tabular-nums">
-                                            {dimensions(row)}
-                                        </td>
-                                        <td className="px-3 py-2 text-xs">
-                                            {expirySummary(row)}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums">
-                                            {fmt(row.inventory.onHandQty)}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-primary">
-                                            {fmt(row.inventory.availableQty)}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums">
-                                            {fmt(row.inventory.maximumStock)}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                                            {fmt(row.inventory.safetyStock)}
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs">
+                                                {salesUom(row)}
+                                                {row.uom.salesUomName &&
+                                                row.uom.salesUomName !==
+                                                    row.uom.salesUomCode ? (
+                                                    <div className="text-gray-500">
+                                                        {row.uom.salesUomName}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs tabular-nums">
+                                                {dimensions(row)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs">
+                                                {expirySummary(row)}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums">
+                                                {fmt(row.inventory.onHandQty)}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-primary">
+                                                {fmt(
+                                                    row.inventory.availableQty,
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums">
+                                                {fmt(
+                                                    row.inventory.maximumStock,
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                                                {fmt(row.inventory.safetyStock)}
+                                            </td>
+                                        </tr>
+                                    ),
+                                )}
                                 {batch.materials.length > 1 ? (
                                     <tr className="border-t-2 border-gray-200 bg-gray-50/80 font-medium dark:border-gray-700 dark:bg-gray-900/50">
                                         <td className="px-3 py-2" colSpan={4}>
-                                            Totals (ecommerce uses min Available)
+                                            Totals (ecommerce uses min
+                                            Available)
                                         </td>
                                         <td className="px-3 py-2 text-right tabular-nums">
                                             {fmt(batch.totals.onHandQty)}
@@ -383,7 +434,8 @@ const ProductCatalogMaterialSection = ({
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                     <p className="text-sm font-medium heading-text">
-                                        {row.general.materialCode} — {row.general.materialName}
+                                        {row.general.materialCode} —{' '}
+                                        {row.general.materialName}
                                     </p>
                                     <p className="text-xs text-gray-500">
                                         Base {row.uom.baseUomCode ?? '—'}
@@ -402,7 +454,7 @@ const ProductCatalogMaterialSection = ({
                                     Open in MM
                                 </Link>
                             </div>
-                            <MaterialCatalogReferenceDetails data={row} compact />
+                            <MaterialCatalogReferenceDetails data={row} />
                         </div>
                     ))}
                 </div>

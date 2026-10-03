@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -18,8 +18,17 @@ import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
 import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
+import type { MaterialCatalogReference } from '../services/materialCatalogReferenceService'
+import {
+    EMPTY_MEASUREMENTS,
+    measurementsFromMaterial,
+    productMeasurements,
+    type ProductMeasurements,
+} from '../services/productMeasurements'
+import { LPG_DIVISION_ID, isLpgAddon } from '../catalogs/lpgCatalog'
 import {
     productImageGallery,
+    productVideos,
     suggestProductSku,
     type ProductInput,
     type SdProductRecord,
@@ -34,8 +43,9 @@ const productSchema = z
         autoGenerateSku: z.boolean(),
         sku: z.string().trim().max(64),
         imageGallery: z.array(z.string()),
+        videoUrls: z.array(z.string()),
+        addOn: z.boolean(),
         name: z.string().trim().min(2, 'At least 2 characters').max(200),
-        category: z.string().min(1, 'Select a category'),
         price: z
             .number({ message: 'Price is required' })
             .min(0, 'Cannot be negative')
@@ -57,10 +67,17 @@ const productSchema = z
         companyId: z.string(),
         materialLinkMode: z.enum(['single', 'multiple']),
         materialIds: z.array(z.string()),
+        measurements: z.object({
+            unit: z.string().trim().max(120),
+            weight: z.string().trim().max(120),
+            dimensions: z.string().trim().max(120),
+            volume: z.string().trim().max(120),
+        }),
     })
     .refine(
         (values) =>
-            values.originalPrice === null || values.originalPrice > values.price,
+            values.originalPrice === null ||
+            values.originalPrice > values.price,
         {
             path: ['originalPrice'],
             message: 'Must be higher than the selling price, or leave blank',
@@ -76,7 +93,8 @@ const productSchema = z
     )
     .refine(
         (values) =>
-            values.materialLinkMode !== 'single' || values.materialIds.length <= 1,
+            values.materialLinkMode !== 'single' ||
+            values.materialIds.length <= 1,
         {
             path: ['materialIds'],
             message: 'Single-material mode allows only one MM material',
@@ -105,10 +123,7 @@ const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
 
 const STOCK_ITEM_LABEL = 'Stock item (inventory)'
 
-const categoryOptions = (divisionId: string): Option[] =>
-    (PRODUCT_DIVISIONS.find((d) => d.id === divisionId)?.categories ?? []).map(
-        (category) => ({ value: category, label: category }),
-    )
+const BADGE_PRESETS = ['Best Seller', 'New', 'Sale', 'Hot Deal', 'Limited']
 
 const toFormValues = (
     product: SdProductRecord | null | undefined,
@@ -120,11 +135,14 @@ const toFormValues = (
               autoGenerateSku: false,
               sku: product.sku,
               name: product.name,
-              category: product.category,
               price: product.price,
               originalPrice: product.originalPrice,
               imageUrl: product.imageUrl,
-              imageGallery: productImageGallery(product).slice(1),
+              imageGallery: productImageGallery(product).filter(
+                  (url) => url !== product.imageUrl,
+              ),
+              videoUrls: productVideos(product),
+              addOn: isLpgAddon(product),
               badge: product.badge ?? '',
               description: product.description,
               sortOrder: product.sortOrder,
@@ -133,17 +151,19 @@ const toFormValues = (
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
+              measurements: productMeasurements(product),
           }
         : {
               divisionId: defaultDivisionId,
               autoGenerateSku: true,
               sku: '',
               name: '',
-              category: '',
               price: 0,
               originalPrice: null,
               imageUrl: '',
               imageGallery: [],
+              videoUrls: [],
+              addOn: false,
               badge: '',
               description: '',
               sortOrder: 0,
@@ -152,7 +172,23 @@ const toFormValues = (
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
+              measurements: { ...EMPTY_MEASUREMENTS },
           }
+
+const MEASUREMENT_FIELDS: {
+    key: keyof ProductMeasurements
+    label: string
+    placeholder: string
+}[] = [
+    { key: 'unit', label: 'Unit of measure', placeholder: 'e.g. PCS (Piece)' },
+    { key: 'weight', label: 'Weight', placeholder: 'e.g. 0.25 KG' },
+    {
+        key: 'dimensions',
+        label: 'Dimensions (L × W × H)',
+        placeholder: 'e.g. 30 × 20 × 10 CM',
+    },
+    { key: 'volume', label: 'Volume', placeholder: 'e.g. 1.5 L' },
+]
 
 type ProductFormDialogProps = {
     isOpen: boolean
@@ -186,13 +222,22 @@ const ProductFormDialog = ({
         resolver: zodResolver(productSchema),
     })
 
+    /** Primary material whose MM measurements were last applied to the form. */
+    const measuredMaterialRef = useRef<string | null>(null)
+
+    /** Category of the primary linked material, owned by Materials Management. */
+    const [mmCategory, setMmCategory] = useState<string | null>(null)
+
     useEffect(() => {
-        if (isOpen) reset(toFormValues(product, defaultDivisionId))
+        if (!isOpen) return
+        reset(toFormValues(product, defaultDivisionId))
+        measuredMaterialRef.current = null
+        setMmCategory(product?.category ?? null)
     }, [isOpen, product, defaultDivisionId, reset])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
-    const categories = categoryOptions(divisionId)
+    const materialIds = useWatch({ control, name: 'materialIds' })
     const editing = mode === 'edit'
     const [uploading, setUploading] = useState(false)
     const [editMaterialIds, setEditMaterialIds] = useState<string[]>([])
@@ -234,12 +279,17 @@ const ProductFormDialog = ({
                 if (ids.length) {
                     setValue('materialIds', ids)
                     setValue('companyId', active[0]?.companyId ?? '')
-                    const mode = productAttribute<'single' | 'multiple' | undefined>(
+                    const mode = productAttribute<
+                        'single' | 'multiple' | undefined
+                    >(
                         product,
                         'materialLinkMode',
                         ids.length > 1 ? 'multiple' : 'single',
                     )
-                    setValue('materialLinkMode', mode === 'multiple' ? 'multiple' : 'single')
+                    setValue(
+                        'materialLinkMode',
+                        mode === 'multiple' ? 'multiple' : 'single',
+                    )
                 }
             })
             .catch(() => {
@@ -253,16 +303,62 @@ const ProductFormDialog = ({
         }
     }, [isOpen, mode, product, setValue])
 
+    const applyMaterialMeasurements = (
+        materials: MaterialCatalogReference[],
+    ) => {
+        const primary = materials[0]
+        setMmCategory(primary?.general.materialCategory ?? null)
+        if (!primary || measuredMaterialRef.current === primary.materialId)
+            return
+        // Editing: the first load only fills blanks so saved shop specs survive.
+        const keepSaved = editing && measuredMaterialRef.current === null
+        measuredMaterialRef.current = primary.materialId
+        const fromMm = measurementsFromMaterial(primary)
+        const current = getValues('measurements')
+        setValue(
+            'measurements',
+            keepSaved
+                ? {
+                      unit: current.unit || fromMm.unit,
+                      weight: current.weight || fromMm.weight,
+                      dimensions: current.dimensions || fromMm.dimensions,
+                      volume: current.volume || fromMm.volume,
+                  }
+                : fromMm,
+            { shouldDirty: true },
+        )
+    }
+
     const onValid = (values: FormShape) => {
         const {
             productType: _productType,
             autoGenerateSku: autoSku,
             imageGallery,
+            videoUrls,
+            addOn,
             materialIds,
             materialLinkMode,
             companyId,
+            measurements,
             ...rest
         } = values
+        const attributes: Record<string, unknown> = {
+            ...(editing ? (product?.attributes ?? {}) : {}),
+        }
+        // `imageGallery` (saved as attributes.gallery) is the full ordered photo list.
+        delete attributes.images
+        if (Object.values(measurements).some((v) => v.trim() !== '')) {
+            attributes.measurements = measurements
+        } else {
+            delete attributes.measurements
+        }
+        if (videoUrls.length) attributes.videos = videoUrls
+        else delete attributes.videos
+        if (values.divisionId === LPG_DIVISION_ID && addOn) {
+            attributes.addOn = true
+        } else {
+            delete attributes.addOn
+        }
         const payload: ProductInput = {
             ...rest,
             sku: autoSku ? '' : values.sku.toUpperCase(),
@@ -270,6 +366,7 @@ const ProductFormDialog = ({
             productType: 'STOCK_ITEM' satisfies SdProductType,
             autoGenerateSku: !editing && autoSku,
             imageGallery,
+            attributes,
         }
         if (!editing) {
             payload.materialIds = materialIds
@@ -293,7 +390,12 @@ const ProductFormDialog = ({
             icon={<HiOutlineCube />}
             footer={
                 <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" disabled={saving} onClick={onClose}>
+                    <Button
+                        type="button"
+                        size="sm"
+                        disabled={saving}
+                        onClick={onClose}
+                    >
                         Cancel
                     </Button>
                     <Button
@@ -331,14 +433,9 @@ const ProductFormDialog = ({
                                             (o) => o.value === field.value,
                                         ) ?? null
                                     }
-                                    onChange={(option) => {
-                                        const next = option?.value ?? ''
-                                        field.onChange(next)
-                                        const valid = categoryOptions(next).some(
-                                            (c) => c.value === getValues('category'),
-                                        )
-                                        if (!valid) setValue('category', '')
-                                    }}
+                                    onChange={(option) =>
+                                        field.onChange(option?.value ?? '')
+                                    }
                                 />
                             )}
                         />
@@ -355,8 +452,10 @@ const ProductFormDialog = ({
                                             onChange={(checked) => {
                                                 field.onChange(checked)
                                                 if (checked && divisionId) {
-                                                    void suggestProductSku(divisionId).then(
-                                                        (sku) => setValue('sku', sku),
+                                                    void suggestProductSku(
+                                                        divisionId,
+                                                    ).then((sku) =>
+                                                        setValue('sku', sku),
                                                     )
                                                 }
                                             }}
@@ -397,7 +496,9 @@ const ProductFormDialog = ({
                                     disabled={editing || autoGenerateSku}
                                     {...field}
                                     onChange={(e) =>
-                                        field.onChange(e.target.value.toUpperCase())
+                                        field.onChange(
+                                            e.target.value.toUpperCase(),
+                                        )
                                     }
                                 />
                             )}
@@ -414,7 +515,10 @@ const ProductFormDialog = ({
                             name="name"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Vitamin D3 2000 IU" {...field} />
+                                <Input
+                                    placeholder="e.g. Vitamin D3 2000 IU"
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -423,7 +527,8 @@ const ProductFormDialog = ({
                     </FormItem>
                     {(errors.materialIds || errors.companyId) && (
                         <p className="md:col-span-2 text-sm text-red-600">
-                            {errors.materialIds?.message ?? errors.companyId?.message}
+                            {errors.materialIds?.message ??
+                                errors.companyId?.message}
                         </p>
                     )}
                     <ProductCatalogMaterialSection
@@ -434,33 +539,48 @@ const ProductFormDialog = ({
                         initialMaterialIds={editMaterialIds}
                         initialCompanyId={editCompanyId}
                         mmStockRefreshKey={mmStockRefreshKey}
+                        onMaterialsLoaded={applyMaterialMeasurements}
                     />
                     <FormItem
                         label="Category"
-                        asterisk
-                        invalid={Boolean(errors.category)}
-                        errorMessage={errors.category?.message}
+                        extra={
+                            <span className="text-xs text-gray-500">
+                                From Materials Management
+                            </span>
+                        }
                     >
-                        <Controller
-                            name="category"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<Option>
-                                    isSearchable={false}
-                                    isDisabled={!divisionId}
-                                    placeholder={
-                                        divisionId ? 'Select category' : 'Select a division first'
-                                    }
-                                    options={categories}
-                                    value={
-                                        categories.find((o) => o.value === field.value) ??
-                                        null
-                                    }
-                                    onChange={(option) => field.onChange(option?.value ?? '')}
-                                />
-                            )}
+                        <Input
+                            readOnly
+                            disabled
+                            value={
+                                (materialIds.length ? mmCategory : null) ?? ''
+                            }
+                            placeholder="Set by the linked MM material"
                         />
                     </FormItem>
+                    {divisionId === LPG_DIVISION_ID ? (
+                        <FormItem label="LPG add-on">
+                            <Controller
+                                name="addOn"
+                                control={control}
+                                render={({ field }) => (
+                                    <div className="flex h-12 items-center gap-3">
+                                        <Switcher
+                                            checked={field.value}
+                                            onChange={(checked) =>
+                                                field.onChange(checked)
+                                            }
+                                        />
+                                        <span className="text-sm">
+                                            {field.value
+                                                ? 'Add-on — needs a refill or set in the same order'
+                                                : 'Can be ordered on its own'}
+                                        </span>
+                                    </div>
+                                )}
+                            />
+                        </FormItem>
+                    ) : null}
                     <FormItem
                         label="Badge"
                         invalid={Boolean(errors.badge)}
@@ -470,7 +590,43 @@ const ProductFormDialog = ({
                             name="badge"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Best Seller (optional)" {...field} />
+                                <>
+                                    <Input
+                                        placeholder="e.g. Best Seller (optional)"
+                                        {...field}
+                                    />
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {BADGE_PRESETS.map((preset) => {
+                                            const active =
+                                                field.value === preset
+                                            return (
+                                                <button
+                                                    key={preset}
+                                                    type="button"
+                                                    aria-pressed={active}
+                                                    onClick={() =>
+                                                        field.onChange(
+                                                            active
+                                                                ? ''
+                                                                : preset,
+                                                        )
+                                                    }
+                                                    className={
+                                                        active
+                                                            ? 'rounded-full border border-primary bg-primary px-2.5 py-0.5 text-xs font-semibold text-white'
+                                                            : 'rounded-full border border-gray-200 px-2.5 py-0.5 text-xs text-gray-600 hover:border-primary hover:text-primary dark:border-gray-600 dark:text-gray-300'
+                                                    }
+                                                >
+                                                    {preset}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Shown as a red label on the product
+                                        photo in the shop.
+                                    </p>
+                                </>
                             )}
                         />
                     </FormItem>
@@ -491,7 +647,9 @@ const ProductFormDialog = ({
                                     fixedDecimalScale
                                     allowNegative={false}
                                     value={field.value}
-                                    onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
+                                    onValueChange={(v) =>
+                                        field.onChange(v.floatValue ?? 0)
+                                    }
                                 />
                             )}
                         />
@@ -520,7 +678,7 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Product photos"
+                        label="Product photos & videos"
                         className="md:col-span-2"
                         invalid={Boolean(errors.imageUrl)}
                         errorMessage={errors.imageUrl?.message}
@@ -533,13 +691,31 @@ const ProductFormDialog = ({
                                     name="imageGallery"
                                     control={control}
                                     render={({ field: galleryField }) => (
-                                        <ProductCatalogImageGallery
-                                            coverUrl={coverField.value}
-                                            galleryUrls={galleryField.value}
-                                            onCoverChange={coverField.onChange}
-                                            onGalleryChange={galleryField.onChange}
-                                            onUploadingChange={setUploading}
-                                            disabled={saving || !isOpen}
+                                        <Controller
+                                            name="videoUrls"
+                                            control={control}
+                                            render={({ field: videoField }) => (
+                                                <ProductCatalogImageGallery
+                                                    coverUrl={coverField.value}
+                                                    galleryUrls={
+                                                        galleryField.value
+                                                    }
+                                                    videoUrls={videoField.value}
+                                                    onCoverChange={
+                                                        coverField.onChange
+                                                    }
+                                                    onGalleryChange={
+                                                        galleryField.onChange
+                                                    }
+                                                    onVideosChange={
+                                                        videoField.onChange
+                                                    }
+                                                    onUploadingChange={
+                                                        setUploading
+                                                    }
+                                                    disabled={saving || !isOpen}
+                                                />
+                                            )}
                                         />
                                     )}
                                 />
@@ -565,6 +741,34 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    <div className="md:col-span-2 mb-2">
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                            Specifications (shown in shop)
+                        </p>
+                        <p className="text-xs text-gray-500">
+                            Auto-filled from the linked MM material — edit if
+                            needed. Blank fields are hidden in the shop.
+                        </p>
+                    </div>
+                    {MEASUREMENT_FIELDS.map(({ key, label, placeholder }) => (
+                        <FormItem
+                            key={key}
+                            label={label}
+                            invalid={Boolean(errors.measurements?.[key])}
+                            errorMessage={errors.measurements?.[key]?.message}
+                        >
+                            <Controller
+                                name={`measurements.${key}`}
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        placeholder={placeholder}
+                                        {...field}
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                    ))}
                     <FormItem
                         label="Display order"
                         invalid={Boolean(errors.sortOrder)}
@@ -579,11 +783,15 @@ const ProductFormDialog = ({
                                     decimalScale={0}
                                     allowNegative={false}
                                     value={field.value}
-                                    onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
+                                    onValueChange={(v) =>
+                                        field.onChange(v.floatValue ?? 0)
+                                    }
                                 />
                             )}
                         />
-                        <p className="mt-1 text-xs text-gray-500">Lower numbers show first.</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Lower numbers show first.
+                        </p>
                     </FormItem>
                     <FormItem label="Visible on storefront">
                         <Controller
@@ -593,7 +801,9 @@ const ProductFormDialog = ({
                                 <div className="flex h-12 items-center gap-3">
                                     <Switcher
                                         checked={field.value}
-                                        onChange={(checked) => field.onChange(checked)}
+                                        onChange={(checked) =>
+                                            field.onChange(checked)
+                                        }
                                     />
                                     <span className="text-sm">
                                         {field.value ? 'Active' : 'Hidden'}
@@ -605,7 +815,8 @@ const ProductFormDialog = ({
                 </div>
                 {editing && product?.attributes ? (
                     <p className="text-xs text-gray-500">
-                        Detailed storefront content (features, specs, reviews) is kept as-is.
+                        Detailed storefront content (features, specs, reviews)
+                        is kept as-is.
                     </p>
                 ) : null}
             </Form>

@@ -10,6 +10,8 @@ export type ErpSubmodule = {
     /** App Router path, e.g. "/modules/sd/customer-master" */
     path: string
     icon?: ErpIconName
+    /** Opens path in a new tab outside the ERP shell (e.g. the /shop marketplace) */
+    isExternalLink?: boolean
     /** Hub-page section this feature belongs to (children only) */
     group?: string
     /** Section label when this submodule has nested features */
@@ -32,14 +34,7 @@ export type ErpCategory = {
     submodules: ErpSubmodule[]
 }
 
-export type ErpModuleCode =
-    | 'sd'
-    | 'ecommerce'
-    | 'mm'
-    | 'fico'
-    | 'crm'
-    | 'scm'
-    | 'hcm'
+export type ErpModuleCode = 'sd' | 'mm' | 'fico' | 'crm' | 'scm' | 'hcm'
 
 export type ErpModule = {
     code: ErpModuleCode

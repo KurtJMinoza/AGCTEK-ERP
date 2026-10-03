@@ -21,6 +21,7 @@ import {
 } from './dto/product.dto'
 import { ProductService } from './product.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
+import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
 
 /**
  * Reads a product payload sent either as JSON or as multipart/form-data with a
@@ -40,7 +41,8 @@ async function readProductPayload<T extends object>(
         raw = {}
         for await (const part of req.parts()) {
             if (part.type === 'file') {
-                if (part.fieldname === 'image' && !image) image = await part.toBuffer()
+                if (part.fieldname === 'image' && !image)
+                    image = await part.toBuffer()
                 else if (part.fieldname === 'gallery') {
                     if (gallery.length >= PRODUCT_GALLERY_MAX) {
                         throw new BadRequestException(
@@ -94,6 +96,18 @@ export class ProductController {
         return this.products.uploadImage(buffer)
     }
 
+    /** Multipart upload (field `file`); returns `{ videoUrl }` for `attributes.videos`. */
+    @Post('videos')
+    async uploadVideo(@Req() req: FastifyRequest) {
+        let buffer: Buffer | null = null
+        for await (const part of req.parts({
+            limits: { fileSize: PRODUCT_VIDEO_MAX_BYTES, files: 1 },
+        })) {
+            if (part.type === 'file' && !buffer) buffer = await part.toBuffer()
+        }
+        return this.products.uploadVideo(buffer)
+    }
+
     @Get('suggested-sku')
     suggestedSku(@Query('divisionId') divisionId: string) {
         return this.products.suggestSku(divisionId)
@@ -143,7 +157,10 @@ export class ProductController {
     /** JSON, or multipart with `data` (JSON) + optional `image` and `gallery` files. */
     @Patch(':id')
     async update(@Param('id') id: string, @Req() req: FastifyRequest) {
-        const { dto, image, gallery } = await readProductPayload(req, UpdateProductDto)
+        const { dto, image, gallery } = await readProductPayload(
+            req,
+            UpdateProductDto,
+        )
         return this.products.update(id, dto, image, gallery)
     }
 

@@ -77,6 +77,7 @@ export function getErpSearchItems(): SearchItem[] {
                     category: module.code,
                     categoryTitle: `${module.title} · ${category.title}`,
                     searchText: `${submodule.title} ${submodule.description} ${submodule.code} ${module.title} ${module.shortTitle} ${category.title}`,
+                    isExternalLink: submodule.isExternalLink,
                 })
 
                 for (const child of submodule.children ?? []) {
@@ -105,7 +106,9 @@ const allSearchableItems: SearchItem[] = [
 export const recommendedSearch: SearchResultGroup[] = [
     {
         title: 'Modules',
-        data: getErpSearchItems().filter((item) => item.category === 'erp-modules'),
+        data: getErpSearchItems().filter(
+            (item) => item.category === 'erp-modules',
+        ),
     },
     {
         title: 'Pages',

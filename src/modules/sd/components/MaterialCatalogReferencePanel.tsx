@@ -36,7 +36,8 @@ const MaterialCatalogReferencePanel = ({
                         MM material reference
                     </h4>
                     <p className="text-xs text-gray-500">
-                        View-only — stock, limits, cost, and UOM from Material Master
+                        View-only — stock, limits, cost, and UOM from Material
+                        Master
                     </p>
                 </div>
                 {data ? (
@@ -59,7 +60,9 @@ const MaterialCatalogReferencePanel = ({
             ) : null}
 
             {error ? (
-                <p className="text-sm text-amber-700 dark:text-amber-400">{error}</p>
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                    {error}
+                </p>
             ) : null}
 
             {data && !loading ? (
@@ -71,20 +74,22 @@ const MaterialCatalogReferencePanel = ({
                         <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
                             {fmtNum(data.inventory.availableQty)}{' '}
                             <span className="text-base font-medium text-gray-600 dark:text-gray-400">
-                                {data.uom.salesUomCode ?? data.uom.baseUomCode ?? 'UOM'}
+                                {data.uom.salesUomCode ??
+                                    data.uom.baseUomCode ??
+                                    'UOM'}
                             </span>
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
-                            On hand {fmtNum(data.inventory.onHandQty)} · Reserved{' '}
-                            {fmtNum(data.inventory.reservedQty)} · Safety stock{' '}
-                            {fmtNum(data.inventory.safetyStock)} (planning buffer, not
-                            sellable)
+                            On hand {fmtNum(data.inventory.onHandQty)} ·
+                            Reserved {fmtNum(data.inventory.reservedQty)} ·
+                            Safety stock {fmtNum(data.inventory.safetyStock)}{' '}
+                            (planning buffer, not sellable)
                             {data.inventory.fulfillmentAtpQty != null
                                 ? ` · Warehouse ATP ${fmtNum(data.inventory.fulfillmentAtpQty)}`
                                 : ''}
                         </p>
                     </div>
-                <MaterialCatalogReferenceDetails data={data} />
+                    <MaterialCatalogReferenceDetails data={data} />
                 </>
             ) : null}
         </Card>

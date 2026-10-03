@@ -13,17 +13,18 @@ import {
     type PricingItem,
 } from '@/modules/sd/services/ecommerceService'
 import {
+    fetchStorefrontAvailability,
     productAttribute,
     productImageGallery,
     type SdProductRecord,
 } from '@/modules/sd/services/productCatalogService'
 import { useProductCatalogStore } from '@/modules/sd/store/useProductCatalogStore'
 import { productImageSrc } from '@/utils/productImage'
-import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
-
 /** Maps an SD product (division DIV_RETAIL) to the AWIC storefront view. */
 export function toRetailProduct(record: SdProductRecord): RetailProduct {
-    const images = productImageGallery(record).map((url) => productImageSrc(url))
+    const images = productImageGallery(record).map((url) =>
+        productImageSrc(url),
+    )
     return {
         productId: record.id,
         itemId: productAttribute(record, 'itemId', record.id),
@@ -65,36 +66,17 @@ export async function fetchRetailProductBySku(
 
 /** Commercial ATP from SD ↔ MM (replaces mock storefront stock). */
 export async function checkStockATP(sku: string): Promise<InventoryATP> {
-    const empty: InventoryATP = {
-        sku,
-        availableQuantity: 0,
-        reservedQuantity: 0,
-        physicalStock: 0,
-        ledgerAvailable: 0,
-        state: 'OUT_OF_STOCK',
-    }
     try {
-        const { data } = await ErpAxiosBase.get<InventoryATP>(
-            '/sd/products/storefront/availability',
-            { params: { divisionId: RETAIL_DIVISION_ID, sku } },
-        )
+        return await fetchStorefrontAvailability(RETAIL_DIVISION_ID, sku)
+    } catch {
         return {
-            ...empty,
-            ...data,
-            ledgerAvailable:
-                data.ledgerAvailable ?? data.availableQuantity ?? 0,
+            sku,
+            availableQuantity: 0,
+            reservedQuantity: 0,
+            physicalStock: 0,
+            ledgerAvailable: 0,
+            state: 'OUT_OF_STOCK',
         }
-    } catch (error: unknown) {
-        const payload =
-            typeof error === 'object' &&
-            error !== null &&
-            'response' in error &&
-            typeof (error as { response?: { data?: InventoryATP } }).response
-                ?.data === 'object'
-                ? (error as { response: { data: InventoryATP } }).response.data
-                : null
-        if (payload?.sku) return { ...empty, ...payload }
-        return empty
     }
 }
 

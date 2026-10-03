@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
     HiOutlineCash,
     HiOutlineCheck,
@@ -9,6 +9,7 @@ import {
     HiOutlineShieldCheck,
     HiOutlineShoppingCart,
     HiOutlineTruck,
+    HiPlay,
 } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
@@ -17,10 +18,17 @@ import classNames from '@/utils/classNames'
 import { isRenderableImageSrc } from '@/utils/productImage'
 import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
 import {
+    fetchStorefrontAvailability,
     productAttribute,
-    productGallery,
+    productImageGallery,
+    productVideos,
     type SdProductRecord,
+    type StorefrontAvailability,
 } from '@/modules/sd/services/productCatalogService'
+import {
+    measurementSpecs,
+    productMeasurements,
+} from '@/modules/sd/services/productMeasurements'
 import { discountPercent } from './MarketplaceProductCard'
 import {
     PRIMARY_BUTTON,
@@ -69,6 +77,7 @@ const specsOf = (product: SdProductRecord): Spec[] => {
         ...(weightKg !== null
             ? [{ label: 'LPG content', value: `${weightKg} kg` }]
             : []),
+        ...measurementSpecs(productMeasurements(product)),
         { label: 'Category', value: product.category },
         { label: 'SKU', value: product.sku },
     ]
@@ -82,11 +91,19 @@ const reviewsOf = (product: SdProductRecord): Review[] =>
             typeof (review as Review).rating === 'number',
     )
 
-/** Main photo first, then the gallery, without duplicates or broken links. */
-const photosOf = (product: SdProductRecord) =>
-    [...new Set([product.imageUrl, ...productGallery(product)])].filter((src) =>
-        isRenderableImageSrc(src),
-    )
+const AUTOPLAY_MS = 4000
+const MAX_QUANTITY = 99
+const LOW_STOCK_AT = 10
+
+type Media = { kind: 'image' | 'video'; src: string }
+
+/** Front photo first, then the other photos, then product videos. */
+const mediaOf = (product: SdProductRecord): Media[] => [
+    ...productImageGallery(product)
+        .filter((src) => isRenderableImageSrc(src))
+        .map((src) => ({ kind: 'image' as const, src })),
+    ...productVideos(product).map((src) => ({ kind: 'video' as const, src })),
+]
 
 const formatReviewDate = (value?: string) => {
     if (!value) return ''
@@ -104,22 +121,71 @@ const TAB_CLASS =
     'hover:!text-emerald-700 aria-selected:!border-emerald-600 aria-selected:!text-emerald-700'
 
 const Gallery = ({ product }: { product: SdProductRecord }) => {
-    const photos = photosOf(product)
+    const media = mediaOf(product)
+    const slides: Media[] = media.length
+        ? media
+        : [{ kind: 'image', src: product.imageUrl }]
     const [index, setIndex] = useState(0)
-    const count = photos.length
-    const current = photos[index] ?? product.imageUrl
-    const step = (delta: number) => setIndex((i) => (i + delta + count) % count)
+    const [paused, setPaused] = useState(false)
+    const count = media.length
+    const onVideo = slides[index]?.kind === 'video'
+    const step = useCallback(
+        (delta: number) => setIndex((i) => (i + delta + count) % count),
+        [count],
+    )
+
+    // `index` restarts the countdown after a manual change; videos are not cut off.
+    useEffect(() => {
+        if (count < 2 || paused || onVideo) return
+        const timer = window.setTimeout(() => step(1), AUTOPLAY_MS)
+        return () => window.clearTimeout(timer)
+    }, [count, paused, onVideo, step, index])
 
     return (
-        <div className="flex flex-col gap-3">
-            <div className="group relative overflow-hidden rounded-xl border border-gray-100 bg-gray-50 p-6">
-                <ProductImage
-                    key={current}
-                    product={{ imageUrl: current, name: product.name }}
-                    fit="contain"
-                    sizes="(max-width: 768px) 100vw, 460px"
-                    className="aspect-square w-full animate-fade-up !bg-transparent"
-                />
+        <div
+            className="flex flex-col gap-3"
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+        >
+            <div className="group relative h-64 overflow-hidden rounded-xl border border-gray-100 bg-gray-50 md:h-[min(20rem,34vh)]">
+                {slides.map((slide, i) => (
+                    <div
+                        key={`${slide.src}-${i}`}
+                        aria-hidden={i !== index}
+                        className={classNames(
+                            'absolute inset-0 transition-all duration-700 ease-out',
+                            slide.kind === 'video' ? 'bg-black' : 'p-6',
+                            i === index
+                                ? 'scale-100 opacity-100'
+                                : 'pointer-events-none scale-105 opacity-0',
+                        )}
+                    >
+                        {slide.kind === 'video' ? (
+                            // Mounted only while shown so hidden videos never keep playing.
+                            i === index ? (
+                                <video
+                                    src={slide.src}
+                                    controls
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    className="h-full w-full object-contain"
+                                    onEnded={() => step(1)}
+                                />
+                            ) : null
+                        ) : (
+                            <ProductImage
+                                product={{
+                                    imageUrl: slide.src,
+                                    name: product.name,
+                                }}
+                                fit="contain"
+                                sizes="(max-width: 768px) 100vw, 460px"
+                                className="h-full w-full !bg-transparent"
+                            />
+                        )}
+                    </div>
+                ))}
                 {count > 1 ? (
                     <>
                         {(
@@ -159,29 +225,45 @@ const Gallery = ({ product }: { product: SdProductRecord }) => {
             </div>
             {count > 1 ? (
                 <ul className="hide-scrollbar flex gap-2 overflow-x-auto">
-                    {photos.map((src, i) => (
-                        <li key={src} className="shrink-0">
+                    {media.map((item, i) => (
+                        <li key={item.src} className="shrink-0">
                             <button
                                 type="button"
-                                aria-label={`Show photo ${i + 1}`}
+                                aria-label={`Show ${item.kind === 'video' ? 'video' : 'photo'} ${i + 1}`}
                                 aria-current={i === index}
                                 className={classNames(
-                                    'block h-16 w-16 cursor-pointer overflow-hidden rounded-lg border-2 bg-gray-50 p-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                                    'relative block h-14 w-14 cursor-pointer overflow-hidden rounded-lg border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                                    item.kind === 'video'
+                                        ? 'bg-black'
+                                        : 'bg-gray-50 p-1',
                                     i === index
                                         ? 'border-emerald-500'
                                         : 'border-transparent opacity-70 hover:opacity-100',
                                 )}
                                 onClick={() => setIndex(i)}
                             >
-                                <ProductImage
-                                    product={{
-                                        imageUrl: src,
-                                        name: product.name,
-                                    }}
-                                    fit="contain"
-                                    sizes="64px"
-                                    className="h-full w-full !bg-transparent"
-                                />
+                                {item.kind === 'video' ? (
+                                    <>
+                                        <video
+                                            src={item.src}
+                                            preload="metadata"
+                                            muted
+                                            playsInline
+                                            className="pointer-events-none h-full w-full object-cover"
+                                        />
+                                        <HiPlay className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-white/90" />
+                                    </>
+                                ) : (
+                                    <ProductImage
+                                        product={{
+                                            imageUrl: item.src,
+                                            name: product.name,
+                                        }}
+                                        fit="contain"
+                                        sizes="64px"
+                                        className="h-full w-full !bg-transparent"
+                                    />
+                                )}
                             </button>
                         </li>
                     ))}
@@ -200,6 +282,55 @@ const Perk = ({ icon, children }: { icon: ReactNode; children: ReactNode }) => (
     </li>
 )
 
+const StockStatus = ({
+    loading,
+    stock,
+    available,
+    soldOut,
+}: {
+    loading: boolean
+    stock: StorefrontAvailability | null
+    available: number | null
+    soldOut: boolean
+}) => {
+    if (loading) {
+        return <p className="text-sm text-gray-400">Checking stock…</p>
+    }
+    if (!stock || stock.state === 'NON_INVENTORY') return null
+
+    const [dot, text, label] = soldOut
+        ? [
+              'bg-rose-500',
+              'text-rose-600',
+              stock.state === 'NOT_MAPPED'
+                  ? 'Not available online'
+                  : 'Out of stock',
+          ]
+        : (available ?? 0) <= LOW_STOCK_AT
+          ? [
+                'bg-amber-500',
+                'text-amber-700',
+                `Only ${available} left in stock`,
+            ]
+          : [
+                'bg-emerald-500',
+                'text-emerald-700',
+                `In stock · ${available} available`,
+            ]
+
+    return (
+        <p
+            className={classNames(
+                'flex items-center gap-2 text-sm font-medium',
+                text,
+            )}
+        >
+            <span className={classNames('h-2 w-2 rounded-full', dot)} />
+            {label}
+        </p>
+    )
+}
+
 type MarketplaceProductDialogProps = {
     product: SdProductRecord | null
     onClose: () => void
@@ -215,6 +346,42 @@ const ProductDetail = ({
     product: SdProductRecord
 }) => {
     const [quantity, setQuantity] = useState(1)
+    const [activeTab, setActiveTab] = useState('overview')
+    const [stock, setStock] = useState<StorefrontAvailability | null>(null)
+    const [stockLoading, setStockLoading] = useState(true)
+
+    useEffect(() => {
+        let cancelled = false
+        setStockLoading(true)
+        fetchStorefrontAvailability(product.divisionId, product.sku)
+            .then((result) => {
+                if (!cancelled) setStock(result)
+            })
+            .catch(() => {
+                if (!cancelled) setStock(null)
+            })
+            .finally(() => {
+                if (!cancelled) setStockLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [product.divisionId, product.sku])
+
+    const unlimited = stock?.state === 'NON_INVENTORY'
+    const available = stock
+        ? Math.max(0, Math.floor(stock.availableQuantity))
+        : null
+    const soldOut = !unlimited && available !== null && available <= 0
+    const maxQuantity =
+        unlimited || available === null
+            ? MAX_QUANTITY
+            : Math.min(available, MAX_QUANTITY)
+
+    useEffect(() => {
+        setQuantity((q) => Math.max(1, Math.min(q, maxQuantity)))
+    }, [maxQuantity])
+
     const discount = discountPercent(product)
     const tagline = productAttribute<string | null>(product, 'tagline', null)
     const details = productAttribute<string | null>(product, 'details', null)
@@ -277,30 +444,25 @@ const ProductDetail = ({
             value: 'specs',
             label: 'Specifications',
             content: (
-                <dl className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-100 text-sm">
-                    {specs.map((spec) => (
+                <dl className="grid grid-cols-1 gap-x-8 text-sm sm:grid-cols-2">
+                    {[
+                        ...specs,
+                        ...(warranty
+                            ? [{ label: 'Warranty', value: warranty }]
+                            : []),
+                    ].map((spec) => (
                         <div
                             key={spec.label}
-                            className="grid grid-cols-5 gap-4 px-4 py-2.5 odd:bg-gray-50/60"
+                            className="flex justify-between gap-4 border-b border-gray-100 py-2"
                         >
-                            <dt className="col-span-2 text-gray-500">
+                            <dt className="shrink-0 text-gray-500">
                                 {spec.label}
                             </dt>
-                            <dd className="col-span-3 font-medium text-gray-900">
+                            <dd className="text-right font-medium text-gray-900">
                                 {spec.value}
                             </dd>
                         </div>
                     ))}
-                    {warranty ? (
-                        <div className="grid grid-cols-5 gap-4 px-4 py-2.5 odd:bg-gray-50/60">
-                            <dt className="col-span-2 text-gray-500">
-                                Warranty
-                            </dt>
-                            <dd className="col-span-3 font-medium text-gray-900">
-                                {warranty}
-                            </dd>
-                        </div>
-                    ) : null}
                 </dl>
             ),
         },
@@ -345,10 +507,12 @@ const ProductDetail = ({
     ]
 
     return (
-        <div className="max-h-[80vh] overflow-y-auto overscroll-contain pr-1 pt-2">
-            <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+        // Sized under .dialog-content's max height + padding so the dialog never scrolls on desktop;
+        // only the tab panel absorbs overflow.
+        <div className="hide-scrollbar flex max-h-[calc(100dvh-6rem)] flex-col overflow-y-auto overscroll-contain md:max-h-[min(46rem,calc(100dvh-6rem))] md:overflow-hidden">
+            <div className="grid shrink-0 grid-cols-1 gap-6 md:grid-cols-2">
                 <Gallery product={product} />
-                <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex min-w-0 flex-col gap-3">
                     <SellerTag
                         divisionId={product.divisionId}
                         className="self-start"
@@ -405,6 +569,12 @@ const ProductDetail = ({
                             </p>
                         ) : null}
                     </div>
+                    <StockStatus
+                        loading={stockLoading}
+                        stock={stock}
+                        available={available}
+                        soldOut={soldOut}
+                    />
                     {product.badge ? (
                         <span className="self-start rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
                             {product.badge}
@@ -435,7 +605,9 @@ const ProductDetail = ({
                             onDecrease={() =>
                                 setQuantity((q) => Math.max(1, q - 1))
                             }
-                            onIncrease={() => setQuantity((q) => q + 1)}
+                            onIncrease={() =>
+                                setQuantity((q) => Math.min(maxQuantity, q + 1))
+                            }
                         />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -445,6 +617,7 @@ const ProductDetail = ({
                                 'bg-white text-gray-900 hover:bg-gray-50 transition-colors'
                             }
                             icon={<HiOutlineShoppingCart />}
+                            disabled={soldOut}
                             onClick={() => onAddToCart(product, quantity)}
                         >
                             Add to Cart
@@ -452,6 +625,7 @@ const ProductDetail = ({
                         <Button
                             className={PRIMARY_BUTTON_CLASS}
                             customColorClass={PRIMARY_BUTTON}
+                            disabled={soldOut}
                             onClick={() => onBuyNow(product, quantity)}
                         >
                             Buy now
@@ -460,8 +634,12 @@ const ProductDetail = ({
                 </div>
             </div>
 
-            <Tabs defaultValue="overview" className="mt-8">
-                <Tabs.TabList>
+            <Tabs
+                value={activeTab}
+                onChange={(value) => setActiveTab(String(value))}
+                className="mt-4 flex min-h-0 flex-col"
+            >
+                <Tabs.TabList className="shrink-0">
                     {tabs.map((tab) => (
                         <Tabs.TabNav
                             key={tab.value}
@@ -473,8 +651,18 @@ const ProductDetail = ({
                     ))}
                 </Tabs.TabList>
                 {tabs.map((tab) => (
-                    <Tabs.TabContent key={tab.value} value={tab.value}>
-                        <div className="pt-5">{tab.content}</div>
+                    <Tabs.TabContent
+                        key={tab.value}
+                        value={tab.value}
+                        className={
+                            tab.value === activeTab
+                                ? 'hide-scrollbar min-h-0 overflow-y-auto overscroll-contain'
+                                : 'hidden'
+                        }
+                    >
+                        <div className="pt-4">
+                            {tab.content}
+                        </div>
                     </Tabs.TabContent>
                 ))}
             </Tabs>

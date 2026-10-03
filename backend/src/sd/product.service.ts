@@ -16,8 +16,12 @@ import {
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import {
     PRODUCT_IMAGE_MAX_BYTES,
+    PRODUCT_VIDEO_MAX,
+    PRODUCT_VIDEO_MAX_BYTES,
     deleteProductImageByUrl,
+    isProductVideoUrl,
     saveProductImage,
+    saveProductVideo,
 } from './product-image-storage'
 
 const DIVISION_SKU_PREFIX: Record<string, string> = {
@@ -25,6 +29,27 @@ const DIVISION_SKU_PREFIX: Record<string, string> = {
     DIV_LPG: 'LPG',
     DIV_APPLIANCES: 'MCO',
 }
+
+/** Category for products without an MM material (non-stock / service). */
+const DEFAULT_PRODUCT_CATEGORY = 'General'
+
+/** Active MM links, used to resolve the product category from Material Master. */
+const WITH_MATERIAL_CATEGORY = {
+    materialAssignments: {
+        where: { status: 'ACTIVE' },
+        orderBy: { effectiveFrom: 'asc' },
+        select: {
+            materialId: true,
+            material: {
+                select: { materialCategory: { select: { name: true } } },
+            },
+        },
+    },
+} satisfies Prisma.SdProductInclude
+
+type ProductWithMaterialCategory = Prisma.SdProductGetPayload<{
+    include: typeof WITH_MATERIAL_CATEGORY
+}>
 
 @Injectable()
 export class ProductService {
@@ -65,14 +90,15 @@ export class ProductService {
             }
         }
 
-        const assignments = await this.prisma.sdProductMaterialAssignment.findMany({
-            where: {
-                productId: product.id,
-                status: 'ACTIVE',
-                OR: [{ divisionId: null }, { divisionId }],
-            },
-            orderBy: { effectiveFrom: 'desc' },
-        })
+        const assignments =
+            await this.prisma.sdProductMaterialAssignment.findMany({
+                where: {
+                    productId: product.id,
+                    status: 'ACTIVE',
+                    OR: [{ divisionId: null }, { divisionId }],
+                },
+                orderBy: { effectiveFrom: 'desc' },
+            })
         if (!assignments.length) {
             return {
                 sku: normalized,
@@ -86,7 +112,9 @@ export class ProductService {
 
         const companyId = assignments[0].companyId
         const materialIds = [
-            ...new Set(assignments.map((row) => row.materialId).filter(Boolean)),
+            ...new Set(
+                assignments.map((row) => row.materialId).filter(Boolean),
+            ),
         ]
 
         let sellableAvailable = Number.POSITIVE_INFINITY
@@ -105,7 +133,8 @@ export class ProductService {
             ledgerReserved += ledger.reservedQty
         }
 
-        if (sellableAvailable === Number.POSITIVE_INFINITY) sellableAvailable = 0
+        if (sellableAvailable === Number.POSITIVE_INFINITY)
+            sellableAvailable = 0
         /** MM Available (on hand − reserved); kits use minimum across materials. */
         const available = Math.max(0, Math.floor(sellableAvailable))
         const state =
@@ -125,7 +154,7 @@ export class ProductService {
         }
     }
 
-    list(query: ListProductsQueryDto) {
+    async list(query: ListProductsQueryDto) {
         const search = query.search?.trim()
         const where: Prisma.SdProductWhereInput = {
             ...(query.divisionId ? { divisionId: query.divisionId } : {}),
@@ -136,21 +165,60 @@ export class ProductService {
                       OR: [
                           { name: { contains: search, mode: 'insensitive' } },
                           { sku: { contains: search, mode: 'insensitive' } },
-                          { category: { contains: search, mode: 'insensitive' } },
+                          {
+                              category: {
+                                  contains: search,
+                                  mode: 'insensitive',
+                              },
+                          },
                       ],
                   }
                 : {}),
         }
-        return this.prisma.sdProduct.findMany({
+        const rows = await this.prisma.sdProduct.findMany({
             where,
-            orderBy: [{ divisionId: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+            include: WITH_MATERIAL_CATEGORY,
+            orderBy: [
+                { divisionId: 'asc' },
+                { sortOrder: 'asc' },
+                { name: 'asc' },
+            ],
         })
+        return rows.map((row) => this.withMaterialCategory(row))
     }
 
     async findOne(id: string) {
-        const row = await this.prisma.sdProduct.findUnique({ where: { id } })
+        const row = await this.prisma.sdProduct.findUnique({
+            where: { id },
+            include: WITH_MATERIAL_CATEGORY,
+        })
         if (!row) throw new NotFoundException('Product not found')
-        return row
+        return this.withMaterialCategory(row)
+    }
+
+    /**
+     * Material Master owns the category: stock items show the primary linked
+     * material's MM category; the stored column is only a fallback/search copy.
+     */
+    private withMaterialCategory({
+        materialAssignments,
+        ...product
+    }: ProductWithMaterialCategory) {
+        const primaryId = this.asObject(product.attributes)?.primaryMaterialId
+        const primary =
+            materialAssignments.find((row) => row.materialId === primaryId) ??
+            materialAssignments[0]
+        const category = primary?.material.materialCategory?.name
+        return category ? { ...product, category } : product
+    }
+
+    private async materialCategoryName(materialId: string | undefined) {
+        if (!materialId) return null
+        const material = await this.prisma.mmMaterial.findUnique({
+            where: { id: materialId },
+            select: { materialCategory: { select: { name: true } } },
+        })
+        return material?.materialCategory?.name ?? null
     }
 
     async create(dto: CreateProductDto) {
@@ -160,14 +228,25 @@ export class ProductService {
             dto.autoGenerateSku || !dto.sku?.trim()
                 ? await this.generateNextProductSku(dto.divisionId)
                 : dto.sku.trim()
-        const materialLinks = await this.resolveMaterialLinksForCreate(dto, productType)
+        const materialLinks = await this.resolveMaterialLinksForCreate(
+            dto,
+            productType,
+        )
         const primaryMaterialId = materialLinks[0]?.materialId
-        const attributes = this.mergeProductAttributes(dto.attributes, dto.imageGallery, {
-            primaryMaterialId,
-            materialLinkMode:
-                dto.materialLinkMode ??
-                (materialLinks.length > 1 ? 'multiple' : 'single'),
-        })
+        const category =
+            (await this.materialCategoryName(primaryMaterialId)) ??
+            (dto.category?.trim() || DEFAULT_PRODUCT_CATEGORY)
+        this.assertVideos(dto.attributes)
+        const attributes = this.mergeProductAttributes(
+            dto.attributes,
+            dto.imageGallery,
+            {
+                primaryMaterialId,
+                materialLinkMode:
+                    dto.materialLinkMode ??
+                    (materialLinks.length > 1 ? 'multiple' : 'single'),
+            },
+        )
 
         try {
             return await this.prisma.$transaction(async (tx) => {
@@ -182,16 +261,26 @@ export class ProductService {
                             dto.originalPrice == null
                                 ? null
                                 : new Decimal(dto.originalPrice),
-                        category: dto.category,
+                        category,
                         imageUrl: dto.imageUrl ?? '',
                         badge: dto.badge ?? null,
                         isActive: dto.isActive ?? true,
                         sortOrder: dto.sortOrder ?? 0,
                         productType,
                         ...(materialLinks[0]?.salesUomId
-                            ? { salesUom: { connect: { id: materialLinks[0].salesUomId } } }
+                            ? {
+                                  salesUom: {
+                                      connect: {
+                                          id: materialLinks[0].salesUomId,
+                                      },
+                                  },
+                              }
                             : dto.salesUomId
-                              ? { salesUom: { connect: { id: dto.salesUomId } } }
+                              ? {
+                                    salesUom: {
+                                        connect: { id: dto.salesUomId },
+                                    },
+                                }
                               : {}),
                         attributes: this.toJson(attributes),
                         createdBy: dto.createdBy,
@@ -240,9 +329,12 @@ export class ProductService {
             throw new BadRequestException('No changes supplied')
         }
 
-        const galleryChange = dto.galleryImages !== undefined || gallery.length > 0
+        const galleryChange =
+            dto.galleryImages !== undefined || gallery.length > 0
         if (!galleryChange) {
-            return this.withUploadedImage(image, dto, () => this.applyUpdate(current, dto))
+            return this.withUploadedImage(image, dto, () =>
+                this.applyUpdate(current, dto),
+            )
         }
 
         const currentImages = this.galleryOf(current.attributes)
@@ -266,13 +358,20 @@ export class ProductService {
         } catch (error) {
             added.forEach(deleteProductImageByUrl)
             throw new BadRequestException(
-                error instanceof Error ? error.message : 'Invalid gallery image',
+                error instanceof Error
+                    ? error.message
+                    : 'Invalid gallery image',
             )
         }
 
         const baseAttributes =
-            dto.attributes !== undefined ? dto.attributes : this.asObject(current.attributes)
-        dto.attributes = { ...(baseAttributes ?? {}), images: [...kept, ...added] }
+            dto.attributes !== undefined
+                ? dto.attributes
+                : this.asObject(current.attributes)
+        dto.attributes = {
+            ...(baseAttributes ?? {}),
+            images: [...kept, ...added],
+        }
 
         let updated: Awaited<ReturnType<ProductService['applyUpdate']>>
         try {
@@ -289,8 +388,12 @@ export class ProductService {
         return updated
     }
 
-    private asObject(value: Prisma.JsonValue | null): Record<string, unknown> | null {
-        return value !== null && typeof value === 'object' && !Array.isArray(value)
+    private asObject(
+        value: Prisma.JsonValue | null,
+    ): Record<string, unknown> | null {
+        return value !== null &&
+            typeof value === 'object' &&
+            !Array.isArray(value)
             ? (value as Record<string, unknown>)
             : null
     }
@@ -324,9 +427,15 @@ export class ProductService {
         if (dto.price !== undefined) data.price = new Decimal(dto.price)
         if (dto.originalPrice !== undefined) {
             data.originalPrice =
-                dto.originalPrice === null ? null : new Decimal(dto.originalPrice)
+                dto.originalPrice === null
+                    ? null
+                    : new Decimal(dto.originalPrice)
         }
-        if (dto.category !== undefined) data.category = dto.category
+        if ((dto.productType ?? current.productType) === 'STOCK_ITEM') {
+            data.category = current.category
+        } else if (dto.category !== undefined) {
+            data.category = dto.category
+        }
         if (dto.imageUrl !== undefined) data.imageUrl = dto.imageUrl
         if (dto.badge !== undefined) data.badge = dto.badge
         if (dto.isActive !== undefined) data.isActive = dto.isActive
@@ -338,6 +447,7 @@ export class ProductService {
         }
         if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder
         if (dto.attributes !== undefined || dto.imageGallery !== undefined) {
+            this.assertVideos(dto.attributes)
             const baseAttrs =
                 dto.attributes ??
                 (current.attributes && typeof current.attributes === 'object'
@@ -348,11 +458,42 @@ export class ProductService {
             )
         }
 
-        const updated = await this.prisma.sdProduct.update({ where: { id }, data })
+        await this.prisma.sdProduct.update({ where: { id }, data })
+        const updated = await this.findOne(id)
         if (updated.imageUrl !== current.imageUrl) {
             deleteProductImageByUrl(current.imageUrl)
         }
+        const keptVideos = this.videosOf(updated.attributes)
+        this.videosOf(current.attributes)
+            .filter((url) => !keptVideos.includes(url))
+            .forEach(deleteProductImageByUrl)
         return updated
+    }
+
+    private videosOf(attributes: Prisma.JsonValue | null): string[] {
+        const videos = this.asObject(attributes)?.videos
+        return Array.isArray(videos) ? videos.filter(isProductVideoUrl) : []
+    }
+
+    /** `attributes.videos` may only list files uploaded through `uploadVideo`. */
+    private assertVideos(
+        attributes: Record<string, unknown> | null | undefined,
+    ) {
+        const videos = attributes?.videos
+        if (videos === undefined) return
+        if (!Array.isArray(videos) || !videos.every(isProductVideoUrl)) {
+            throw new BadRequestException(
+                'attributes.videos must list uploaded product videos',
+            )
+        }
+        if (new Set(videos).size !== videos.length) {
+            throw new BadRequestException('Product videos must not repeat')
+        }
+        if (videos.length > PRODUCT_VIDEO_MAX) {
+            throw new BadRequestException(
+                `A product can have at most ${PRODUCT_VIDEO_MAX} videos`,
+            )
+        }
     }
 
     /**
@@ -400,7 +541,23 @@ export class ProductService {
         await this.prisma.sdProduct.delete({ where: { id } })
         deleteProductImageByUrl(current.imageUrl)
         this.galleryOf(current.attributes).forEach(deleteProductImageByUrl)
+        this.videosOf(current.attributes).forEach(deleteProductImageByUrl)
         return { id, deleted: true }
+    }
+
+    /** Stores an uploaded product video and returns the URL to list in `attributes.videos`. */
+    uploadVideo(buffer: Buffer | null) {
+        if (!buffer?.length) throw new BadRequestException('No video uploaded')
+        if (buffer.length > PRODUCT_VIDEO_MAX_BYTES) {
+            throw new BadRequestException('Video exceeds the 50 MB limit')
+        }
+        try {
+            return { videoUrl: saveProductVideo(buffer) }
+        } catch (error) {
+            throw new BadRequestException(
+                error instanceof Error ? error.message : 'Invalid video',
+            )
+        }
     }
 
     /** Stores an uploaded product photo and returns the `imageUrl` to save on the product. */
@@ -434,7 +591,9 @@ export class ProductService {
             ...(dto.materialIds ?? []),
             ...(dto.materialId?.trim() ? [dto.materialId.trim()] : []),
         ]
-        const materialIds = [...new Set(rawIds.map((id) => id.trim()).filter(Boolean))]
+        const materialIds = [
+            ...new Set(rawIds.map((id) => id.trim()).filter(Boolean)),
+        ]
 
         if (!needsMaterial) {
             if (materialIds.length || dto.companyId?.trim()) {
@@ -452,7 +611,9 @@ export class ProductService {
         }
 
         if (dto.materialLinkMode === 'single' && materialIds.length > 1) {
-            throw new BadRequestException('Single-material mode allows only one MM material')
+            throw new BadRequestException(
+                'Single-material mode allows only one MM material',
+            )
         }
 
         await this.prisma.company.findUniqueOrThrow({
@@ -477,7 +638,9 @@ export class ProductService {
                 },
             })
             if (!material) {
-                throw new BadRequestException(`MM material not found: ${materialId}`)
+                throw new BadRequestException(
+                    `MM material not found: ${materialId}`,
+                )
             }
             if (material.status !== 'ACTIVE') {
                 throw new BadRequestException(
@@ -486,7 +649,9 @@ export class ProductService {
             }
             const salesUomId =
                 links.length === 0
-                    ? (dto.salesUomId ?? material.salesUomId ?? material.baseUomId)
+                    ? (dto.salesUomId ??
+                      material.salesUomId ??
+                      material.baseUomId)
                     : (material.salesUomId ?? material.baseUomId)
             links.push({
                 materialId: material.id,
@@ -531,7 +696,8 @@ export class ProductService {
             materialLinkMode?: 'single' | 'multiple'
         },
     ): Record<string, unknown> | null | undefined {
-        if (imageGallery === undefined && !mmMeta) return attributes ?? undefined
+        if (imageGallery === undefined && !mmMeta)
+            return attributes ?? undefined
         const next = { ...(attributes ?? {}) }
         if (imageGallery !== undefined) {
             const cleaned = imageGallery
@@ -554,7 +720,11 @@ export class ProductService {
         return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue)
     }
 
-    private mapUniqueViolation(error: unknown, divisionId: string, sku: string) {
+    private mapUniqueViolation(
+        error: unknown,
+        divisionId: string,
+        sku: string,
+    ) {
         if (
             error instanceof Prisma.PrismaClientKnownRequestError &&
             error.code === 'P2002'

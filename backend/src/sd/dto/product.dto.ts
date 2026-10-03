@@ -72,7 +72,8 @@ export class CreateProductDto {
     @Transform(upperTrim)
     @IsString()
     @Matches(/^[A-Z0-9][A-Z0-9._-]*$/, {
-        message: 'sku may only contain letters, digits, dot, dash and underscore',
+        message:
+            'sku may only contain letters, digits, dot, dash and underscore',
     })
     @MaxLength(64)
     sku?: string
@@ -101,11 +102,13 @@ export class CreateProductDto {
     @Max(MAX_PRICE)
     originalPrice?: number | null
 
+    /** Ignored for stock items: the linked MM material's category is used. */
+    @IsOptional()
     @Transform(trim)
     @IsString()
     @IsNotEmpty()
     @MaxLength(80)
-    category!: string
+    category?: string
 
     @IsOptional()
     @Transform(trim)
