@@ -8,15 +8,19 @@ export type StorefrontCartState<P> = {
     openDrawer: () => void
     closeDrawer: () => void
     addItem: (product: P, quantity?: number) => void
-    updateQuantity: (sku: string, quantity: number) => void
-    removeItem: (sku: string) => void
+    updateQuantity: (key: string, quantity: number) => void
+    removeItem: (key: string) => void
     clearCart: () => void
-    /** Refreshes cart products from the live catalog and drops SKUs no longer sold. */
+    /** Refreshes cart products from the live catalog and drops products no longer sold. */
     syncCatalog: (products: readonly P[]) => void
 }
 
-/** One cart per storefront, so division carts never mix. Prices are always recomputed by SD pricing. */
-export const createStorefrontCartStore = <P extends { sku: string }>() =>
+/**
+ * Storefront cart. `keyOf` identifies a product line (e.g. division + SKU,
+ * since SKUs are only unique per division). Prices are always recomputed by
+ * SD pricing; the stored product is for display only.
+ */
+export const createStorefrontCartStore = <P>(keyOf: (product: P) => string) =>
     create<StorefrontCartState<P>>((set) => ({
         items: [],
         isDrawerOpen: false,
@@ -24,43 +28,53 @@ export const createStorefrontCartStore = <P extends { sku: string }>() =>
         closeDrawer: () => set({ isDrawerOpen: false }),
         addItem: (product, quantity = 1) =>
             set((state) => {
+                const key = keyOf(product)
                 const existing = state.items.find(
-                    (item) => item.product.sku === product.sku,
+                    (item) => keyOf(item.product) === key,
                 )
                 return {
                     items: existing
                         ? state.items.map((item) =>
-                              item.product.sku === product.sku
-                                  ? { ...item, quantity: item.quantity + quantity }
+                              keyOf(item.product) === key
+                                  ? {
+                                        ...item,
+                                        quantity: item.quantity + quantity,
+                                    }
                                   : item,
                           )
                         : [...state.items, { product, quantity }],
                 }
             }),
-        updateQuantity: (sku, quantity) =>
+        updateQuantity: (key, quantity) =>
             set((state) => ({
                 items:
                     quantity < 1
-                        ? state.items.filter((item) => item.product.sku !== sku)
+                        ? state.items.filter(
+                              (item) => keyOf(item.product) !== key,
+                          )
                         : state.items.map((item) =>
-                              item.product.sku === sku ? { ...item, quantity } : item,
+                              keyOf(item.product) === key
+                                  ? { ...item, quantity }
+                                  : item,
                           ),
             })),
-        removeItem: (sku) =>
+        removeItem: (key) =>
             set((state) => ({
-                items: state.items.filter((item) => item.product.sku !== sku),
+                items: state.items.filter(
+                    (item) => keyOf(item.product) !== key,
+                ),
             })),
         clearCart: () => set({ items: [] }),
         syncCatalog: (products) =>
             set((state) => {
-                const bySku = new Map(products.map((p) => [p.sku, p]))
+                const byKey = new Map(products.map((p) => [keyOf(p), p]))
                 const unchanged = state.items.every(
-                    (item) => bySku.get(item.product.sku) === item.product,
+                    (item) => byKey.get(keyOf(item.product)) === item.product,
                 )
                 if (unchanged) return state
                 return {
                     items: state.items.flatMap((item) => {
-                        const product = bySku.get(item.product.sku)
+                        const product = byKey.get(keyOf(item.product))
                         return product ? [{ ...item, product }] : []
                     }),
                 }

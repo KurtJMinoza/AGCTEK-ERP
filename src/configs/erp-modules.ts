@@ -14,7 +14,6 @@ export const ERP_MODULES: ErpModule[] = [
             'Manage the complete order-to-cash cycle — customers, pricing, sales orders, deliveries, and billing.',
         path: '/modules/sd',
         icon: 'shoppingCart',
-        sidebarShortcuts: ['product-catalog'],
         categories: [
             {
                 code: 'master-data',
@@ -137,6 +136,17 @@ export const ERP_MODULES: ErpModule[] = [
                 ],
             },
         ],
+    },
+    {
+        code: 'ecommerce',
+        shortTitle: 'EC',
+        title: 'E-commerce',
+        description:
+            'Open the AGC Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+        path: '/shop',
+        icon: 'storefront',
+        isExternalLink: true,
+        categories: [],
     },
     {
         code: 'mm',

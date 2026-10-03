@@ -1,23 +1,22 @@
-import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
+import { join, resolve } from 'path'
 import { randomUUID } from 'crypto'
-import type { ReadStream } from 'fs'
 
-const UPLOAD_ROOT = join(process.cwd(), 'uploads', 'sd', 'product-images')
+/**
+ * Next.js `public/uploads/products` (backend runs from `backend/`). Override with
+ * PRODUCT_UPLOAD_DIR when the API and web app do not share a filesystem layout.
+ */
+const UPLOAD_ROOT = resolve(
+    process.env.PRODUCT_UPLOAD_DIR ??
+        join(process.cwd(), '..', 'public', 'uploads', 'products'),
+)
 
 export const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
-/** Public path prefix; requests reach Nest through the Next.js `/api/v1` rewrite. */
-export const PRODUCT_IMAGE_URL_PREFIX = '/api/v1/sd/products/images/'
+/** Public URL prefix served by Next.js from `public/`. */
+export const PRODUCT_IMAGE_URL_PREFIX = '/uploads/products/'
 
-const KEY_PATTERN = /^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/
-
-const MIME_BY_EXT: Record<string, string> = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    webp: 'image/webp',
-    gif: 'image/gif',
-}
+const FILE_NAME_PATTERN = /^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/
 
 /** Detects the image type from file content; the client-sent name and MIME type are not trusted. */
 function detectImageExtension(buffer: Buffer): string | null {
@@ -34,36 +33,23 @@ function detectImageExtension(buffer: Buffer): string | null {
     return null
 }
 
-/** Saves a validated image and returns its storage key (`<uuid>.<ext>`). */
+/** Validates and saves an image (creating the directory if needed); returns its public URL. */
 export function saveProductImage(buffer: Buffer): string {
+    if (!buffer.length) throw new Error('Image file is empty')
+    if (buffer.length > PRODUCT_IMAGE_MAX_BYTES) throw new Error('Image exceeds the 5 MB limit')
     const ext = detectImageExtension(buffer)
     if (!ext) throw new Error('Only PNG, JPG, WEBP or GIF images are allowed')
     mkdirSync(UPLOAD_ROOT, { recursive: true })
-    const key = `${randomUUID()}.${ext}`
-    writeFileSync(join(UPLOAD_ROOT, key), buffer)
-    return key
-}
-
-export function isProductImageKey(key: string): boolean {
-    return KEY_PATTERN.test(key)
-}
-
-export function readProductImage(key: string): { stream: ReadStream; mimeType: string } {
-    const absolutePath = join(UPLOAD_ROOT, key)
-    if (!isProductImageKey(key) || !existsSync(absolutePath)) {
-        throw new Error('Image not found')
-    }
-    return {
-        stream: createReadStream(absolutePath),
-        mimeType: MIME_BY_EXT[key.split('.').pop() as string],
-    }
+    const fileName = `${randomUUID()}.${ext}`
+    writeFileSync(join(UPLOAD_ROOT, fileName), buffer)
+    return PRODUCT_IMAGE_URL_PREFIX + fileName
 }
 
 /** Deletes an uploaded image referenced by `imageUrl`; ignores external or seeded paths. */
 export function deleteProductImageByUrl(imageUrl: string | null | undefined): void {
     if (!imageUrl?.startsWith(PRODUCT_IMAGE_URL_PREFIX)) return
-    const key = imageUrl.slice(PRODUCT_IMAGE_URL_PREFIX.length)
-    if (!isProductImageKey(key)) return
-    const absolutePath = join(UPLOAD_ROOT, key)
+    const fileName = imageUrl.slice(PRODUCT_IMAGE_URL_PREFIX.length)
+    if (!FILE_NAME_PATTERN.test(fileName)) return
+    const absolutePath = join(UPLOAD_ROOT, fileName)
     if (existsSync(absolutePath)) unlinkSync(absolutePath)
 }

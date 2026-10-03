@@ -13,12 +13,12 @@ export const productImageSrc = (src?: string | null) => {
 }
 
 /**
- * next/image throws for unlisted hosts unless unoptimized. Uploaded photos
- * (`/api/...`) are proxied to the API and already cached, so they skip the optimizer too.
+ * next/image throws for unlisted hosts unless unoptimized. Admin-uploaded photos
+ * (`/uploads/...`) are written at runtime, so they bypass the optimizer cache too.
  */
 export const isUnoptimizedImage = (src: string) =>
     src.split('?')[0].endsWith('.svg') ||
-    src.startsWith('/api/') ||
+    src.startsWith('/uploads/') ||
     !(
         (src.startsWith('/') && !src.startsWith('//')) ||
         OPTIMIZED_REMOTE_PREFIXES.some((prefix) => src.startsWith(prefix))

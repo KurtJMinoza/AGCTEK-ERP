@@ -1,6 +1,7 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError as toError } from './apiError'
 import type { PricedLine } from './pricingEngine'
+import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
 
 export type SalesOrderChannel = 'POS' | 'E-commerce' | 'Standard'
 export type SalesOrderStatus =
@@ -175,6 +176,63 @@ export async function createRetailSalesOrder(
     }
 }
 
+export type MarketplaceCheckoutInput = {
+    /** Stable across retries of the same checkout; the server dedupes on it. */
+    checkoutId: string
+    customerId: string
+    customerName: string
+    customerEmail?: string
+    /** Delivery address, stored on every division's order. */
+    shippingAddress: Omit<SalesOrderShippingDetails, 'email'>
+    /** Every cart line, tagged with the division that sells it. */
+    lines: (PricedLine & { divisionId: string })[]
+    /** One entry per division in `lines`: that store's charges. */
+    stores: {
+        divisionId: string
+        subtotal: number
+        discountAmount: number
+        promoCode?: string | null
+        shippingAmount: number
+        totalAmount: number
+    }[]
+}
+
+/**
+ * Mixed-division storefront checkout (POST /sd/sales-orders/retail/checkout):
+ * the server groups lines by `divisionId` into one e-commerce sales order per
+ * division, all or nothing.
+ */
+export async function createMarketplaceCheckout(
+    input: MarketplaceCheckoutInput,
+): Promise<SalesOrderRecord[]> {
+    try {
+        const { data } = await ErpAxiosBase.post<{ orders: ApiSalesOrder[] }>(
+            '/sd/sales-orders/retail/checkout',
+            {
+                ...input,
+                lines: input.lines.map((line) => ({
+                    divisionId: line.divisionId,
+                    sku: line.sku,
+                    description: line.name,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                    lineTotal: line.lineTotal,
+                })),
+                stores: input.stores.map((store) => ({
+                    ...store,
+                    promoCode: store.promoCode ?? undefined,
+                })),
+            },
+        )
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event(SALES_ORDER_RECORDED_EVENT))
+        }
+        return data.orders.map(toRecord)
+    } catch (error) {
+        throw toError(error, 'Unable to place your order')
+    }
+}
+
 export type SalesOrderDateRange = 'today' | 'last7days' | 'last30days' | 'all'
 
 export type SalesOrderListParams = {
@@ -191,10 +249,11 @@ export type SalesOrderListParams = {
 /** Retail statuses an admin can move a Pending Delivery order to. */
 export type RetailStatusTarget = 'Completed' | 'Cancelled'
 
-const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> = {
-    Completed: 'COMPLETED',
-    Cancelled: 'CANCELLED',
-}
+const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> =
+    {
+        Completed: 'COMPLETED',
+        Cancelled: 'CANCELLED',
+    }
 
 /** Lists persisted sales orders, newest first (GET /sd/sales-orders). */
 export async function getSalesOrders(

@@ -10,12 +10,14 @@ import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
 import {
     ChangeSalesOrderLineQtyDto,
+    CreateMarketplaceCheckoutDto,
     CreateRetailSalesOrderDto,
     CreateSalesOrderDto,
     ListSalesOrdersQueryDto,
     UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
 import { RetailClientService } from '../retail/retail-client.service'
+import { groupLinesByDivision } from './marketplace-checkout.util'
 import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
@@ -37,7 +39,10 @@ export class SalesOrderService {
     ) {}
 
     private readonly includes = {
-        lines: { include: { material: true }, orderBy: { lineNumber: 'asc' as const } },
+        lines: {
+            include: { material: true },
+            orderBy: { lineNumber: 'asc' as const },
+        },
         warehouse: true,
         company: true,
     }
@@ -115,7 +120,9 @@ export class SalesOrderService {
         const totals = this.verifyRetailTotals(dto)
         const isPos = dto.channel === 'POS'
         if (isPos && !dto.branchId) {
-            throw new BadRequestException('Select a branch before completing a POS sale.')
+            throw new BadRequestException(
+                'Select a branch before completing a POS sale.',
+            )
         }
         const account = await this.requireSignedInClient(dto)
 
@@ -126,37 +133,13 @@ export class SalesOrderService {
             )
             try {
                 return await this.prisma.sdSalesOrder.create({
-                    data: {
+                    data: this.retailOrderData(
+                        dto,
+                        totals,
+                        account?.email,
                         orderNumber,
-                        channel: dto.channel,
-                        divisionId: dto.divisionId,
-                        branchId: dto.branchId ?? null,
-                        customerId: dto.customerId,
-                        customerName: dto.customerName,
-                        customerEmail: account?.email ?? dto.customerEmail ?? null,
-                        subtotal: totals.subtotal,
-                        discountAmount: totals.discountAmount,
-                        promoCode: dto.promoCode ?? null,
-                        shippingAmount: totals.shippingAmount,
-                        totalAmount: totals.totalAmount,
-                        paymentReceived: totals.paymentReceived,
-                        changeAmount: totals.changeAmount,
-                        status: isPos ? 'COMPLETED' : 'CONFIRMED',
-                        correlationId: randomUUID(),
-                        idempotencyKey: dto.idempotencyKey,
-                        createdBy: dto.createdBy ?? null,
-                        lines: {
-                            create: dto.lines.map((line, idx) => ({
-                                lineNumber: idx + 1,
-                                sku: line.sku,
-                                description: line.description,
-                                quantity: new Decimal(line.quantity),
-                                unitPrice: new Decimal(line.unitPrice),
-                                lineTotal: new Decimal(line.lineTotal),
-                                integrationStatus: isPos ? 'FULFILLED' : 'OPEN',
-                            })),
-                        },
-                    },
+                        randomUUID(),
+                    ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
             } catch (error) {
@@ -171,7 +154,177 @@ export class SalesOrderService {
                 throw error
             }
         }
-        throw new ConflictException('Could not allocate a sales order number; retry')
+        throw new ConflictException(
+            'Could not allocate a sales order number; retry',
+        )
+    }
+
+    /**
+     * Marketplace checkout: a cart with products from several divisions becomes
+     * one ECOMMERCE sales order per division (each division keeps its own
+     * pricing, freight and order document), created all-or-nothing and linked
+     * by `correlationId = checkoutId`. Retrying the same `checkoutId` returns
+     * the orders already recorded.
+     */
+    async createMarketplaceCheckout(dto: CreateMarketplaceCheckoutDto) {
+        const linesByDivision = groupLinesByDivision(dto.lines)
+        const storeDivisions = new Set<string>(
+            dto.stores.map((store) => store.divisionId),
+        )
+        if (storeDivisions.size !== dto.stores.length) {
+            throw new BadRequestException(
+                'Each store may appear only once per checkout',
+            )
+        }
+        if (
+            storeDivisions.size !== linesByDivision.size ||
+            [...linesByDivision.keys()].some(
+                (divisionId) => !storeDivisions.has(divisionId),
+            )
+        ) {
+            throw new BadRequestException(
+                'Store charges must list exactly the stores that have items in the cart',
+            )
+        }
+
+        const subOrders = dto.stores.map((store) =>
+            Object.assign(new CreateRetailSalesOrderDto(), {
+                ...store,
+                lines: linesByDivision.get(store.divisionId)!,
+                channel: 'ECOMMERCE' as const,
+                idempotencyKey: `${dto.checkoutId}:${store.divisionId}`,
+                customerId: dto.customerId,
+                customerName: dto.customerName,
+                customerEmail: dto.customerEmail,
+                shippingAddress: dto.shippingAddress,
+                createdBy: dto.createdBy,
+            }),
+        )
+
+        const recorded = await this.findCheckoutOrders(dto.checkoutId)
+        if (recorded.length > 0) {
+            const sameCart =
+                recorded.length === subOrders.length &&
+                subOrders.every((sub) =>
+                    recorded.some(
+                        (order) => order.idempotencyKey === sub.idempotencyKey,
+                    ),
+                )
+            if (!sameCart) {
+                throw new ConflictException(
+                    'This checkout was already placed with a different cart',
+                )
+            }
+            return { checkoutId: dto.checkoutId, orders: recorded }
+        }
+
+        const totals: ReturnType<SalesOrderService['verifyRetailTotals']>[] = []
+        for (const sub of subOrders) {
+            await this.verifyCatalogPrices(sub)
+            totals.push(this.verifyRetailTotals(sub))
+        }
+        const account = await this.requireSignedInClient(subOrders[0])
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const orders = await this.prisma.$transaction(async (tx) => {
+                    const created = []
+                    for (const [idx, sub] of subOrders.entries()) {
+                        const orderNumber = await this.nextOrderNumber(
+                            'SO',
+                            attempt,
+                            tx,
+                        )
+                        created.push(
+                            await tx.sdSalesOrder.create({
+                                data: this.retailOrderData(
+                                    sub,
+                                    totals[idx],
+                                    account?.email,
+                                    orderNumber,
+                                    dto.checkoutId,
+                                ),
+                                include: {
+                                    lines: { orderBy: { lineNumber: 'asc' } },
+                                },
+                            }),
+                        )
+                    }
+                    return created
+                })
+                return { checkoutId: dto.checkoutId, orders }
+            } catch (error) {
+                const target = this.uniqueViolationTarget(error)
+                if (target?.includes('idempotencyKey')) {
+                    return {
+                        checkoutId: dto.checkoutId,
+                        orders: await this.findCheckoutOrders(dto.checkoutId),
+                    }
+                }
+                if (target?.includes('orderNumber')) continue
+                throw error
+            }
+        }
+        throw new ConflictException(
+            'Could not allocate a sales order number; retry',
+        )
+    }
+
+    private findCheckoutOrders(checkoutId: string) {
+        return this.prisma.sdSalesOrder.findMany({
+            where: { correlationId: checkoutId, channel: 'ECOMMERCE' },
+            orderBy: { orderNumber: 'asc' },
+            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+        })
+    }
+
+    private retailOrderData(
+        dto: CreateRetailSalesOrderDto,
+        totals: ReturnType<SalesOrderService['verifyRetailTotals']>,
+        accountEmail: string | undefined,
+        orderNumber: string,
+        correlationId: string,
+    ): Prisma.SdSalesOrderCreateInput {
+        const isPos = dto.channel === 'POS'
+        const shipTo = isPos ? undefined : dto.shippingAddress
+        return {
+            orderNumber,
+            channel: dto.channel,
+            divisionId: dto.divisionId,
+            branchId: dto.branchId ?? null,
+            customerId: dto.customerId,
+            customerName: dto.customerName,
+            customerEmail: accountEmail ?? dto.customerEmail ?? null,
+            shipToName: shipTo?.fullName ?? null,
+            shipToPhone: shipTo?.phone ?? null,
+            shipToAddressLine1: shipTo?.addressLine1 ?? null,
+            shipToCity: shipTo?.city ?? null,
+            shipToRegion: shipTo?.region ?? null,
+            shipToPostalCode: shipTo?.postalCode ?? null,
+            shipToCountry: shipTo?.country ?? null,
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            promoCode: dto.promoCode ?? null,
+            shippingAmount: totals.shippingAmount,
+            totalAmount: totals.totalAmount,
+            paymentReceived: totals.paymentReceived,
+            changeAmount: totals.changeAmount,
+            status: isPos ? 'COMPLETED' : 'CONFIRMED',
+            correlationId,
+            idempotencyKey: dto.idempotencyKey,
+            createdBy: dto.createdBy ?? null,
+            lines: {
+                create: dto.lines.map((line, idx) => ({
+                    lineNumber: idx + 1,
+                    sku: line.sku,
+                    description: line.description,
+                    quantity: new Decimal(line.quantity),
+                    unitPrice: new Decimal(line.unitPrice),
+                    lineTotal: new Decimal(line.lineTotal),
+                    integrationStatus: isPos ? 'FULFILLED' : 'OPEN',
+                })),
+            },
+        }
     }
 
     /**
@@ -201,7 +354,8 @@ export class SalesOrderService {
             )
         }
 
-        const lineStatus = dto.status === 'COMPLETED' ? 'FULFILLED' : 'CANCELLED'
+        const lineStatus =
+            dto.status === 'COMPLETED' ? 'FULFILLED' : 'CANCELLED'
         try {
             const [, updated] = await this.prisma.$transaction([
                 this.prisma.sdSalesOrderLine.updateMany({
@@ -228,7 +382,9 @@ export class SalesOrderService {
         }
     }
 
-    private dateRangeStart(range: ListSalesOrdersQueryDto['dateRange']): Date | null {
+    private dateRangeStart(
+        range: ListSalesOrdersQueryDto['dateRange'],
+    ): Date | null {
         if (!range || range === 'all') return null
         const start = new Date()
         start.setHours(0, 0, 0, 0)
@@ -271,7 +427,9 @@ export class SalesOrderService {
 
         let subtotal = new Decimal(0)
         dto.lines.forEach((line, idx) => {
-            const expected = money(new Decimal(line.unitPrice).times(line.quantity))
+            const expected = money(
+                new Decimal(line.unitPrice).times(line.quantity),
+            )
             mismatch(`Line ${idx + 1} total`, expected, line.lineTotal)
             subtotal = subtotal.plus(expected)
         })
@@ -287,10 +445,14 @@ export class SalesOrderService {
 
         if (dto.channel === 'POS') {
             if (!shippingAmount.isZero()) {
-                throw new BadRequestException('POS orders cannot carry shipping')
+                throw new BadRequestException(
+                    'POS orders cannot carry shipping',
+                )
             }
             if (dto.paymentReceived === undefined) {
-                throw new BadRequestException('POS orders require paymentReceived')
+                throw new BadRequestException(
+                    'POS orders require paymentReceived',
+                )
             }
             const paymentReceived = money(dto.paymentReceived)
             if (paymentReceived.lt(totalAmount)) {
@@ -309,7 +471,9 @@ export class SalesOrderService {
         }
 
         if (dto.paymentReceived !== undefined) {
-            throw new BadRequestException('E-commerce orders do not accept paymentReceived')
+            throw new BadRequestException(
+                'E-commerce orders do not accept paymentReceived',
+            )
         }
         return {
             subtotal,
@@ -363,13 +527,17 @@ export class SalesOrderService {
     async confirm(id: string) {
         const order = await this.findOne(id)
         if (order.status === 'CANCELLED') {
-            throw new BadRequestException('Cannot confirm a cancelled sales order')
+            throw new BadRequestException(
+                'Cannot confirm a cancelled sales order',
+            )
         }
         if (order.status === 'CONFIRMED') {
             return order
         }
         if (order.status !== 'DRAFT') {
-            throw new BadRequestException(`Cannot confirm order in status ${order.status}`)
+            throw new BadRequestException(
+                `Cannot confirm order in status ${order.status}`,
+            )
         }
         if (!this.isMmLinked(order)) {
             throw new BadRequestException(
@@ -383,7 +551,10 @@ export class SalesOrderService {
             include: this.includes,
         })
 
-        await this.sdEvents.emit(SD_EVENTS.SALES_ORDER_CONFIRMED, this.toEventPayload(updated))
+        await this.sdEvents.emit(
+            SD_EVENTS.SALES_ORDER_CONFIRMED,
+            this.toEventPayload(updated),
+        )
         return updated
     }
 
@@ -398,7 +569,10 @@ export class SalesOrderService {
         })
 
         if (this.isMmLinked(updated)) {
-            await this.sdEvents.emit(SD_EVENTS.SALES_ORDER_CANCELLED, this.toEventPayload(updated))
+            await this.sdEvents.emit(
+                SD_EVENTS.SALES_ORDER_CANCELLED,
+                this.toEventPayload(updated),
+            )
         }
         return updated
     }
@@ -410,7 +584,9 @@ export class SalesOrderService {
     ) {
         const order = await this.findOne(orderId)
         if (order.status === 'CANCELLED') {
-            throw new BadRequestException('Cannot change quantity on cancelled order')
+            throw new BadRequestException(
+                'Cannot change quantity on cancelled order',
+            )
         }
         const line = order.lines.find((l) => l.id === lineId)
         if (!line) throw new NotFoundException('Sales order line not found')
@@ -468,8 +644,7 @@ export class SalesOrderService {
     async applyReservationReleased(salesOrderId: string, reason?: string) {
         const order = await this.findOne(salesOrderId)
         for (const line of order.lines) {
-            const status =
-                order.status === 'CANCELLED' ? 'CANCELLED' : 'OPEN'
+            const status = order.status === 'CANCELLED' ? 'CANCELLED' : 'OPEN'
             await this.prisma.sdSalesOrderLine.update({
                 where: { id: line.id },
                 data: {
@@ -547,9 +722,16 @@ export class SalesOrderService {
         }
     }
 
-    /** `attempt > 0` adds a random suffix after an orderNumber collision. */
-    private async nextOrderNumber(prefix = 'SO', attempt = 0) {
-        const count = await this.prisma.sdSalesOrder.count({
+    /**
+     * `attempt > 0` adds a random suffix after an orderNumber collision. Pass the
+     * transaction client so orders created earlier in it are counted.
+     */
+    private async nextOrderNumber(
+        prefix = 'SO',
+        attempt = 0,
+        client: Prisma.TransactionClient = this.prisma,
+    ) {
+        const count = await client.sdSalesOrder.count({
             where: { orderNumber: { startsWith: `${prefix}-` } },
         })
         const number = `${prefix}-${String(count + 1).padStart(6, '0')}`

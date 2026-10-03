@@ -22,6 +22,14 @@ type ProductCatalogState = {
         divisionId: string,
         options?: { force?: boolean },
     ) => Promise<SdProductRecord[]>
+    /**
+     * Loads the active products of every listed division with one request
+     * (marketplace), filling each division's cache. Returns them combined.
+     */
+    ensureAllLoaded: (
+        divisionIds: readonly string[],
+        options?: { force?: boolean },
+    ) => Promise<SdProductRecord[]>
     /** Marks a division stale so the next `ensureLoaded` refetches. */
     invalidate: (divisionId: string) => void
 }
@@ -35,29 +43,71 @@ const EMPTY: DivisionCatalog = {
 
 const inFlight = new Map<string, Promise<SdProductRecord[]>>()
 
+const isFresh = (catalog: DivisionCatalog | undefined) =>
+    Boolean(
+        catalog?.products &&
+            catalog.loadedAt !== null &&
+            Date.now() - catalog.loadedAt < MAX_AGE_MS,
+    )
+
 export const useProductCatalogStore = create<ProductCatalogState>(
     (set, get) => {
+        const patchMany = (
+            divisionIds: readonly string[],
+            next: (divisionId: string) => Partial<DivisionCatalog>,
+        ) =>
+            set((state) => {
+                const catalogs = { ...state.catalogs }
+                for (const id of divisionIds) {
+                    catalogs[id] = { ...(catalogs[id] ?? EMPTY), ...next(id) }
+                }
+                return { catalogs }
+            })
         const patch = (divisionId: string, next: Partial<DivisionCatalog>) =>
-            set((state) => ({
-                catalogs: {
-                    ...state.catalogs,
-                    [divisionId]: {
-                        ...(state.catalogs[divisionId] ?? EMPTY),
-                        ...next,
-                    },
-                },
-            }))
+            patchMany([divisionId], () => next)
 
         return {
             catalogs: {},
+            ensureAllLoaded: (divisionIds, options) => {
+                const { catalogs } = get()
+                if (!options?.force && divisionIds.every((id) => isFresh(catalogs[id]))) {
+                    return Promise.resolve(
+                        divisionIds.flatMap((id) => catalogs[id]!.products!),
+                    )
+                }
+                const key = `*:${divisionIds.join(',')}`
+                const pending = inFlight.get(key)
+                if (pending) return pending
+
+                patchMany(divisionIds, () => ({ loading: true, error: null }))
+                const request = listProducts({ activeOnly: true })
+                    .then((products) => {
+                        const loadedAt = Date.now()
+                        patchMany(divisionIds, (id) => ({
+                            products: products.filter((p) => p.divisionId === id),
+                            loading: false,
+                            loadedAt,
+                        }))
+                        return products.filter((p) => divisionIds.includes(p.divisionId))
+                    })
+                    .catch((error: unknown) => {
+                        patchMany(divisionIds, () => ({
+                            loading: false,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : 'Unable to load products.',
+                        }))
+                        throw error
+                    })
+                    .finally(() => inFlight.delete(key))
+                inFlight.set(key, request)
+                return request
+            },
             ensureLoaded: (divisionId, options) => {
                 const current = get().catalogs[divisionId]
-                const fresh =
-                    current?.products &&
-                    current.loadedAt !== null &&
-                    Date.now() - current.loadedAt < MAX_AGE_MS
-                if (fresh && !options?.force) {
-                    return Promise.resolve(current.products!)
+                if (isFresh(current) && !options?.force) {
+                    return Promise.resolve(current!.products!)
                 }
                 const pending = inFlight.get(divisionId)
                 if (pending) return pending
