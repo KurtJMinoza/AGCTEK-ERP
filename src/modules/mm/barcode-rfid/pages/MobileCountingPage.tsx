@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import FormSection from '@/components/shared/FormSection'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { FormItem } from '@/components/ui/Form'
@@ -32,6 +32,7 @@ const MobileCountingPage = () => {
     const [feedback, setFeedback] = useState<{
         type: 'success' | 'danger' | 'info'
         message: string
+        title?: string
     } | null>(null)
 
     const loadCount = useCallback(async (id: string) => {
@@ -59,11 +60,12 @@ const MobileCountingPage = () => {
 
     const selectedLine = lines.find((l) => l.id === lineId)
 
-    const onScan = useCallback(async () => {
-        if (!barcode.trim()) return
+    const onScan = useCallback(async (barcodeOverride?: string) => {
+        const code = (barcodeOverride ?? barcode).trim()
+        if (!code) return
         setScanning(true)
         try {
-            const r = await scannerService.resolve(barcode.trim())
+            const r = await scannerService.resolve(code)
             if (r.type === 'INVENTORY_COUNT' && r.countId) {
                 await loadCount(r.countId)
                 setFeedback({
@@ -172,7 +174,14 @@ const MobileCountingPage = () => {
         <MobileScanShell
             route={ROUTE}
             title="Mobile Counting"
-            description="Scan count/bin/material → enter qty → confirm via cycle count."
+            icon="calculator"
+            workflowLabel="Physical inventory"
+            description="Scan count sessions, bins, and materials, then submit counted quantities."
+            workflowSteps={[
+                'Scan count or count line',
+                'Scan bin and material',
+                'Enter counted qty and submit',
+            ]}
             barcode={barcode}
             onBarcodeChange={setBarcode}
             onScan={onScan}
@@ -182,24 +191,34 @@ const MobileCountingPage = () => {
             confirmLabel="Submit count"
             feedback={feedback}
         >
-            <AdaptiveCard className="mb-4">
-                <FormItem label="Bin (when line has bin)">
-                    <Input
-                        className="h-12"
-                        value={bin}
-                        onChange={(e: any) => setBin(e.target.value)}
-                    />
-                </FormItem>
-                <FormItem label="Counted quantity">
-                    <Input
-                        className="h-16 text-3xl font-bold"
-                        type="number"
-                        value={qty}
-                        onChange={(e: any) => setQty(e.target.value)}
-                    />
-                </FormItem>
-                {counts.length > 1 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
+            <FormSection
+                title="Count entry"
+                description="Match the bin on the count line when bin control applies."
+            >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormItem label="Bin">
+                        <Input
+                            className="h-12 font-mono"
+                            value={bin}
+                            onChange={(e: any) => setBin(e.target.value)}
+                            placeholder="Scan storage bin"
+                        />
+                    </FormItem>
+                    <FormItem label="Counted quantity">
+                        <Input
+                            className="h-12 text-2xl font-bold"
+                            type="number"
+                            min={0}
+                            value={qty}
+                            onChange={(e: any) => setQty(e.target.value)}
+                        />
+                    </FormItem>
+                </div>
+                {counts.length > 1 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="w-full text-xs font-medium uppercase tracking-wide text-gray-500">
+                            Active count sessions
+                        </span>
                         {counts.map((c) => (
                             <Button
                                 key={c.id}
@@ -213,9 +232,12 @@ const MobileCountingPage = () => {
                             </Button>
                         ))}
                     </div>
-                )}
-            </AdaptiveCard>
-            <AdaptiveCard>
+                ) : null}
+            </FormSection>
+            <FormSection
+                title="Count lines"
+                description="Select a line or scan material / count line barcode."
+            >
                 <DataTable
                     columns={
                         [
@@ -256,7 +278,7 @@ const MobileCountingPage = () => {
                     }
                     data={lines}
                 />
-            </AdaptiveCard>
+            </FormSection>
         </MobileScanShell>
     )
 }

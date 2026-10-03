@@ -48,7 +48,7 @@ Register routes in the owning module’s `*.module.ts`; avoid orphan controllers
 ## Prisma & seeds
 
 - Schema changes → `prisma migrate dev` with reviewed SQL impact.
-- MM demo reset: `npm run prisma:seed-mm-demo` (see `docs/MM_DEMO_WALKTHROUGH.md`).
+- MM data purge (no demo re-seed): `npm run prisma:seed-mm-purge`. SD demo purge: `npm run prisma:seed-sd-purge`.
 - Do not duplicate models that overlap existing `Mm*` / `Wm*` tables.
 
 ---

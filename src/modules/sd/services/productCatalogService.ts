@@ -29,6 +29,8 @@ export type ProductListParams = {
     search?: string
 }
 
+export type SdProductType = 'STOCK_ITEM' | 'NON_STOCK_ITEM' | 'SERVICE'
+
 export type ProductInput = {
     divisionId: string
     sku: string
@@ -42,6 +44,14 @@ export type ProductInput = {
     isActive?: boolean
     sortOrder?: number
     attributes?: ProductAttributes | null
+    productType?: SdProductType
+    /** Required for STOCK_ITEM — explicit SD ↔ MM link at creation. */
+    materialId?: string
+    materialIds?: string[]
+    materialLinkMode?: 'single' | 'multiple'
+    companyId?: string
+    autoGenerateSku?: boolean
+    imageGallery?: string[]
     /** Existing gallery photos to keep, in order; new ones are uploaded as files. */
     galleryImages?: string[]
 }
@@ -54,6 +64,23 @@ export const productGallery = (record: Pick<SdProductRecord, 'attributes'>) =>
     productAttribute<unknown[]>(record, 'images', []).filter(
         (url): url is string => typeof url === 'string' && url.trim() !== '',
     )
+
+/** Cover plus gallery URLs for storefront cards (supports legacy `attributes.gallery`). */
+export function productImageGallery(
+    record: Pick<SdProductRecord, 'imageUrl' | 'attributes'>,
+): string[] {
+    const fromImages = productGallery(record)
+    const legacy = record.attributes?.gallery
+    const legacyGallery = Array.isArray(legacy)
+        ? legacy.filter(
+              (u): u is string => typeof u === 'string' && u.trim().length > 0,
+          )
+        : []
+    const extra = fromImages.length ? fromImages : legacyGallery
+    const cover = record.imageUrl?.trim() ?? ''
+    if (!cover) return extra
+    return [cover, ...extra.filter((u) => u !== cover)]
+}
 
 /** Reads one storefront attribute, falling back when absent. */
 export function productAttribute<T>(
@@ -94,6 +121,18 @@ export async function listProducts(
     }
 }
 
+export async function suggestProductSku(divisionId: string): Promise<string> {
+    try {
+        const { data } = await ErpAxiosBase.get<{ sku: string }>(
+            '/sd/products/suggested-sku',
+            { params: { divisionId } },
+        )
+        return data.sku
+    } catch (error) {
+        throw toError(error, 'Unable to suggest SKU')
+    }
+}
+
 /**
  * Multipart body: `data` carries the text fields as JSON, `image` the optional
  * main photo and `gallery` any new gallery photos. The server stores the files
@@ -111,6 +150,48 @@ const toProductFormData = (
     return formData
 }
 
+export async function createProduct(
+    input: ProductInput,
+): Promise<SdProductRecord> {
+    const {
+        materialId,
+        materialIds,
+        materialLinkMode,
+        companyId,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        galleryImages: _galleryImages,
+        ...rest
+    } = input
+    const body: Record<string, unknown> = {
+        ...rest,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        materialLinkMode,
+    }
+    if (productType === 'STOCK_ITEM' && companyId?.trim()) {
+        body.companyId = companyId.trim()
+        const ids =
+            materialIds?.filter(Boolean) ??
+            (materialId?.trim() ? [materialId.trim()] : [])
+        if (ids.length) body.materialIds = ids
+    }
+    if (autoGenerateSku) {
+        delete body.sku
+    }
+    try {
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            '/sd/products',
+            body as ProductInput,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Unable to create product')
+    }
+}
+
 export async function updateProduct(
     id: string,
     input: Partial<ProductInput>,
@@ -125,5 +206,28 @@ export async function updateProduct(
         return fromApi(data)
     } catch (error) {
         throw toError(error, 'Unable to update product')
+    }
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+    try {
+        await ErpAxiosBase.delete(`/sd/products/${encodeURIComponent(id)}`)
+    } catch (error) {
+        throw toError(error, 'Unable to delete product')
+    }
+}
+
+/** @deprecated Prefer multipart update; kept for legacy gallery URL uploads. */
+export async function uploadProductImage(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await ErpAxiosBase.post<{ imageUrl: string }>(
+            '/sd/products/images',
+            formData,
+        )
+        return data.imageUrl
+    } catch (error) {
+        throw toError(error, 'Unable to upload image')
     }
 }

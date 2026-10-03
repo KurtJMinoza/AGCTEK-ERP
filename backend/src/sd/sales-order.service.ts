@@ -21,6 +21,7 @@ import { groupLinesByDivision } from './marketplace-checkout.util'
 import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
+import { SdMmPipelineService } from './sd-mm-pipeline.service'
 
 /** Storefront divisions whose e-commerce orders require a registered client account. */
 const SIGNED_IN_ECOMMERCE_DIVISIONS: ReadonlySet<string> = new Set([
@@ -36,6 +37,7 @@ export class SalesOrderService {
         private sdEvents: SdEventEmitterService,
         private retailClients: RetailClientService,
         private products: ProductService,
+        private mmPipeline: SdMmPipelineService,
     ) {}
 
     private readonly includes = {
@@ -132,7 +134,7 @@ export class SalesOrderService {
                 attempt,
             )
             try {
-                return await this.prisma.sdSalesOrder.create({
+                const created = await this.prisma.sdSalesOrder.create({
                     data: this.retailOrderData(
                         dto,
                         totals,
@@ -142,13 +144,26 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
+                const { integrated } = await this.mmPipeline.integrateConfirmedOrder(
+                    created.id,
+                )
+                if (isPos && integrated) {
+                    return this.prisma.sdSalesOrder.update({
+                        where: { id: created.id },
+                        data: { status: 'COMPLETED' },
+                        include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                    })
+                }
+                return created
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {
-                    return this.prisma.sdSalesOrder.findUniqueOrThrow({
-                        where: { idempotencyKey: dto.idempotencyKey },
-                        include: { lines: { orderBy: { lineNumber: 'asc' } } },
-                    })
+                    const existing =
+                        await this.prisma.sdSalesOrder.findUniqueOrThrow({
+                            where: { idempotencyKey: dto.idempotencyKey },
+                            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                        })
+                    return existing
                 }
                 if (target?.includes('orderNumber')) continue
                 throw error
@@ -539,7 +554,10 @@ export class SalesOrderService {
                 `Cannot confirm order in status ${order.status}`,
             )
         }
-        if (!this.isMmLinked(order)) {
+
+        await this.mmPipeline.enrichOrderForMmIntegration(id)
+        const enriched = await this.findOne(id)
+        if (!this.mmPipeline.isMmLinked(enriched)) {
             throw new BadRequestException(
                 'Sales order must reference a company, warehouse and MM materials before confirmation',
             )
@@ -551,10 +569,7 @@ export class SalesOrderService {
             include: this.includes,
         })
 
-        await this.sdEvents.emit(
-            SD_EVENTS.SALES_ORDER_CONFIRMED,
-            this.toEventPayload(updated),
-        )
+        await this.mmPipeline.emitSalesOrderConfirmedIntegration(updated)
         return updated
     }
 
@@ -568,10 +583,10 @@ export class SalesOrderService {
             include: this.includes,
         })
 
-        if (this.isMmLinked(updated)) {
+        if (this.mmPipeline.isMmLinked(updated)) {
             await this.sdEvents.emit(
                 SD_EVENTS.SALES_ORDER_CANCELLED,
-                this.toEventPayload(updated),
+                this.mmPipeline.toEventPayload(updated),
             )
         }
         return updated
@@ -605,9 +620,9 @@ export class SalesOrderService {
         })
 
         const refreshed = await this.findOne(orderId)
-        if (!this.isMmLinked(refreshed)) return refreshed
+        if (!this.mmPipeline.isMmLinked(refreshed)) return refreshed
         await this.sdEvents.emit(SD_EVENTS.SALES_DEMAND_CHANGED, {
-            ...this.toEventPayload(refreshed),
+            ...this.mmPipeline.toEventPayload(refreshed),
             changedLines: [
                 {
                     lineId,
@@ -691,34 +706,6 @@ export class SalesOrderService {
                     integrationStatus: fulfilled ? 'FULFILLED' : 'RESERVED',
                 },
             })
-        }
-    }
-
-    /** Retail-captured orders stay out of MM events until mapped to MM master data. */
-    private isMmLinked(order: Awaited<ReturnType<typeof this.findOne>>) {
-        return (
-            !!order.companyId &&
-            !!order.warehouseId &&
-            order.lines.every((line) => !!line.materialId)
-        )
-    }
-
-    private toEventPayload(order: Awaited<ReturnType<typeof this.findOne>>) {
-        return {
-            salesOrderId: order.id,
-            orderNumber: order.orderNumber,
-            companyId: order.companyId,
-            warehouseId: order.warehouseId,
-            customerId: order.customerId,
-            correlationId: order.correlationId,
-            idempotencyKey: order.idempotencyKey,
-            lines: order.lines.map((line) => ({
-                lineId: line.id,
-                lineNumber: line.lineNumber,
-                materialId: line.materialId,
-                quantity: line.quantity.toString(),
-                demandReferenceLineId: line.id,
-            })),
         }
     }
 

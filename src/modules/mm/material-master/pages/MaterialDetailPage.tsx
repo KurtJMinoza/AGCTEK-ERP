@@ -40,6 +40,7 @@ import {
     HiOutlinePlus,
     HiOutlineTrash,
 } from 'react-icons/hi'
+import StockThresholdSummary from '../components/StockThresholdSummary'
 import { useMaterial } from '../hooks/useMaterial'
 import { materialService } from '../services/materialService'
 import { barcodeService, batchService, serialNumberService } from '../services/referenceService'
@@ -359,12 +360,18 @@ const InventoryTab = ({ material }: { material: Material }) => {
                 <FlagTag label="Sellable" active={material.sellable} />
             </div>
             <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
-            <div className="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-                <MetricCard label="Min stock" value={Number(material.minimumStock).toLocaleString()} />
-                <MetricCard label="Max stock" value={Number(material.maximumStock).toLocaleString()} />
-                <MetricCard label="Safety stock" value={Number(material.safetyStock).toLocaleString()} />
-                <MetricCard label="Reorder point" value={Number(material.reorderPoint).toLocaleString()} />
+            <div className="mb-6">
+                <StockThresholdSummary
+                    onHand={Number(material.onHandQty ?? 0)}
+                    reserved={Number(material.reservedQty ?? 0)}
+                    maxStock={Number(material.maximumStock)}
+                    safetyStock={Number(material.safetyStock)}
+                />
             </div>
+            <p className="mb-6 text-xs text-gray-500">
+                Values are stored on this material (stock thresholds). Product Catalog and
+                ecommerce read these fields — edit in Material form to add or change stock.
+            </p>
             <h6 className="mb-3 text-sm font-semibold heading-text">Live balances</h6>
             {loading ? (
                 <div className="flex justify-center py-8"><Spinner size={28} /></div>
@@ -468,14 +475,24 @@ const PurchasingTab = ({ material }: { material: Material }) => (
 )
 
 const PlanningTab = ({ material }: { material: Material }) => (
-    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <MetricCard label="Reorder point" value={Number(material.reorderPoint).toLocaleString()} />
-        <MetricCard label="Safety stock" value={Number(material.safetyStock).toLocaleString()} />
-        <MetricCard label="Min stock" value={Number(material.minimumStock).toLocaleString()} />
-        <MetricCard label="Max stock" value={Number(material.maximumStock).toLocaleString()} />
-        <MetricCard label="Reorder qty" value={Number(material.reorderQuantity).toLocaleString()} />
-        <MetricCard label="Lead time" value={`${material.leadTimeDays} days`} />
-        <MetricCard label="Min order qty" value={Number(material.minimumOrderQuantity).toLocaleString()} />
+    <div>
+        <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
+        <StockThresholdSummary
+            onHand={Number(material.onHandQty ?? 0)}
+            reserved={Number(material.reservedQty ?? 0)}
+            maxStock={Number(material.maximumStock)}
+            safetyStock={Number(material.safetyStock)}
+        />
+        <p className="mt-4 text-xs text-gray-500">
+            Replenishment settings (reorder point, minimum stock, MOQ) remain on the
+            material record for MRP; they are not sellable quantities.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <MetricCard label="Reorder point" value={Number(material.reorderPoint).toLocaleString()} />
+            <MetricCard label="Minimum stock" value={Number(material.minimumStock).toLocaleString()} />
+            <MetricCard label="Reorder quantity" value={Number(material.reorderQuantity).toLocaleString()} />
+            <MetricCard label="Min order qty" value={Number(material.minimumOrderQuantity).toLocaleString()} />
+        </div>
     </div>
 )
 

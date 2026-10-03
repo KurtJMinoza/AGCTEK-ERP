@@ -194,6 +194,8 @@ export interface Material {
     expiryManaged: boolean
     qualityInspectionRequired: boolean
 
+    onHandQty: number
+    reservedQty: number
     minimumStock: number
     maximumStock: number
     safetyStock: number
@@ -282,6 +284,8 @@ export interface CreateMaterialPayload {
     serialManaged?: boolean
     expiryManaged?: boolean
     qualityInspectionRequired?: boolean
+    onHandQty?: number
+    reservedQty?: number
     minimumStock?: number
     maximumStock?: number
     safetyStock?: number

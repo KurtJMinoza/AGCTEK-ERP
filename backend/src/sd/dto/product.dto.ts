@@ -60,9 +60,122 @@ export class ListProductsQueryDto {
     search?: string
 }
 
+export class CreateProductDto {
+    @IsIn(RETAIL_SALES_DIVISIONS)
+    divisionId!: string
+
+    @IsOptional()
+    @IsBoolean()
+    autoGenerateSku?: boolean
+
+    @ValidateIf((dto: CreateProductDto) => !dto.autoGenerateSku)
+    @Transform(upperTrim)
+    @IsString()
+    @Matches(/^[A-Z0-9][A-Z0-9._-]*$/, {
+        message: 'sku may only contain letters, digits, dot, dash and underscore',
+    })
+    @MaxLength(64)
+    sku?: string
+
+    @Transform(trim)
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(200)
+    name!: string
+
+    @IsOptional()
+    @Transform(trim)
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    @Max(MAX_PRICE)
+    price!: number
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    @Max(MAX_PRICE)
+    originalPrice?: number | null
+
+    @Transform(trim)
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(80)
+    category!: string
+
+    @IsOptional()
+    @Transform(trim)
+    @IsString()
+    @MaxLength(1000)
+    @Matches(IMAGE_URL, { message: IMAGE_URL_MESSAGE })
+    imageUrl?: string
+
+    @IsOptional()
+    @Transform(emptyToNull)
+    @ValidateIf((_, value) => value !== null)
+    @IsString()
+    @MaxLength(60)
+    badge?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean
+
+    @IsOptional()
+    @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
+    productType?: string
+
+    @IsOptional()
+    @IsString()
+    salesUomId?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(100_000)
+    sortOrder?: number
+
+    /** Division-specific storefront content; stored as-is. */
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsObject()
+    attributes?: Record<string, unknown> | null
+
+    /** Extra product photos (cover is `imageUrl`); persisted under attributes.gallery. */
+    @IsOptional()
+    @IsString({ each: true })
+    imageGallery?: string[]
+
+    @IsOptional()
+    @IsString()
+    createdBy?: string
+
+    /** MM material for fulfillment (required when productType is STOCK_ITEM). */
+    @IsOptional()
+    @IsString()
+    materialId?: string
+
+    @IsOptional()
+    @IsString({ each: true })
+    materialIds?: string[]
+
+    @IsOptional()
+    @IsIn(['single', 'multiple'])
+    materialLinkMode?: 'single' | 'multiple'
+
+    /** Company scope for the product–material assignment. */
+    @IsOptional()
+    @IsString()
+    companyId?: string
+}
+
 /**
  * Sales data SD may change on an existing product. Division and SKU identify the
- * base product and are immutable here; SD cannot create or delete products.
+ * base product and are immutable here.
  */
 export class UpdateProductDto {
     @IsOptional()
@@ -117,6 +230,14 @@ export class UpdateProductDto {
     isActive?: boolean
 
     @IsOptional()
+    @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
+    productType?: string
+
+    @IsOptional()
+    @IsString()
+    salesUomId?: string
+
+    @IsOptional()
     @IsInt()
     @Min(0)
     @Max(100_000)
@@ -137,6 +258,10 @@ export class UpdateProductDto {
     @IsString({ each: true })
     @MaxLength(1000, { each: true })
     galleryImages?: string[]
+
+    @IsOptional()
+    @IsString({ each: true })
+    imageGallery?: string[]
 
     @IsOptional()
     @IsString()

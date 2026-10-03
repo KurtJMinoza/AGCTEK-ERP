@@ -5,8 +5,10 @@ import Image from 'next/image'
 import {
     HiOutlineCube,
     HiOutlinePencil,
+    HiOutlinePlus,
     HiOutlineRefresh,
     HiOutlineSearch,
+    HiOutlineTrash,
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
@@ -14,11 +16,12 @@ import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
+import Switcher from '@/components/ui/Switcher'
 import Tag from '@/components/ui/Tag'
 import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
@@ -30,6 +33,8 @@ import {
     productDivisionLabel,
 } from '../catalogs/productDivisions'
 import {
+    createProduct,
+    deleteProduct,
     listProducts,
     updateProduct,
     type ProductInput,
@@ -48,10 +53,9 @@ const DIVISION_FILTER_OPTIONS: FilterOption[] = [
 ]
 
 const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-    }).format(value)
+    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
+        value,
+    )
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -61,13 +65,7 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         { placement: 'top-end' },
     )
 
-const SummaryStat = ({
-    label,
-    value,
-}: {
-    label: string
-    value: string | number
-}) => (
+const SummaryStat = ({ label, value }: { label: string; value: string | number }) => (
     <Card>
         <div className="text-sm text-gray-500">{label}</div>
         <div className="mt-1 break-words text-xl font-bold sm:text-2xl">
@@ -93,6 +91,11 @@ const Thumbnail = ({ src, alt }: { src: string; alt: string }) => (
     </div>
 )
 
+type DialogState =
+    | { mode: 'create' }
+    | { mode: 'edit'; product: SdProductRecord }
+    | null
+
 const ProductCatalogDashboard = () => {
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const invalidateStorefront = useProductCatalogStore((s) => s.invalidate)
@@ -103,8 +106,11 @@ const ProductCatalogDashboard = () => {
     const [divisionFilter, setDivisionFilter] = useState('all')
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
-    const [editing, setEditing] = useState<SdProductRecord | null>(null)
+    const [dialog, setDialog] = useState<DialogState>(null)
     const [saving, setSaving] = useState(false)
+    const [pendingDelete, setPendingDelete] = useState<SdProductRecord | null>(null)
+    const [deleting, setDeleting] = useState(false)
+    const [togglingId, setTogglingId] = useState<string | null>(null)
 
     const fetchProducts = useCallback(async () => {
         setLoading(true)
@@ -112,15 +118,12 @@ const ProductCatalogDashboard = () => {
         try {
             setProducts(
                 await listProducts({
-                    divisionId:
-                        divisionFilter === 'all' ? undefined : divisionFilter,
+                    divisionId: divisionFilter === 'all' ? undefined : divisionFilter,
                     search,
                 }),
             )
         } catch (err) {
-            setError(
-                err instanceof Error ? err.message : 'Unable to load products.',
-            )
+            setError(err instanceof Error ? err.message : 'Unable to load products.')
         } finally {
             setLoading(false)
         }
@@ -149,33 +152,79 @@ const ProductCatalogDashboard = () => {
         [products],
     )
 
-    const handleSubmit = async (
-        values: ProductInput,
-        image: File | null,
-        gallery: File[],
-    ) => {
-        if (!editing) return
+    const afterChange = (...divisionIds: string[]) => {
+        divisionIds.forEach(invalidateStorefront)
+        void fetchProducts()
+    }
+
+    const handleSubmit = async (values: ProductInput) => {
+        if (!dialog) return
         setSaving(true)
         try {
-            const { divisionId: _divisionId, sku: _sku, ...changes } = values
-            const updated = await updateProduct(
-                editing.id,
-                changes,
-                image,
-                gallery,
-            )
-            notify('success', 'Product updated', `${updated.name} saved.`)
-            invalidateStorefront(updated.divisionId)
-            void fetchProducts()
-            setEditing(null)
+            if (dialog.mode === 'create') {
+                const created = await createProduct(values)
+                notify(
+                    'success',
+                    'Product added',
+                    `${created.name} is now listed on ${productDivisionLabel(created.divisionId)}.`,
+                )
+                afterChange(created.divisionId)
+            } else {
+                const { divisionId: _divisionId, sku: _sku, ...changes } = values
+                const updated = await updateProduct(dialog.product.id, changes)
+                notify('success', 'Product updated', `${updated.name} saved.`)
+                afterChange(updated.divisionId)
+            }
+            setDialog(null)
         } catch (err) {
             notify(
                 'danger',
-                'Product not updated',
+                dialog.mode === 'create' ? 'Product not added' : 'Product not updated',
                 err instanceof Error ? err.message : 'Please try again.',
             )
         } finally {
             setSaving(false)
+        }
+    }
+
+    const toggleActive = useCallback(
+        async (product: SdProductRecord, isActive: boolean) => {
+            setTogglingId(product.id)
+            try {
+                const updated = await updateProduct(product.id, { isActive })
+                setProducts((rows) =>
+                    rows.map((row) => (row.id === updated.id ? updated : row)),
+                )
+                invalidateStorefront(updated.divisionId)
+            } catch (err) {
+                notify(
+                    'danger',
+                    'Status not changed',
+                    err instanceof Error ? err.message : 'Please try again.',
+                )
+            } finally {
+                setTogglingId(null)
+            }
+        },
+        [invalidateStorefront],
+    )
+
+    const confirmDelete = async () => {
+        if (!pendingDelete) return
+        setDeleting(true)
+        try {
+            await deleteProduct(pendingDelete.id)
+            notify('success', 'Product deleted', `${pendingDelete.name} was removed.`)
+            afterChange(pendingDelete.divisionId)
+            setPendingDelete(null)
+        } catch (err) {
+            notify(
+                'danger',
+                'Product not deleted',
+                err instanceof Error ? err.message : 'Please try again.',
+            )
+        } finally {
+            setDeleting(false)
         }
     }
 
@@ -186,14 +235,9 @@ const ProductCatalogDashboard = () => {
                 id: 'product',
                 cell: ({ row }) => (
                     <div className="flex min-w-[14rem] items-center gap-3">
-                        <Thumbnail
-                            src={row.original.imageUrl}
-                            alt={row.original.name}
-                        />
+                        <Thumbnail src={row.original.imageUrl} alt={row.original.name} />
                         <div className="min-w-0">
-                            <div className="font-semibold">
-                                {row.original.name}
-                            </div>
+                            <div className="font-semibold">{row.original.name}</div>
                             <div className="font-mono text-xs text-gray-500">
                                 {row.original.sku}
                             </div>
@@ -214,9 +258,7 @@ const ProductCatalogDashboard = () => {
                 header: 'Category',
                 id: 'category',
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {row.original.category}
-                    </span>
+                    <span className="whitespace-nowrap">{row.original.category}</span>
                 ),
             },
             {
@@ -240,40 +282,54 @@ const ProductCatalogDashboard = () => {
                 id: 'badge',
                 cell: ({ row }) =>
                     row.original.badge ? (
-                        <Tag className="whitespace-nowrap">
-                            {row.original.badge}
-                        </Tag>
+                        <Tag className="whitespace-nowrap">{row.original.badge}</Tag>
                     ) : (
-                        <span className="text-gray-400">None</span>
+                        <span className="text-gray-400">—</span>
                     ),
             },
             {
                 header: 'Visible',
                 id: 'isActive',
                 cell: ({ row }) => (
-                    <StatusBadge
-                        tone={row.original.isActive ? 'success' : 'default'}
-                    >
-                        {row.original.isActive ? 'Active' : 'Hidden'}
-                    </StatusBadge>
+                    <div className="flex items-center gap-2">
+                        <Switcher
+                            checked={row.original.isActive}
+                            isLoading={togglingId === row.original.id}
+                            onChange={(checked) => void toggleActive(row.original, checked)}
+                        />
+                        <span className="text-xs text-gray-500">
+                            {row.original.isActive ? 'Active' : 'Hidden'}
+                        </span>
+                    </div>
                 ),
             },
             {
                 header: '',
                 id: 'actions',
                 cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        className="whitespace-nowrap"
-                        icon={<HiOutlinePencil />}
-                        onClick={() => setEditing(row.original)}
-                    >
-                        Edit
-                    </Button>
+                    <div className="flex items-center gap-1">
+                        <Button
+                            size="xs"
+                            className="whitespace-nowrap"
+                            icon={<HiOutlinePencil />}
+                            onClick={() =>
+                                setDialog({ mode: 'edit', product: row.original })
+                            }
+                        >
+                            Edit
+                        </Button>
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineTrash />}
+                            aria-label={`Delete ${row.original.name}`}
+                            onClick={() => setPendingDelete(row.original)}
+                        />
+                    </div>
                 ),
             },
         ],
-        [],
+        [togglingId, toggleActive],
     )
 
     return (
@@ -284,14 +340,24 @@ const ProductCatalogDashboard = () => {
                 title="Product Catalog"
                 description="Products and prices sold on the AWIC, LPG and MCONPINCO storefronts and the POS."
                 actions={
-                    <Button
-                        size="sm"
-                        icon={<HiOutlineRefresh />}
-                        loading={loading}
-                        onClick={() => void fetchProducts()}
-                    >
-                        Refresh
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineRefresh />}
+                            loading={loading}
+                            onClick={() => void fetchProducts()}
+                        >
+                            Refresh
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            icon={<HiOutlinePlus />}
+                            onClick={() => setDialog({ mode: 'create' })}
+                        >
+                            Add New Product
+                        </Button>
+                    </div>
                 }
             />
 
@@ -316,9 +382,7 @@ const ProductCatalogDashboard = () => {
                         value={DIVISION_FILTER_OPTIONS.find(
                             (option) => option.value === divisionFilter,
                         )}
-                        onChange={(option) =>
-                            setDivisionFilter(option?.value ?? 'all')
-                        }
+                        onChange={(option) => setDivisionFilter(option?.value ?? 'all')}
                     />
                 </div>
             </div>
@@ -327,10 +391,7 @@ const ProductCatalogDashboard = () => {
                 <SummaryStat label="Products" value={summary.total} />
                 <SummaryStat label="Active" value={summary.active} />
                 <SummaryStat label="Hidden" value={summary.hidden} />
-                <SummaryStat
-                    label="With original price"
-                    value={summary.onSale}
-                />
+                <SummaryStat label="With original price" value={summary.onSale} />
             </div>
 
             <Card>
@@ -344,12 +405,38 @@ const ProductCatalogDashboard = () => {
             </Card>
 
             <ProductFormDialog
-                isOpen={editing !== null}
-                product={editing}
+                isOpen={dialog !== null}
+                mode={dialog?.mode ?? 'create'}
+                product={dialog?.mode === 'edit' ? dialog.product : null}
+                defaultDivisionId={
+                    divisionFilter === 'all'
+                        ? PRODUCT_DIVISIONS[0]?.id ?? ''
+                        : divisionFilter
+                }
                 saving={saving}
-                onClose={() => setEditing(null)}
+                onClose={() => setDialog(null)}
                 onSubmit={handleSubmit}
             />
+
+            <ConfirmDialog
+                isOpen={pendingDelete !== null}
+                type="danger"
+                title="Delete product?"
+                confirmText="Delete"
+                cancelText="Cancel"
+                confirmButtonProps={{ loading: deleting }}
+                onClose={() => setPendingDelete(null)}
+                onRequestClose={() => setPendingDelete(null)}
+                onCancel={() => setPendingDelete(null)}
+                onConfirm={() => void confirmDelete()}
+            >
+                <p>
+                    {pendingDelete?.name} ({pendingDelete?.sku}) will be removed from{' '}
+                    {pendingDelete ? productDivisionLabel(pendingDelete.divisionId) : ''}{' '}
+                    and can no longer be sold. To hide it temporarily, switch it off
+                    under Visible instead.
+                </p>
+            </ConfirmDialog>
         </PageContainer>
     )
 }
