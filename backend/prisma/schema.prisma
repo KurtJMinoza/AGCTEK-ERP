@@ -19,12 +19,83 @@ model User {
   bio           String         @default("")
   passwordHash  String
   role          String
+  isActive      Boolean        @default(true)
   avatar        String         @default("")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   notifications Notification[]
   driver        Driver?
   mobileDevices MmMobileDevice[]
+  companies     UserCompany[]
+  updatedSystemSettings SystemSetting[]
+}
+
+/// User ↔ Company membership. Service logic keeps exactly one `isDefault` row per user with memberships.
+model UserCompany {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@map("user_companies")
+}
+
+/// Permission catalog. `code` is stable and referenced by `checkPermission(moduleCode, action)`.
+model Module {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String           @default("")
+  isActive    Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+
+  @@map("modules")
+}
+
+/// CRUD grants per role and module. `role` is a system role string until a Roles table exists.
+model RolePermission {
+  id        String   @id @default(cuid())
+  role      String
+  moduleId  String
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canRead   Boolean  @default(false)
+  canUpdate Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([role, moduleId])
+  @@index([moduleId])
+  @@map("role_permissions")
+}
+
+/// Global key/value configuration. Keys and types are defined in system-settings.catalog.ts.
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  valueType   String
+  label       String
+  description String   @default("")
+  group       String
+  sortOrder   Int      @default(0)
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([group])
+  @@map("system_settings")
 }
 
 model Notification {
@@ -134,6 +205,7 @@ model Company {
   supplyProposals          MmSupplyProposal[]
   projectedStocks          MmProjectedStock[]
   bomExplosionTraces       MmBomExplosionTrace[]
+  userCompanies            UserCompany[]
 
   @@map("companies")
 }

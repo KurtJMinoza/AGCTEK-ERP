@@ -7,9 +7,13 @@ import Link from 'next/link'
 import signOut from '@/server/actions/auth/handleSignOut'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import useUserAvatar from '@/modules/account/hooks/useUserAvatar'
+import useAuthority from '@/utils/hooks/useAuthority'
+import { SUPER_ADMIN_AUTHORITY } from '@/constants/roles.constant'
+import { SUPER_ADMIN_SETTINGS_PATH } from '@/constants/route.constant'
 import {
     PiUserDuotone,
     PiGearDuotone,
+    PiShieldCheckDuotone,
     PiSignOutDuotone,
 } from 'react-icons/pi'
 import type { JSX } from 'react'
@@ -33,9 +37,22 @@ const dropdownItemList: DropdownList[] = [
     },
 ]
 
+const superAdminItem: DropdownList = {
+    label: 'Super Admin Settings',
+    path: SUPER_ADMIN_SETTINGS_PATH,
+    icon: <PiShieldCheckDuotone />,
+}
+
 const _UserDropdown = () => {
     const { session } = useCurrentSession()
     const { avatar } = useUserAvatar()
+    const isSuperAdmin = useAuthority(
+        session?.user?.authority ?? [],
+        SUPER_ADMIN_AUTHORITY,
+    )
+    const items = isSuperAdmin
+        ? [...dropdownItemList, superAdminItem]
+        : dropdownItemList
 
     const handleSignOut = async () => {
         await signOut()
@@ -70,7 +87,7 @@ const _UserDropdown = () => {
                 </div>
             </Dropdown.Item>
             <Dropdown.Item variant="divider" />
-            {dropdownItemList.map((item) => (
+            {items.map((item) => (
                 <Dropdown.Item
                     key={item.label}
                     eventKey={item.label}

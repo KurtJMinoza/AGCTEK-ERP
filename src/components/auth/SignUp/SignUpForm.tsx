@@ -3,10 +3,8 @@
 import { useState } from 'react'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
-import Select from '@/components/ui/Select'
 import { FormItem, Form } from '@/components/ui/Form'
 import PasswordInput from '@/components/shared/PasswordInput'
-import { ROLE_OPTIONS, type RoleOption, type UserRole } from '@/constants/roles.constant'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -20,7 +18,6 @@ type SignUpFormSchema = {
     email: string
     password: string
     confirmPassword: string
-    role: UserRole
 }
 
 export type OnSignUpPayload = {
@@ -50,9 +47,6 @@ const validationSchema = z
             .string()
             .min(6, { message: 'At least 6 characters' }),
         confirmPassword: z.string().min(1, { message: 'Confirm your password' }),
-        role: z.enum(['super_admin', 'admin'], {
-            message: 'Select a role',
-        }),
     })
     .refine((data) => data.password === data.confirmPassword, {
         message: 'Passwords do not match',
@@ -76,7 +70,6 @@ const SignUpForm = (props: SignUpFormProps) => {
             email: '',
             password: '',
             confirmPassword: '',
-            role: undefined,
         },
         resolver: zodResolver(validationSchema),
     })
@@ -187,30 +180,6 @@ const SignUpForm = (props: SignUpFormProps) => {
                                     placeholder="name@company.com"
                                     autoComplete="email"
                                     {...field}
-                                />
-                            )}
-                        />
-                    </FormItem>
-
-                    <FormItem
-                        label="Role"
-                        invalid={Boolean(errors.role)}
-                        errorMessage={errors.role?.message}
-                        className="col-span-2 mb-2.5"
-                    >
-                        <Controller
-                            name="role"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<RoleOption>
-                                    placeholder="Super Admin or Admin"
-                                    options={ROLE_OPTIONS}
-                                    value={ROLE_OPTIONS.find(
-                                        (option) => option.value === field.value,
-                                    )}
-                                    onChange={(option) =>
-                                        field.onChange(option?.value)
-                                    }
                                 />
                             )}
                         />

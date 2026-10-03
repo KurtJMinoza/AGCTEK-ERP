@@ -8,6 +8,7 @@ import Tooltip from '@/components/ui/Tooltip'
 import ErpIcon from '@/components/erp/ErpIcon'
 import { getResolvedErpModules } from '@/configs/erp-modules'
 import { getActiveModuleCode } from '@/utils/erp-navigation'
+import usePermissions from '@/utils/hooks/usePermissions'
 import type { ErpModule } from '@/types/erp-modules'
 
 const { MenuItem, MenuGroup } = Menu
@@ -22,7 +23,14 @@ export default function ErpSidebarContent({
     onNavigate,
 }: ErpSidebarContentProps) {
     const pathname = usePathname()
-    const modules = useMemo(() => getResolvedErpModules(), [])
+    const { can, loading } = usePermissions()
+    const modules = useMemo(
+        () =>
+            loading
+                ? []
+                : getResolvedErpModules().filter((module) => can(module.code, 'view')),
+        [can, loading],
+    )
     const activeModuleCode = getActiveModuleCode(pathname)
     const activeKeys = activeModuleCode ? [activeModuleCode] : []
 

@@ -1,6 +1,7 @@
 import {
     NAV_ITEM_TYPE_ITEM,
 } from '@/constants/navigation.constant'
+import { SUPER_ADMIN_AUTHORITY } from '@/constants/roles.constant'
 
 import type { NavigationTree } from '@/@types/navigation'
 
@@ -23,6 +24,16 @@ const navigationConfig: NavigationTree[] = [
         icon: 'activityLog',
         type: NAV_ITEM_TYPE_ITEM,
         authority: [],
+        subMenu: [],
+    },
+    {
+        key: 'superAdminSettings',
+        path: '/super-admin/settings',
+        title: 'Super Admin Settings',
+        translateKey: 'nav.superAdminSettings',
+        icon: 'superAdminSettings',
+        type: NAV_ITEM_TYPE_ITEM,
+        authority: SUPER_ADMIN_AUTHORITY,
         subMenu: [],
     },
 ]

@@ -1,5 +1,6 @@
 import authRoute from './authRoute'
 import type { Routes } from '@/@types/routes'
+import { SUPER_ADMIN_AUTHORITY } from '@/constants/roles.constant'
 
 export const protectedRoutes: Routes = {
     '/home': {
@@ -28,6 +29,38 @@ export const protectedRoutes: Routes = {
     },
     '/account/settings': {
         key: 'accountSettings',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/settings': {
+        key: 'superAdminSettings',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/users': {
+        key: 'superAdminUsers',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/system-settings': {
+        key: 'superAdminSystemSettings',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/access-denied': {
+        key: 'accessDenied',
         authority: [],
         meta: {
             pageBackgroundType: 'plain',
@@ -152,6 +185,14 @@ export const protectedRoutes: Routes = {
 }
 
 export const publicRoutes: Routes = {
+    '/maintenance': {
+        key: 'maintenance',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/awic': {
         key: 'retailShop',
         authority: [],
