@@ -17,10 +17,14 @@ import {
     UpdateProductDto,
 } from './dto/product.dto'
 import { ProductService } from './product.service'
+import { CommercialAvailabilityService } from './commercial-availability.service'
 
 @Controller('sd/products')
 export class ProductController {
-    constructor(private products: ProductService) {}
+    constructor(
+        private products: ProductService,
+        private availabilityService: CommercialAvailabilityService,
+    ) {}
 
     @Get()
     list(@Query() query: ListProductsQueryDto) {
@@ -37,6 +41,23 @@ export class ProductController {
         return this.products.uploadImage(buffer)
     }
 
+    @Get('suggested-sku')
+    suggestedSku(@Query('divisionId') divisionId: string) {
+        return this.products.suggestSku(divisionId)
+    }
+
+    @Get('storefront/availability')
+    storefrontAvailability(
+        @Query('divisionId') divisionId: string,
+        @Query('sku') sku: string,
+    ) {
+        return this.products.getStorefrontAvailability(
+            divisionId,
+            sku,
+            this.availabilityService,
+        )
+    }
+
     @Get('images/:key')
     getImage(@Param('key') key: string, @Res() res: FastifyReply) {
         const { stream, mimeType } = this.products.getImage(key)
@@ -44,6 +65,25 @@ export class ProductController {
         res.header('Cache-Control', 'public, max-age=31536000, immutable')
         res.header('X-Content-Type-Options', 'nosniff')
         return res.send(stream)
+    }
+
+    @Get(':id/availability')
+    availability(
+        @Param('id') id: string,
+        @Query('companyId') companyId: string,
+        @Query('branchId') branchId?: string,
+        @Query('divisionId') divisionId?: string,
+        @Query('channel') channel?: string,
+        @Query('quantity') quantity?: string,
+    ) {
+        return this.availabilityService.getForProduct({
+            productId: id,
+            companyId,
+            branchId,
+            divisionId,
+            channel,
+            quantity: quantity ? Number(quantity) : undefined,
+        })
     }
 
     @Get(':id')

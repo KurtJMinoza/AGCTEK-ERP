@@ -1,6 +1,5 @@
 /**
- * SCM fleet + logistics demo that connects to MM packages (handoff).
- * Call after `seedMmOrg` so MAT-STEEL-001 / MAIN / bins exist.
+ * SCM fleet + logistics demo; optional MM package handoff when MAIN + MAT-STEEL-001 exist.
  */
 import {
     GeofenceKind,

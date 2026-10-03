@@ -32,6 +32,7 @@ import {
     buildGroupedBaseUomOptions,
     getConvertibleUomIds,
 } from '@/modules/mm/shared/uomHelpers'
+import StockThresholdSummary from './StockThresholdSummary'
 import type { Material, CreateMaterialPayload } from '../types'
 import type { ReactNode } from 'react'
 
@@ -70,6 +71,8 @@ const baseMaterialSchema = z
         inventoryManaged: z.boolean(),
         purchasable: z.boolean(),
         sellable: z.boolean(),
+        onHandQty: z.number().min(0),
+        reservedQty: z.number().min(0),
         minimumStock: z.number().min(0),
         maximumStock: z.number().min(0),
         safetyStock: z.number().min(0),
@@ -92,6 +95,10 @@ const baseMaterialSchema = z
     .refine((d) => d.reorderPoint === 0 || d.safetyStock === 0 || d.reorderPoint >= d.safetyStock, {
         path: ['reorderPoint'],
         message: 'Reorder point should be >= safety stock',
+    })
+    .refine((d) => d.reservedQty <= d.onHandQty, {
+        path: ['reservedQty'],
+        message: 'Reserved cannot exceed on hand',
     })
 
 type FormShape = z.infer<typeof baseMaterialSchema>
@@ -135,6 +142,8 @@ const blankValues: FormShape = {
     inventoryManaged: true,
     purchasable: true,
     sellable: true,
+    onHandQty: 0,
+    reservedQty: 0,
     minimumStock: 0,
     maximumStock: 0,
     safetyStock: 0,
@@ -182,6 +191,8 @@ function toFormValues(material?: Material | null): FormShape {
         inventoryManaged: material.inventoryManaged,
         purchasable: material.purchasable,
         sellable: material.sellable,
+        onHandQty: Number(material.onHandQty ?? 0),
+        reservedQty: Number(material.reservedQty ?? 0),
         minimumStock: Number(material.minimumStock),
         maximumStock: Number(material.maximumStock),
         safetyStock: Number(material.safetyStock),
@@ -206,7 +217,7 @@ const TABS: TabDef[] = [
     { value: 'uom', label: 'UOM', icon: <HiOutlineScale />, fields: ['baseUomId', 'purchaseUomId', 'salesUomId'] },
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
-    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'minimumStock', 'maximumStock', 'safetyStock', 'reorderPoint', 'reorderQuantity', 'leadTimeDays', 'minimumOrderQuantity'] },
+    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'reservedQty', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'currencyId', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
 ]
 
@@ -272,6 +283,10 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
     })
 
     const nameValue = useWatch({ control, name: 'materialName' }) ?? ''
+    const onHandWatch = useWatch({ control, name: 'onHandQty' }) ?? 0
+    const reservedWatch = useWatch({ control, name: 'reservedQty' }) ?? 0
+    const maximumStockWatch = useWatch({ control, name: 'maximumStock' }) ?? 0
+    const safetyStockWatch = useWatch({ control, name: 'safetyStock' }) ?? 0
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
     const purchaseUomId = useWatch({ control, name: 'purchaseUomId' }) ?? ''
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
@@ -369,6 +384,8 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
             inventoryManaged: values.inventoryManaged,
             purchasable: values.purchasable,
             sellable: values.sellable,
+            onHandQty: values.onHandQty,
+            reservedQty: values.reservedQty,
             minimumStock: values.minimumStock,
             maximumStock: values.maximumStock,
             safetyStock: values.safetyStock,
@@ -631,21 +648,106 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
                             <Controller name="sellable" control={control} render={({ field }) => <ToggleRow label="Sellable" description="Can be sold." checked={field.value} onChange={field.onChange} />} />
                         </div>
                         <SectionHeader title="Stock thresholds" className="mt-4" />
-                        <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-                            <FormItem label="Minimum stock" invalid={Boolean(errors.minimumStock)} errorMessage={errors.minimumStock?.message}>
-                                <Controller name="minimumStock" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
-                            </FormItem>
-                            <FormItem label="Maximum stock" invalid={Boolean(errors.maximumStock)} errorMessage={errors.maximumStock?.message}>
-                                <Controller name="maximumStock" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
-                            </FormItem>
-                            <FormItem label="Safety stock"><Controller name="safetyStock" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} /></FormItem>
-                            <FormItem label="Reorder point" invalid={Boolean(errors.reorderPoint)} errorMessage={errors.reorderPoint?.message}>
-                                <Controller name="reorderPoint" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
-                            </FormItem>
-                            <FormItem label="Reorder quantity"><Controller name="reorderQuantity" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} /></FormItem>
-                            <FormItem label="Lead time (days)"><Controller name="leadTimeDays" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={0} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} /></FormItem>
-                            <FormItem label="Min order qty"><Controller name="minimumOrderQuantity" control={control} render={({ field }) => <NumericInput placeholder="0" allowNegative={false} decimalScale={2} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} /></FormItem>
-                        </div>
+                        <p className="mb-3 text-xs text-gray-500">
+                            Stock thresholds are the source for Product Catalog and ecommerce.
+                            Change on hand here when receiving stock (goods receipts can also
+                            update WM ledger separately).
+                        </p>
+                        <StockThresholdSummary
+                            variant="form"
+                            onHand={Number(onHandWatch)}
+                            reserved={Number(reservedWatch)}
+                            maxStock={Number(maximumStockWatch)}
+                            safetyStock={Number(safetyStockWatch)}
+                            onHandInput={
+                                <FormItem
+                                    label="On hand"
+                                    invalid={Boolean(errors.onHandQty)}
+                                    errorMessage={errors.onHandQty?.message}
+                                >
+                                    <Controller
+                                        name="onHandQty"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <NumericInput
+                                                placeholder="0"
+                                                allowNegative={false}
+                                                decimalScale={2}
+                                                value={field.value ?? 0}
+                                                onValueChange={(v) =>
+                                                    field.onChange(v.floatValue ?? 0)
+                                                }
+                                            />
+                                        )}
+                                    />
+                                </FormItem>
+                            }
+                            reservedInput={
+                                <FormItem
+                                    label="Reserved"
+                                    invalid={Boolean(errors.reservedQty)}
+                                    errorMessage={errors.reservedQty?.message}
+                                >
+                                    <Controller
+                                        name="reservedQty"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <NumericInput
+                                                placeholder="0"
+                                                allowNegative={false}
+                                                decimalScale={2}
+                                                value={field.value ?? 0}
+                                                onValueChange={(v) =>
+                                                    field.onChange(v.floatValue ?? 0)
+                                                }
+                                            />
+                                        )}
+                                    />
+                                </FormItem>
+                            }
+                            maxStockInput={
+                                <FormItem
+                                    label="Max stock"
+                                    invalid={Boolean(errors.maximumStock)}
+                                    errorMessage={errors.maximumStock?.message}
+                                >
+                                    <Controller
+                                        name="maximumStock"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <NumericInput
+                                                placeholder="0"
+                                                allowNegative={false}
+                                                decimalScale={2}
+                                                value={field.value ?? 0}
+                                                onValueChange={(v) =>
+                                                    field.onChange(v.floatValue ?? 0)
+                                                }
+                                            />
+                                        )}
+                                    />
+                                </FormItem>
+                            }
+                            safetyStockInput={
+                                <FormItem label="Safety stock">
+                                    <Controller
+                                        name="safetyStock"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <NumericInput
+                                                placeholder="0"
+                                                allowNegative={false}
+                                                decimalScale={2}
+                                                value={field.value ?? 0}
+                                                onValueChange={(v) =>
+                                                    field.onChange(v.floatValue ?? 0)
+                                                }
+                                            />
+                                        )}
+                                    />
+                                </FormItem>
+                            }
+                        />
                     </TabPanel>
 
                     {/* VALUATION */}

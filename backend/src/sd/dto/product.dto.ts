@@ -59,13 +59,18 @@ export class CreateProductDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId!: string
 
+    @IsOptional()
+    @IsBoolean()
+    autoGenerateSku?: boolean
+
+    @ValidateIf((dto: CreateProductDto) => !dto.autoGenerateSku)
     @Transform(upperTrim)
     @IsString()
     @Matches(/^[A-Z0-9][A-Z0-9._-]*$/, {
         message: 'sku may only contain letters, digits, dot, dash and underscore',
     })
     @MaxLength(64)
-    sku!: string
+    sku?: string
 
     @Transform(trim)
     @IsString()
@@ -116,6 +121,14 @@ export class CreateProductDto {
     isActive?: boolean
 
     @IsOptional()
+    @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
+    productType?: string
+
+    @IsOptional()
+    @IsString()
+    salesUomId?: string
+
+    @IsOptional()
     @IsInt()
     @Min(0)
     @Max(100_000)
@@ -127,9 +140,32 @@ export class CreateProductDto {
     @IsObject()
     attributes?: Record<string, unknown> | null
 
+    /** Extra product photos (cover is `imageUrl`); persisted under attributes.gallery. */
+    @IsOptional()
+    @IsString({ each: true })
+    imageGallery?: string[]
+
     @IsOptional()
     @IsString()
     createdBy?: string
+
+    /** MM material for fulfillment (required when productType is STOCK_ITEM). */
+    @IsOptional()
+    @IsString()
+    materialId?: string
+
+    @IsOptional()
+    @IsString({ each: true })
+    materialIds?: string[]
+
+    @IsOptional()
+    @IsIn(['single', 'multiple'])
+    materialLinkMode?: 'single' | 'multiple'
+
+    /** Company scope for the product–material assignment. */
+    @IsOptional()
+    @IsString()
+    companyId?: string
 }
 
 export class UpdateProductDto {
@@ -198,6 +234,14 @@ export class UpdateProductDto {
     isActive?: boolean
 
     @IsOptional()
+    @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
+    productType?: string
+
+    @IsOptional()
+    @IsString()
+    salesUomId?: string
+
+    @IsOptional()
     @IsInt()
     @Min(0)
     @Max(100_000)
@@ -207,6 +251,10 @@ export class UpdateProductDto {
     @ValidateIf((_, value) => value !== null)
     @IsObject()
     attributes?: Record<string, unknown> | null
+
+    @IsOptional()
+    @IsString({ each: true })
+    imageGallery?: string[]
 
     @IsOptional()
     @IsString()

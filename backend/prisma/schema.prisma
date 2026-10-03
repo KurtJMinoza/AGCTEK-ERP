@@ -126,6 +126,9 @@ model Company {
   dashboardAnalyticsCaches MmDashboardAnalyticsCache[]
   sdSalesOrders            SdSalesOrder[]
   sdShipments              SdShipment[]
+  sdProductMaterialAssignments SdProductMaterialAssignment[]
+  sdBranchFulfillments     SdBranchFulfillment[]
+  sdFulfillments           SdFulfillment[]
   ppBillOfMaterials        PpBillOfMaterial[]
   ppProductionOrders       PpProductionOrder[]
   plants                   Plant[]
@@ -271,6 +274,8 @@ model Warehouse {
   serialNumbersCurrent   MmSerialNumber[] @relation("SerialCurrentWarehouse")
   sdSalesOrders          SdSalesOrder[]
   sdShipments            SdShipment[]
+  sdBranchFulfillments   SdBranchFulfillment[]
+  sdFulfillments         SdFulfillment[]
   ppProductionOrders     PpProductionOrder[]
   scmShipmentLinesFrom   ShipmentLine[]                    @relation("ShipmentLineShipFrom")
   scmShipmentLinesReturn ShipmentLine[]                    @relation("ShipmentLineReturn")
@@ -775,6 +780,11 @@ model MmUom {
   receivingLineUoms MmReceivingLine[] @relation("ReceivingLineUom")
   invoiceLineUoms MmSupplierInvoiceLine[] @relation("InvoiceLineUom")
   plannedOrderUoms MmPlannedOrder[] @relation("PlannedOrderUom")
+  sdProductsSalesUom SdProduct[] @relation("SdProductSalesUom")
+  sdAssignmentSalesUom SdProductMaterialAssignment[] @relation("SdAssignmentSalesUom")
+  sdAssignmentMaterialUom SdProductMaterialAssignment[] @relation("SdAssignmentMaterialUom")
+  sdOrderLineSalesUom SdSalesOrderLine[] @relation("SdOrderLineSalesUom")
+  sdOrderLineBaseUom SdSalesOrderLine[] @relation("SdOrderLineBaseUom")
 
   @@map("mm_uoms")
 }
@@ -882,6 +892,9 @@ model MmMaterial {
   /// LOW | MEDIUM | HIGH ΓÇö cycle-count risk
   riskClass                  String?
 
+  /// Commercial on-hand (stock thresholds — source for SD catalog / ecommerce)
+  onHandQty            Decimal @default(0)
+  reservedQty          Decimal @default(0)
   minimumStock         Decimal @default(0)
   maximumStock         Decimal @default(0)
   safetyStock          Decimal @default(0)
@@ -972,6 +985,8 @@ model MmMaterial {
   disposalLines          MmDisposalLine[]
   customerReturnLines    MmCustomerReturnLine[]
   sdSalesOrderLines      SdSalesOrderLine[]
+  sdProductMaterialAssignments SdProductMaterialAssignment[]
+  sdFulfillmentLines     SdFulfillmentLine[]
   ppBillOfMaterials      PpBillOfMaterial[] @relation("BomParentMaterial")
   ppBomComponents        PpBomComponent[]
   ppProductionOrders     PpProductionOrder[] @relation("ProductionFinishedMaterial")
@@ -3497,16 +3512,68 @@ model SdProduct {
   badge         String?
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
+  /// STOCK_ITEM | NON_STOCK_ITEM | SERVICE
+  productType   String   @default("STOCK_ITEM")
+  salesUomId    String?
+  salesUom      MmUom?   @relation("SdProductSalesUom", fields: [salesUomId], references: [id])
   /// Division-specific storefront content (features, specs, includes, gallery, reviews).
   attributes    Json?
   createdBy     String?
   updatedBy     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  materialAssignments SdProductMaterialAssignment[]
+  fulfillmentLines    SdFulfillmentLine[]
 
   @@unique([divisionId, sku])
   @@index([divisionId, isActive, sortOrder])
   @@map("sd_products")
+}
+
+/// Explicit SD product → MM material link (commercial vs inventory authority).
+model SdProductMaterialAssignment {
+  id                  String     @id @default(cuid())
+  productId           String
+  product             SdProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  materialId          String
+  material            MmMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  companyId           String
+  company             Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  divisionId          String?
+  salesUomId          String?
+  salesUom            MmUom?     @relation("SdAssignmentSalesUom", fields: [salesUomId], references: [id])
+  materialUomId       String?
+  materialUom         MmUom?     @relation("SdAssignmentMaterialUom", fields: [materialUomId], references: [id])
+  fulfillmentType     String     @default("WAREHOUSE")
+  inventoryRelevant   Boolean    @default(true)
+  atpRelevant         Boolean    @default(true)
+  reservationRelevant Boolean    @default(true)
+  effectiveFrom       DateTime   @default(now())
+  effectiveTo         DateTime?
+  status              String     @default("ACTIVE")
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@index([productId, companyId, status])
+  @@index([materialId])
+  @@map("sd_product_material_assignments")
+}
+
+/// POS / e-commerce branch code → MM fulfillment warehouse (until Branch master codes align).
+model SdBranchFulfillment {
+  id          String    @id @default(cuid())
+  branchCode  String    @unique
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  divisionId  String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId])
+  @@map("sd_branch_fulfillment")
 }
 
 model SdSalesOrder {
@@ -3544,6 +3611,7 @@ model SdSalesOrder {
   updatedAt       DateTime @updatedAt
   lines           SdSalesOrderLine[]
   shipments       SdShipment[]
+  fulfillments    SdFulfillment[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -3558,6 +3626,7 @@ model SdSalesOrderLine {
   salesOrderId          String
   salesOrder            SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   lineNumber            Int
+  productId             String?
   /// Required for MM-integrated orders; retail lines carry sku until mapped to MM-01.
   materialId            String?
   material              MmMaterial? @relation(fields: [materialId], references: [id], onDelete: Restrict)
@@ -3565,7 +3634,14 @@ model SdSalesOrderLine {
   description           String?
   unitPrice             Decimal?
   lineTotal             Decimal?
+  /// Commercial sales quantity (sales UOM).
   quantity              Decimal
+  salesUomId            String?
+  salesUom              MmUom?   @relation("SdOrderLineSalesUom", fields: [salesUomId], references: [id])
+  /// MM base quantity for ATP / reservation / demand.
+  baseQuantity          Decimal?
+  baseUomId             String?
+  baseUom               MmUom?   @relation("SdOrderLineBaseUom", fields: [baseUomId], references: [id])
   reservedQuantity      Decimal  @default(0)
   issuedQuantity        Decimal  @default(0)
   reservationHeaderId   String?
@@ -3573,10 +3649,60 @@ model SdSalesOrderLine {
   integrationStatus     String   @default("OPEN")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+  fulfillmentLines      SdFulfillmentLine[]
 
   @@unique([salesOrderId, lineNumber])
   @@index([materialId])
+  @@index([productId])
   @@map("sd_sales_order_lines")
+}
+
+model SdFulfillment {
+  id                String   @id @default(cuid())
+  salesOrderId      String
+  salesOrder        SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouseId       String
+  warehouse         Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  fulfillmentMethod String   @default("WAREHOUSE")
+  status            String   @default("OPEN")
+  requestedDate     DateTime?
+  confirmedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lines             SdFulfillmentLine[]
+
+  @@index([salesOrderId])
+  @@index([warehouseId, status])
+  @@map("sd_fulfillments")
+}
+
+model SdFulfillmentLine {
+  id               String   @id @default(cuid())
+  fulfillmentId    String
+  fulfillment      SdFulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+  salesOrderLineId String
+  salesOrderLine   SdSalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          SdProduct? @relation(fields: [productId], references: [id])
+  materialId       String?
+  material         MmMaterial? @relation(fields: [materialId], references: [id])
+  salesQty         Decimal
+  salesUomId       String?
+  baseQty          Decimal
+  baseUomId        String
+  reservedQty      Decimal  @default(0)
+  allocatedQty     Decimal  @default(0)
+  pickedQty        Decimal  @default(0)
+  packedQty        Decimal  @default(0)
+  issuedQty        Decimal  @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([fulfillmentId])
+  @@index([salesOrderLineId])
+  @@map("sd_fulfillment_lines")
 }
 
 /// SD shipment document stub — fulfillment tracked via MM goods issue.

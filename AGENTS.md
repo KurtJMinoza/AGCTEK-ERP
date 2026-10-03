@@ -21,6 +21,7 @@ CRM = CUSTOMER RELATIONSHIP · SD = COMMERCIAL ORDER · MM = MATERIAL + INVENTOR
 SCM = PHYSICAL MOVEMENT · FICO = FINANCIAL EFFECT
 
 ONE inventory posting engine · ONE ATP authority · ONE MRP engine
+ONE SD→MM fulfillment pipeline (all channels) · explicit product–material assignment
 ONE event/outbox contract · ONE owner per business concept · NO duplicate logic
 ```
 
@@ -131,13 +132,77 @@ Prefer **one** authoritative engine per concern:
 | Operational on-hand | `MmInventoryBalance` (derived) |
 | Availability | `InventoryAvailabilityService` |
 | Material identity | Material Master (MM-01) |
+| Sellable / merchandised offering | SD Product Catalog (commercial representation) |
+| Product → stock link | Explicit **product–material assignment** (SD owns link; MM owns material) |
 | Supplier identity | Supplier Master (MM-02) |
 | Warehouse topology | Warehouse Master (MM-03) |
 | Planning output | MRP / planning (MM-05)—**never** posts inventory |
+| Customer pricing, channels, SO state | SD |
+| Pick / pack / GI / reservation | MM |
 
 ---
 
-## 4. Materials Management invariants
+## 4. SD ↔ MM product and fulfillment (mandatory)
+
+**Lock this before expanding SD or MM surface area.**
+
+### 4.1 Two representations
+
+- **SD Product Catalog** is the **commercial** representation of a sellable offering (merchandising, channel pricing, storefront/POS presentation).
+- **MM Material Master** is the **authoritative** representation of a physical / inventory-managed item.
+
+Inventory-relevant SD products **must** resolve to MM materials through an **explicit product–material assignment** before:
+
+- ATP checks  
+- Reservation  
+- Demand planning (MRP input)  
+- Warehouse fulfillment (pick / pack / dispatch)
+
+Until assignment exists, treat the SKU as **commercial-only** (order capture allowed; no MM pipeline).
+
+### 4.2 SD boundaries (must not)
+
+SD **may** request and display MM availability and fulfillment state.
+
+SD **must never**:
+
+- Calculate ATP (consume MM APIs only)  
+- Create physical stock movements  
+- Update inventory balances  
+- Choose supplier procurement directly  
+- Bypass MM domain services (`InventoryAvailabilityService`, reservation/allocation engines, `InventoryPostingService`, warehouse execution)
+
+### 4.3 MM boundaries (must not)
+
+MM **must not** own:
+
+- Customer pricing  
+- Product merchandising  
+- Sales-channel behavior  
+- Commercial sales order state (SD owns SO lifecycle and integration status on lines)
+
+### 4.4 One fulfillment pipeline for all channels
+
+**STANDARD**, **POS**, and **ECOMMERCE** are **order-entry channels**, not separate inventory architectures.
+
+All **inventory-relevant** orders must converge through the same pipeline:
+
+```text
+SD order (any channel)
+  → Material resolution (product–material assignment + warehouse/company scope)
+  → Fulfillment determination (what MM must execute)
+  → MM: ATP → Reservation → Demand sync → Allocation → Pick → Pack → READY_FOR_DISPATCH → …
+```
+
+Do **not** implement parallel “retail-only” or “POS-only” stock engines. Channel-specific code may differ only **before** material resolution (pricing, payment, UX); **after** resolution, reuse the same SD ↔ MM integration (`SdIntegrationService`, demand listener, reservation events, warehouse ops).
+
+**Implementation gap to close:** retail/POS/e-commerce orders that stop at SKU lines without assignment must be extended to resolve materials and enter this pipeline—do not add a second path around MM.
+
+**Reference:** `backend/src/mm/integration/sd/`, `backend/src/sd/sd-demand.listener.ts`, `docs/MASTER_E2E_SALES_ORDER_SCENARIO.md`
+
+---
+
+## 5. Materials Management invariants
 
 ```text
 Business Operation
@@ -161,7 +226,7 @@ Reservations/allocations do **not** reduce physical on-hand. Goods Issue perform
 
 ---
 
-## 5. Domain ownership (MM-01 … MM-15)
+## 6. Domain ownership (MM-01 … MM-15)
 
 Respect boundaries: Material Master, Supplier, Warehouse, Valuation, Planning/MRP, Procurement, Receiving/Quality, **Inventory Core**, Warehouse Execution, Inventory Control, Returns/Disposal, Barcode/Mobile, Supplier Performance, Analytics, Dashboard.
 
@@ -169,7 +234,7 @@ Do not move ownership without architectural justification. See `docs/MM_DEPENDEN
 
 ---
 
-## 6. MRP rules (summary)
+## 7. MRP rules (summary)
 
 MRP is **planning only**. May read inventory, availability, demand, supply; may recommend PRs/planned orders. Must **never** post inventory or mutate ledger/balances. Recommendations must be **explainable**.
 
@@ -177,7 +242,7 @@ MRP is **planning only**. May read inventory, availability, demand, supply; may 
 
 ---
 
-## 7. Quality rules (summary)
+## 8. Quality rules (summary)
 
 Quality decides whether stock may be used; inventory owns quantity and movement. Quality must **not** directly modify balances. Flow: Receiving → GR → Inspection Lot → Decision → status/movement via `InventoryPostingService`.
 
@@ -185,7 +250,7 @@ Quality decides whether stock may be used; inventory owns quantity and movement.
 
 ---
 
-## 8. Cross-module integration
+## 9. Cross-module integration
 
 Do not directly modify another module’s tables. Prefer: domain transaction → outbox → typed event → consumer → consumer-owned transaction.
 
@@ -194,7 +259,7 @@ Do not directly modify another module’s tables. Prefer: domain transaction →
 
 ---
 
-## 9. Database rules
+## 10. Database rules
 
 Before schema changes: search models, relations, migrations, naming, indexes, uniqueness. Prefer **extending** models over overlapping new ones. Consider FKs, org scope, audit, lifecycle/status. Never ship a migration without verifying full DB impact.
 
@@ -202,7 +267,7 @@ Before schema changes: search models, relations, migrations, naming, indexes, un
 
 ---
 
-## 10. API rules
+## 11. API rules
 
 MM API root: `/api/v1/mm` (global prefix in `backend/src/main.ts`).
 
@@ -212,7 +277,7 @@ Before new endpoints: search existing routes, controllers, frontend services. On
 
 ---
 
-## 11. Frontend rules
+## 12. Frontend rules
 
 Frontend is **not** the business authority. Display state, collect input, call APIs—do not authoritatively compute inventory, ATP, valuation, MRP, supplier scores, or accounting in React.
 
@@ -220,7 +285,7 @@ Frontend is **not** the business authority. Display state, collect input, call A
 
 ---
 
-## 12. Implementation workflow
+## 13. Implementation workflow
 
 | Phase | Action |
 | --- | --- |
@@ -233,7 +298,7 @@ Frontend is **not** the business authority. Display state, collect input, call A
 
 ---
 
-## 13. Validation requirement
+## 14. Validation requirement
 
 A task is **not** complete because code was generated. Complete only when architecture is respected, applicable validation **ran**, and duplicates were checked.
 
@@ -243,13 +308,13 @@ If validation could not run, state exactly what was **not** validated. **Never c
 
 ---
 
-## 14. Change safety
+## 15. Change safety
 
 Prefer small, localized, backward-compatible, reversible changes. Avoid unnecessary rewrites and API churn. Large work → phased delivery with validation between phases.
 
 ---
 
-## 15–20. Operations discipline
+## 16–21. Operations discipline
 
 - **Errors:** Deterministic, readable validation; distinguish auth, scope, not found, conflict, concurrency, integration failures.
 - **State machines:** Valid transitions only; no arbitrary status jumps (e.g. POSTED → DRAFT) without documented reversal flows.
@@ -260,7 +325,7 @@ Prefer small, localized, backward-compatible, reversible changes. Avoid unnecess
 
 ---
 
-## 21. Documentation is authoritative
+## 22. Documentation is authoritative
 
 For MM and cross-cutting work, read relevant `docs/MM_*.md` and Skills **before** implementing. If code and docs disagree: detect, determine actual behavior, do not assume—update docs when behavior intentionally changes.
 
@@ -268,30 +333,31 @@ Examples: `MM_ARCHITECTURE.md`, `MM_TRANSACTION_RULES.md`, `MM_FORBIDDEN_PATTERN
 
 ---
 
-## 22. Canonical code
+## 23. Canonical code
 
 When a pattern exists elsewhere in the repo, **follow it** (controller, service, DTO, list page, form, audit, events). See `docs/CANONICAL_PATTERNS.md`.
 
 ---
 
-## 23. No unnecessary repetition
+## 24. No unnecessary repetition
 
 Reuse established findings from earlier search in the same task. Do not re-scan unrelated areas or regenerate duplicate analysis blocks.
 
 ---
 
-## 24. When uncertain
+## 25. When uncertain
 
 Do not invent. Search repo, docs, tests, callers, schema. State remaining uncertainty with evidence.
 
 ---
 
-## 25. Definition of done (checklist)
+## 26. Definition of done (checklist)
 
 Before reporting completion, verify applicable items:
 
 - [ ] Existing functionality inspected; reuse where possible
 - [ ] No duplicate domain/service/API introduced; correct module ownership
+- [ ] SD↔MM: inventory-relevant products use product–material assignment; no SD-side ATP/stock bypass
 - [ ] DB migration validated (if any)
 - [ ] Authorization and organization scope validated
 - [ ] Workflow/status transitions and idempotency (where applicable)

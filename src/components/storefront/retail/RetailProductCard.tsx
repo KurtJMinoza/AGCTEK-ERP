@@ -45,8 +45,10 @@ export default function RetailProductCard({
         }
     }, [product.sku])
 
-    const inStock = (atp?.availableQuantity ?? 0) > 0
-    const soldOut = !loadingStock && !inStock
+    const nonInventory = atp?.state === 'NON_INVENTORY'
+    const sellable = atp?.availableQuantity ?? 0
+    const inStock = nonInventory || sellable > 0
+    const soldOut = !loadingStock && !!atp && !inStock
     const href = `/awic/${encodeURIComponent(product.sku)}`
 
     return (

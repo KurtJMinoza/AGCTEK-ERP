@@ -408,7 +408,11 @@ const ProductCatalogDashboard = () => {
                 isOpen={dialog !== null}
                 mode={dialog?.mode ?? 'create'}
                 product={dialog?.mode === 'edit' ? dialog.product : null}
-                defaultDivisionId={divisionFilter === 'all' ? '' : divisionFilter}
+                defaultDivisionId={
+                    divisionFilter === 'all'
+                        ? PRODUCT_DIVISIONS[0]?.id ?? ''
+                        : divisionFilter
+                }
                 saving={saving}
                 onClose={() => setDialog(null)}
                 onSubmit={handleSubmit}

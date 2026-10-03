@@ -29,6 +29,8 @@ export type ProductListParams = {
     search?: string
 }
 
+export type SdProductType = 'STOCK_ITEM' | 'NON_STOCK_ITEM' | 'SERVICE'
+
 export type ProductInput = {
     divisionId: string
     sku: string
@@ -42,6 +44,36 @@ export type ProductInput = {
     isActive?: boolean
     sortOrder?: number
     attributes?: ProductAttributes | null
+    productType?: SdProductType
+    /** Required for STOCK_ITEM — explicit SD ↔ MM link at creation. */
+    materialId?: string
+    materialIds?: string[]
+    materialLinkMode?: 'single' | 'multiple'
+    companyId?: string
+    autoGenerateSku?: boolean
+    imageGallery?: string[]
+}
+
+export function productImageGallery(record: Pick<SdProductRecord, 'imageUrl' | 'attributes'>): string[] {
+    const extra = record.attributes?.gallery
+    const gallery = Array.isArray(extra)
+        ? extra.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+        : []
+    const cover = record.imageUrl?.trim() ?? ''
+    if (!cover) return gallery
+    return [cover, ...gallery.filter((u) => u !== cover)]
+}
+
+export async function suggestProductSku(divisionId: string): Promise<string> {
+    try {
+        const { data } = await ErpAxiosBase.get<{ sku: string }>(
+            '/sd/products/suggested-sku',
+            { params: { divisionId } },
+        )
+        return data.sku
+    } catch (error) {
+        throw toError(error, 'Unable to suggest SKU')
+    }
 }
 
 /** Reads one storefront attribute, falling back when absent. */
@@ -86,8 +118,38 @@ export async function listProducts(
 export async function createProduct(
     input: ProductInput,
 ): Promise<SdProductRecord> {
+    const {
+        materialId,
+        materialIds,
+        materialLinkMode,
+        companyId,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        ...rest
+    } = input
+    const body: Record<string, unknown> = {
+        ...rest,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        materialLinkMode,
+    }
+    if (productType === 'STOCK_ITEM' && companyId?.trim()) {
+        body.companyId = companyId.trim()
+        const ids =
+            materialIds?.filter(Boolean) ??
+            (materialId?.trim() ? [materialId.trim()] : [])
+        if (ids.length) body.materialIds = ids
+    }
+    if (autoGenerateSku) {
+        delete body.sku
+    }
     try {
-        const { data } = await ErpAxiosBase.post<ApiProduct>('/sd/products', input)
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            '/sd/products',
+            body as ProductInput,
+        )
         return fromApi(data)
     } catch (error) {
         throw toError(error, 'Unable to create product')

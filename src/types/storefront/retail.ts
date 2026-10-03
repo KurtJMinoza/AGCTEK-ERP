@@ -16,6 +16,7 @@ export type RetailProductReview = {
 }
 
 export type RetailProduct = {
+    productId: string
     itemId: string
     sku: string
     name: string
@@ -27,15 +28,26 @@ export type RetailProduct = {
     basePrice: number
     category: RetailProductCategory
     imageUrl: string
+    imageGallery: string[]
     salesOrgId: typeof RETAIL_DIVISION_ID
     popularity?: number
 }
 
 export type InventoryATP = {
     sku: string
+    /** Commercial ATP (Product Catalog “Stock available”). */
     availableQuantity: number
     reservedQuantity: number
+    /** Company on-hand across warehouses (MM ledger). */
     physicalStock: number
+    /** Company available across warehouses (MM ledger). */
+    ledgerAvailable?: number
+    state?:
+        | 'IN_STOCK'
+        | 'LOW_STOCK'
+        | 'OUT_OF_STOCK'
+        | 'NOT_MAPPED'
+        | 'NON_INVENTORY'
 }
 
 /** Prices are not stored on the cart; SD pricing computes all totals. */

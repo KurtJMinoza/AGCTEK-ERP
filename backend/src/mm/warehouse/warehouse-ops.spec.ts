@@ -326,7 +326,7 @@ describe('Warehouse Operations', () => {
 
     describe('PackingService', () => {
         it('should create a package with auto-generated code', async () => {
-            mockPrisma.wmPackage.findFirst.mockResolvedValueOnce(null)
+            mockPrisma.wmPackage.findMany.mockResolvedValueOnce([])
             mockPrisma.wmPackage.create.mockResolvedValue({
                 id: '1',
                 packageNumber: 'PKG-000001',
@@ -339,6 +339,33 @@ describe('Warehouse Operations', () => {
             })
 
             expect(result.packageNumber).toBe('PKG-000001')
+            expect(mockPrisma.wmPackage.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ packageNumber: 'PKG-000001' }),
+                }),
+            )
+        })
+
+        it('should ignore non-numeric PKG codes when generating the next number', async () => {
+            mockPrisma.wmPackage.findMany.mockResolvedValueOnce([
+                { packageNumber: 'PKG-DEBUG-123' },
+                { packageNumber: 'PKG-SCM-MIN-001' },
+                { packageNumber: 'PKG-000001' },
+            ])
+            mockPrisma.wmPackage.create.mockImplementation(({ data }: any) =>
+                Promise.resolve({ id: '2', ...data }),
+            )
+
+            await packingService.create({
+                warehouseId: 'wh1',
+                items: [{ materialId: 'mat1', expectedQty: 1 }],
+            })
+
+            expect(mockPrisma.wmPackage.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ packageNumber: 'PKG-000002' }),
+                }),
+            )
         })
 
         it('should verify a package and return exceptions if items not fully scanned', async () => {

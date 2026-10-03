@@ -73,6 +73,7 @@ export default function RetailProductDetailPage() {
     const [confirmAction, setConfirmAction] = useState<'add' | 'buy' | null>(
         null,
     )
+    const [activeImage, setActiveImage] = useState(0)
 
     useEffect(() => {
         let active = true
@@ -89,6 +90,7 @@ export default function RetailProductDetailPage() {
                 setProduct(nextProduct)
                 setAtp(nextAtp)
                 setQuantity(1)
+                setActiveImage(0)
             })
             .catch(() => {
                 if (!active) return
@@ -103,8 +105,21 @@ export default function RetailProductDetailPage() {
         }
     }, [sku])
 
-    const inStock = (atp?.availableQuantity ?? 0) > 0
+    const availableQty = atp?.availableQuantity ?? 0
+    const onHand = atp?.physicalStock ?? 0
+    const nonInventory = atp?.state === 'NON_INVENTORY'
+    const inStock = nonInventory || availableQty > 0
     const soldOut = !loading && !!product && !inStock
+    const maxQuantity = nonInventory
+        ? 99
+        : Math.max(availableQty, 1) > 0
+          ? Math.min(availableQty, 99)
+          : 1
+    const gallery = product?.imageGallery?.length
+        ? product.imageGallery
+        : product?.imageUrl
+          ? [product.imageUrl]
+          : []
     const averageRating = useMemo(() => {
         if (!product?.reviews.length) return 0
         const sum = product.reviews.reduce((acc, r) => acc + r.rating, 0)
@@ -187,17 +202,47 @@ export default function RetailProductDetailPage() {
 
                     <div className="mx-auto max-w-[1320px] px-6 py-10 lg:px-10 lg:py-14">
                         <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
-                            <div className="relative aspect-[4/5] overflow-hidden border border-brand-gold/20 bg-brand-sage shadow-[0_20px_50px_rgba(10,42,32,0.12)]">
-                                <Image
-                                    src={product.imageUrl}
-                                    alt={product.name}
-                                    fill
-                                    priority
-                                    unoptimized={isUnoptimizedImage(product.imageUrl)}
-                                    className="object-cover"
-                                    sizes="(max-width: 1024px) 100vw, 50vw"
-                                />
-                                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-brand-deep/30 via-transparent to-transparent" />
+                            <div className="space-y-3">
+                                <div className="relative aspect-[4/5] overflow-hidden border border-brand-gold/20 bg-brand-sage shadow-[0_20px_50px_rgba(10,42,32,0.12)]">
+                                    <Image
+                                        src={gallery[activeImage] ?? product.imageUrl}
+                                        alt={product.name}
+                                        fill
+                                        priority
+                                        unoptimized={isUnoptimizedImage(
+                                            gallery[activeImage] ?? product.imageUrl,
+                                        )}
+                                        className="object-cover"
+                                        sizes="(max-width: 1024px) 100vw, 50vw"
+                                    />
+                                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-brand-deep/30 via-transparent to-transparent" />
+                                </div>
+                                {gallery.length > 1 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {gallery.map((src, index) => (
+                                            <button
+                                                key={`${src}-${index}`}
+                                                type="button"
+                                                onClick={() => setActiveImage(index)}
+                                                className={classNames(
+                                                    'relative h-16 w-16 overflow-hidden border-2',
+                                                    index === activeImage
+                                                        ? 'border-brand-gold'
+                                                        : 'border-brand-gold/25 opacity-80',
+                                                )}
+                                            >
+                                                <Image
+                                                    src={src}
+                                                    alt=""
+                                                    fill
+                                                    sizes="64px"
+                                                    unoptimized={isUnoptimizedImage(src)}
+                                                    className="object-cover"
+                                                />
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
 
                             <div className="flex flex-col border border-brand-line bg-brand-sage/30 p-6 lg:p-8">
@@ -255,7 +300,9 @@ export default function RetailProductDetailPage() {
                                                 aria-label="Increase quantity"
                                                 disabled={soldOut}
                                                 onClick={() =>
-                                                    setQuantity((q) => q + 1)
+                                                    setQuantity((q) =>
+                                                        Math.min(maxQuantity, q + 1),
+                                                    )
                                                 }
                                                 className="flex h-11 w-11 items-center justify-center text-lg text-brand-ink transition-colors hover:bg-brand-sage hover:text-brand-gold disabled:opacity-40"
                                             >
@@ -264,8 +311,14 @@ export default function RetailProductDetailPage() {
                                         </div>
                                         <span className="font-storefront-body text-sm text-brand-ink/55">
                                             {soldOut
-                                                ? 'Sold out'
-                                                : `${atp?.availableQuantity ?? 0} available`}
+                                                ? atp?.state === 'NOT_MAPPED'
+                                                    ? 'Not available online (link MM material in Product Catalog)'
+                                                    : onHand > 0
+                                                      ? 'Sold out (available is 0 — check reserved stock in MM)'
+                                                      : 'Sold out (post a goods receipt in MM to increase On hand)'
+                                                : nonInventory
+                                                  ? 'In stock'
+                                                  : `${availableQty} available · ${onHand} on hand`}
                                         </span>
                                     </div>
                                 </div>

@@ -13,6 +13,7 @@ import {
     AWIC_STOREFRONT_PATH,
     isAwicStorefrontHost,
 } from '@/modules/storefront/retail/brand'
+import { repairErpModulePath } from '@/utils/erp-path'
 
 const { auth } = NextAuth(authConfig)
 
@@ -33,6 +34,13 @@ function isSessionActive(
 
 export default auth((req) => {
     const { nextUrl } = req
+    const repairedPath = repairErpModulePath(nextUrl.pathname)
+    if (repairedPath && repairedPath !== nextUrl.pathname) {
+        const url = nextUrl.clone()
+        url.pathname = repairedPath
+        return NextResponse.redirect(url)
+    }
+
     const hostname = (req.headers.get('host') ?? '').split(':')[0] ?? ''
     const onAwicHost = isAwicStorefrontHost(hostname)
 

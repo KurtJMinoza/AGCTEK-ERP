@@ -13,11 +13,17 @@ import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
 import { Form, FormItem } from '@/components/ui/Form'
 import { isRenderableImageSrc } from '@/utils/productImage'
-import ProductImagePicker from './ProductImagePicker'
+import ProductGalleryPicker from './ProductGalleryPicker'
 import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
-import type {
-    ProductInput,
-    SdProductRecord,
+import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
+import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
+import { productAttribute } from '../services/productCatalogService'
+import {
+    productImageGallery,
+    suggestProductSku,
+    type ProductInput,
+    type SdProductRecord,
+    type SdProductType,
 } from '../services/productCatalogService'
 
 const MAX_PRICE = 999_999_999.99
@@ -25,15 +31,9 @@ const MAX_PRICE = 999_999_999.99
 const productSchema = z
     .object({
         divisionId: z.string().min(1, 'Select a division'),
-        sku: z
-            .string()
-            .trim()
-            .min(1, 'SKU is required')
-            .max(64)
-            .regex(
-                /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
-                'Letters, digits, dot, dash and underscore only',
-            ),
+        autoGenerateSku: z.boolean(),
+        sku: z.string().trim().max(64),
+        imageGallery: z.array(z.string()),
         name: z.string().trim().min(2, 'At least 2 characters').max(200),
         category: z.string().min(1, 'Select a category'),
         price: z
@@ -53,6 +53,10 @@ const productSchema = z
         description: z.string().trim().max(2000),
         sortOrder: z.number().int().min(0).max(100_000),
         isActive: z.boolean(),
+        productType: z.literal('STOCK_ITEM'),
+        companyId: z.string(),
+        materialLinkMode: z.enum(['single', 'multiple']),
+        materialIds: z.array(z.string()),
     })
     .refine(
         (values) =>
@@ -60,6 +64,32 @@ const productSchema = z
         {
             path: ['originalPrice'],
             message: 'Must be higher than the selling price, or leave blank',
+        },
+    )
+    .refine(
+        (values) =>
+            values.companyId.trim().length > 0 && values.materialIds.length > 0,
+        {
+            path: ['materialIds'],
+            message: 'Select company and at least one MM material',
+        },
+    )
+    .refine(
+        (values) =>
+            values.materialLinkMode !== 'single' || values.materialIds.length <= 1,
+        {
+            path: ['materialIds'],
+            message: 'Single-material mode allows only one MM material',
+        },
+    )
+    .refine(
+        (values) =>
+            values.autoGenerateSku ||
+            (values.sku.trim().length > 0 &&
+                /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(values.sku.trim())),
+        {
+            path: ['sku'],
+            message: 'Enter a SKU or turn on auto-generate',
         },
     )
 
@@ -73,6 +103,8 @@ const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
     label: d.label,
 }))
 
+const STOCK_ITEM_LABEL = 'Stock item (inventory)'
+
 const categoryOptions = (divisionId: string): Option[] =>
     (PRODUCT_DIVISIONS.find((d) => d.id === divisionId)?.categories ?? []).map(
         (category) => ({ value: category, label: category }),
@@ -85,29 +117,41 @@ const toFormValues = (
     product
         ? {
               divisionId: product.divisionId,
+              autoGenerateSku: false,
               sku: product.sku,
               name: product.name,
               category: product.category,
               price: product.price,
               originalPrice: product.originalPrice,
               imageUrl: product.imageUrl,
+              imageGallery: productImageGallery(product).slice(1),
               badge: product.badge ?? '',
               description: product.description,
               sortOrder: product.sortOrder,
               isActive: product.isActive,
+              productType: 'STOCK_ITEM',
+              companyId: '',
+              materialLinkMode: 'single',
+              materialIds: [],
           }
         : {
               divisionId: defaultDivisionId,
+              autoGenerateSku: true,
               sku: '',
               name: '',
               category: '',
               price: 0,
               originalPrice: null,
               imageUrl: '',
+              imageGallery: [],
               badge: '',
               description: '',
               sortOrder: 0,
               isActive: true,
+              productType: 'STOCK_ITEM',
+              companyId: '',
+              materialLinkMode: 'single',
+              materialIds: [],
           }
 
 type ProductFormDialogProps = {
@@ -147,27 +191,104 @@ const ProductFormDialog = ({
     }, [isOpen, product, defaultDivisionId, reset])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
+    const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
     const categories = categoryOptions(divisionId)
     const editing = mode === 'edit'
     const [uploading, setUploading] = useState(false)
+    const [editMaterialIds, setEditMaterialIds] = useState<string[]>([])
+    const [editCompanyId, setEditCompanyId] = useState<string | null>(null)
+    const [mmStockRefreshKey, setMmStockRefreshKey] = useState(0)
 
-    const onValid = (values: FormShape) =>
-        onSubmit({
-            ...values,
-            sku: values.sku.toUpperCase(),
+    useEffect(() => {
+        if (isOpen) setMmStockRefreshKey((k) => k + 1)
+    }, [isOpen])
+
+    useEffect(() => {
+        if (!isOpen || editing || !autoGenerateSku || !divisionId) return
+        let cancelled = false
+        void suggestProductSku(divisionId)
+            .then((sku) => {
+                if (!cancelled) setValue('sku', sku)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, editing, autoGenerateSku, divisionId, setValue])
+
+    useEffect(() => {
+        if (!isOpen || mode !== 'edit' || !product?.id) {
+            setEditMaterialIds([])
+            setEditCompanyId(null)
+            return
+        }
+        let cancelled = false
+        void productMaterialAssignmentService
+            .listForProduct(product.id)
+            .then((rows) => {
+                if (cancelled) return
+                const active = rows.filter((r) => r.status === 'ACTIVE')
+                const ids = active.map((r) => r.materialId)
+                setEditMaterialIds(ids)
+                setEditCompanyId(active[0]?.companyId ?? null)
+                if (ids.length) {
+                    setValue('materialIds', ids)
+                    setValue('companyId', active[0]?.companyId ?? '')
+                    const mode = productAttribute<'single' | 'multiple' | undefined>(
+                        product,
+                        'materialLinkMode',
+                        ids.length > 1 ? 'multiple' : 'single',
+                    )
+                    setValue('materialLinkMode', mode === 'multiple' ? 'multiple' : 'single')
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setEditMaterialIds([])
+                    setEditCompanyId(null)
+                }
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, mode, product, setValue])
+
+    const onValid = (values: FormShape) => {
+        const {
+            productType: _productType,
+            autoGenerateSku: autoSku,
+            imageGallery,
+            materialIds,
+            materialLinkMode,
+            companyId,
+            ...rest
+        } = values
+        const payload: ProductInput = {
+            ...rest,
+            sku: autoSku ? '' : values.sku.toUpperCase(),
             badge: values.badge || null,
-        })
+            productType: 'STOCK_ITEM' satisfies SdProductType,
+            autoGenerateSku: !editing && autoSku,
+            imageGallery,
+        }
+        if (!editing) {
+            payload.materialIds = materialIds
+            payload.materialLinkMode = materialLinkMode
+            payload.companyId = companyId
+        }
+        return onSubmit(payload)
+    }
 
     return (
         <FormDialog
             isOpen={isOpen}
             onClose={onClose}
-            size="lg"
+            size="xl"
             title={editing ? 'Edit Product' : 'Add New Product'}
             description={
                 editing && product
                     ? `${product.sku} · ${product.name}`
-                    : 'List a new product on a storefront. Prices here are what customers and the POS are charged.'
+                    : 'Stock products must be linked to an MM material so orders can reserve and fulfill inventory.'
             }
             icon={<HiOutlineCube />}
             footer={
@@ -222,15 +343,47 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    {!editing ? (
+                        <FormItem label="SKU source">
+                            <Controller
+                                name="autoGenerateSku"
+                                control={control}
+                                render={({ field }) => (
+                                    <div className="flex h-12 items-center gap-3">
+                                        <Switcher
+                                            checked={field.value}
+                                            onChange={(checked) => {
+                                                field.onChange(checked)
+                                                if (checked && divisionId) {
+                                                    void suggestProductSku(divisionId).then(
+                                                        (sku) => setValue('sku', sku),
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                        <span className="text-sm">
+                                            {field.value
+                                                ? 'Auto-generate SKU'
+                                                : 'Manual SKU'}
+                                        </span>
+                                    </div>
+                                )}
+                            />
+                        </FormItem>
+                    ) : null}
                     <FormItem
                         label="SKU"
-                        asterisk
+                        asterisk={!autoGenerateSku && !editing}
                         invalid={Boolean(errors.sku)}
                         errorMessage={errors.sku?.message}
                         extra={
                             editing ? (
                                 <span className="text-xs text-gray-500">
                                     Fixed after creation
+                                </span>
+                            ) : autoGenerateSku ? (
+                                <span className="text-xs text-gray-500">
+                                    Assigned when you save (preview below)
                                 </span>
                             ) : null
                         }
@@ -241,7 +394,7 @@ const ProductFormDialog = ({
                             render={({ field }) => (
                                 <Input
                                     placeholder="e.g. VIT-D3-90"
-                                    disabled={editing}
+                                    disabled={editing || autoGenerateSku}
                                     {...field}
                                     onChange={(e) =>
                                         field.onChange(e.target.value.toUpperCase())
@@ -265,6 +418,23 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    <FormItem label="Product type">
+                        <Input readOnly disabled value={STOCK_ITEM_LABEL} />
+                    </FormItem>
+                    {(errors.materialIds || errors.companyId) && (
+                        <p className="md:col-span-2 text-sm text-red-600">
+                            {errors.materialIds?.message ?? errors.companyId?.message}
+                        </p>
+                    )}
+                    <ProductCatalogMaterialSection
+                        control={control}
+                        editing={editing}
+                        divisionId={divisionId}
+                        productDivisionId={product?.divisionId}
+                        initialMaterialIds={editMaterialIds}
+                        initialCompanyId={editCompanyId}
+                        mmStockRefreshKey={mmStockRefreshKey}
+                    />
                     <FormItem
                         label="Category"
                         asterisk
@@ -350,7 +520,7 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Product photo"
+                        label="Product photos"
                         className="md:col-span-2"
                         invalid={Boolean(errors.imageUrl)}
                         errorMessage={errors.imageUrl?.message}
@@ -358,12 +528,20 @@ const ProductFormDialog = ({
                         <Controller
                             name="imageUrl"
                             control={control}
-                            render={({ field }) => (
-                                <ProductImagePicker
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    onUploadingChange={setUploading}
-                                    disabled={saving || !isOpen}
+                            render={({ field: coverField }) => (
+                                <Controller
+                                    name="imageGallery"
+                                    control={control}
+                                    render={({ field: galleryField }) => (
+                                        <ProductGalleryPicker
+                                            coverUrl={coverField.value}
+                                            galleryUrls={galleryField.value}
+                                            onCoverChange={coverField.onChange}
+                                            onGalleryChange={galleryField.onChange}
+                                            onUploadingChange={setUploading}
+                                            disabled={saving || !isOpen}
+                                        />
+                                    )}
                                 />
                             )}
                         />

@@ -525,17 +525,21 @@ export class PackingService {
         })
     }
 
+    /** Auto numbers: PKG-000001, PKG-000002, … (ignores PKG-SCM-*, PKG-DEBUG-*, etc.) */
+    private static readonly PKG_NUMERIC = /^PKG-(\d+)$/
+
     private async generateNextCode(): Promise<string> {
-        const last = await this.prisma.wmPackage.findFirst({
+        const packages = await this.prisma.wmPackage.findMany({
             where: { packageNumber: { startsWith: 'PKG-' } },
-            orderBy: { packageNumber: 'desc' },
             select: { packageNumber: true },
         })
-        let seq = 1
-        if (last) {
-            const num = parseInt(last.packageNumber.replace('PKG-', ''), 10)
-            if (!isNaN(num)) seq = num + 1
+        let maxSeq = 0
+        for (const { packageNumber } of packages) {
+            const m = PackingService.PKG_NUMERIC.exec(packageNumber)
+            if (!m) continue
+            const n = parseInt(m[1], 10)
+            if (!isNaN(n) && n > maxSeq) maxSeq = n
         }
-        return `PKG-${String(seq).padStart(6, '0')}`
+        return `PKG-${String(maxSeq + 1).padStart(6, '0')}`
     }
 }

@@ -4,15 +4,79 @@ import {
     NotFoundException,
     BadRequestException,
 } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
 
+const DECIMAL_UPDATE_KEYS = new Set([
+    'onHandQty',
+    'reservedQty',
+    'minimumStock',
+    'maximumStock',
+    'safetyStock',
+    'reorderPoint',
+    'reorderQuantity',
+    'minimumOrderQuantity',
+    'standardCost',
+    'weight',
+    'length',
+    'width',
+    'height',
+    'volume',
+])
+
+function toNumber(value: unknown): number {
+    if (value == null) return 0
+    if (typeof value === 'number') return value
+    if (typeof value === 'string') return Number(value)
+    if (value instanceof Decimal) return value.toNumber()
+    return Number(value)
+}
+
+/** JSON-friendly material (Prisma Decimal → number). */
+function serializeMaterial<T extends Record<string, unknown>>(row: T): T {
+    const out = { ...row } as Record<string, unknown>
+    for (const key of [
+        'onHandQty',
+        'reservedQty',
+        'minimumStock',
+        'maximumStock',
+        'safetyStock',
+        'reorderPoint',
+        'reorderQuantity',
+        'minimumOrderQuantity',
+        'standardCost',
+        'weight',
+        'length',
+        'width',
+        'height',
+        'volume',
+    ]) {
+        if (key in out) out[key] = toNumber(out[key])
+    }
+    return out as T
+}
+
 @Injectable()
 export class MaterialsService {
     constructor(private prisma: PrismaService) {}
+
+    private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUpdateInput {
+        const data: Prisma.MmMaterialUpdateInput = {}
+        for (const [key, value] of Object.entries(dto)) {
+            if (value === undefined) continue
+            if (DECIMAL_UPDATE_KEYS.has(key)) {
+                ;(data as Record<string, unknown>)[key] = new Decimal(value as number)
+            } else {
+                ;(data as Record<string, unknown>)[key] = value
+            }
+        }
+        return data
+    }
 
     private readonly includes = {
         materialType: true,
@@ -79,7 +143,7 @@ export class MaterialsService {
         ])
 
         return {
-            data,
+            data: data.map((row) => serializeMaterial(row as Record<string, unknown>)),
             meta: {
                 total,
                 page,
@@ -102,7 +166,7 @@ export class MaterialsService {
             },
         })
         if (!material) throw new NotFoundException('Material not found')
-        return material
+        return serializeMaterial(material as Record<string, unknown>)
     }
 
     async listBalances(materialId: string) {
@@ -186,12 +250,19 @@ export class MaterialsService {
         }
 
         const material = await this.prisma.mmMaterial.create({
-            data: { ...dto, materialCode, sku, status } as any,
+            data: {
+                ...(dto as Prisma.MmMaterialUncheckedCreateInput),
+                materialCode,
+                sku,
+                status,
+                onHandQty: new Decimal(dto.onHandQty ?? 0),
+                reservedQty: new Decimal(dto.reservedQty ?? 0),
+            },
             include: this.includes,
         })
 
         await this.writeAudit(material.id, 'CREATE', null, material)
-        return material
+        return serializeMaterial(material as Record<string, unknown>)
     }
 
     private async generateNextCode(): Promise<string> {
@@ -238,7 +309,7 @@ export class MaterialsService {
 
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
-            data: dto as any,
+            data: this.mapUpdateDto(dto),
             include: this.includes,
         })
 
@@ -246,7 +317,7 @@ export class MaterialsService {
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'UPDATE', changes, null)
         }
-        return updated
+        return serializeMaterial(updated as Record<string, unknown>)
     }
 
     async activate(id: string) {
@@ -257,7 +328,9 @@ export class MaterialsService {
         if (material.status === 'BLOCKED') {
             throw new BadRequestException('Unblock the material before activating')
         }
-        await assertActivateReady(this.prisma, material)
+        await assertActivateReady(this.prisma, material as Parameters<
+            typeof assertActivateReady
+        >[1])
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
             data: { status: 'ACTIVE' },
@@ -379,6 +452,11 @@ export class MaterialsService {
         }
         if (reorder > 0 && min > reorder) {
             throw new BadRequestException('Minimum stock cannot exceed reorder point')
+        }
+        const onHand = Number(data.onHandQty ?? 0)
+        const reserved = Number(data.reservedQty ?? 0)
+        if (reserved > onHand) {
+            throw new BadRequestException('Reserved cannot exceed on hand')
         }
     }
 

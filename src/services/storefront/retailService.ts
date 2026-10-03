@@ -18,10 +18,14 @@ import {
 } from '@/modules/sd/services/productCatalogService'
 import { useProductCatalogStore } from '@/modules/sd/store/useProductCatalogStore'
 import { productImageSrc } from '@/utils/productImage'
+import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
+import { productImageGallery } from '@/modules/sd/services/productCatalogService'
 
 /** Maps an SD product (division DIV_RETAIL) to the AWIC storefront view. */
 export function toRetailProduct(record: SdProductRecord): RetailProduct {
+    const images = productImageGallery(record).map((url) => productImageSrc(url))
     return {
+        productId: record.id,
         itemId: productAttribute(record, 'itemId', record.id),
         sku: record.sku,
         name: record.name,
@@ -31,7 +35,8 @@ export function toRetailProduct(record: SdProductRecord): RetailProduct {
         reviews: productAttribute<RetailProductReview[]>(record, 'reviews', []),
         basePrice: record.price,
         category: record.category as RetailProductCategory,
-        imageUrl: productImageSrc(record.imageUrl),
+        imageUrl: images[0] ?? productImageSrc(record.imageUrl),
+        imageGallery: images,
         salesOrgId: RETAIL_DIVISION_ID,
         popularity: productAttribute<number | undefined>(
             record,
@@ -58,26 +63,38 @@ export async function fetchRetailProductBySku(
     return record ? toRetailProduct(record) : null
 }
 
-/** Mock ATP until MM availability is wired to the storefront. */
-const SOLD_OUT_SKUS = new Set(['VIT-C-1000'])
-
-const sleep = (ms: number) =>
-    new Promise<void>((resolve) => {
-        setTimeout(resolve, ms)
-    })
-
+/** Commercial ATP from SD ↔ MM (replaces mock storefront stock). */
 export async function checkStockATP(sku: string): Promise<InventoryATP> {
-    await sleep(120)
-    if (SOLD_OUT_SKUS.has(sku)) {
-        return { sku, availableQuantity: 0, reservedQuantity: 2, physicalStock: 0 }
-    }
-    const seed = [...sku].reduce((sum, char) => sum + char.charCodeAt(0), 0)
-    const available = 40 + (seed % 50)
-    return {
+    const empty: InventoryATP = {
         sku,
-        availableQuantity: available,
-        reservedQuantity: 2,
-        physicalStock: available + 2,
+        availableQuantity: 0,
+        reservedQuantity: 0,
+        physicalStock: 0,
+        ledgerAvailable: 0,
+        state: 'OUT_OF_STOCK',
+    }
+    try {
+        const { data } = await ErpAxiosBase.get<InventoryATP>(
+            '/sd/products/storefront/availability',
+            { params: { divisionId: RETAIL_DIVISION_ID, sku } },
+        )
+        return {
+            ...empty,
+            ...data,
+            ledgerAvailable:
+                data.ledgerAvailable ?? data.availableQuantity ?? 0,
+        }
+    } catch (error: unknown) {
+        const payload =
+            typeof error === 'object' &&
+            error !== null &&
+            'response' in error &&
+            typeof (error as { response?: { data?: InventoryATP } }).response
+                ?.data === 'object'
+                ? (error as { response: { data: InventoryATP } }).response.data
+                : null
+        if (payload?.sku) return { ...empty, ...payload }
+        return empty
     }
 }
 
