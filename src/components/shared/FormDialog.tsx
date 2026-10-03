@@ -16,11 +16,14 @@ const SIZE_WIDTH: Record<FormDialogSize, number> = {
     xl: 800,
 }
 
-export interface FormDialogProps extends Omit<DialogProps, 'children' | 'width' | 'onClose'> {
+export interface FormDialogProps
+    extends Omit<DialogProps, 'children' | 'width' | 'onClose'> {
     title: ReactNode
     description?: ReactNode
     /** Icon element passed to Avatar (e.g. `<HiOutlineCube />`) */
     icon?: ReactNode
+    /** Overrides the default primary-tinted icon avatar colours */
+    iconClassName?: string
     /** Preset widths — overridden by `width` when provided */
     size?: FormDialogSize
     width?: number
@@ -29,6 +32,7 @@ export interface FormDialogProps extends Omit<DialogProps, 'children' | 'width' 
     footer?: ReactNode
     /** Optional row under the title (Steps, Tabs, alerts) */
     headerExtra?: ReactNode
+    headerClassName?: string
     bodyClassName?: string
     footerClassName?: string
     onClose: () => void
@@ -48,11 +52,13 @@ const FormDialog = ({
     title,
     description,
     icon,
+    iconClassName,
     size = 'md',
     width,
     children,
     footer,
     headerExtra,
+    headerClassName,
     bodyClassName,
     footerClassName,
     shouldCloseOnOverlayClick = false,
@@ -97,13 +103,22 @@ const FormDialog = ({
             {...rest}
         >
             <div className="flex min-h-0 max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden">
-                <div className="shrink-0 border-b border-gray-200 px-4 py-4 pr-14 sm:px-6 dark:border-gray-700">
+                <div
+                    className={classNames(
+                        'shrink-0 border-b border-gray-200 px-4 py-4 pr-14 sm:px-6 dark:border-gray-700',
+                        headerClassName,
+                    )}
+                >
                     <div className="flex items-start gap-3">
                         {icon ? (
                             <Avatar
                                 shape="circle"
                                 size={40}
-                                className="bg-primary-subtle text-primary-deep shrink-0"
+                                className={classNames(
+                                    'shrink-0',
+                                    iconClassName ??
+                                        'bg-primary-subtle text-primary-deep',
+                                )}
                                 icon={icon}
                             />
                         ) : null}
@@ -118,7 +133,9 @@ const FormDialog = ({
                             ) : null}
                         </div>
                     </div>
-                    {headerExtra ? <div className="mt-4">{headerExtra}</div> : null}
+                    {headerExtra ? (
+                        <div className="mt-4">{headerExtra}</div>
+                    ) : null}
                 </div>
 
                 <div

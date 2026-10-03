@@ -13,11 +13,18 @@ import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
 import { Form, FormItem } from '@/components/ui/Form'
 import { isRenderableImageSrc } from '@/utils/productImage'
-import ProductImagePicker from './ProductImagePicker'
-import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
-import type {
-    ProductInput,
-    SdProductRecord,
+import ProductImagePicker, {
+    type PendingProductImage,
+} from './ProductImagePicker'
+import ProductGalleryPicker from './ProductGalleryPicker'
+import {
+    PRODUCT_DIVISIONS,
+    productDivisionLabel,
+} from '../catalogs/productDivisions'
+import {
+    productGallery,
+    type ProductInput,
+    type SdProductRecord,
 } from '../services/productCatalogService'
 
 const MAX_PRICE = 999_999_999.99
@@ -56,7 +63,8 @@ const productSchema = z
     })
     .refine(
         (values) =>
-            values.originalPrice === null || values.originalPrice > values.price,
+            values.originalPrice === null ||
+            values.originalPrice > values.price,
         {
             path: ['originalPrice'],
             message: 'Must be higher than the selling price, or leave blank',
@@ -68,20 +76,26 @@ type Option = { value: string; label: string }
 
 const FORM_ID = 'sd-product-form'
 
-const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
-    value: d.id,
-    label: d.label,
-}))
-
 const categoryOptions = (divisionId: string): Option[] =>
     (PRODUCT_DIVISIONS.find((d) => d.id === divisionId)?.categories ?? []).map(
         (category) => ({ value: category, label: category }),
     )
 
-const toFormValues = (
-    product: SdProductRecord | null | undefined,
-    defaultDivisionId: string,
-): FormShape =>
+const EMPTY_VALUES: FormShape = {
+    divisionId: '',
+    sku: '',
+    name: '',
+    category: '',
+    price: 0,
+    originalPrice: null,
+    imageUrl: '',
+    badge: '',
+    description: '',
+    sortOrder: 0,
+    isActive: true,
+}
+
+const toFormValues = (product: SdProductRecord | null): FormShape =>
     product
         ? {
               divisionId: product.divisionId,
@@ -96,36 +110,25 @@ const toFormValues = (
               sortOrder: product.sortOrder,
               isActive: product.isActive,
           }
-        : {
-              divisionId: defaultDivisionId,
-              sku: '',
-              name: '',
-              category: '',
-              price: 0,
-              originalPrice: null,
-              imageUrl: '',
-              badge: '',
-              description: '',
-              sortOrder: 0,
-              isActive: true,
-          }
+        : EMPTY_VALUES
 
+/** Edits the sales data of an existing product; SD cannot create or delete products. */
 type ProductFormDialogProps = {
     isOpen: boolean
-    mode: 'create' | 'edit'
-    product?: SdProductRecord | null
-    /** Preselected division for new products (the current filter). */
-    defaultDivisionId?: string
+    product: SdProductRecord | null
     saving?: boolean
     onClose: () => void
-    onSubmit: (values: ProductInput) => void | Promise<void>
+    /** `image` is a newly chosen main photo and `gallery` new gallery photos to upload with the save. */
+    onSubmit: (
+        values: ProductInput,
+        image: File | null,
+        gallery: File[],
+    ) => void | Promise<void>
 }
 
 const ProductFormDialog = ({
     isOpen,
-    mode,
     product,
-    defaultDivisionId = '',
     saving,
     onClose,
     onSubmit,
@@ -134,45 +137,66 @@ const ProductFormDialog = ({
         control,
         handleSubmit,
         reset,
-        setValue,
-        getValues,
         formState: { errors },
     } = useForm<FormShape>({
-        defaultValues: toFormValues(product, defaultDivisionId),
+        defaultValues: toFormValues(product),
         resolver: zodResolver(productSchema),
     })
 
+    const [pendingImage, setPendingImage] =
+        useState<PendingProductImage | null>(null)
+    const [galleryKept, setGalleryKept] = useState<string[]>([])
+    const [galleryPending, setGalleryPending] = useState<PendingProductImage[]>(
+        [],
+    )
+
     useEffect(() => {
-        if (isOpen) reset(toFormValues(product, defaultDivisionId))
-    }, [isOpen, product, defaultDivisionId, reset])
+        if (!isOpen) return
+        reset(toFormValues(product))
+        setPendingImage(null)
+        setGalleryKept(product ? productGallery(product) : [])
+        setGalleryPending([])
+    }, [isOpen, product, reset])
+
+    const savedGallery = product ? productGallery(product) : []
+    const galleryChanged =
+        galleryPending.length > 0 ||
+        galleryKept.length !== savedGallery.length ||
+        galleryKept.some((url, i) => url !== savedGallery[i])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
     const categories = categoryOptions(divisionId)
-    const editing = mode === 'edit'
-    const [uploading, setUploading] = useState(false)
 
     const onValid = (values: FormShape) =>
-        onSubmit({
-            ...values,
-            sku: values.sku.toUpperCase(),
-            badge: values.badge || null,
-        })
+        onSubmit(
+            {
+                ...values,
+                sku: values.sku.toUpperCase(),
+                badge: values.badge || null,
+                ...(galleryChanged ? { galleryImages: galleryKept } : {}),
+            },
+            pendingImage?.file ?? null,
+            galleryPending.map((item) => item.file),
+        )
 
     return (
         <FormDialog
             isOpen={isOpen}
             onClose={onClose}
             size="lg"
-            title={editing ? 'Edit Product' : 'Add New Product'}
+            title="Edit Sales Data"
             description={
-                editing && product
-                    ? `${product.sku} · ${product.name}`
-                    : 'List a new product on a storefront. Prices here are what customers and the POS are charged.'
+                product ? `${product.sku} · ${product.name}` : undefined
             }
             icon={<HiOutlineCube />}
             footer={
                 <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" disabled={saving} onClick={onClose}>
+                    <Button
+                        type="button"
+                        size="sm"
+                        disabled={saving}
+                        onClick={onClose}
+                    >
                         Cancel
                     </Button>
                     <Button
@@ -181,74 +205,26 @@ const ProductFormDialog = ({
                         type="submit"
                         form={FORM_ID}
                         loading={saving}
-                        disabled={uploading}
                     >
-                        {editing ? 'Save changes' : 'Add product'}
+                        Save changes
                     </Button>
                 </div>
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-                    <FormItem
-                        label="Division"
-                        asterisk
-                        invalid={Boolean(errors.divisionId)}
-                        errorMessage={errors.divisionId?.message}
-                    >
-                        <Controller
-                            name="divisionId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<Option>
-                                    isSearchable={false}
-                                    isDisabled={editing}
-                                    placeholder="Select storefront"
-                                    options={DIVISION_OPTIONS}
-                                    value={
-                                        DIVISION_OPTIONS.find(
-                                            (o) => o.value === field.value,
-                                        ) ?? null
-                                    }
-                                    onChange={(option) => {
-                                        const next = option?.value ?? ''
-                                        field.onChange(next)
-                                        const valid = categoryOptions(next).some(
-                                            (c) => c.value === getValues('category'),
-                                        )
-                                        if (!valid) setValue('category', '')
-                                    }}
-                                />
-                            )}
+                    <FormItem label="Division">
+                        <Input
+                            disabled
+                            value={
+                                product
+                                    ? productDivisionLabel(product.divisionId)
+                                    : ''
+                            }
                         />
                     </FormItem>
-                    <FormItem
-                        label="SKU"
-                        asterisk
-                        invalid={Boolean(errors.sku)}
-                        errorMessage={errors.sku?.message}
-                        extra={
-                            editing ? (
-                                <span className="text-xs text-gray-500">
-                                    Fixed after creation
-                                </span>
-                            ) : null
-                        }
-                    >
-                        <Controller
-                            name="sku"
-                            control={control}
-                            render={({ field }) => (
-                                <Input
-                                    placeholder="e.g. VIT-D3-90"
-                                    disabled={editing}
-                                    {...field}
-                                    onChange={(e) =>
-                                        field.onChange(e.target.value.toUpperCase())
-                                    }
-                                />
-                            )}
-                        />
+                    <FormItem label="SKU">
+                        <Input disabled value={product?.sku ?? ''} />
                     </FormItem>
                     <FormItem
                         label="Product name"
@@ -261,7 +237,10 @@ const ProductFormDialog = ({
                             name="name"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Vitamin D3 2000 IU" {...field} />
+                                <Input
+                                    placeholder="e.g. Vitamin D3 2000 IU"
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -279,14 +258,19 @@ const ProductFormDialog = ({
                                     isSearchable={false}
                                     isDisabled={!divisionId}
                                     placeholder={
-                                        divisionId ? 'Select category' : 'Select a division first'
+                                        divisionId
+                                            ? 'Select category'
+                                            : 'Select a division first'
                                     }
                                     options={categories}
                                     value={
-                                        categories.find((o) => o.value === field.value) ??
-                                        null
+                                        categories.find(
+                                            (o) => o.value === field.value,
+                                        ) ?? null
                                     }
-                                    onChange={(option) => field.onChange(option?.value ?? '')}
+                                    onChange={(option) =>
+                                        field.onChange(option?.value ?? '')
+                                    }
                                 />
                             )}
                         />
@@ -300,7 +284,10 @@ const ProductFormDialog = ({
                             name="badge"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Best Seller (optional)" {...field} />
+                                <Input
+                                    placeholder="e.g. Best Seller (optional)"
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -321,7 +308,9 @@ const ProductFormDialog = ({
                                     fixedDecimalScale
                                     allowNegative={false}
                                     value={field.value}
-                                    onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
+                                    onValueChange={(v) =>
+                                        field.onChange(v.floatValue ?? 0)
+                                    }
                                 />
                             )}
                         />
@@ -362,10 +351,21 @@ const ProductFormDialog = ({
                                 <ProductImagePicker
                                     value={field.value}
                                     onChange={field.onChange}
-                                    onUploadingChange={setUploading}
+                                    pending={pendingImage}
+                                    onPendingChange={setPendingImage}
                                     disabled={saving || !isOpen}
                                 />
                             )}
+                        />
+                    </FormItem>
+                    <FormItem label="More photos" className="md:col-span-2">
+                        <ProductGalleryPicker
+                            key={`${product?.id ?? 'none'}-${isOpen}`}
+                            kept={galleryKept}
+                            onKeptChange={setGalleryKept}
+                            pending={galleryPending}
+                            onPendingChange={setGalleryPending}
+                            disabled={saving || !isOpen}
                         />
                     </FormItem>
                     <FormItem
@@ -401,11 +401,15 @@ const ProductFormDialog = ({
                                     decimalScale={0}
                                     allowNegative={false}
                                     value={field.value}
-                                    onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
+                                    onValueChange={(v) =>
+                                        field.onChange(v.floatValue ?? 0)
+                                    }
                                 />
                             )}
                         />
-                        <p className="mt-1 text-xs text-gray-500">Lower numbers show first.</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Lower numbers show first.
+                        </p>
                     </FormItem>
                     <FormItem label="Visible on storefront">
                         <Controller
@@ -415,7 +419,9 @@ const ProductFormDialog = ({
                                 <div className="flex h-12 items-center gap-3">
                                     <Switcher
                                         checked={field.value}
-                                        onChange={(checked) => field.onChange(checked)}
+                                        onChange={(checked) =>
+                                            field.onChange(checked)
+                                        }
                                     />
                                     <span className="text-sm">
                                         {field.value ? 'Active' : 'Hidden'}
@@ -425,9 +431,10 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                 </div>
-                {editing && product?.attributes ? (
+                {product?.attributes ? (
                     <p className="text-xs text-gray-500">
-                        Detailed storefront content (features, specs, reviews) is kept as-is.
+                        Other storefront content (features, specs, reviews) is
+                        kept as-is.
                     </p>
                 ) : null}
             </Form>

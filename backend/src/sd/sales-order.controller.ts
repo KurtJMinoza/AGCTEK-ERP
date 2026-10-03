@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common'
 import {
     ChangeSalesOrderLineQtyDto,
+    CreateMarketplaceCheckoutDto,
     CreateRetailSalesOrderDto,
     CreateSalesOrderDto,
     IssueSalesOrderDto,
@@ -38,6 +39,12 @@ export class SalesOrderController {
     @Post('retail')
     createRetail(@Body() dto: CreateRetailSalesOrderDto) {
         return this.salesOrders.createRetail(dto)
+    }
+
+    /** Mixed-division storefront cart → one ECOMMERCE sales order per division. */
+    @Post('retail/checkout')
+    createMarketplaceCheckout(@Body() dto: CreateMarketplaceCheckoutDto) {
+        return this.salesOrders.createMarketplaceCheckout(dto)
     }
 
     @Patch('retail/:id/status')

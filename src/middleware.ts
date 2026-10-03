@@ -10,9 +10,9 @@ import {
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
 import appConfig from '@/configs/app.config'
 import {
-    AWIC_STOREFRONT_PATH,
-    isAwicStorefrontHost,
-} from '@/modules/storefront/retail/brand'
+    MARKETPLACE_PATH,
+    isMarketplaceHost,
+} from '@/modules/storefront/marketplace/host'
 
 const { auth } = NextAuth(authConfig)
 
@@ -24,15 +24,11 @@ const apiAuthPrefix = `${appConfig.apiPrefix}/auth`
 export default auth((req) => {
     const { nextUrl } = req
     const hostname = (req.headers.get('host') ?? '').split(':')[0] ?? ''
-    const onAwicHost = isAwicStorefrontHost(hostname)
-
     /**
-     * Dedicated AWIC host (e.g. awic.localhost / awic.com):
-     * - `/` serves the storefront
-     * - clean paths rewrite into `/awic/*`
-     * - ERP paths are not exposed on this host
+     * Dedicated marketplace host (e.g. shop.localhost / awic.localhost):
+     * `/` serves the marketplace; ERP paths are not exposed on this host.
      */
-    if (onAwicHost) {
+    if (isMarketplaceHost(hostname)) {
         const path = nextUrl.pathname
 
         if (
@@ -43,31 +39,12 @@ export default auth((req) => {
             return
         }
 
-        // Prefer clean URLs: /awic → /
-        if (path === AWIC_STOREFRONT_PATH) {
+        if (path !== '/') {
             return NextResponse.redirect(new URL(`/${nextUrl.search}`, req.url))
         }
-        if (path.startsWith(`${AWIC_STOREFRONT_PATH}/`)) {
-            const stripped = path.slice(AWIC_STOREFRONT_PATH.length) || '/'
-            return NextResponse.redirect(
-                new URL(`${stripped}${nextUrl.search}`, req.url),
-            )
-        }
 
-        // Only storefront surfaces on this host
-        const isStorefrontPath =
-            path === '/' ||
-            path === '/checkout' ||
-            /^\/[^/]+$/.test(path)
-
-        if (!isStorefrontPath) {
-            return NextResponse.redirect(new URL('/', req.url))
-        }
-
-        const rewritePath =
-            path === '/' ? AWIC_STOREFRONT_PATH : `${AWIC_STOREFRONT_PATH}${path}`
         const rewriteUrl = nextUrl.clone()
-        rewriteUrl.pathname = rewritePath
+        rewriteUrl.pathname = MARKETPLACE_PATH
         return NextResponse.rewrite(rewriteUrl)
     }
 
@@ -78,7 +55,7 @@ export default auth((req) => {
     const isSocketRoute = nextUrl.pathname.startsWith('/socket.io')
     const isPublicRoute =
         publicRoutes.includes(nextUrl.pathname) ||
-        nextUrl.pathname.startsWith(`${AWIC_STOREFRONT_PATH}/`)
+        nextUrl.pathname.startsWith(`${MARKETPLACE_PATH}/`)
     const isAuthRoute = authRoutes.includes(nextUrl.pathname)
 
     /** NextAuth handlers, Nest rewrite (`/api/v1`), and Socket.IO proxy skip page auth. */

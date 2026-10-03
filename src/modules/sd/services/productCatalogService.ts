@@ -42,7 +42,18 @@ export type ProductInput = {
     isActive?: boolean
     sortOrder?: number
     attributes?: ProductAttributes | null
+    /** Existing gallery photos to keep, in order; new ones are uploaded as files. */
+    galleryImages?: string[]
 }
+
+/** Matches the server's PRODUCT_GALLERY_MAX. */
+export const PRODUCT_GALLERY_MAX = 8
+
+/** Extra storefront photos kept in `attributes.images`. */
+export const productGallery = (record: Pick<SdProductRecord, 'attributes'>) =>
+    productAttribute<unknown[]>(record, 'images', []).filter(
+        (url): url is string => typeof url === 'string' && url.trim() !== '',
+    )
 
 /** Reads one storefront attribute, falling back when absent. */
 export function productAttribute<T>(
@@ -83,51 +94,36 @@ export async function listProducts(
     }
 }
 
-export async function createProduct(
-    input: ProductInput,
-): Promise<SdProductRecord> {
-    try {
-        const { data } = await ErpAxiosBase.post<ApiProduct>('/sd/products', input)
-        return fromApi(data)
-    } catch (error) {
-        throw toError(error, 'Unable to create product')
-    }
+/**
+ * Multipart body: `data` carries the text fields as JSON, `image` the optional
+ * main photo and `gallery` any new gallery photos. The server stores the files
+ * and sets `imageUrl` / `attributes.images` itself.
+ */
+const toProductFormData = (
+    input: Partial<ProductInput>,
+    image?: File | null,
+    gallery: File[] = [],
+): FormData => {
+    const formData = new FormData()
+    formData.append('data', JSON.stringify(input))
+    if (image) formData.append('image', image)
+    for (const file of gallery) formData.append('gallery', file)
+    return formData
 }
 
 export async function updateProduct(
     id: string,
     input: Partial<ProductInput>,
+    image?: File | null,
+    gallery: File[] = [],
 ): Promise<SdProductRecord> {
     try {
         const { data } = await ErpAxiosBase.patch<ApiProduct>(
             `/sd/products/${encodeURIComponent(id)}`,
-            input,
+            toProductFormData(input, image, gallery),
         )
         return fromApi(data)
     } catch (error) {
         throw toError(error, 'Unable to update product')
-    }
-}
-
-/** Uploads a product photo; returns the `imageUrl` to save on the product. */
-export async function uploadProductImage(file: File): Promise<string> {
-    const formData = new FormData()
-    formData.append('file', file)
-    try {
-        const { data } = await ErpAxiosBase.post<{ imageUrl: string }>(
-            '/sd/products/images',
-            formData,
-        )
-        return data.imageUrl
-    } catch (error) {
-        throw toError(error, 'Unable to upload image')
-    }
-}
-
-export async function deleteProduct(id: string): Promise<void> {
-    try {
-        await ErpAxiosBase.delete(`/sd/products/${encodeURIComponent(id)}`)
-    } catch (error) {
-        throw toError(error, 'Unable to delete product')
     }
 }

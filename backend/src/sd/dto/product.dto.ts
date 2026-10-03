@@ -1,4 +1,6 @@
 import {
+    ArrayMaxSize,
+    IsArray,
     IsBoolean,
     IsIn,
     IsInt,
@@ -17,6 +19,9 @@ import { Transform } from 'class-transformer'
 import { RETAIL_SALES_DIVISIONS } from './sales-order.dto'
 
 const MAX_PRICE = 999_999_999.99
+
+/** Extra storefront photos per product, stored in `attributes.images`. */
+export const PRODUCT_GALLERY_MAX = 8
 
 /** Empty, a site path (`/img/...`) or an absolute http(s) URL — what next/image can render. */
 const IMAGE_URL = /^$|^\/(?!\/)|^https?:\/\//
@@ -55,97 +60,11 @@ export class ListProductsQueryDto {
     search?: string
 }
 
-export class CreateProductDto {
-    @IsIn(RETAIL_SALES_DIVISIONS)
-    divisionId!: string
-
-    @Transform(upperTrim)
-    @IsString()
-    @Matches(/^[A-Z0-9][A-Z0-9._-]*$/, {
-        message: 'sku may only contain letters, digits, dot, dash and underscore',
-    })
-    @MaxLength(64)
-    sku!: string
-
-    @Transform(trim)
-    @IsString()
-    @IsNotEmpty()
-    @MaxLength(200)
-    name!: string
-
-    @IsOptional()
-    @Transform(trim)
-    @IsString()
-    @MaxLength(2000)
-    description?: string
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    @Max(MAX_PRICE)
-    price!: number
-
-    @IsOptional()
-    @ValidateIf((_, value) => value !== null)
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    @Max(MAX_PRICE)
-    originalPrice?: number | null
-
-    @Transform(trim)
-    @IsString()
-    @IsNotEmpty()
-    @MaxLength(80)
-    category!: string
-
-    @IsOptional()
-    @Transform(trim)
-    @IsString()
-    @MaxLength(1000)
-    @Matches(IMAGE_URL, { message: IMAGE_URL_MESSAGE })
-    imageUrl?: string
-
-    @IsOptional()
-    @Transform(emptyToNull)
-    @ValidateIf((_, value) => value !== null)
-    @IsString()
-    @MaxLength(60)
-    badge?: string | null
-
-    @IsOptional()
-    @IsBoolean()
-    isActive?: boolean
-
-    @IsOptional()
-    @IsInt()
-    @Min(0)
-    @Max(100_000)
-    sortOrder?: number
-
-    /** Division-specific storefront content; stored as-is. */
-    @IsOptional()
-    @ValidateIf((_, value) => value !== null)
-    @IsObject()
-    attributes?: Record<string, unknown> | null
-
-    @IsOptional()
-    @IsString()
-    createdBy?: string
-}
-
+/**
+ * Sales data SD may change on an existing product. Division and SKU identify the
+ * base product and are immutable here; SD cannot create or delete products.
+ */
 export class UpdateProductDto {
-    @IsOptional()
-    @IsIn(RETAIL_SALES_DIVISIONS)
-    divisionId?: string
-
-    @IsOptional()
-    @Transform(upperTrim)
-    @IsString()
-    @Matches(/^[A-Z0-9][A-Z0-9._-]*$/, {
-        message: 'sku may only contain letters, digits, dot, dash and underscore',
-    })
-    @MaxLength(64)
-    sku?: string
-
     @IsOptional()
     @Transform(trim)
     @IsString()
@@ -207,6 +126,17 @@ export class UpdateProductDto {
     @ValidateIf((_, value) => value !== null)
     @IsObject()
     attributes?: Record<string, unknown> | null
+
+    /**
+     * Existing gallery photos to keep, in display order. Must be a subset of the
+     * product's current `attributes.images`; new photos arrive as `gallery` files.
+     */
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(PRODUCT_GALLERY_MAX)
+    @IsString({ each: true })
+    @MaxLength(1000, { each: true })
+    galleryImages?: string[]
 
     @IsOptional()
     @IsString()

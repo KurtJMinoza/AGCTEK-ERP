@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { HiOutlineUserCircle } from 'react-icons/hi'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import PasswordInput from '@/components/shared/PasswordInput'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -12,7 +13,7 @@ import Tabs from '@/components/ui/Tabs'
 import { Form, FormItem } from '@/components/ui/Form'
 import { toApiError } from '@/modules/sd/services/apiError'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
-import type { createStorefrontClientStore } from '@/modules/storefront/retail/store/retailClientStore'
+import type { createStorefrontClientStore } from '@/modules/storefront/shared/store/createStorefrontClientStore'
 
 type Mode = 'login' | 'register' | 'profile'
 type FormState = SalesOrderShippingDetails & { password: string }
@@ -25,6 +26,14 @@ export type StorefrontAccountDialogProps = {
     storeName: string
     /** Accent class for primary buttons. */
     accentButtonClass: () => string
+    /** Icon avatar colours; defaults to the ERP primary tint. */
+    accentIconClass?: string
+    /** Extra classes for the Sign in / Create account tabs. */
+    accentTabClass?: string
+    /** Extra classes for the dialog header band. */
+    accentHeaderClass?: string
+    /** Extra classes for inputs, e.g. focus ring colour. */
+    accentInputClass?: string
     formId: string
 }
 
@@ -40,7 +49,8 @@ const EMPTY_FORM: FormState = {
     password: '',
 }
 
-const required = (label: string) => z.string().trim().min(1, `${label} is required`)
+const required = (label: string) =>
+    z.string().trim().min(1, `${label} is required`)
 
 const deliverySchema = {
     fullName: required('Full name'),
@@ -71,9 +81,25 @@ const DELIVERY_FIELDS: {
     wide?: boolean
     type?: string
 }[] = [
-    { key: 'fullName', label: 'Full name', placeholder: 'Juan Dela Cruz', wide: true },
-    { key: 'phone', label: 'Mobile number', placeholder: '+63 917 000 0000', type: 'tel', wide: true },
-    { key: 'addressLine1', label: 'Delivery address', placeholder: 'House no., street, barangay', wide: true },
+    {
+        key: 'fullName',
+        label: 'Full name',
+        placeholder: 'Juan Dela Cruz',
+        wide: true,
+    },
+    {
+        key: 'phone',
+        label: 'Mobile number',
+        placeholder: '+63 917 000 0000',
+        type: 'tel',
+        wide: true,
+    },
+    {
+        key: 'addressLine1',
+        label: 'Delivery address',
+        placeholder: 'House no., street, barangay',
+        wide: true,
+    },
     { key: 'city', label: 'City', placeholder: 'Quezon City' },
     { key: 'region', label: 'Region / Province', placeholder: 'Metro Manila' },
     { key: 'postalCode', label: 'Postal code', placeholder: '1100' },
@@ -89,6 +115,10 @@ const StorefrontAccountDialog = ({
     useClientStore,
     storeName,
     accentButtonClass,
+    accentIconClass,
+    accentTabClass,
+    accentHeaderClass,
+    accentInputClass,
     formId,
 }: StorefrontAccountDialogProps) => {
     const client = useClientStore((s) => s.client)
@@ -143,15 +173,25 @@ const StorefrontAccountDialog = ({
     const runConfirmed = async () => {
         setConfirmSubmit(false)
         const trimmed = Object.fromEntries(
-            Object.entries(form).map(([k, v]) => [k, k === 'password' ? v : v.trim()]),
+            Object.entries(form).map(([k, v]) => [
+                k,
+                k === 'password' ? v : v.trim(),
+            ]),
         ) as FormState
         try {
             if (mode === 'login') {
-                await login({ email: trimmed.email, password: trimmed.password })
+                await login({
+                    email: trimmed.email,
+                    password: trimmed.password,
+                })
             } else if (mode === 'register') {
                 await register({ ...trimmed, country: trimmed.country || 'PH' })
             } else {
-                const { email: _email, password: _password, ...profile } = trimmed
+                const {
+                    email: _email,
+                    password: _password,
+                    ...profile
+                } = trimmed
                 await updateProfile(profile)
             }
         } catch (error) {
@@ -168,20 +208,42 @@ const StorefrontAccountDialog = ({
         }
     }
 
-    const field = (key: FieldKey, label: string, placeholder: string, type = 'text', disabled = false) => (
+    const field = (
+        key: FieldKey,
+        label: string,
+        placeholder: string,
+        type = 'text',
+        disabled = false,
+    ) => (
         <FormItem
             label={label}
             asterisk={!disabled}
             invalid={Boolean(errors[key])}
             errorMessage={errors[key]}
         >
-            <Input
-                type={type}
-                value={form[key]}
-                placeholder={placeholder}
-                disabled={disabled}
-                onChange={(e) => update(key, e.target.value)}
-            />
+            {type === 'password' ? (
+                <PasswordInput
+                    value={form[key]}
+                    placeholder={placeholder}
+                    disabled={disabled}
+                    autoComplete={
+                        mode === 'register'
+                            ? 'new-password'
+                            : 'current-password'
+                    }
+                    className={accentInputClass}
+                    onChange={(e) => update(key, e.target.value)}
+                />
+            ) : (
+                <Input
+                    type={type}
+                    value={form[key]}
+                    placeholder={placeholder}
+                    disabled={disabled}
+                    className={accentInputClass}
+                    onChange={(e) => update(key, e.target.value)}
+                />
+            )}
         </FormItem>
     )
 
@@ -203,6 +265,8 @@ const StorefrontAccountDialog = ({
                         : 'Sign in to check out faster with saved delivery details.'
                 }
                 icon={<HiOutlineUserCircle />}
+                iconClassName={accentIconClass}
+                headerClassName={accentHeaderClass}
                 onClose={closeLogin}
                 headerExtra={
                     client ? null : (
@@ -215,8 +279,18 @@ const StorefrontAccountDialog = ({
                             }}
                         >
                             <Tabs.TabList>
-                                <Tabs.TabNav value="login">Sign in</Tabs.TabNav>
-                                <Tabs.TabNav value="register">Create account</Tabs.TabNav>
+                                <Tabs.TabNav
+                                    value="login"
+                                    className={accentTabClass}
+                                >
+                                    Sign in
+                                </Tabs.TabNav>
+                                <Tabs.TabNav
+                                    value="register"
+                                    className={accentTabClass}
+                                >
+                                    Create account
+                                </Tabs.TabNav>
                             </Tabs.TabList>
                         </Tabs>
                     )
@@ -258,22 +332,53 @@ const StorefrontAccountDialog = ({
                     ) : null}
                     {mode === 'login' ? (
                         <>
-                            {field('email', 'Email', 'you@example.com', 'email')}
-                            {field('password', 'Password', '••••••••', 'password')}
+                            {field(
+                                'email',
+                                'Email',
+                                'you@example.com',
+                                'email',
+                            )}
+                            {field(
+                                'password',
+                                'Password',
+                                '••••••••',
+                                'password',
+                            )}
                         </>
                     ) : (
                         <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
                             <div className="sm:col-span-2">
-                                {field('email', 'Email', 'you@example.com', 'email', mode === 'profile')}
+                                {field(
+                                    'email',
+                                    'Email',
+                                    'you@example.com',
+                                    'email',
+                                    mode === 'profile',
+                                )}
                             </div>
                             {mode === 'register' ? (
                                 <div className="sm:col-span-2">
-                                    {field('password', 'Password', 'Min. 6 characters', 'password')}
+                                    {field(
+                                        'password',
+                                        'Password',
+                                        'Min. 6 characters',
+                                        'password',
+                                    )}
                                 </div>
                             ) : null}
                             {DELIVERY_FIELDS.map((f) => (
-                                <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
-                                    {field(f.key, f.label, f.placeholder, f.type)}
+                                <div
+                                    key={f.key}
+                                    className={
+                                        f.wide ? 'sm:col-span-2' : undefined
+                                    }
+                                >
+                                    {field(
+                                        f.key,
+                                        f.label,
+                                        f.placeholder,
+                                        f.type,
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -309,7 +414,8 @@ const StorefrontAccountDialog = ({
                 confirmText="Sign out"
                 cancelText="Stay signed in"
                 confirmButtonProps={{
-                    customColorClass: () => 'bg-red-500 hover:bg-red-600 text-white',
+                    customColorClass: () =>
+                        'bg-red-500 hover:bg-red-600 text-white',
                 }}
                 onClose={() => setConfirmLogout(false)}
                 onRequestClose={() => setConfirmLogout(false)}

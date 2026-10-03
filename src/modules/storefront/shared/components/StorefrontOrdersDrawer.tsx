@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { HiOutlineClipboardList } from 'react-icons/hi'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
@@ -13,7 +13,10 @@ import {
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
 
-const STATUS_COPY: Record<SalesOrderRecord['status'], { label: string; tone: StatusTone }> = {
+const STATUS_COPY: Record<
+    SalesOrderRecord['status'],
+    { label: string; tone: StatusTone }
+> = {
     'Pending Delivery': { label: 'To be delivered', tone: 'warning' },
     Completed: { label: 'Delivered', tone: 'success' },
     Cancelled: { label: 'Cancelled', tone: 'danger' },
@@ -21,22 +24,29 @@ const STATUS_COPY: Record<SalesOrderRecord['status'], { label: string; tone: Sta
 }
 
 const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value)
+    new Intl.NumberFormat('en-PH', {
+        style: 'currency',
+        currency: 'PHP',
+    }).format(value)
 
 const formatDate = (iso: string) =>
-    new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short' }).format(
-        new Date(iso),
-    )
+    new Intl.DateTimeFormat('en-PH', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+    }).format(new Date(iso))
 
 export type StorefrontOrdersDrawerProps = {
     isOpen: boolean
     onClose: () => void
     /** Signed-in storefront client; orders are fetched only for this customer. */
     customerId: string | null
-    divisionId: string
+    /** Limits the list to one division; omit to show orders from every store. */
+    divisionId?: string
     isMobile: boolean
     /** Tailwind text colour for totals, e.g. `text-orange-500`. */
     accentTextClass: string
+    /** Optional per-order label, e.g. the seller tag in the marketplace. */
+    renderOrderTag?: (order: SalesOrderRecord) => ReactNode
 }
 
 const StorefrontOrdersDrawer = ({
@@ -46,6 +56,7 @@ const StorefrontOrdersDrawer = ({
     divisionId,
     isMobile,
     accentTextClass,
+    renderOrderTag,
 }: StorefrontOrdersDrawerProps) => {
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
     const [loading, setLoading] = useState(false)
@@ -58,7 +69,11 @@ const StorefrontOrdersDrawer = ({
         try {
             setOrders(await getSalesOrders({ customerId, divisionId }))
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unable to load your orders')
+            setError(
+                err instanceof Error
+                    ? err.message
+                    : 'Unable to load your orders',
+            )
         } finally {
             setLoading(false)
         }
@@ -79,7 +94,9 @@ const StorefrontOrdersDrawer = ({
             placement={isMobile ? 'bottom' : 'right'}
             width={440}
             height="85dvh"
-            className={isMobile ? '[&_.drawer-content]:rounded-t-2xl' : undefined}
+            className={
+                isMobile ? '[&_.drawer-content]:rounded-t-2xl' : undefined
+            }
             onClose={onClose}
             onRequestClose={onClose}
         >
@@ -118,8 +135,15 @@ const StorefrontOrdersDrawer = ({
                                             <div className="text-xs text-gray-500 dark:text-gray-400">
                                                 {formatDate(order.createdAt)}
                                             </div>
+                                            {renderOrderTag ? (
+                                                <div className="mt-1">
+                                                    {renderOrderTag(order)}
+                                                </div>
+                                            ) : null}
                                         </div>
-                                        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                                        <StatusBadge tone={status.tone}>
+                                            {status.label}
+                                        </StatusBadge>
                                     </div>
                                     <ul className="mt-3 flex flex-col gap-1.5 border-t border-gray-100 pt-3 text-sm dark:border-gray-700">
                                         {order.lines.map((line) => (
@@ -128,29 +152,51 @@ const StorefrontOrdersDrawer = ({
                                                 className="flex justify-between gap-3"
                                             >
                                                 <span className="min-w-0">
-                                                    <span className="font-semibold">{line.quantity} ×</span>{' '}
+                                                    <span className="font-semibold">
+                                                        {line.quantity} ×
+                                                    </span>{' '}
                                                     {line.name}
                                                 </span>
                                                 <span className="whitespace-nowrap">
-                                                    {formatPrice(line.lineTotal)}
+                                                    {formatPrice(
+                                                        line.lineTotal,
+                                                    )}
                                                 </span>
                                             </li>
                                         ))}
                                         {order.shipping > 0 ? (
                                             <li className="flex justify-between gap-3 text-gray-500 dark:text-gray-400">
                                                 <span>Delivery</span>
-                                                <span>{formatPrice(order.shipping)}</span>
+                                                <span>
+                                                    {formatPrice(
+                                                        order.shipping,
+                                                    )}
+                                                </span>
                                             </li>
                                         ) : null}
                                         {order.discountAmount > 0 ? (
                                             <li className="flex justify-between gap-3 text-gray-500 dark:text-gray-400">
-                                                <span>Discount{order.promoCode ? ` (${order.promoCode})` : ''}</span>
-                                                <span>−{formatPrice(order.discountAmount)}</span>
+                                                <span>
+                                                    Discount
+                                                    {order.promoCode
+                                                        ? ` (${order.promoCode})`
+                                                        : ''}
+                                                </span>
+                                                <span>
+                                                    −
+                                                    {formatPrice(
+                                                        order.discountAmount,
+                                                    )}
+                                                </span>
                                             </li>
                                         ) : null}
                                     </ul>
                                     <div className="mt-3 flex justify-between border-t border-gray-100 pt-3 font-bold dark:border-gray-700">
-                                        <span>{order.status === 'Completed' ? 'Total paid' : 'Total'}</span>
+                                        <span>
+                                            {order.status === 'Completed'
+                                                ? 'Total paid'
+                                                : 'Total'}
+                                        </span>
                                         <span className={accentTextClass}>
                                             {formatPrice(order.totalAmount)}
                                         </span>
