@@ -3,13 +3,10 @@ import {
     ExecutionContext,
     ForbiddenException,
     Injectable,
-    ServiceUnavailableException,
     UnauthorizedException,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { PrismaService } from '../prisma/prisma.service'
-import { SystemSettingsService } from '../system-settings/system-settings.service'
-import { SETTING_KEYS } from '../system-settings/system-settings.catalog'
 import { isUserRole, USER_ROLES, type UserRole } from './auth.constants'
 import {
     AUTH_ROLES_KEY,
@@ -22,7 +19,6 @@ export class UserAuthGuard implements CanActivate {
     constructor(
         private readonly prisma: PrismaService,
         private readonly reflector: Reflector,
-        private readonly settings: SystemSettingsService,
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -57,13 +53,6 @@ export class UserAuthGuard implements CanActivate {
             role,
         }
         request[AUTH_USER_KEY] = authUser
-
-        if (
-            role !== USER_ROLES.SUPER_ADMIN &&
-            (await this.settings.getBoolean(SETTING_KEYS.MAINTENANCE_MODE))
-        ) {
-            throw new ServiceUnavailableException('The system is under maintenance.')
-        }
 
         const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
             AUTH_ROLES_KEY,

@@ -3,13 +3,13 @@ import {
     ConflictException,
     ForbiddenException,
     Injectable,
-    ServiceUnavailableException,
     UnauthorizedException,
 } from '@nestjs/common'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../prisma/prisma.service'
 import { SystemSettingsService } from '../system-settings/system-settings.service'
 import { SETTING_KEYS } from '../system-settings/system-settings.catalog'
+import { maintenanceException } from '../system-settings/maintenance-mode.guard'
 import {
     isUserRole,
     ROLE_AUTHORITY,
@@ -75,7 +75,9 @@ export class AuthService {
                 'Sign-up is disabled. Ask a Super Admin to create your account.',
             )
         }
-        await this.assertNotInMaintenance(USER_ROLES.EMPLOYEE)
+        if (await this.settings.isMaintenanceModeEnabled()) {
+            throw maintenanceException()
+        }
 
         const configuredRole = await this.settings.getString(SETTING_KEYS.DEFAULT_USER_ROLE)
         const role: UserRole =
@@ -158,20 +160,7 @@ export class AuthService {
             throw new UnauthorizedException('This account has been deactivated.')
         }
 
-        await this.assertNotInMaintenance(user.role)
-
         return this.toPublicUser(user)
-    }
-
-    private async assertNotInMaintenance(role: string) {
-        if (
-            role !== USER_ROLES.SUPER_ADMIN &&
-            (await this.settings.getBoolean(SETTING_KEYS.MAINTENANCE_MODE))
-        ) {
-            throw new ServiceUnavailableException(
-                'The system is under maintenance. Please try again later.',
-            )
-        }
     }
 
     async getProfile(userName: string) {

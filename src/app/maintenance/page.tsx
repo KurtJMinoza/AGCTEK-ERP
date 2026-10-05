@@ -23,11 +23,11 @@ const MaintenancePage = async () => {
             <div className="max-w-md text-center">
                 <PiWrenchDuotone className="mx-auto text-6xl text-primary" />
                 <h2 className="mt-4 text-2xl font-bold heading-text">
-                    {maintenance_mode ? 'Under maintenance' : 'We are back'}
+                    {maintenance_mode ? 'Undergoing Maintenance' : 'We are back'}
                 </h2>
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                     {maintenance_mode
-                        ? 'AGCTEK ERP is temporarily unavailable while we perform maintenance. Please try again later.'
+                        ? 'The system is currently undergoing maintenance. Please try again later.'
                         : 'Maintenance is finished. You can continue using AGCTEK ERP.'}
                 </p>
                 <div className="mt-6 flex justify-center gap-2">

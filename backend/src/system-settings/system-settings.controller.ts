@@ -8,6 +8,7 @@ import {
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { SystemSettingsService } from './system-settings.service'
 import { UpdateSystemSettingsDto } from './dto/system-settings.dto'
+import { AllowDuringMaintenance } from './maintenance-mode.guard'
 
 @Controller('system-settings')
 export class SystemSettingsController {
@@ -15,6 +16,7 @@ export class SystemSettingsController {
 
     /** Unauthenticated: only keys marked `public` in the catalog (no secrets). */
     @Get('public')
+    @AllowDuringMaintenance()
     getPublic() {
         return this.settings.getPublic()
     }
