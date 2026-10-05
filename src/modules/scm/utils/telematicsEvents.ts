@@ -1,5 +1,5 @@
 /**
- * Extract VL512 / flespi-style driving & power events from GpsLog.rawPayload.
+ * Extract flespi-style driving & power events from GpsLog.rawPayload.
  * Keys follow flespi Concox mapping (harsh.braking.event, power.cut.alarm, …).
  */
 
@@ -65,7 +65,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>
 }
 
-/** Flatten dotted keys + nested bags used by flespi / Traccar wrappers. */
+/** Flatten dotted keys + nested bags used by flespi wrappers. */
 export function payloadBags(
     rawPayload: Record<string, unknown> | null | undefined,
 ): Record<string, unknown>[] {

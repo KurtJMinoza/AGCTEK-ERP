@@ -47,7 +47,9 @@ export class SdDemandProvider implements MmDemandProvider {
 
         const lines: MmNormalizedDemandLine[] = []
         for (const order of orders) {
+            if (!order.companyId || !order.warehouseId) continue
             for (const line of order.lines) {
+                if (!line.materialId || !line.material) continue
                 const openQty = new Decimal(line.quantity).minus(line.issuedQuantity)
                 if (openQty.lte(0)) continue
 

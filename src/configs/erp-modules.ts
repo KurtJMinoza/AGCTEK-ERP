@@ -16,6 +16,29 @@ export const ERP_MODULES: ErpModule[] = [
         icon: 'shoppingCart',
         categories: [
             {
+                code: 'sales-channels',
+                title: 'Sales Channels',
+                submodules: [
+                    {
+                        code: 'pos',
+                        title: 'POS Terminal',
+                        description:
+                            'Over-the-counter cash sales with immediate stock deduction and billing.',
+                        path: '/modules/sd/pos',
+                        icon: 'creditCard',
+                    },
+                    {
+                        code: 'ecommerce',
+                        title: 'E-commerce',
+                        description:
+                            'Open the AGC Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+                        path: '/shop',
+                        icon: 'storefront',
+                        isExternalLink: true,
+                    },
+                ],
+            },
+            {
                 code: 'master-data',
                 title: 'Master Data',
                 submodules: [
@@ -26,6 +49,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Maintain customer accounts, credit limits, and partner functions.',
                         path: '/modules/sd/customer-master',
                         icon: 'users',
+                    },
+                    {
+                        code: 'product-catalog',
+                        title: 'Product Catalog',
+                        description:
+                            'Add, edit and price the products sold on the AWIC, LPG and MCONPINCO storefronts and POS.',
+                        path: '/modules/sd/product-catalog',
+                        icon: 'tag',
                     },
                     {
                         code: 'material-sales-view',
@@ -376,19 +407,11 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'demand-planning',
-                        title: 'Demand Planning',
+                        title: 'Demand Plan',
                         description:
-                            'Forecast demand and consensus plans (PDF pillar 1).',
+                            'Versioned demand by product × location × period. Horizon (operational / tactical / strategic) is a scope control on the plan.',
                         path: '/scm/demand-planning',
                         icon: 'lineChart',
-                    },
-                    {
-                        code: 'planning-horizons',
-                        title: 'Planning Horizons',
-                        description:
-                            'Horizon weeks, bucket size, and frozen-zone days for demand planning.',
-                        path: '/scm/planning-horizons',
-                        icon: 'settings',
                     },
                 ],
             },
@@ -400,58 +423,82 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'transportation',
                         title: 'Transportation Management',
                         description:
-                            'Shipments, load building, trips, fleet, drivers, tracking, and maintenance.',
+                            'Plan deliveries, load trucks, send them out, and keep track of your fleet.',
                         path: '/scm',
                         icon: 'truck',
                         childGroupTitle: 'Features',
                         children: [
                             {
-                                code: 'vehicles',
-                                title: 'Vehicles',
-                                description:
-                                    'Track and manage company fleet.',
-                                path: '/scm/vehicles',
-                                icon: 'truck',
-                            },
-                            {
-                                code: 'drivers',
-                                title: 'Drivers',
-                                description:
-                                    'Manage driver profiles and status.',
-                                path: '/scm/drivers',
-                                icon: 'users',
-                            },
-                            {
                                 code: 'shipments',
                                 title: 'Shipments',
                                 description:
-                                    'Process load building and shipment lifecycle.',
+                                    'See all orders waiting to be delivered.',
                                 path: '/scm/shipments',
                                 icon: 'package',
+                                group: 'Planning',
+                            },
+                            {
+                                code: 'load-building',
+                                title: 'Load Building',
+                                description:
+                                    'Choose what goes on each truck without overloading it.',
+                                path: '/scm/load-building',
+                                icon: 'layers',
+                                group: 'Planning',
+                            },
+                            {
+                                code: 'trip-planning',
+                                title: 'Trip Planning',
+                                description:
+                                    'Turn a loaded truck into a trip, pick a driver, and send it out.',
+                                path: '/scm/trip-planning',
+                                icon: 'gitBranch',
+                                group: 'Planning',
                             },
                             {
                                 code: 'trips',
                                 title: 'Trips',
                                 description:
-                                    'Plan and execute transportation trips.',
+                                    'See every trip and where it stands.',
                                 path: '/scm/trips',
-                                icon: 'gitBranch',
+                                icon: 'activity',
+                                group: 'Execution',
                             },
                             {
                                 code: 'tracking',
                                 title: 'Tracking',
                                 description:
-                                    'Real-time telematics and tracking.',
+                                    'See where your trucks are right now on a map.',
                                 path: '/scm/tracking',
                                 icon: 'activity',
+                                group: 'Execution',
+                            },
+                            {
+                                code: 'vehicles',
+                                title: 'Vehicles',
+                                description:
+                                    'Add and manage your company trucks.',
+                                path: '/scm/vehicles',
+                                icon: 'truck',
+                                group: 'Fleet & Resources',
+                            },
+                            {
+                                code: 'drivers',
+                                title: 'Drivers',
+                                description:
+                                    'Add drivers and see who is available.',
+                                path: '/scm/drivers',
+                                icon: 'users',
+                                group: 'Fleet & Resources',
                             },
                             {
                                 code: 'maintenance',
                                 title: 'Maintenance',
                                 description:
-                                    'Vehicle maintenance and service schedules.',
+                                    'Schedule and record truck repairs and servicing.',
                                 path: '/scm/maintenance',
                                 icon: 'settings',
+                                group: 'Fleet & Resources',
                             },
                         ],
                     },
@@ -520,6 +567,82 @@ export function findSubmoduleByPath(pathname: string) {
                         return { module, category, submodule, child }
                     }
                 }
+            }
+        }
+    }
+    return undefined
+}
+
+/** App Router segment path for a submodule hub (always under /modules). */
+export function erpSubmoduleRoutePath(
+    moduleCode: string,
+    submoduleCode: string,
+) {
+    return `/modules/${moduleCode}/${submoduleCode}`
+}
+
+/** App Router segment path for a nested feature under a submodule hub. */
+export function erpFeatureRoutePath(
+    moduleCode: string,
+    submoduleCode: string,
+    featureCode: string,
+) {
+    return `/modules/${moduleCode}/${submoduleCode}/${featureCode}`
+}
+
+/** Resolve submodule by URL segments (works when canonical path is /scm/* etc.). */
+export function findSubmoduleByRoute(
+    moduleCode: string,
+    submoduleCode: string,
+) {
+    const module = getErpModule(moduleCode)
+    if (!module) return undefined
+
+    for (const category of module.categories) {
+        for (const submodule of category.submodules) {
+            if (submodule.code === submoduleCode) {
+                return { module, category, submodule }
+            }
+        }
+    }
+    return undefined
+}
+
+/** Resolve nested feature by URL segments. */
+export function findFeatureByRoute(
+    moduleCode: string,
+    submoduleCode: string,
+    featureCode: string,
+) {
+    const base = findSubmoduleByRoute(moduleCode, submoduleCode)
+    if (!base) return undefined
+
+    const child = (base.submodule.children ?? []).find(
+        (item) => item.code === featureCode,
+    )
+    if (!child) return undefined
+
+    return { ...base, child }
+}
+
+/**
+ * When a module uses non-/modules paths (SCM → /scm/*), map
+ * /modules/scm/vehicles → child "vehicles" for redirect.
+ */
+export function findChildByRouteInModule(
+    moduleCode: string,
+    childCode: string,
+) {
+    const module = getErpModule(moduleCode)
+    if (!module) return undefined
+
+    for (const category of module.categories) {
+        for (const submodule of category.submodules) {
+            const child = (submodule.children ?? []).find(
+                (item) => item.code === childCode,
+            )
+            if (child) {
+                return { module, category, submodule, child }
             }
         }
     }

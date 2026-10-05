@@ -64,7 +64,7 @@ Demo credentials (after seed): `driver01` / `123Qwe`
 | Trip | Stop list, **Start route** (5.1) |
 | Stop | Arrive, manifest qty, POD photo/signature/notes, deliver/fail (5.5 / 6.x) |
 
-Optional GPS: while `IN_TRANSIT`, posts to `POST /api/v1/scm/tracking/ping` so **dispatcher Live Tracking** updates. **Primary vehicle tracker** for VL502 testing is **flespi** (MQTT) → GpsLog — see `docs/SCM_FLESPI_VL502.md`. Traccar remains optional.
+Optional GPS: while `IN_TRANSIT`, posts to `POST /api/v1/scm/tracking/ping` so **dispatcher Live Tracking** updates. **Primary vehicle tracker** for VL502 testing is **flespi** (MQTT) → GpsLog — see `docs/SCM_FLESPI_VL502.md`.
 
 ## APIs used
 

@@ -9,17 +9,24 @@ import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
 import {
-    findSubmoduleByPath,
+    erpSubmoduleRoutePath,
+    findSubmoduleByRoute,
     getResolvedErpModules,
 } from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import type { ErpSubmodule } from '@/types/erp-modules'
 
 type SubmoduleHubPageProps = {
-    pathname: string
+    moduleCode: string
+    submoduleCode: string
 }
 
-export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
-    const match = findSubmoduleByPath(pathname)
+export default function SubmoduleHubPage({
+    moduleCode,
+    submoduleCode,
+}: SubmoduleHubPageProps) {
+    const pathname = erpSubmoduleRoutePath(moduleCode, submoduleCode)
+    const match = findSubmoduleByRoute(moduleCode, submoduleCode)
 
     if (!match || !match.submodule.children?.length) {
         return null
@@ -36,7 +43,18 @@ export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
         resolvedCategory.submodules.find((item) => item.code === submodule.code) ??
         submodule
     const children = resolvedSubmodule.children ?? []
-    const breadcrumbItems = buildErpBreadcrumbs(pathname)
+    const groups = children.reduce<{ title?: string; items: ErpSubmodule[] }[]>(
+        (acc, child) => {
+            const existing = acc.find((group) => group.title === child.group)
+            if (existing) existing.items.push(child)
+            else acc.push({ title: child.group, items: [child] })
+            return acc
+        },
+        [],
+    )
+    const breadcrumbItems = buildErpBreadcrumbs(
+        resolvedSubmodule.path || pathname,
+    )
 
     return (
         <PageContainer>
@@ -80,10 +98,38 @@ export default function SubmoduleHubPage({ pathname }: SubmoduleHubPageProps) {
                     description="Select a feature to configure or manage."
                 />
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    {children.map((child) => (
-                        <SubmoduleCard key={child.code} submodule={child} />
-                    ))}
+                <div className="space-y-8">
+                    {groups.map((group, index) => {
+                        const headingId = `feature-group-${index}`
+                        return (
+                            <section
+                                key={group.title ?? headingId}
+                                aria-labelledby={group.title ? headingId : undefined}
+                            >
+                                {group.title && (
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <h2
+                                            id={headingId}
+                                            className="text-xs font-medium text-gray-500 dark:text-gray-400"
+                                        >
+                                            {group.title}
+                                        </h2>
+                                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                                            {group.items.length}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                    {group.items.map((child) => (
+                                        <SubmoduleCard
+                                            key={child.code}
+                                            submodule={child}
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+                        )
+                    })}
                 </div>
             </section>
         </PageContainer>

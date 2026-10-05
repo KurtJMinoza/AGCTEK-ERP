@@ -14,7 +14,11 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "prisma:seed-mm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
+    "prisma:seed-mm-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
+    "prisma:seed-sd-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-purge.ts",
+    "prisma:seed-scm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-scm-reset.ts",
+    "prisma:seed-demand-plan": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-demand-plan.ts",
+    "prisma:seed-tms": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-tms.ts",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
   },

@@ -19,7 +19,9 @@ import {
     PiReceiptDuotone,
     PiShoppingCartDuotone,
     PiStackDuotone,
+    PiStorefrontDuotone,
     PiTableDuotone,
+    PiTagDuotone,
     PiTruckDuotone,
     PiUserCircleDuotone,
     PiUsersDuotone,
@@ -32,6 +34,7 @@ const erpIcon: ErpIcons = {
     home: <PiHouseLineDuotone />,
     shoppingCart: <PiShoppingCartDuotone />,
     package: <PiPackageDuotone />,
+    tag: <PiTagDuotone />,
     warehouse: <PiBuildingsDuotone />,
     calculator: <PiCalculatorDuotone />,
     factory: <PiFactoryDuotone />,
@@ -55,6 +58,7 @@ const erpIcon: ErpIcons = {
     activity: <PiPulseDuotone />,
     calendar: <PiCalendarDuotone />,
     crm: <PiAddressBookDuotone />,
+    storefront: <PiStorefrontDuotone />,
 }
 
 export default erpIcon

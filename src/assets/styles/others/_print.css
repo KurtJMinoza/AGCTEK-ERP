@@ -1,0 +1,13 @@
+/*
+ * Isolated print targets: while an element with .print-isolate is mounted as a
+ * direct child of <body>, printing shows only that element (e.g. POS receipt).
+ */
+@media print {
+    body:has(> .print-isolate) > *:not(.print-isolate) {
+        display: none !important;
+    }
+
+    body:has(> .print-isolate) {
+        background: #fff !important;
+    }
+}

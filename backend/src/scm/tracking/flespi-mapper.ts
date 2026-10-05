@@ -22,7 +22,7 @@ export type NormalizedGpsIngest = {
     rawPayload?: Record<string, unknown> | null
     /** True when message has no fix — caller should skip without error */
     skipNoFix?: boolean
-    source?: 'flespi' | 'traccar' | 'flat'
+    source?: 'flespi' | 'flat'
 }
 
 export function isFlespiMessage(body: Record<string, unknown>): boolean {

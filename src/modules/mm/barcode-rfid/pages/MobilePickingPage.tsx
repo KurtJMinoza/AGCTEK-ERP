@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import FormSection from '@/components/shared/FormSection'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
@@ -34,6 +34,7 @@ const MobilePickingPage = () => {
     const [feedback, setFeedback] = useState<{
         type: 'success' | 'danger' | 'info'
         message: string
+        title?: string
     } | null>(null)
 
     const load = useCallback(() => {
@@ -56,11 +57,12 @@ const MobilePickingPage = () => {
 
     const selected = tasks.find((t) => t.id === taskId)
 
-    const onScan = useCallback(async () => {
-        if (!barcode.trim()) return
+    const onScan = useCallback(async (barcodeOverride?: string) => {
+        const code = (barcodeOverride ?? barcode).trim()
+        if (!code) return
         setScanning(true)
         try {
-            const r = await scannerService.resolve(barcode.trim())
+            const r = await scannerService.resolve(code)
             if (r.type === 'PICKING_TASK' && r.pickingTaskId) {
                 setTaskId(r.pickingTaskId)
                 if (r.storageBinId) setBin(r.storageBinId)
@@ -88,7 +90,7 @@ const MobilePickingPage = () => {
                     message: `Serial ${r.serial?.serialNumber ?? r.barcode}`,
                 })
             } else if (r.materialId) {
-                setMaterialBarcode(barcode.trim())
+                setMaterialBarcode(code)
                 setFeedback({
                     type: 'success',
                     message: `Material ${r.material?.materialCode ?? r.materialId}`,
@@ -179,7 +181,14 @@ const MobilePickingPage = () => {
         <MobileScanShell
             route={ROUTE}
             title="Mobile Picking"
-            description="Scan task → source bin → material → batch/serial → qty → confirm."
+            icon="clipboard"
+            workflowLabel="Outbound execution"
+            description="Scan pick tasks, source bins, and identifiers, then confirm picks through the MM scanner engine."
+            workflowSteps={[
+                'Scan pick task or bin',
+                'Scan material, batch, or serial',
+                'Enter quantity and confirm',
+            ]}
             barcode={barcode}
             onBarcodeChange={setBarcode}
             onScan={onScan}
@@ -189,38 +198,48 @@ const MobilePickingPage = () => {
             confirmLabel="Confirm pick"
             feedback={feedback}
         >
-            <AdaptiveCard className="mb-4">
-                <FormItem label="Source bin (required)">
-                    <Input
-                        className="h-12 text-lg"
-                        value={bin}
-                        onChange={(e: any) => setBin(e.target.value)}
-                    />
-                </FormItem>
-                <FormItem label="Batch">
-                    <Input
-                        className="h-12"
-                        value={batch}
-                        onChange={(e: any) => setBatch(e.target.value)}
-                    />
-                </FormItem>
-                <FormItem label="Serial">
-                    <Input
-                        className="h-12"
-                        value={serial}
-                        onChange={(e: any) => setSerial(e.target.value)}
-                    />
-                </FormItem>
-                <FormItem label="Picked qty">
-                    <Input
-                        className="h-14 text-2xl"
-                        type="number"
-                        value={qty}
-                        onChange={(e: any) => setQty(e.target.value)}
-                    />
-                </FormItem>
-            </AdaptiveCard>
-            <AdaptiveCard>
+            <FormSection
+                title="Pick execution"
+                description="Source bin is required before confirm. Scan or type values from the left panel."
+            >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormItem label="Source bin (required)">
+                        <Input
+                            className="h-12 font-mono text-lg"
+                            value={bin}
+                            onChange={(e: any) => setBin(e.target.value)}
+                            placeholder="Scan bin barcode"
+                        />
+                    </FormItem>
+                    <FormItem label="Picked quantity">
+                        <Input
+                            className="h-12 text-xl font-semibold"
+                            type="number"
+                            min={0}
+                            value={qty}
+                            onChange={(e: any) => setQty(e.target.value)}
+                        />
+                    </FormItem>
+                    <FormItem label="Batch">
+                        <Input
+                            className="h-12 font-mono"
+                            value={batch}
+                            onChange={(e: any) => setBatch(e.target.value)}
+                        />
+                    </FormItem>
+                    <FormItem label="Serial">
+                        <Input
+                            className="h-12 font-mono"
+                            value={serial}
+                            onChange={(e: any) => setSerial(e.target.value)}
+                        />
+                    </FormItem>
+                </div>
+            </FormSection>
+            <FormSection
+                title="Open pick tasks"
+                description="Select a task or scan its barcode to bind the session."
+            >
                 <DataTable
                     columns={
                         [
@@ -286,7 +305,7 @@ const MobilePickingPage = () => {
                     }
                     data={tasks}
                 />
-            </AdaptiveCard>
+            </FormSection>
         </MobileScanShell>
     )
 }

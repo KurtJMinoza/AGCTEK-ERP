@@ -24,3 +24,22 @@
 .animate-aurora:after {
     animation: aurora 60s linear infinite;
 }
+
+/* Horizontal infinite marquee: render the item list twice inside the animated track. */
+@keyframes marquee {
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+.animate-marquee {
+    animation: marquee var(--animation-duration, 30s) linear infinite;
+
+    &.animation-play-state-paused:hover {
+        animation-play-state: paused;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}

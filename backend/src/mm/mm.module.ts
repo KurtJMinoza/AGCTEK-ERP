@@ -492,6 +492,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         InventoryAvailabilityService,
         ReservationEngineService,
         AllocationEngineService,
+        UomConversionsService,
     ],
 })
 export class MmModule {}

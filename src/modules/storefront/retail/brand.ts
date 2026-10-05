@@ -9,26 +9,16 @@ export const AWIC_BRAND = {
 export const AWIC_STOREFRONT_PATH = '/awic' as const
 
 /**
- * Hostnames that serve AWIC at the site root (no /awic prefix in the address bar).
- * Built-in: awic.localhost (works locally without DNS).
- * Extra hosts: comma-separated NEXT_PUBLIC_AWIC_HOSTS (e.g. awic.com,www.awic.com).
+ * Hostnames that serve AWIC retail at the site root (no /awic prefix in the bar).
+ * Does not include awic.localhost — that host serves the marketplace (see marketplace/host).
+ * Extra hosts: comma-separated NEXT_PUBLIC_AWIC_HOSTS.
  */
 export function isAwicStorefrontHost(hostname: string): boolean {
     const host = hostname.split(':')[0]?.toLowerCase() ?? ''
     if (!host) return false
-    if (host === 'awic.localhost' || host.endsWith('.awic.localhost')) {
-        return true
-    }
     const extra =
         process.env.NEXT_PUBLIC_AWIC_HOSTS?.split(',')
             .map((value) => value.trim().toLowerCase())
             .filter(Boolean) ?? []
     return extra.includes(host)
-}
-
-/** September Sale discount applied to highlighted products */
-export const SEPTEMBER_SALE_DISCOUNT = 0.2 as const
-
-export function getSeptemberSalePrice(basePrice: number): number {
-    return Math.round(basePrice * (1 - SEPTEMBER_SALE_DISCOUNT))
 }

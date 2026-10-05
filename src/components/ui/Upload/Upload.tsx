@@ -208,7 +208,8 @@ const Upload = (props: UploadProps) => {
                     disabled={disabled}
                     multiple={multiple}
                     accept={accept}
-                    title=""
+                    // Chrome shows "No file chosen" for an empty title; whitespace shows nothing.
+                    title=" "
                     value=""
                     onChange={onNewFileUpload}
                     {...rest}

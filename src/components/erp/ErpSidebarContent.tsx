@@ -1,15 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import Menu from '@/components/ui/Menu'
 import Tooltip from '@/components/ui/Tooltip'
 import ErpIcon from '@/components/erp/ErpIcon'
-import { getResolvedErpModules } from '@/configs/erp-modules'
+import { getAllSubmodules, getResolvedErpModules } from '@/configs/erp-modules'
 import { getActiveModuleCode } from '@/utils/erp-navigation'
 import usePermissions from '@/utils/hooks/usePermissions'
-import type { ErpModule } from '@/types/erp-modules'
+import type { ErpModule, ErpSubmodule } from '@/types/erp-modules'
 
 const { MenuItem, MenuGroup } = Menu
 
@@ -32,7 +32,7 @@ export default function ErpSidebarContent({
         [can, loading],
     )
     const activeModuleCode = getActiveModuleCode(pathname)
-    const activeKeys = activeModuleCode ? [activeModuleCode] : []
+    const activeKeys = activeModuleCode ? [activeModuleCode, pathname] : []
 
     return (
         <div className="flex h-full flex-col">
@@ -44,17 +44,60 @@ export default function ErpSidebarContent({
                 >
                     <MenuGroup label="Modules">
                         {modules.map((module) => (
-                            <ModuleMenuItem
-                                key={module.code}
-                                module={module}
-                                collapsed={collapsed}
-                                onNavigate={onNavigate}
-                            />
+                            <Fragment key={module.code}>
+                                <ModuleMenuItem
+                                    module={module}
+                                    collapsed={collapsed}
+                                    onNavigate={onNavigate}
+                                />
+                                {sidebarShortcuts(module).map((shortcut) => (
+                                    <ShortcutMenuItem
+                                        key={shortcut.path}
+                                        shortcut={shortcut}
+                                        collapsed={collapsed}
+                                        onNavigate={onNavigate}
+                                    />
+                                ))}
+                            </Fragment>
                         ))}
                     </MenuGroup>
                 </Menu>
             </div>
         </div>
+    )
+}
+
+function sidebarShortcuts(module: ErpModule): ErpSubmodule[] {
+    const codes = module.sidebarShortcuts ?? []
+    return getAllSubmodules(module)
+        .map(({ submodule }) => submodule)
+        .filter((submodule) => codes.includes(submodule.code))
+}
+
+function ShortcutMenuItem({
+    shortcut,
+    collapsed,
+    onNavigate,
+}: {
+    shortcut: ErpSubmodule
+    collapsed: boolean
+    onNavigate?: () => void
+}) {
+    return (
+        <Tooltip title={shortcut.title} placement="right" disabled={!collapsed}>
+            <MenuItem eventKey={shortcut.path}>
+                <Link
+                    href={shortcut.path}
+                    onClick={onNavigate}
+                    className={`flex h-full w-full items-center gap-2 ${collapsed ? '' : 'pl-6'}`}
+                >
+                    <ErpIcon icon={shortcut.icon} className="text-xl" />
+                    {!collapsed ? (
+                        <span className="truncate">{shortcut.title}</span>
+                    ) : null}
+                </Link>
+            </MenuItem>
+        </Tooltip>
     )
 }
 

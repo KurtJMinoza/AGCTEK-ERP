@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import FormSection from '@/components/shared/FormSection'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
@@ -59,14 +60,16 @@ const BarcodeScanningPage = () => {
     const [feedback, setFeedback] = useState<{
         type: 'success' | 'danger' | 'info'
         message: string
+        title?: string
     } | null>(null)
 
-    const onScan = useCallback(async () => {
-        if (!barcode.trim()) return
+    const onScan = useCallback(async (barcodeOverride?: string) => {
+        const code = (barcodeOverride ?? barcode).trim()
+        if (!code) return
         setScanning(true)
         setFeedback(null)
         try {
-            const r = await scannerService.resolve(barcode.trim())
+            const r = await scannerService.resolve(code)
             setHit(r)
             setFeedback({
                 type: 'success',
@@ -132,7 +135,14 @@ const BarcodeScanningPage = () => {
         <MobileScanShell
             route={ROUTE}
             title="Barcode Scanning"
-            description="Resolve any MM identifier and submit scanner operations (receiving, putaway, picking, packing, counting, transfer)."
+            icon="fileText"
+            workflowLabel="Universal resolver"
+            description="Resolve any MM identifier and post scanner operations through the central MM scanner API."
+            workflowSteps={[
+                'Lookup barcode',
+                'Choose operation and context',
+                'Submit operation',
+            ]}
             barcode={barcode}
             onBarcodeChange={setBarcode}
             onScan={onScan}
@@ -142,7 +152,10 @@ const BarcodeScanningPage = () => {
             confirmLabel="Submit operation"
             feedback={feedback}
         >
-            <AdaptiveCard>
+            <FormSection
+                title="Operation & context"
+                description="Fields vary by operation type. Inventory always posts via MM domain services."
+            >
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <FormItem label="Operation">
                         <Select
@@ -207,12 +220,22 @@ const BarcodeScanningPage = () => {
                         </FormItem>
                     )}
                 </div>
-                {hit && (
-                    <pre className="mt-4 overflow-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-800">
+            </FormSection>
+            {hit ? (
+                <AdaptiveCard
+                    header={{
+                        content: (
+                            <h4 className="text-base font-semibold">
+                                Resolver payload
+                            </h4>
+                        ),
+                    }}
+                >
+                    <pre className="overflow-auto rounded-lg bg-gray-50 p-4 text-xs dark:bg-gray-800/80">
                         {JSON.stringify(hit, null, 2)}
                     </pre>
-                )}
-            </AdaptiveCard>
+                </AdaptiveCard>
+            ) : null}
         </MobileScanShell>
     )
 }
