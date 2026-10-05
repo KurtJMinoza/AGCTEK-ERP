@@ -14,6 +14,7 @@ import {
     HiOutlineIdentification,
     HiOutlinePencil,
 } from 'react-icons/hi'
+import StockThresholdSummary from './StockThresholdSummary'
 import type { Material } from '../types'
 import type { ReactNode } from 'react'
 
@@ -113,16 +114,13 @@ const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewD
                 </div>
             </ViewSection>
 
-            <ViewSection title="Planning" icon={<HiOutlineTag />}>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                    <Metric label="Min stock" value={Number(material.minimumStock).toLocaleString()} />
-                    <Metric label="Max stock" value={Number(material.maximumStock).toLocaleString()} />
-                    <Metric label="Safety stock" value={Number(material.safetyStock).toLocaleString()} />
-                    <Metric label="Reorder point" value={Number(material.reorderPoint).toLocaleString()} />
-                    <Metric label="Reorder qty" value={Number(material.reorderQuantity).toLocaleString()} />
-                    <Metric label="Lead time" value={`${material.leadTimeDays} days`} />
-                    <Metric label="Min order qty" value={Number(material.minimumOrderQuantity).toLocaleString()} />
-                </div>
+            <ViewSection title="Stock thresholds" icon={<HiOutlineTag />}>
+                <StockThresholdSummary
+                    onHand={Number(material.onHandQty ?? 0)}
+                    reserved={Number(material.reservedQty ?? 0)}
+                    maxStock={Number(material.maximumStock)}
+                    safetyStock={Number(material.safetyStock)}
+                />
             </ViewSection>
 
             <ViewSection title="Valuation" icon={<HiOutlineCurrencyDollar />}>

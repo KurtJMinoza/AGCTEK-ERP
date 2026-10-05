@@ -36,6 +36,8 @@
     "@tiptap/react": "^2.10.4",
     "@tiptap/starter-kit": "^2.10.4",
     "@visx/pattern": "^3.13.0-alpha.0",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.1",
     "classnames": "^2.5.1",

@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import FormSection from '@/components/shared/FormSection'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
@@ -34,6 +34,7 @@ const MobileReceivingPage = () => {
     const [feedback, setFeedback] = useState<{
         type: 'success' | 'danger' | 'info'
         message: string
+        title?: string
     } | null>(null)
 
     const reloadErs = useCallback(() => {
@@ -61,78 +62,94 @@ const MobileReceivingPage = () => {
         [selectedEr],
     )
 
-    const onScan = useCallback(async () => {
-        if (!barcode.trim()) return
-        setScanning(true)
-        try {
-            const r = await scannerService.resolve(barcode.trim())
-            if (r.type === 'EXPECTED_RECEIPT' && r.expectedReceiptId) {
-                setErId(r.expectedReceiptId)
-                setLineId('')
-                setFeedback({
-                    type: 'success',
-                    message: `ER ${r.documentNumber ?? r.expectedReceiptId}`,
-                })
-                reloadErs()
-            } else if (r.type === 'PURCHASE_ORDER') {
-                const match = ers.find(
-                    (e) => e.purchaseOrderId === r.purchaseOrderId,
-                )
-                if (match) {
-                    setErId(match.id)
+    const onScan = useCallback(
+        async (barcodeOverride?: string) => {
+            const code = (barcodeOverride ?? barcode).trim()
+            if (!code) return
+            setScanning(true)
+            try {
+                const r = await scannerService.resolve(code)
+                if (r.type === 'EXPECTED_RECEIPT' && r.expectedReceiptId) {
+                    setErId(r.expectedReceiptId)
+                    setLineId('')
                     setFeedback({
                         type: 'success',
-                        message: `PO ${r.documentNumber} → ER ${match.documentNumber}`,
+                        title: 'Expected receipt',
+                        message: `ER ${r.documentNumber ?? r.expectedReceiptId}`,
                     })
+                    reloadErs()
+                } else if (r.type === 'PURCHASE_ORDER') {
+                    const match = ers.find(
+                        (e) => e.purchaseOrderId === r.purchaseOrderId,
+                    )
+                    if (match) {
+                        setErId(match.id)
+                        setFeedback({
+                            type: 'success',
+                            title: 'Purchase order',
+                            message: `PO ${r.documentNumber} → ER ${match.documentNumber}`,
+                        })
+                    } else {
+                        setFeedback({
+                            type: 'info',
+                            title: 'Purchase order',
+                            message: `PO ${r.documentNumber} — select matching ER manually`,
+                        })
+                    }
+                } else if (r.type === 'BATCH' || r.batchId) {
+                    setBatch(r.batch?.batchNumber ?? r.barcode)
+                    setFeedback({
+                        type: 'success',
+                        title: 'Batch',
+                        message: `${r.batch?.batchNumber ?? r.barcode}`,
+                    })
+                } else if (r.type === 'SERIAL' || r.serialNumberId) {
+                    setSerial(r.serial?.serialNumber ?? r.barcode)
+                    setFeedback({
+                        type: 'success',
+                        title: 'Serial',
+                        message: `${r.serial?.serialNumber ?? r.barcode}`,
+                    })
+                } else if (r.materialId) {
+                    setMaterialBarcode(code)
+                    setFeedback({
+                        type: 'success',
+                        title: 'Material',
+                        message: `${r.material?.materialCode ?? r.type}`,
+                    })
+                    const er = ers.find((e) => e.id === erId) ?? selectedEr
+                    if (er?.lines) {
+                        const match = er.lines.find(
+                            (l: any) => l.materialId === r.materialId,
+                        )
+                        if (match) setLineId(match.id)
+                    }
                 } else {
                     setFeedback({
                         type: 'info',
-                        message: `PO ${r.documentNumber} — select matching ER`,
+                        title: 'Resolved',
+                        message: r.type,
                     })
                 }
-            } else if (r.type === 'BATCH' || r.batchId) {
-                setBatch(r.batch?.batchNumber ?? r.barcode)
+            } catch (err: any) {
                 setFeedback({
-                    type: 'success',
-                    message: `Batch ${r.batch?.batchNumber ?? r.barcode}`,
+                    type: 'danger',
+                    title: 'Invalid barcode',
+                    message: err?.response?.data?.message || 'INVALID_BARCODE',
                 })
-            } else if (r.type === 'SERIAL' || r.serialNumberId) {
-                setSerial(r.serial?.serialNumber ?? r.barcode)
-                setFeedback({
-                    type: 'success',
-                    message: `Serial ${r.serial?.serialNumber ?? r.barcode}`,
-                })
-            } else if (r.materialId) {
-                setMaterialBarcode(barcode.trim())
-                setFeedback({
-                    type: 'success',
-                    message: `Material: ${r.material?.materialCode ?? r.type}`,
-                })
-                const er = ers.find((e) => e.id === erId) ?? selectedEr
-                if (er?.lines) {
-                    const match = er.lines.find(
-                        (l: any) => l.materialId === r.materialId,
-                    )
-                    if (match) setLineId(match.id)
-                }
-            } else {
-                setFeedback({ type: 'info', message: `Resolved ${r.type}` })
+            } finally {
+                setScanning(false)
             }
-        } catch (err: any) {
-            setFeedback({
-                type: 'danger',
-                message: err?.response?.data?.message || 'INVALID_BARCODE',
-            })
-        } finally {
-            setScanning(false)
-        }
-    }, [barcode, ers, erId, selectedEr, reloadErs])
+        },
+        [barcode, ers, erId, selectedEr, reloadErs],
+    )
 
     const onConfirm = useCallback(async () => {
         if (!erId || !lineId) {
             setFeedback({
                 type: 'danger',
-                message: 'Select expected receipt and line',
+                title: 'Incomplete',
+                message: 'Select expected receipt and line before confirming.',
             })
             return
         }
@@ -154,7 +171,7 @@ const MobileReceivingPage = () => {
             const msg = res.duplicate
                 ? 'Duplicate receive ignored'
                 : 'Receive recorded (draft GR)'
-            setFeedback({ type: 'success', message: msg })
+            setFeedback({ type: 'success', title: 'Posted', message: msg })
             toast.push(
                 <Notification type="success" title="Receive">
                     {msg}
@@ -167,6 +184,7 @@ const MobileReceivingPage = () => {
             const msg = err?.response?.data?.message || 'Failed'
             setFeedback({
                 type: 'danger',
+                title: 'Post failed',
                 message: Array.isArray(msg) ? msg.join(', ') : msg,
             })
         } finally {
@@ -178,7 +196,14 @@ const MobileReceivingPage = () => {
         <MobileScanShell
             route={ROUTE}
             title="Mobile Receiving"
-            description="Scan PO/ER → material → qty → batch/serial → confirm (existing GR path)."
+            icon="truck"
+            workflowLabel="Inbound execution"
+            description="Scan documents and identifiers, then post receiving through the MM scanner engine (draft GR)."
+            workflowSteps={[
+                'Scan PO or expected receipt',
+                'Scan material / batch / serial',
+                'Enter quantity and confirm',
+            ]}
             barcode={barcode}
             onBarcodeChange={setBarcode}
             onScan={onScan}
@@ -188,9 +213,12 @@ const MobileReceivingPage = () => {
             confirmLabel="Confirm receive"
             feedback={feedback}
         >
-            <AdaptiveCard className="mb-4">
-                <div className="grid grid-cols-1 gap-4">
-                    <FormItem label="Expected Receipt (or scan ER/PO)">
+            <FormSection
+                title="Receipt context"
+                description="Select or scan the inbound document and target line."
+            >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <FormItem label="Expected receipt">
                         <Select
                             options={erOpts}
                             value={erOpts.find((o) => o.value === erId)}
@@ -198,6 +226,7 @@ const MobileReceivingPage = () => {
                                 setErId(opt?.value ?? '')
                                 setLineId('')
                             }}
+                            placeholder="Select ER…"
                         />
                     </FormItem>
                     <FormItem label="Line">
@@ -205,36 +234,50 @@ const MobileReceivingPage = () => {
                             options={lineOpts}
                             value={lineOpts.find((o: any) => o.value === lineId)}
                             onChange={(opt: any) => setLineId(opt?.value ?? '')}
+                            placeholder="Select line…"
                         />
                     </FormItem>
+                </div>
+            </FormSection>
+
+            <FormSection
+                title="Quantity & traceability"
+                description="Batch and serial fields apply when the material is managed."
+            >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <FormItem label="Quantity">
                         <Input
-                            className="h-14 text-2xl"
+                            className="h-12 text-xl font-semibold"
                             type="number"
+                            min={0}
                             value={qty}
                             onChange={(e: any) => setQty(e.target.value)}
                         />
                     </FormItem>
-                    <FormItem label="Batch (if required)">
+                    <FormItem label="Batch">
                         <Input
-                            className="h-12"
+                            className="h-12 font-mono"
                             value={batch}
                             onChange={(e: any) => setBatch(e.target.value)}
-                            placeholder="Scan batch barcode"
+                            placeholder="Scan batch"
                         />
                     </FormItem>
-                    <FormItem label="Serial (if required)">
+                    <FormItem label="Serial">
                         <Input
-                            className="h-12"
+                            className="h-12 font-mono"
                             value={serial}
                             onChange={(e: any) => setSerial(e.target.value)}
-                            placeholder="Scan serial barcode"
+                            placeholder="Scan serial"
                         />
                     </FormItem>
                 </div>
-            </AdaptiveCard>
-            {selectedEr?.lines && (
-                <AdaptiveCard>
+            </FormSection>
+
+            {selectedEr?.lines?.length ? (
+                <FormSection
+                    title="Open lines"
+                    description="Tap Use to select a line for the next receive."
+                >
                     <DataTable
                         columns={
                             [
@@ -258,6 +301,11 @@ const MobileReceivingPage = () => {
                                     cell: ({ row }: any) => (
                                         <Button
                                             size="sm"
+                                            variant={
+                                                lineId === row.original.id
+                                                    ? 'solid'
+                                                    : 'default'
+                                            }
                                             onClick={() =>
                                                 setLineId(row.original.id)
                                             }
@@ -270,8 +318,8 @@ const MobileReceivingPage = () => {
                         }
                         data={selectedEr.lines}
                     />
-                </AdaptiveCard>
-            )}
+                </FormSection>
+            ) : null}
         </MobileScanShell>
     )
 }

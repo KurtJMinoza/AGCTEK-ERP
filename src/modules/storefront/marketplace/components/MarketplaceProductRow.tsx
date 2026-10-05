@@ -42,11 +42,11 @@ const MarketplaceProductRow = ({
                     </span>
                 </Button>
             </div>
-            <ul className="hide-scrollbar -mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4 pt-1 sm:mx-0 sm:gap-6 sm:px-0">
+            <ul className="hide-scrollbar -mx-4 flex snap-x gap-5 overflow-x-auto px-4 pb-4 pt-1 sm:mx-0 sm:gap-7 sm:px-0">
                 {products.map((product) => (
                     <li
                         key={productKey(product)}
-                        className="w-44 shrink-0 snap-start sm:w-56"
+                        className="w-52 shrink-0 snap-start sm:w-64 lg:w-72"
                     >
                         {renderCard(product)}
                     </li>

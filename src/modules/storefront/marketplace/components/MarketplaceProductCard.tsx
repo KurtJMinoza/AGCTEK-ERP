@@ -58,7 +58,7 @@ const MarketplaceProductCard = ({
             role="button"
             tabIndex={0}
             aria-label={`View ${product.name}`}
-            bodyClass="flex h-full flex-col gap-4 p-4"
+            bodyClass="flex h-full flex-col gap-5 p-5"
             className={classNames('h-full rounded-xl', SURFACE, SURFACE_HOVER)}
             onClick={onOpen}
             onKeyDown={(event) => {
@@ -75,7 +75,7 @@ const MarketplaceProductCard = ({
                 <ProductImage
                     product={product}
                     fit="contain"
-                    sizes="(max-width: 768px) 45vw, 220px"
+                    sizes="(max-width: 768px) 45vw, 288px"
                     className="aspect-square w-full !bg-transparent"
                 />
                 {product.badge ? (
@@ -111,7 +111,7 @@ const MarketplaceProductCard = ({
                 </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                 <span
                     className={classNames(
                         'truncate text-xs font-medium',
@@ -123,9 +123,9 @@ const MarketplaceProductCard = ({
                 <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-snug text-gray-900">
                     {product.name}
                 </h3>
-                <div className="mt-auto flex flex-col gap-1.5">
+                <div className="mt-auto flex flex-col gap-2 pt-1">
                     <StarRating />
-                    <div className="flex flex-wrap items-baseline gap-x-2">
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
                         <span
                             className={classNames(
                                 'text-lg font-bold',

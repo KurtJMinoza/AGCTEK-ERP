@@ -29,6 +29,8 @@ export type ProductListParams = {
     search?: string
 }
 
+export type SdProductType = 'STOCK_ITEM' | 'NON_STOCK_ITEM' | 'SERVICE'
+
 export type ProductInput = {
     divisionId: string
     sku: string
@@ -36,12 +38,21 @@ export type ProductInput = {
     description?: string
     price: number
     originalPrice?: number | null
-    category: string
+    /** Stock items take the linked MM material's category server-side. */
+    category?: string
     imageUrl?: string
     badge?: string | null
     isActive?: boolean
     sortOrder?: number
     attributes?: ProductAttributes | null
+    productType?: SdProductType
+    /** Required for STOCK_ITEM — explicit SD ↔ MM link at creation. */
+    materialId?: string
+    materialIds?: string[]
+    materialLinkMode?: 'single' | 'multiple'
+    companyId?: string
+    autoGenerateSku?: boolean
+    imageGallery?: string[]
     /** Existing gallery photos to keep, in order; new ones are uploaded as files. */
     galleryImages?: string[]
 }
@@ -54,6 +65,37 @@ export const productGallery = (record: Pick<SdProductRecord, 'attributes'>) =>
     productAttribute<unknown[]>(record, 'images', []).filter(
         (url): url is string => typeof url === 'string' && url.trim() !== '',
     )
+
+const stringList = (value: unknown) =>
+    Array.isArray(value)
+        ? value.filter(
+              (u): u is string => typeof u === 'string' && u.trim().length > 0,
+          )
+        : []
+
+/**
+ * Cover first, then every extra photo — `attributes.images` plus the
+ * `attributes.gallery` list the Product Catalog form saves — without duplicates.
+ */
+export function productImageGallery(
+    record: Pick<SdProductRecord, 'imageUrl' | 'attributes'>,
+): string[] {
+    const cover = record.imageUrl?.trim() ?? ''
+    return [
+        ...new Set([
+            ...(cover ? [cover] : []),
+            ...productGallery(record),
+            ...stringList(record.attributes?.gallery),
+        ]),
+    ]
+}
+
+/** Matches the server's PRODUCT_VIDEO_MAX. */
+export const PRODUCT_VIDEO_MAX = 4
+
+/** Product videos kept in `attributes.videos`. */
+export const productVideos = (record: Pick<SdProductRecord, 'attributes'>) =>
+    stringList(record.attributes?.videos)
 
 /** Reads one storefront attribute, falling back when absent. */
 export function productAttribute<T>(
@@ -94,6 +136,74 @@ export async function listProducts(
     }
 }
 
+export type StorefrontAvailability = {
+    sku: string
+    /** Commercial ATP (Product Catalog "Stock available"). */
+    availableQuantity: number
+    reservedQuantity: number
+    /** Company on-hand across warehouses (MM ledger). */
+    physicalStock: number
+    /** Company available across warehouses (MM ledger). */
+    ledgerAvailable?: number
+    state?:
+        | 'IN_STOCK'
+        | 'LOW_STOCK'
+        | 'OUT_OF_STOCK'
+        | 'NOT_MAPPED'
+        | 'NON_INVENTORY'
+}
+
+/** Storefront stock for one product, computed server-side by SD ↔ MM ATP. */
+export async function fetchStorefrontAvailability(
+    divisionId: string,
+    sku: string,
+): Promise<StorefrontAvailability> {
+    const empty: StorefrontAvailability = {
+        sku,
+        availableQuantity: 0,
+        reservedQuantity: 0,
+        physicalStock: 0,
+        ledgerAvailable: 0,
+        state: 'OUT_OF_STOCK',
+    }
+    try {
+        const { data } = await ErpAxiosBase.get<StorefrontAvailability>(
+            '/sd/products/storefront/availability',
+            { params: { divisionId, sku } },
+        )
+        return {
+            ...empty,
+            ...data,
+            ledgerAvailable:
+                data.ledgerAvailable ?? data.availableQuantity ?? 0,
+        }
+    } catch (error: unknown) {
+        const payload =
+            typeof error === 'object' &&
+            error !== null &&
+            'response' in error &&
+            typeof (error as { response?: { data?: StorefrontAvailability } })
+                .response?.data === 'object'
+                ? (error as { response: { data: StorefrontAvailability } })
+                      .response.data
+                : null
+        if (payload?.sku) return { ...empty, ...payload }
+        throw toError(error, 'Unable to load stock')
+    }
+}
+
+export async function suggestProductSku(divisionId: string): Promise<string> {
+    try {
+        const { data } = await ErpAxiosBase.get<{ sku: string }>(
+            '/sd/products/suggested-sku',
+            { params: { divisionId } },
+        )
+        return data.sku
+    } catch (error) {
+        throw toError(error, 'Unable to suggest SKU')
+    }
+}
+
 /**
  * Multipart body: `data` carries the text fields as JSON, `image` the optional
  * main photo and `gallery` any new gallery photos. The server stores the files
@@ -111,6 +221,48 @@ const toProductFormData = (
     return formData
 }
 
+export async function createProduct(
+    input: ProductInput,
+): Promise<SdProductRecord> {
+    const {
+        materialId,
+        materialIds,
+        materialLinkMode,
+        companyId,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        galleryImages: _galleryImages,
+        ...rest
+    } = input
+    const body: Record<string, unknown> = {
+        ...rest,
+        productType,
+        autoGenerateSku,
+        imageGallery,
+        materialLinkMode,
+    }
+    if (productType === 'STOCK_ITEM' && companyId?.trim()) {
+        body.companyId = companyId.trim()
+        const ids =
+            materialIds?.filter(Boolean) ??
+            (materialId?.trim() ? [materialId.trim()] : [])
+        if (ids.length) body.materialIds = ids
+    }
+    if (autoGenerateSku) {
+        delete body.sku
+    }
+    try {
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            '/sd/products',
+            body as ProductInput,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Unable to create product')
+    }
+}
+
 export async function updateProduct(
     id: string,
     input: Partial<ProductInput>,
@@ -125,5 +277,44 @@ export async function updateProduct(
         return fromApi(data)
     } catch (error) {
         throw toError(error, 'Unable to update product')
+    }
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+    try {
+        await ErpAxiosBase.delete(`/sd/products/${encodeURIComponent(id)}`)
+    } catch (error) {
+        throw toError(error, 'Unable to delete product')
+    }
+}
+
+/** @deprecated Prefer multipart update; kept for legacy gallery URL uploads. */
+export async function uploadProductImage(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await ErpAxiosBase.post<{ imageUrl: string }>(
+            '/sd/products/images',
+            formData,
+        )
+        return data.imageUrl
+    } catch (error) {
+        throw toError(error, 'Unable to upload image')
+    }
+}
+
+/** Uploads a product video (MP4/WEBM/MOV); returns the URL for `attributes.videos`. */
+export async function uploadProductVideo(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await ErpAxiosBase.post<{ videoUrl: string }>(
+            '/sd/products/videos',
+            formData,
+            { timeout: 10 * 60_000 },
+        )
+        return data.videoUrl
+    } catch (error) {
+        throw toError(error, 'Unable to upload video')
     }
 }

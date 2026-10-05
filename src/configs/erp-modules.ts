@@ -16,6 +16,29 @@ export const ERP_MODULES: ErpModule[] = [
         icon: 'shoppingCart',
         categories: [
             {
+                code: 'sales-channels',
+                title: 'Sales Channels',
+                submodules: [
+                    {
+                        code: 'pos',
+                        title: 'POS Terminal',
+                        description:
+                            'Over-the-counter cash sales with immediate stock deduction and billing.',
+                        path: '/modules/sd/pos',
+                        icon: 'creditCard',
+                    },
+                    {
+                        code: 'ecommerce',
+                        title: 'E-commerce',
+                        description:
+                            'Open the AGC Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+                        path: '/shop',
+                        icon: 'storefront',
+                        isExternalLink: true,
+                    },
+                ],
+            },
+            {
                 code: 'master-data',
                 title: 'Master Data',
                 submodules: [
@@ -64,14 +87,6 @@ export const ERP_MODULES: ErpModule[] = [
                             'Create, change, and monitor customer sales orders.',
                         path: '/modules/sd/sales-orders',
                         icon: 'clipboard',
-                    },
-                    {
-                        code: 'pos',
-                        title: 'POS Terminal',
-                        description:
-                            'Over-the-counter cash sales with immediate stock deduction and billing.',
-                        path: '/modules/sd/pos',
-                        icon: 'creditCard',
                     },
                     {
                         code: 'deliveries',
@@ -136,17 +151,6 @@ export const ERP_MODULES: ErpModule[] = [
                 ],
             },
         ],
-    },
-    {
-        code: 'ecommerce',
-        shortTitle: 'EC',
-        title: 'E-commerce',
-        description:
-            'Open the AGC Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
-        path: '/shop',
-        icon: 'storefront',
-        isExternalLink: true,
-        categories: [],
     },
     {
         code: 'mm',

@@ -1,13 +1,27 @@
-import { BadRequestException, Controller, Get, Param, Patch, Query, Req } from '@nestjs/common'
+import {
+    BadRequestException,
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Param,
+    Patch,
+    Post,
+    Query,
+    Req,
+} from '@nestjs/common'
 import { plainToInstance, type ClassConstructor } from 'class-transformer'
 import { validate } from 'class-validator'
 import type { FastifyRequest } from 'fastify'
 import {
+    CreateProductDto,
     ListProductsQueryDto,
     PRODUCT_GALLERY_MAX,
     UpdateProductDto,
 } from './dto/product.dto'
 import { ProductService } from './product.service'
+import { CommercialAvailabilityService } from './commercial-availability.service'
+import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
 
 /**
  * Reads a product payload sent either as JSON or as multipart/form-data with a
@@ -27,7 +41,8 @@ async function readProductPayload<T extends object>(
         raw = {}
         for await (const part of req.parts()) {
             if (part.type === 'file') {
-                if (part.fieldname === 'image' && !image) image = await part.toBuffer()
+                if (part.fieldname === 'image' && !image)
+                    image = await part.toBuffer()
                 else if (part.fieldname === 'gallery') {
                     if (gallery.length >= PRODUCT_GALLERY_MAX) {
                         throw new BadRequestException(
@@ -59,17 +74,74 @@ async function readProductPayload<T extends object>(
     return { dto, image, gallery }
 }
 
-/**
- * SD maintains sales data (price, badge, photo, visibility, …) on existing
- * products only; there are deliberately no create or delete endpoints.
- */
 @Controller('sd/products')
 export class ProductController {
-    constructor(private products: ProductService) {}
+    constructor(
+        private products: ProductService,
+        private availabilityService: CommercialAvailabilityService,
+    ) {}
 
     @Get()
     list(@Query() query: ListProductsQueryDto) {
         return this.products.list(query)
+    }
+
+    /** Multipart upload (field `file`); returns `{ imageUrl }` to save on the product. */
+    @Post('images')
+    async uploadImage(@Req() req: FastifyRequest) {
+        let buffer: Buffer | null = null
+        for await (const part of req.parts()) {
+            if (part.type === 'file' && !buffer) buffer = await part.toBuffer()
+        }
+        return this.products.uploadImage(buffer)
+    }
+
+    /** Multipart upload (field `file`); returns `{ videoUrl }` for `attributes.videos`. */
+    @Post('videos')
+    async uploadVideo(@Req() req: FastifyRequest) {
+        let buffer: Buffer | null = null
+        for await (const part of req.parts({
+            limits: { fileSize: PRODUCT_VIDEO_MAX_BYTES, files: 1 },
+        })) {
+            if (part.type === 'file' && !buffer) buffer = await part.toBuffer()
+        }
+        return this.products.uploadVideo(buffer)
+    }
+
+    @Get('suggested-sku')
+    suggestedSku(@Query('divisionId') divisionId: string) {
+        return this.products.suggestSku(divisionId)
+    }
+
+    @Get('storefront/availability')
+    storefrontAvailability(
+        @Query('divisionId') divisionId: string,
+        @Query('sku') sku: string,
+    ) {
+        return this.products.getStorefrontAvailability(
+            divisionId,
+            sku,
+            this.availabilityService,
+        )
+    }
+
+    @Get(':id/availability')
+    availability(
+        @Param('id') id: string,
+        @Query('companyId') companyId: string,
+        @Query('branchId') branchId?: string,
+        @Query('divisionId') divisionId?: string,
+        @Query('channel') channel?: string,
+        @Query('quantity') quantity?: string,
+    ) {
+        return this.availabilityService.getForProduct({
+            productId: id,
+            companyId,
+            branchId,
+            divisionId,
+            channel,
+            quantity: quantity ? Number(quantity) : undefined,
+        })
     }
 
     @Get(':id')
@@ -77,10 +149,23 @@ export class ProductController {
         return this.products.findOne(id)
     }
 
+    @Post()
+    create(@Body() dto: CreateProductDto) {
+        return this.products.create(dto)
+    }
+
     /** JSON, or multipart with `data` (JSON) + optional `image` and `gallery` files. */
     @Patch(':id')
     async update(@Param('id') id: string, @Req() req: FastifyRequest) {
-        const { dto, image, gallery } = await readProductPayload(req, UpdateProductDto)
+        const { dto, image, gallery } = await readProductPayload(
+            req,
+            UpdateProductDto,
+        )
         return this.products.update(id, dto, image, gallery)
+    }
+
+    @Delete(':id')
+    remove(@Param('id') id: string) {
+        return this.products.remove(id)
     }
 }

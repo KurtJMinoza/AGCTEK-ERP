@@ -17,33 +17,48 @@ export default function SubmoduleCard({
     submodule,
     className,
 }: SubmoduleCardProps) {
+    const linkClassName = classNames('group block', className)
+    const card = (
+        <AdaptiveCard clickable className="h-full">
+            <div className="flex items-start justify-between gap-3">
+                <IconText
+                    className="items-start gap-3"
+                    icon={
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
+                            <ErpIcon icon={submodule.icon} />
+                        </span>
+                    }
+                >
+                    <div>
+                        <h4 className="font-semibold heading-text">
+                            {submodule.title}
+                        </h4>
+                        <p className="mt-2 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">
+                            {submodule.description}
+                        </p>
+                    </div>
+                </IconText>
+                <HiChevronRight className="mt-1 shrink-0 text-lg text-gray-400 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
+            </div>
+        </AdaptiveCard>
+    )
+
+    if (submodule.isExternalLink) {
+        return (
+            <a
+                href={submodule.path}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={linkClassName}
+            >
+                {card}
+            </a>
+        )
+    }
+
     return (
-        <Link
-            href={submodule.path}
-            className={classNames('group block', className)}
-        >
-            <AdaptiveCard clickable className="h-full">
-                <div className="flex items-start justify-between gap-3">
-                    <IconText
-                        className="items-start gap-3"
-                        icon={
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
-                                <ErpIcon icon={submodule.icon} />
-                            </span>
-                        }
-                    >
-                        <div>
-                            <h4 className="font-semibold heading-text">
-                                {submodule.title}
-                            </h4>
-                            <p className="mt-2 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">
-                                {submodule.description}
-                            </p>
-                        </div>
-                    </IconText>
-                    <HiChevronRight className="mt-1 shrink-0 text-lg text-gray-400 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
-                </div>
-            </AdaptiveCard>
+        <Link href={submodule.path} className={linkClassName}>
+            {card}
         </Link>
     )
 }
