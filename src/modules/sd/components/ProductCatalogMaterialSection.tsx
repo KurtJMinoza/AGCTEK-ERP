@@ -90,10 +90,16 @@ const ProductCatalogMaterialSection = ({
     }, [ensureMmRefs])
 
     const effectiveDivision = divisionId || productDivisionId || ''
-    const ids = useMemo(
-        () => (Array.isArray(materialIds) ? materialIds.filter(Boolean) : []),
-        [materialIds],
-    )
+    const ids = useMemo(() => {
+        const fromForm = Array.isArray(materialIds)
+            ? materialIds.filter(Boolean)
+            : []
+        if (fromForm.length) return fromForm
+        if (editing && initialMaterialIds?.length) {
+            return initialMaterialIds.filter(Boolean)
+        }
+        return []
+    }, [materialIds, editing, initialMaterialIds])
     const effectiveCompany = companyId?.trim() || initialCompanyId?.trim() || ''
 
     useEffect(() => {

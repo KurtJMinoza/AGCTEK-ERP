@@ -1,5 +1,18 @@
-import { Controller, Get, Param, Query } from '@nestjs/common'
+import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
+
+const emptyBatch = (companyId: string, divisionId?: string) => ({
+    materials: [],
+    totals: {
+        availableQty: 0,
+        onHandQty: 0,
+        maximumStock: 0,
+        safetyStock: 0,
+        stockAvailable: 0,
+    },
+    companyId: companyId.trim(),
+    divisionId: divisionId?.trim() || null,
+})
 
 @Controller('sd/material-catalog-reference')
 export class SdMaterialReferenceController {
@@ -8,13 +21,19 @@ export class SdMaterialReferenceController {
     @Get('batch/preview')
     batchPreview(
         @Query('companyId') companyId: string,
-        @Query('materialIds') materialIds: string,
+        @Query('materialIds') materialIds?: string,
         @Query('divisionId') divisionId?: string,
     ) {
-        const ids = materialIds
+        if (!companyId?.trim()) {
+            throw new BadRequestException('companyId is required')
+        }
+        const ids = (materialIds ?? '')
             .split(',')
             .map((id) => id.trim())
             .filter(Boolean)
+        if (!ids.length) {
+            return emptyBatch(companyId, divisionId)
+        }
         return this.references.getBatchForProductCatalog(ids, companyId, divisionId)
     }
 
