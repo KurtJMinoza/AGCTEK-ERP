@@ -4,7 +4,6 @@ import {
     ExecutionContext,
     ForbiddenException,
     NotFoundException,
-    ServiceUnavailableException,
 } from '@nestjs/common'
 import { settingsStub } from '../system-settings/system-settings.testing'
 import { SETTING_KEYS } from '../system-settings/system-settings.catalog'
@@ -240,7 +239,7 @@ describe('UserAuthGuard', () => {
         } as unknown as ExecutionContext
     }
 
-    function guardFor(role: string, settings = settingsStub()) {
+    function guardFor(role: string) {
         const prisma = mockPrisma()
         prisma.user.findUnique.mockResolvedValue({
             id: 'u1',
@@ -252,22 +251,8 @@ describe('UserAuthGuard', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) =>
             key === AUTH_ROLES_KEY ? [USER_ROLES.SUPER_ADMIN] : undefined,
         )
-        return new UserAuthGuard(prisma as unknown as PrismaService, reflector, settings)
+        return new UserAuthGuard(prisma as unknown as PrismaService, reflector)
     }
-
-    const maintenance = () => settingsStub({ [SETTING_KEYS.MAINTENANCE_MODE]: true })
-
-    it('lets super_admin through during maintenance', async () => {
-        await expect(
-            guardFor(USER_ROLES.SUPER_ADMIN, maintenance()).canActivate(ctx({ 'x-user-id': 'u1' })),
-        ).resolves.toBe(true)
-    })
-
-    it('blocks other roles during maintenance', async () => {
-        await expect(
-            guardFor(USER_ROLES.ADMIN, maintenance()).canActivate(ctx({ 'x-user-id': 'u1' })),
-        ).rejects.toThrow(ServiceUnavailableException)
-    })
 
     it('allows super_admin', async () => {
         await expect(
