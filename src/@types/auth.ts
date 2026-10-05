@@ -27,7 +27,6 @@ export type SignUpCredential = {
     jobPosition: string
     email: string
     password: string
-    role: 'super_admin' | 'admin'
 }
 
 export type ForgotPassword = {

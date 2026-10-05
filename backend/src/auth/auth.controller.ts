@@ -8,7 +8,8 @@ type SignUpBody = {
     lastName?: string
     jobPosition?: string
     password: string
-    role: string
+    /** Ignored: public sign-up always uses the `default_user_role` system setting. */
+    role?: string
 }
 
 type SignInBody = {

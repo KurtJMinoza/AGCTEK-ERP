@@ -49,8 +49,21 @@ describe('MmAuthGuard', () => {
             id: 'u1',
             userName: 'admin',
             role: USER_ROLES.ADMIN,
+            isActive: true,
         })
         const ok = await guard.canActivate(ctx({ 'x-user-id': 'u1' }))
         expect(ok).toBe(true)
+    })
+
+    it('returns 401 when user is deactivated', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue({
+            id: 'u1',
+            userName: 'admin',
+            role: USER_ROLES.ADMIN,
+            isActive: false,
+        })
+        await expect(
+            guard.canActivate(ctx({ 'x-user-id': 'u1' })),
+        ).rejects.toThrow(UnauthorizedException)
     })
 })

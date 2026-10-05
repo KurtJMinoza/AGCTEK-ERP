@@ -4,6 +4,7 @@ import { signIn } from '@/auth'
 import appConfig from '@/configs/app.config'
 import { AuthError } from 'next-auth'
 import type { SignInCredential } from '@/@types/auth'
+import getPublicSettings from '@/server/actions/system/getPublicSettings'
 
 export const onSignInWithCredentials = async (
     { userName, password, rememberMe }: SignInCredential,
@@ -19,7 +20,12 @@ export const onSignInWithCredentials = async (
     } catch (error) {
         if (error instanceof AuthError) {
             if (error.type === 'CredentialsSignin') {
-                return { error: 'Invalid credentials!' }
+                const { maintenance_mode } = await getPublicSettings()
+                return {
+                    error: maintenance_mode
+                        ? 'Invalid credentials, or the system is under maintenance (only Super Admins can sign in).'
+                        : 'Invalid credentials!',
+                }
             }
             return { error: 'Something went wrong!' }
         }

@@ -5,9 +5,10 @@ import authConfig from '@/configs/auth.config'
 import {
     authRoutes as _authRoutes,
     publicRoutes as _publicRoutes,
-    // protectedRoutes
+    protectedRoutes,
 } from '@/configs/routes.config'
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
+import { ACCESS_DENIED_PATH } from '@/constants/route.constant'
 import appConfig from '@/configs/app.config'
 import {
     MARKETPLACE_PATH,
@@ -149,6 +150,24 @@ export default auth((req) => {
                 nextUrl,
             ),
         )
+    }
+
+    /** Role-based route access: routes with an empty `authority` list are open to any signed-in user. */
+    if (
+        isSignedIn &&
+        nextUrl.pathname !== ACCESS_DENIED_PATH &&
+        !nextUrl.pathname.startsWith(appConfig.apiPrefix)
+    ) {
+        const requiredAuthority =
+            protectedRoutes[nextUrl.pathname]?.authority ?? []
+        const userAuthority = req.auth?.user?.authority ?? []
+        const allowed =
+            requiredAuthority.length === 0 ||
+            requiredAuthority.some((role) => userAuthority.includes(role))
+
+        if (!allowed) {
+            return Response.redirect(new URL(ACCESS_DENIED_PATH, nextUrl))
+        }
     }
 })
 
