@@ -12,7 +12,9 @@ import { ACCESS_DENIED_PATH, MAINTENANCE_PATH } from '@/constants/route.constant
 import appConfig, { resolveErpApiBaseUrl } from '@/configs/app.config'
 import {
     MARKETPLACE_PATH,
+    MARKETPLACE_PRODUCTS_PATH,
     isMarketplaceHost,
+    isMarketplaceProductPath,
 } from '@/modules/storefront/marketplace/host'
 import {
     AWIC_STOREFRONT_PATH,
@@ -74,7 +76,9 @@ export default auth(async (req) => {
 
     /**
      * Dedicated marketplace host (e.g. shop.localhost):
-     * `/` serves the marketplace; ERP paths are not exposed on this host.
+     * `/` serves the marketplace, `/products` the full catalogue and
+     * `/<store>/<sku>` a product page; in-app `/shop/*` links pass through.
+     * ERP paths are not exposed on this host.
      */
     if (isMarketplaceHost(hostname)) {
         const path = nextUrl.pathname
@@ -87,12 +91,27 @@ export default auth(async (req) => {
             return
         }
 
-        if (path !== '/') {
+        const productsPage = MARKETPLACE_PRODUCTS_PATH.slice(
+            MARKETPLACE_PATH.length,
+        )
+        const isShopPage = (shopPath: string) =>
+            shopPath === productsPage || isMarketplaceProductPath(shopPath)
+
+        if (
+            path === MARKETPLACE_PATH ||
+            (path.startsWith(`${MARKETPLACE_PATH}/`) &&
+                isShopPage(path.slice(MARKETPLACE_PATH.length)))
+        ) {
+            return
+        }
+
+        if (path !== '/' && !isShopPage(path)) {
             return NextResponse.redirect(new URL(`/${nextUrl.search}`, req.url))
         }
 
         const rewriteUrl = nextUrl.clone()
-        rewriteUrl.pathname = MARKETPLACE_PATH
+        rewriteUrl.pathname =
+            path === '/' ? MARKETPLACE_PATH : `${MARKETPLACE_PATH}${path}`
         return NextResponse.rewrite(rewriteUrl)
     }
 
@@ -124,16 +143,16 @@ export default auth(async (req) => {
         }
 
         const isStorefrontPath =
-            path === '/' ||
-            path === '/checkout' ||
-            /^\/[^/]+$/.test(path)
+            path === '/' || path === '/checkout' || /^\/[^/]+$/.test(path)
 
         if (!isStorefrontPath) {
             return NextResponse.redirect(new URL('/', req.url))
         }
 
         const rewritePath =
-            path === '/' ? AWIC_STOREFRONT_PATH : `${AWIC_STOREFRONT_PATH}${path}`
+            path === '/'
+                ? AWIC_STOREFRONT_PATH
+                : `${AWIC_STOREFRONT_PATH}${path}`
         const rewriteUrl = nextUrl.clone()
         rewriteUrl.pathname = rewritePath
         return NextResponse.rewrite(rewriteUrl)
@@ -224,5 +243,11 @@ export default auth(async (req) => {
 })
 
 export const config = {
-    matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api)(.*)'],
+    matcher: [
+        '/((?!.+\\.[\\w]+$|_next).*)',
+        '/',
+        '/(api)(.*)',
+        // Marketplace product paths: SKUs may contain dots (e.g. 2.7KG). Keep in sync with STORE_SLUGS in marketplace/host.ts.
+        '/(awic|lpg|mconpinco)/(.*)',
+    ],
 }
