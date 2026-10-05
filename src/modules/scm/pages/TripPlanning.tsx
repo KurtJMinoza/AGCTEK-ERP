@@ -117,6 +117,20 @@ export default function TripPlanningPage() {
                 },
             },
             {
+                header: 'Locations',
+                id: 'locations',
+                cell: ({ row }) => {
+                    const errors = row.original.locationErrors ?? []
+                    return errors.length === 0 ? (
+                        <StatusBadge tone="success">Ready</StatusBadge>
+                    ) : (
+                        <span title={errors.join('\n')}>
+                            <StatusBadge tone="danger">{errors.length} issue(s)</StatusBadge>
+                        </span>
+                    )
+                },
+            },
+            {
                 header: '',
                 id: 'actions',
                 cell: ({ row }) => (
@@ -272,7 +286,12 @@ export default function TripPlanningPage() {
                             <Button
                                 size="sm"
                                 variant="solid"
-                                disabled={tp.busy || !route.preview || route.loading}
+                                disabled={tp.busy || !route.preview?.routable || route.loading}
+                                title={
+                                    route.preview && !route.preview.routable
+                                        ? 'Fix the stop locations listed below first'
+                                        : undefined
+                                }
                                 onClick={() => setCreating(planning)}
                             >
                                 Confirm trip

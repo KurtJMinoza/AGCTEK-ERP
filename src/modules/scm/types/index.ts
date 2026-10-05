@@ -276,8 +276,11 @@ export type RoutePreviewStop = {
     warehouseId: string | null
     lat: number | null
     lng: number | null
-    coordSource: 'cargo' | 'geocoded' | null
+    /** warehouse = MM master pin; shipment = ship-to / customer address. Never geocoded here. */
+    coordSource: 'warehouse' | 'shipment' | null
     missingCoords: boolean
+    locationKind: 'WAREHOUSE' | 'ADDRESS'
+    locationIssue: { code: StopLocationIssueCode; message: string } | null
     shipmentIds: string[]
     lineCount: number
     windowStart: string | null
@@ -293,8 +296,18 @@ export type RoutePreviewStop = {
     lateBySec: number
 }
 
+export type StopLocationIssueCode =
+    | 'WAREHOUSE_REQUIRED'
+    | 'WAREHOUSE_MISSING'
+    | 'WAREHOUSE_DELETED'
+    | 'WAREHOUSE_INACTIVE'
+    | 'WAREHOUSE_UNCONFIRMED'
+    | 'INVALID_COORDS'
+    | 'MISSING_COORDS'
+
 export type RoutePreviewViolation = {
     code: 'LATE' | 'WINDOW_CONFLICT' | 'MISSING_COORDS' | 'DEPARTURE_IN_PAST'
+    issueCode?: StopLocationIssueCode
     message: string
     stopKey?: string
     sequence?: number
@@ -944,4 +957,6 @@ export type TripCandidate = {
     lineCount: number
     shipmentCount: number
     stopPreview: { ship: number; to: number; ret: number }
+    /** Server-side location problems; Confirm is blocked until fixed */
+    locationErrors: string[]
 }

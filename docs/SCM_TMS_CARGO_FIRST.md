@@ -88,6 +88,32 @@ issue), stop arrive / POD / deliver, `PATCH /:id/status` COMPLETED (load plan �
 **Deprecated** (kept for API compatibility, removed from UI, log a warning):
 `POST /scm/trips/assign-load`, `POST /scm/trips` with shipment stops.
 
+## Location integrity
+
+MM Warehouse is the single source of pickup / return coordinates; SCM keeps no address book.
+
+- **Warehouse master** (`warehouses.lat/lng/geocodeConfirmed/geocodeConfirmedAt`): set only by
+  `POST /mm/warehouses/:id/geocode/confirm { lat, lng }` (explicit user pin confirmation in
+  MM › Warehouses › Set location; audited `GEOCODE_CONFIRM`). Create / update cannot assign
+  these fields; an address text change (ignoring case / whitespace) clears the confirmation.
+  A geocoder hit alone never confirms; `(0,0)` and out-of-range values are rejected.
+- **Resolver** (`tms/stop-location.rules.ts`, one path for candidates, preview, confirm):
+  - SHIP for DELIVERY and every RETURN with a warehouse → MM warehouse master address + lat/lng
+    (line copies such as `shipFromLat` are ignored). DELIVERY without a ship-from warehouse, or
+    a free-text return on DELIVERY, is a structural error.
+  - SHIP for customer PICKUP without a warehouse → shipment ship-from address + coords.
+  - TO → shipment ship-to address + coords.
+- **`validateStopCoordinates`**: WAREHOUSE stops need the warehouse to exist, not be deleted,
+  be ACTIVE and geocode-confirmed, with valid coords; ADDRESS stops need valid coords
+  (lat ∈ [-90, 90], lng ∈ [-180, 180], numeric, not 0,0). Nothing is ever invented.
+- **Confirm** (`POST /scm/tms/trips`): resolve + validate + snapshot + load plan claim + trip
+  create in one transaction (the plan and warehouses are re-read inside it); any invalid stop
+  rolls back. TripStop snapshots `address/lat/lng`, `locationKind` and `locationSnapshotAt`;
+  later master edits never move a trip.
+- **Validate / Dispatch**: revalidate the snapshotted coords plus the current warehouse state.
+  Legacy stops without `locationKind` are inferred (`warehouseId` or a `WH:` key, or a SHIP
+  serving DELIVERY shipments ⇒ WAREHOUSE). A missing `warehouseId` blocks with a clear error.
+
 ## Route preview (Trip Planning)
 
 `POST /load-plans/:id/route-preview` — creates nothing (no Trip, TripStop, GPS session or
@@ -101,9 +127,11 @@ assignment). Confirm trip (`POST /trips`) stays the only persistence path.
    the last leg of the trip is the drive back). Stop `key` =
    `${stopType}|${locationKey}`; optional `stopOrder` reorders TO stops (`applyStopOrder`, same
    rules as persisted reorder).
-3. Coordinates: cargo lat/lng snapshot; else Nominatim geocode of the address (not persisted,
-   max 10 lookups, 5 s each; `ROUTE_PREVIEW_GEOCODE=false` disables). Still missing →
-   `routable: false`, no polyline, `MISSING_COORDS` violations.
+3. Coordinates: resolved by the central stop resolver only (see **Location integrity**);
+   preview never geocodes. Any stop with a location issue → `routable: false`, no polyline,
+   OSRM / haversine not called, `MISSING_COORDS` violations carrying `issueCode` and a fix
+   message. Each stop exposes `locationKind`, `coordSource` (`warehouse` | `shipment`) and
+   `locationIssue`.
 4. Routing: `routing/osrm.service.ts` (`OsrmService.getRoute`) calls OSRM `route/v1/driving`
    at `OSRM_BASE_URL` (timeout `OSRM_TIMEOUT_MS`, default 5000; never throws, returns `null`
    on unset URL / timeout / HTTP / routing error / leg-count mismatch). On `null`,

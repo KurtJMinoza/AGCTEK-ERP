@@ -11,7 +11,19 @@ type LineInput = {
     latest?: string
 }
 
-function plan(status: string, lines: LineInput[]) {
+const CONFIRMED_WH = {
+    id: 'wh-1',
+    code: 'WH1',
+    name: 'Main Warehouse',
+    address: 'Main St',
+    status: 'ACTIVE',
+    deletedAt: null,
+    lat: 14.5995,
+    lng: 120.9842,
+    geocodeConfirmed: true,
+}
+
+function plan(status: string, lines: LineInput[], warehouse: Record<string, unknown> = CONFIRMED_WH) {
     return {
         id: 'lp-1',
         code: 'LP-TEST',
@@ -23,10 +35,11 @@ function plan(status: string, lines: LineInput[]) {
                 id: `sl-${l.id}`,
                 shipmentId: `shp-${l.id}`,
                 shipFromWarehouseId: 'wh-1',
-                shipFromWarehouse: { id: 'wh-1', code: 'WH1', name: 'Main Warehouse', address: 'Main St' },
-                shipFromAddress: null,
-                shipFromLat: 14.5995,
-                shipFromLng: 120.9842,
+                shipFromWarehouse: warehouse,
+                shipFromAddress: 'stale line copy',
+                // Line copies must be ignored for warehouse stops
+                shipFromLat: 1,
+                shipFromLng: 1,
                 shipToAddress: l.shipToAddress,
                 shipToLat: l.shipToLat,
                 shipToLng: l.shipToLng,
@@ -37,6 +50,7 @@ function plan(status: string, lines: LineInput[]) {
                 returnLng: null,
                 shipment: {
                     customerName: `Customer ${l.id}`,
+                    movementType: 'DELIVERY',
                     earliestDeliveryAt: l.earliest ? new Date(l.earliest) : null,
                     latestDeliveryAt: l.latest ? new Date(l.latest) : null,
                 },
@@ -58,12 +72,7 @@ describe('TmsRoutePreviewService', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         delete process.env.OSRM_BASE_URL
-        delete process.env.ROUTE_PREVIEW_GEOCODE
-        service = new TmsRoutePreviewService(
-            prisma as never,
-            new OsrmService(),
-            { search } as never,
-        )
+        service = new TmsRoutePreviewService(prisma as never, new OsrmService())
     })
 
     it('uses OSRM geometry AND OSRM leg durations for ETAs when OSRM succeeds', async () => {
@@ -92,7 +101,7 @@ describe('TmsRoutePreviewService', () => {
                 legDistancesM: [9000, 5500, 13000],
             }),
         }
-        service = new TmsRoutePreviewService(prisma as never, osrm as never, { search } as never)
+        service = new TmsRoutePreviewService(prisma as never, osrm as never)
 
         const departAt = '2099-01-01T00:00:00.000Z'
         const r = await service.preview('lp-1', { departAt, serviceTimeMin: 15 })
@@ -157,7 +166,7 @@ describe('TmsRoutePreviewService', () => {
             plan('READY', [{ id: '1', shipToAddress: 'Ayala Ave', shipToLat: 14.5547, shipToLng: 121.0244 }]),
         )
         const osrm = { baseUrl: 'http://osrm.local', getRoute: jest.fn().mockResolvedValue(null) }
-        service = new TmsRoutePreviewService(prisma as never, osrm as never, { search } as never)
+        service = new TmsRoutePreviewService(prisma as never, osrm as never)
 
         const departAt = '2099-01-01T00:00:00.000Z'
         const r = await service.preview('lp-1', { departAt })
@@ -201,30 +210,52 @@ describe('TmsRoutePreviewService', () => {
         expect(search).not.toHaveBeenCalled()
     })
 
-    it('geocodes a stop without coordinates (not persisted)', async () => {
+    it('uses MM warehouse master coordinates for the pickup, not line copies', async () => {
         findUnique.mockResolvedValue(
-            plan('READY', [{ id: '1', shipToAddress: 'Ayala Ave', shipToLat: null, shipToLng: null }]),
+            plan('READY', [{ id: '1', shipToAddress: 'Ayala Ave', shipToLat: 14.5547, shipToLng: 121.0244 }]),
         )
-        search.mockResolvedValue([{ lat: 14.5547, lng: 121.0244, displayName: 'Ayala' }])
         const r = await service.preview('lp-1', {})
-        expect(search).toHaveBeenCalledWith('Ayala Ave', 1, 5000)
-        expect(r.routable).toBe(true)
-        expect(r.stops[1]).toMatchObject({ coordSource: 'geocoded', lat: 14.5547, missingCoords: false })
+        expect(r.stops[0]).toMatchObject({
+            lat: 14.5995,
+            lng: 120.9842,
+            address: 'Main St',
+            coordSource: 'warehouse',
+            locationKind: 'WAREHOUSE',
+        })
     })
 
-    it('blocks the route and lists stops whose coordinates cannot be resolved', async () => {
+    it('never geocodes: a stop without coordinates makes the route unroutable (no OSRM, no haversine)', async () => {
         findUnique.mockResolvedValue(
             plan('READY', [{ id: '1', shipToAddress: 'Nowhere 123', shipToLat: null, shipToLng: null }]),
         )
-        search.mockResolvedValue([])
+        const osrm = { baseUrl: 'http://osrm.local', getRoute: jest.fn() }
+        service = new TmsRoutePreviewService(prisma as never, osrm as never)
         const r = await service.preview('lp-1', {})
+        expect(osrm.getRoute).not.toHaveBeenCalled()
+        expect(search).not.toHaveBeenCalled()
         expect(r.routable).toBe(false)
         expect(r.polyline).toEqual([])
         expect(r.feasible).toBe(false)
-        expect(r.stops[1].missingCoords).toBe(true)
+        expect(r.stops[1]).toMatchObject({ missingCoords: true, lat: null, lng: null })
         expect(r.violations).toEqual([
-            expect.objectContaining({ code: 'MISSING_COORDS', sequence: 2 }),
+            expect.objectContaining({ code: 'MISSING_COORDS', issueCode: 'MISSING_COORDS', sequence: 2 }),
         ])
+    })
+
+    it('soft-fails with a clear error when the pickup warehouse is not geocode-confirmed', async () => {
+        findUnique.mockResolvedValue(
+            plan(
+                'READY',
+                [{ id: '1', shipToAddress: 'Ayala Ave', shipToLat: 14.5547, shipToLng: 121.0244 }],
+                { ...CONFIRMED_WH, geocodeConfirmed: false },
+            ),
+        )
+        const r = await service.preview('lp-1', {})
+        expect(r.routable).toBe(false)
+        const issueCodes = r.violations.map((v) => v.issueCode)
+        // Pickup and the home return both point at the unconfirmed warehouse
+        expect(issueCodes).toEqual(['WAREHOUSE_UNCONFIRMED', 'WAREHOUSE_UNCONFIRMED'])
+        expect(r.violations[0].message).toMatch(/not confirmed/)
     })
 
     it('reports LATE and EARLY (with waiting) against windows for a given departure', async () => {

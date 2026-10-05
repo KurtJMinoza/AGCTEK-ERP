@@ -272,6 +272,12 @@ model Warehouse {
   managerId            String?
   warehouseType        String?  @default("GENERAL")
   address              String?
+  /// Routing coordinates — only set via the explicit geocode-confirm action
+  lat                  Float?
+  lng                  Float?
+  /// True only after a user confirmed the pin; any address edit resets it
+  geocodeConfirmed     Boolean  @default(false)
+  geocodeConfirmedAt   DateTime?
   timezone             String?  @default("UTC")
   status               String   @default("ACTIVE")
   qualityInspectionRequired Boolean @default(false)
@@ -6067,6 +6073,10 @@ model TripStop {
   stopType        TripStopType?
   /// Dedupe key: WH:<warehouseId> or ADDR:<normalised address>
   locationKey     String?
+  /// WAREHOUSE (MM master) | ADDRESS (shipment address) — snapshotted at trip create
+  locationKind    String?
+  /// When address/lat/lng were copied from the source; later master edits do not move the stop
+  locationSnapshotAt DateTime?
   warehouseId     String?
   warehouse       Warehouse?         @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
   shipments  TripStopShipment[]

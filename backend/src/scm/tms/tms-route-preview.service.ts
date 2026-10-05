@@ -1,12 +1,16 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { LoadPlanStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { GeocodeService } from '../geocode/geocode.service'
 import { OsrmService } from '../routing/osrm.service'
 import { computeHaversineLegs } from '../routing/haversine-route'
 import { assertFound, optionalDate } from '../scm.utils'
-import { loadPlanInclude, toStopSource } from './tms-load-plans.service'
-import { applyStopOrder, buildTripStops, stopKey, type StopDraft, type TmsStopType } from './tms.rules'
+import { loadPlanInclude } from './tms-load-plans.service'
+import { stopKey, type StopDraft, type TmsStopType } from './tms.rules'
+import {
+    planTripStops,
+    type StopCoordIssue,
+    type StopCoordIssueCode,
+} from './stop-location.rules'
 import {
     computeSchedule,
     recommendDeparture,
@@ -17,8 +21,6 @@ import {
 } from './route-schedule'
 
 const DEFAULT_SERVICE_MIN = 30
-const MAX_GEOCODE_LOOKUPS = 10
-const GEOCODE_TIMEOUT_MS = 5000
 
 const ROUTE_TYPE: Record<TmsStopType, 'PICKUP' | 'SHIP_TO' | 'RETURN_TO'> = {
     SHIP: 'PICKUP',
@@ -26,31 +28,22 @@ const ROUTE_TYPE: Record<TmsStopType, 'PICKUP' | 'SHIP_TO' | 'RETURN_TO'> = {
     RETURN: 'RETURN_TO',
 }
 
-type CoordSource = 'cargo' | 'geocoded' | null
+type CoordSource = 'warehouse' | 'shipment' | null
 
 type ResolvedStop = StopDraft & {
     key: string
     coordSource: CoordSource
+    issue: StopCoordIssue | null
 }
 
 export type RoutePreviewViolation = {
     code: 'LATE' | 'WINDOW_CONFLICT' | 'MISSING_COORDS' | 'DEPARTURE_IN_PAST'
+    /** Detailed location problem for MISSING_COORDS */
+    issueCode?: StopCoordIssueCode
     message: string
     stopKey?: string
     sequence?: number
     lateBySec?: number
-}
-
-function validCoords(lat: number | null, lng: number | null): boolean {
-    return (
-        lat != null &&
-        lng != null &&
-        Number.isFinite(lat) &&
-        Number.isFinite(lng) &&
-        Math.abs(lat) <= 90 &&
-        Math.abs(lng) <= 180 &&
-        !(lat === 0 && lng === 0)
-    )
 }
 
 /**
@@ -60,12 +53,9 @@ function validCoords(lat: number | null, lng: number | null): boolean {
  */
 @Injectable()
 export class TmsRoutePreviewService {
-    private readonly logger = new Logger(TmsRoutePreviewService.name)
-
     constructor(
         private readonly prisma: PrismaService,
         private readonly osrm: OsrmService,
-        private readonly geocode: GeocodeService,
     ) {}
 
     async preview(
@@ -93,21 +83,28 @@ export class TmsRoutePreviewService {
             throw new BadRequestException('Load plan has no cargo lines')
         }
 
-        const built = buildTripStops(plan.lines.map((l) => toStopSource(l.id, l.shipmentLine)))
-        if (built.errors.length > 0) {
-            throw new BadRequestException(built.errors.join('; '))
-        }
-
         const stopOrder = parseStopOrder(body.stopOrder)
-        const ordered = applyStopOrder(built.stops, stopOrder)
-        if (ordered.error) throw new BadRequestException(ordered.error)
+        const planned = planTripStops(plan.lines, stopOrder)
+        if (planned.errors.length > 0) {
+            throw new BadRequestException(planned.errors.join('; '))
+        }
 
         const serviceTimeMin = parseServiceMinutes(body.serviceTimeMin)
         const departureMode = parseDepartureMode(body.departureMode)
         const departAtOverride = optionalDate(body.departAt) ?? null
 
-        const stops = await this.resolveCoordinates(ordered.stops)
-        const missing = stops.filter((s) => s.coordSource == null)
+        // Resolved coordinates only — no geocoding, no fabricated points.
+        const issueBySeq = new Map(planned.issues.map((i) => [i.sequence, i]))
+        const stops: ResolvedStop[] = planned.stops.map((s) => {
+            const issue = issueBySeq.get(s.sequence) ?? null
+            return {
+                ...s,
+                key: stopKey(s),
+                issue,
+                coordSource: issue ? null : s.locationKind === 'WAREHOUSE' ? 'warehouse' : 'shipment',
+            }
+        })
+        const missing = stops.filter((s) => s.issue != null)
         const pickupCount = stops.filter((s) => s.stopType === 'SHIP').length
         const base = {
             loadPlanId: plan.id,
@@ -139,9 +136,10 @@ export class TmsRoutePreviewService {
                 feasible: false,
                 violations: missing.map<RoutePreviewViolation>((s) => ({
                     code: 'MISSING_COORDS',
+                    issueCode: s.issue!.code,
                     stopKey: s.key,
                     sequence: s.sequence,
-                    message: `${s.name} (${s.address}) has no coordinates and could not be geocoded`,
+                    message: s.issue!.message,
                 })),
             }
         }
@@ -235,45 +233,6 @@ export class TmsRoutePreviewService {
         }
     }
 
-    /** Use cargo lat/lng snapshot; otherwise geocode the stop address (not persisted). */
-    private async resolveCoordinates(stops: StopDraft[]): Promise<ResolvedStop[]> {
-        const geocodeEnabled = process.env.ROUTE_PREVIEW_GEOCODE !== 'false'
-        const cache = new Map<string, { lat: number; lng: number } | null>()
-        let lookups = 0
-        const resolved: ResolvedStop[] = []
-
-        for (const stop of stops) {
-            const key = stopKey(stop)
-            if (validCoords(stop.lat, stop.lng)) {
-                resolved.push({ ...stop, key, coordSource: 'cargo' })
-                continue
-            }
-            const address = stop.address?.trim()
-            let hit: { lat: number; lng: number } | null = null
-            if (geocodeEnabled && address) {
-                if (cache.has(address)) {
-                    hit = cache.get(address) ?? null
-                } else if (lookups < MAX_GEOCODE_LOOKUPS) {
-                    lookups++
-                    try {
-                        const [first] = await this.geocode.search(address, 1, GEOCODE_TIMEOUT_MS)
-                        hit = first ? { lat: first.lat, lng: first.lng } : null
-                    } catch (err) {
-                        this.logger.warn(
-                            `Geocode failed for "${address}": ${err instanceof Error ? err.message : String(err)}`,
-                        )
-                    }
-                    cache.set(address, hit)
-                }
-            }
-            resolved.push(
-                hit
-                    ? { ...stop, key, lat: hit.lat, lng: hit.lng, coordSource: 'geocoded' }
-                    : { ...stop, key, lat: null, lng: null, coordSource: null },
-            )
-        }
-        return resolved
-    }
 }
 
 function parseStopOrder(value: unknown): string[] | null {
@@ -329,7 +288,9 @@ function toStopResponse(
         lat: stop.lat,
         lng: stop.lng,
         coordSource: stop.coordSource,
-        missingCoords: stop.coordSource == null,
+        missingCoords: stop.issue != null,
+        locationKind: stop.locationKind,
+        locationIssue: stop.issue ? { code: stop.issue.code, message: stop.issue.message } : null,
         shipmentIds: stop.shipmentIds,
         lineCount: stop.lines.length,
         windowStart: stop.windowStart?.toISOString() ?? null,

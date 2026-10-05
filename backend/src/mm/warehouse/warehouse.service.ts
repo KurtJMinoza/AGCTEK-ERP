@@ -8,6 +8,19 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { CreateWarehouseDto } from './dto/create-warehouse.dto'
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto'
 import { WarehouseQueryDto } from './dto/warehouse-query.dto'
+import { addressChanged, isValidCoordinate } from './warehouse-geocode.rules'
+
+/** Geocode fields are owned by confirmGeocode — never mass-assigned from create/update. */
+function stripGeocodeFields<T extends object>(dto: T): Record<string, unknown> {
+    const {
+        lat: _lat,
+        lng: _lng,
+        geocodeConfirmed: _confirmed,
+        geocodeConfirmedAt: _confirmedAt,
+        ...rest
+    } = dto as Record<string, unknown>
+    return rest
+}
 
 @Injectable()
 export class WarehouseService {
@@ -103,7 +116,7 @@ export class WarehouseService {
 
         const warehouse = await this.prisma.warehouse.create({
             data: {
-                ...dto,
+                ...stripGeocodeFields(dto),
                 code,
                 warehouseType: dto.warehouseType || 'GENERAL',
                 status: dto.status || 'ACTIVE',
@@ -132,10 +145,15 @@ export class WarehouseService {
     async update(id: string, dto: UpdateWarehouseDto) {
         const existing = await this.findOne(id)
         delete (dto as any).code
+        const data: Record<string, unknown> = stripGeocodeFields(dto)
+        if (dto.address !== undefined && addressChanged(existing.address, dto.address)) {
+            data.geocodeConfirmed = false
+            data.geocodeConfirmedAt = null
+        }
 
         const updated = await this.prisma.warehouse.update({
             where: { id },
-            data: dto as any,
+            data: data as any,
             include: this.includes,
         })
 
@@ -143,6 +161,40 @@ export class WarehouseService {
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'WAREHOUSE', id, 'UPDATE', changes)
         }
+        return updated
+    }
+
+    /**
+     * Explicit user confirmation of the map pin. The only path that sets
+     * routing coordinates; a geocoder hit alone never confirms.
+     */
+    async confirmGeocode(id: string, body: { lat?: unknown; lng?: unknown }) {
+        const existing = await this.findOne(id)
+        const lat = typeof body.lat === 'string' ? Number(body.lat) : body.lat
+        const lng = typeof body.lng === 'string' ? Number(body.lng) : body.lng
+        if (!isValidCoordinate(lat, lng)) {
+            throw new BadRequestException(
+                'lat must be within [-90, 90] and lng within [-180, 180] (0,0 is not accepted)',
+            )
+        }
+        if (!existing.address?.trim()) {
+            throw new BadRequestException('Set the warehouse address before confirming its location')
+        }
+        const updated = await this.prisma.warehouse.update({
+            where: { id },
+            data: {
+                lat: lat as number,
+                lng: lng as number,
+                geocodeConfirmed: true,
+                geocodeConfirmedAt: new Date(),
+            },
+            include: this.includes,
+        })
+        await this.writeAudit(id, 'WAREHOUSE', id, 'GEOCODE_CONFIRM', {
+            lat: { old: existing.lat, new: lat },
+            lng: { old: existing.lng, new: lng },
+            geocodeConfirmed: { old: existing.geocodeConfirmed, new: true },
+        })
         return updated
     }
 

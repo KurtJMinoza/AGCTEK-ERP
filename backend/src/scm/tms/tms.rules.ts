@@ -147,7 +147,11 @@ function round2(n: number): number {
 
 // ─── Locations ───────────────────────────────────────────────────────────────
 
+export type StopLocationKind = 'WAREHOUSE' | 'ADDRESS'
+
 export type CargoLocation = {
+    /** WAREHOUSE = MM master coordinates; ADDRESS = shipment address snapshot */
+    kind?: StopLocationKind
     warehouseId?: string | null
     warehouseName?: string | null
     address?: string | null
@@ -186,6 +190,7 @@ export type StopDraft = {
     sequence: number
     stopType: TmsStopType
     locationKey: string
+    locationKind: StopLocationKind
     warehouseId: string | null
     name: string
     address: string
@@ -333,6 +338,8 @@ export function buildTripStops(lines: StopSourceLine[]): StopBuildResult {
             sequence: index + 1,
             stopType: group.stopType,
             locationKey: group.key,
+            locationKind:
+                group.loc.kind ?? (group.loc.warehouseId ? 'WAREHOUSE' : 'ADDRESS'),
             warehouseId: group.loc.warehouseId ?? null,
             name,
             address: group.loc.address?.trim() || place,

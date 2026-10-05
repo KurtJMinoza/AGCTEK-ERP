@@ -1,13 +1,38 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { HiOutlineArrowDown, HiOutlineArrowUp } from 'react-icons/hi'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Spinner from '@/components/ui/Spinner'
 import StatusBadge from '@/components/shared/StatusBadge'
 import type { StatusTone } from '@/components/shared/StatusBadge'
-import type { RoutePreview, RoutePreviewStop, RouteWindowStatus } from '../../types'
+import type {
+    RoutePreview,
+    RoutePreviewStop,
+    RouteWindowStatus,
+    StopLocationIssueCode,
+} from '../../types'
+
+const WAREHOUSES_ROUTE = '/modules/mm/warehouse-management/warehouses'
+
+/** Issues the planner fixes on the MM warehouse master (not on the shipment). */
+const WAREHOUSE_FIX_CODES = new Set<StopLocationIssueCode>([
+    'WAREHOUSE_UNCONFIRMED',
+    'WAREHOUSE_INACTIVE',
+    'INVALID_COORDS',
+])
+
+const ISSUE_LABEL: Record<StopLocationIssueCode, string> = {
+    WAREHOUSE_REQUIRED: 'No warehouse',
+    WAREHOUSE_MISSING: 'Warehouse missing',
+    WAREHOUSE_DELETED: 'Warehouse deleted',
+    WAREHOUSE_INACTIVE: 'Warehouse inactive',
+    WAREHOUSE_UNCONFIRMED: 'Location unconfirmed',
+    INVALID_COORDS: 'Invalid coordinates',
+    MISSING_COORDS: 'No coordinates',
+}
 
 const TripRoutePreviewLeaflet = dynamic(() => import('./TripRoutePreviewLeaflet'), {
     ssr: false,
@@ -164,11 +189,21 @@ export default function TripRoutePreviewMap({ hasLoad, preview, loading, error, 
                 <Alert
                     showIcon
                     type={preview.routable ? 'warning' : 'danger'}
-                    title={preview.routable ? 'Schedule issues for this departure' : 'Route blocked — missing coordinates'}
+                    title={preview.routable ? 'Schedule issues for this departure' : 'Route blocked — fix stop locations before confirming'}
                 >
                     <ul className="list-disc pl-4">
                         {preview.violations.map((v, i) => (
-                            <li key={`${v.code}-${v.stopKey ?? i}`}>{v.message}</li>
+                            <li key={`${v.code}-${v.stopKey ?? i}`}>
+                                {v.message}
+                                {v.issueCode && WAREHOUSE_FIX_CODES.has(v.issueCode) ? (
+                                    <>
+                                        {' '}
+                                        <Link href={WAREHOUSES_ROUTE} className="font-semibold underline">
+                                            Open MM › Warehouses
+                                        </Link>
+                                    </>
+                                ) : null}
+                            </li>
                         ))}
                     </ul>
                 </Alert>
@@ -198,11 +233,15 @@ export default function TripRoutePreviewMap({ hasLoad, preview, loading, error, 
                                             {TYPE_LABEL[stop.type]}
                                         </StatusBadge>
                                         <span className="font-semibold">{stop.label}</span>
-                                        {stop.missingCoords ? (
-                                            <StatusBadge tone="danger">No coordinates</StatusBadge>
-                                        ) : stop.coordSource === 'geocoded' ? (
-                                            <StatusBadge tone="warning">Geocoded</StatusBadge>
-                                        ) : null}
+                                        {stop.locationIssue ? (
+                                            <StatusBadge tone="danger">
+                                                {ISSUE_LABEL[stop.locationIssue.code] ?? 'Location invalid'}
+                                            </StatusBadge>
+                                        ) : (
+                                            <StatusBadge tone="success">
+                                                {stop.coordSource === 'warehouse' ? 'Warehouse pin' : 'Address pin'}
+                                            </StatusBadge>
+                                        )}
                                     </div>
                                     <p className="truncate text-xs text-gray-500">
                                         {stop.address} · {stop.lineCount} line(s)

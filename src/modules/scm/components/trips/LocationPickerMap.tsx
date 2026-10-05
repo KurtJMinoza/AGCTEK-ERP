@@ -16,6 +16,8 @@ type LocationPickerMapProps = {
     lat: number
     lng: number
     onPick: (lat: number, lng: number) => void
+    /** Map height — px number or CSS length (default 280) */
+    height?: number | string
 }
 
 function ClickHandler({
@@ -57,9 +59,13 @@ export default function LocationPickerMap({
     lat,
     lng,
     onPick,
+    height = 280,
 }: LocationPickerMapProps) {
     return (
-        <div className="scm-location-picker relative z-0 h-[280px] overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+        <div
+            className="scm-location-picker relative z-0 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700"
+            style={{ height }}
+        >
             <MapContainer
                 center={[lat, lng]}
                 zoom={14}
