@@ -21,6 +21,7 @@ import {
     type ListQuery,
 } from '../scm.utils'
 import {
+    applyStopOrder,
     buildTripStops,
     checkLoadCapacity,
     validateStopReorder,
@@ -187,6 +188,8 @@ export class TmsTripsService {
         plannedStartAt?: unknown
         plannedEndAt?: unknown
         notes?: unknown
+        /** Planner order from route preview (stop keys); only TO stops may move */
+        stopOrder?: unknown
     }) {
         const loadPlanId = requireString(body.loadPlanId, 'loadPlanId')
         const driverId = optionalString(body.driverId) ?? null
@@ -211,10 +214,19 @@ export class TmsTripsService {
         await this.assertVehicleFree(plan.vehicleId)
         if (driverId) await this.assertDriverUsable(driverId)
 
-        const { stops, errors } = buildTripStops(
+        const built = buildTripStops(
             plan.lines.map((l) => toStopSource(l.id, l.shipmentLine)),
         )
-        if (errors.length > 0) throw new BadRequestException(errors.join('; '))
+        if (built.errors.length > 0) throw new BadRequestException(built.errors.join('; '))
+        if (
+            body.stopOrder != null &&
+            (!Array.isArray(body.stopOrder) || body.stopOrder.some((k) => typeof k !== 'string'))
+        ) {
+            throw new BadRequestException('stopOrder must be an array of stop keys')
+        }
+        const ordered = applyStopOrder(built.stops, body.stopOrder as string[] | undefined)
+        if (ordered.error) throw new BadRequestException(ordered.error)
+        const stops = ordered.stops
 
         try {
             const tripId = await this.prisma.$transaction(async (tx) => {

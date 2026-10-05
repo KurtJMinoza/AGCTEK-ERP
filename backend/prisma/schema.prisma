@@ -5716,6 +5716,24 @@ enum StopStatus {
   FAILED
 }
 
+/// Structured driver reason when a stop is marked FAILED.
+enum DeliveryFailureReason {
+  CUSTOMER_UNAVAILABLE
+  CUSTOMER_REFUSED
+  WRONG_ADDRESS
+  DAMAGED_GOODS
+  VEHICLE_ISSUE
+  PAYMENT_ISSUE
+  OTHER
+}
+
+/// Append-only trip execution audit (TripStopEvent).
+enum TripStopEventType {
+  ARRIVED
+  COMPLETED
+  FAILED
+}
+
 enum ShipmentStatus {
   DRAFT
   READY
@@ -5723,6 +5741,8 @@ enum ShipmentStatus {
   IN_TRANSIT
   DELIVERED
   CANCELLED
+  /// Delivery failed at the stop — awaiting dispatcher decision (re-attempt / return). Not delivered.
+  EXCEPTION_HOLD
 }
 
 /// Outbound shipping vs customer/supplier pickup (return to hub).
@@ -5878,6 +5898,10 @@ model Shipment {
   podSignatureUrl     String?
   podPhotoUrl         String?
   deliveredAt         DateTime?
+  /// Set with status EXCEPTION_HOLD when a linked trip stop fails
+  exceptionCode       DeliveryFailureReason?
+  exceptionNote       String?
+  exceptionAt         DateTime?
   notes               String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -5997,11 +6021,14 @@ model Trip {
   totalWeightKg  Float?
   totalVolumeM3  Float?
   totalQty       Int?
+  /// Dispatcher override: driver may execute stops out of sequence (driver app cannot set)
+  allowOutOfOrder Boolean   @default(false)
   notes          String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   stops          TripStop[]
   gpsLogs        GpsLog[]
+  stopEvents     TripStopEvent[]
 
   @@index([status])
   @@index([vehicleId])
@@ -6030,8 +6057,10 @@ model TripStop {
   podPhotoUrl     String?
   /// Driver POD notes
   podNotes        String?
-  /// Set when status = FAILED
+  /// Set when status = FAILED — free-text driver note
   failureReason   String?
+  failureCode     DeliveryFailureReason?
+  failedAt        DateTime?
   /// Optional map pin color for intermediate stops (hex, e.g. #f59e0b). Destination always uses red.
   pinColor   String?
   /// Cargo-first TMS stop role (null = legacy stop)
@@ -6042,9 +6071,37 @@ model TripStop {
   warehouse       Warehouse?         @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
   shipments  TripStopShipment[]
   lines           TripStopLine[]
+  events          TripStopEvent[]
 
   @@unique([tripId, sequence])
   @@index([tripId])
+}
+
+/// Immutable per-stop execution audit. Written in the same transaction as the stop status change.
+model TripStopEvent {
+  id             String                 @id @default(cuid())
+  tripId         String
+  trip           Trip                   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  stopId         String
+  stop           TripStop               @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  eventType      TripStopEventType
+  /// Client-reported time of the action (defaults to recordedAt)
+  occurredAt     DateTime
+  /// Server receive time
+  recordedAt     DateTime               @default(now())
+  driverId       String?
+  latitude       Float?
+  longitude      Float?
+  accuracyM      Float?
+  deviceId       String?
+  reasonCode     DeliveryFailureReason?
+  notes          String?
+  /// Client-generated id — replays with the same id are no-ops
+  clientActionId String?                @unique
+
+  @@index([tripId])
+  @@index([stopId])
+  @@index([occurredAt])
 }
 
 model TripStopShipment {

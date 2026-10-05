@@ -29,6 +29,9 @@ import { DemandSalesService } from './demand-plan/demand-plan.sales'
 import { TmsController } from './tms/tms.controller'
 import { TmsLoadPlansService } from './tms/tms-load-plans.service'
 import { TmsTripsService } from './tms/tms-trips.service'
+import { TmsRoutePreviewService } from './tms/tms-route-preview.service'
+import { OsrmService } from './routing/osrm.service'
+import { GeocodeService } from './geocode/geocode.service'
 import { MmModule } from '../mm/mm.module'
 
 @Module({
@@ -66,6 +69,9 @@ import { MmModule } from '../mm/mm.module'
         DemandSalesService,
         TmsLoadPlansService,
         TmsTripsService,
+        TmsRoutePreviewService,
+        OsrmService,
+        GeocodeService,
     ],
     exports: [ShipmentsService],
 })

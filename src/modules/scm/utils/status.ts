@@ -23,6 +23,7 @@ const toneMap: Record<string, StatusTone> = {
     CANCELLED: 'danger',
     FAILED: 'danger',
     SKIPPED: 'warning',
+    EXCEPTION_HOLD: 'warning',
     VALID: 'success',
     EXPIRING_SOON: 'warning',
     EXPIRED: 'danger',
