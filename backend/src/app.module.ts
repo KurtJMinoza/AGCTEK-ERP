@@ -14,6 +14,7 @@ import { RetailModule } from './retail/retail.module'
 import { SdModule } from './sd/sd.module'
 import { PpModule } from './pp/pp.module'
 import { FicoModule } from './fico/fico.module'
+import { CrmModule } from './crm/crm.module'
 
 @Module({
     imports: [
@@ -29,6 +30,7 @@ import { FicoModule } from './fico/fico.module'
         SdModule,
         PpModule,
         FicoModule,
+        CrmModule,
         RetailModule,
     ],
     controllers: [AppController],

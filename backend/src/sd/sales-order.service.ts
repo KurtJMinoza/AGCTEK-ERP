@@ -13,7 +13,9 @@ import {
     CreateMarketplaceCheckoutDto,
     CreateRetailSalesOrderDto,
     CreateSalesOrderDto,
+    CreateSalesOrderFromCrmOpportunityInput,
     ListSalesOrdersQueryDto,
+    SD_CATALOG_CURRENCY,
     UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
 import { RetailClientService } from '../retail/retail-client.service'
@@ -22,6 +24,13 @@ import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
 import { SdMmPipelineService } from './sd-mm-pipeline.service'
+import {
+    assertCatalogLineInput,
+    assertSellable,
+    loadBillableCustomer,
+    priceCatalogLines,
+} from './sd-catalog-pricing'
+import { QuotationService } from './quotation.service'
 
 /** Storefront divisions whose e-commerce orders require a registered client account. */
 const SIGNED_IN_ECOMMERCE_DIVISIONS: ReadonlySet<string> = new Set([
@@ -29,6 +38,38 @@ const SIGNED_IN_ECOMMERCE_DIVISIONS: ReadonlySet<string> = new Set([
     'DIV_LPG',
     'DIV_APPLIANCES',
 ])
+
+export interface CrmSalesOrderHandoffResult {
+    salesOrderId: string
+    orderNumber: string
+    status: string
+    customerId: string
+    currency: string
+    total: string | null
+    created: boolean
+}
+
+function crmHandoffResult(
+    order: {
+        id: string
+        orderNumber: string
+        status: string
+        customerId: string
+        currency: string
+        totalAmount: Decimal | null
+    },
+    created: boolean,
+): CrmSalesOrderHandoffResult {
+    return {
+        salesOrderId: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        customerId: order.customerId,
+        currency: order.currency,
+        total: order.totalAmount === null ? null : order.totalAmount.toFixed(2),
+        created,
+    }
+}
 
 @Injectable()
 export class SalesOrderService {
@@ -38,6 +79,7 @@ export class SalesOrderService {
         private retailClients: RetailClientService,
         private products: ProductService,
         private mmPipeline: SdMmPipelineService,
+        private quotations: QuotationService,
     ) {}
 
     private readonly includes = {
@@ -61,6 +103,8 @@ export class SalesOrderService {
                 companyId: dto.companyId,
                 warehouseId: dto.warehouseId,
                 customerId: dto.customerId,
+                channel: 'STANDARD',
+                source: 'ERP',
                 correlationId,
                 idempotencyKey: dto.idempotencyKey ?? null,
                 createdBy: dto.createdBy ?? null,
@@ -77,9 +121,170 @@ export class SalesOrderService {
         })
     }
 
+    /**
+     * CRM Closed Won handoff: an ECOMMERCE / CRM draft priced from the SD catalog.
+     * Idempotent on `crmOpportunityId` (unique): a repeat returns the recorded order
+     * with `created: false`. No MM work happens until SD confirms the order.
+     *
+     * Pass `tx` to create inside the caller's transaction. A unique violation then
+     * aborts that transaction; the caller retries it (see
+     * `isRetryableCrmHandoffConflict`) and the retry finds the recorded order.
+     *
+     * With `quotationId` the SENT / ACCEPTED quotation is converted instead: its frozen lines and
+     * prices become the order and it is marked CONVERTED in the same transaction (unique
+     * `quotationId` on the order; a concurrent conversion returns the first order).
+     */
+    async createFromCrmOpportunity(
+        input: CreateSalesOrderFromCrmOpportunityInput,
+        options: { tx?: Prisma.TransactionClient; attempt?: number } = {},
+    ): Promise<CrmSalesOrderHandoffResult> {
+        if (options.tx) {
+            return this.createFromCrmOpportunityIn(
+                options.tx,
+                input,
+                options.attempt ?? 0,
+            )
+        }
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                return await this.prisma.$transaction((tx) =>
+                    this.createFromCrmOpportunityIn(tx, input, attempt),
+                )
+            } catch (error) {
+                if (this.isRetryableCrmHandoffConflict(error)) continue
+                throw error
+            }
+        }
+        throw new ConflictException(
+            'Could not allocate a sales order number; retry',
+        )
+    }
+
+    /**
+     * True for sales-order unique violations that a retry of the handoff resolves. Quotations'
+     * one-active-per-opportunity index also reports target `crmOpportunityId`, so the model is checked.
+     */
+    isRetryableCrmHandoffConflict(error: unknown) {
+        const target = this.uniqueViolationTarget(error)
+        const model = (error as Prisma.PrismaClientKnownRequestError).meta?.modelName
+        return (
+            !!target &&
+            (model === undefined || model === 'SdSalesOrder') &&
+            (target.includes('crmOpportunityId') ||
+                target.includes('orderNumber'))
+        )
+    }
+
+    private async createFromCrmOpportunityIn(
+        tx: Prisma.TransactionClient,
+        input: CreateSalesOrderFromCrmOpportunityInput,
+        attempt: number,
+    ): Promise<CrmSalesOrderHandoffResult> {
+        const existing = await tx.sdSalesOrder.findUnique({
+            where: { crmOpportunityId: input.crmOpportunityId },
+        })
+        if (existing) return crmHandoffResult(existing, false)
+
+        if (input.quotationId && input.lines?.length) {
+            throw new BadRequestException(
+                'Send either a quotation or lines, not both',
+            )
+        }
+        let customer: Awaited<ReturnType<typeof loadBillableCustomer>>
+        let commercial: {
+            quotationId: string | null
+            divisionId: string | null
+            subtotal: Decimal
+            totalAmount: Decimal
+            lines: {
+                lineNumber: number
+                productId: string
+                sku: string
+                description: string
+                quantity: Decimal
+                unitPrice: Decimal
+                lineTotal: Decimal
+            }[]
+        }
+        if (input.quotationId) {
+            const claim = await this.quotations.claimForConversion(tx, {
+                quotationId: input.quotationId,
+                crmOpportunityId: input.crmOpportunityId,
+                customerId: input.customerId,
+                convertedBy: input.createdBy ?? null,
+            })
+            if (claim.alreadyConverted) {
+                const converted = await tx.sdSalesOrder.findUnique({
+                    where: { quotationId: input.quotationId },
+                })
+                if (!converted) {
+                    throw new ConflictException(
+                        `Quotation ${claim.quote.quotationNumber} is CONVERTED but has no sales order`,
+                    )
+                }
+                return crmHandoffResult(converted, false)
+            }
+            customer = await loadBillableCustomer(tx, input.customerId)
+            const { quote } = claim
+            commercial = {
+                quotationId: quote.id,
+                divisionId: quote.divisionId,
+                subtotal: quote.subtotal,
+                totalAmount: quote.totalAmount,
+                lines: quote.lines.map((l) => ({
+                    lineNumber: l.lineNumber,
+                    productId: l.productId,
+                    sku: l.sku,
+                    description: l.description,
+                    quantity: l.quantity,
+                    unitPrice: l.unitPrice,
+                    lineTotal: l.lineTotal,
+                })),
+            }
+        } else {
+            assertCatalogLineInput(input.lines)
+            customer = await loadBillableCustomer(tx, input.customerId)
+            const pricing = await priceCatalogLines(tx, input.lines!)
+            const { divisionId } = assertSellable(pricing)
+            commercial = {
+                quotationId: null,
+                divisionId,
+                subtotal: pricing.subtotal,
+                totalAmount: pricing.subtotal,
+                lines: pricing.lines.map(({ inactive: _inactive, ...line }) => line),
+            }
+        }
+        const { lines } = commercial
+
+        const order = await tx.sdSalesOrder.create({
+            data: {
+                orderNumber: await this.nextOrderNumber('SO', attempt, tx),
+                customerId: customer.id,
+                customerName: customer.companyName,
+                customerEmail: customer.email,
+                channel: 'ECOMMERCE',
+                source: 'CRM',
+                crmOpportunityId: input.crmOpportunityId,
+                quotationId: commercial.quotationId,
+                divisionId: commercial.divisionId,
+                currency: SD_CATALOG_CURRENCY,
+                subtotal: commercial.subtotal,
+                totalAmount: commercial.totalAmount,
+                status: 'DRAFT',
+                correlationId: randomUUID(),
+                notes: input.notes ?? null,
+                salesOwnerId: input.salesOwnerId ?? null,
+                createdBy: input.createdBy ?? null,
+                lines: { create: lines },
+            },
+        })
+        return crmHandoffResult(order, true)
+    }
+
     async list(query: ListSalesOrdersQueryDto) {
         const where: Prisma.SdSalesOrderWhereInput = {}
         if (query.channel) where.channel = query.channel
+        if (query.source) where.source = query.source
         if (query.customerId) where.customerId = query.customerId
         if (query.divisionId) where.divisionId = query.divisionId
         if (query.branchId) where.branchId = query.branchId
@@ -305,6 +510,7 @@ export class SalesOrderService {
         return {
             orderNumber,
             channel: dto.channel,
+            source: isPos ? 'POS' : 'WEBSITE',
             divisionId: dto.divisionId,
             branchId: dto.branchId ?? null,
             customerId: dto.customerId,

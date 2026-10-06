@@ -48,11 +48,20 @@ export class CustomerService {
         return row
     }
 
-    async create(dto: CreateCustomerDto) {
-        for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
-            const customerNumber = await this.nextCustomerNumber(attempt)
+    /**
+     * `client` lets another module's workflow (e.g. CRM lead conversion) create the customer
+     * inside its own transaction. A failed statement aborts a Postgres transaction, so
+     * number-collision retries only run on the root client.
+     */
+    async create(
+        dto: CreateCustomerDto,
+        client: PrismaService | Prisma.TransactionClient = this.prisma,
+    ) {
+        const attempts = client === this.prisma ? MAX_CREATE_ATTEMPTS : 1
+        for (let attempt = 0; attempt < attempts; attempt++) {
+            const customerNumber = await this.nextCustomerNumber(attempt, client)
             try {
-                return await this.prisma.sdCustomer.create({
+                return await client.sdCustomer.create({
                     data: {
                         customerNumber,
                         companyName: dto.companyName,
@@ -146,8 +155,11 @@ export class CustomerService {
     }
 
     /** `attempt > 0` adds a random suffix after a customerNumber collision. */
-    private async nextCustomerNumber(attempt = 0) {
-        const count = await this.prisma.sdCustomer.count()
+    private async nextCustomerNumber(
+        attempt = 0,
+        client: PrismaService | Prisma.TransactionClient = this.prisma,
+    ) {
+        const count = await client.sdCustomer.count()
         const number = `${CUSTOMER_NUMBER_PREFIX}-${String(count + 1).padStart(6, '0')}`
         return attempt === 0
             ? number

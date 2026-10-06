@@ -171,6 +171,64 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/crm': {
+        key: 'crmDashboard',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/leads': {
+        key: 'crmLeads',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/opportunities': {
+        key: 'crmOpportunities',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/opportunities/[id]': {
+        key: 'crmOpportunityDetail',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/tickets': {
+        key: 'crmTickets',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/customers': {
+        key: 'crmCustomers',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/customers/[id]': {
+        key: 'crmCustomerDetail',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/modules/[moduleCode]': {
         key: 'erpModule',
         authority: [],

@@ -107,6 +107,72 @@ export class ShipmentsService {
         return { data, total, page, pageSize }
     }
 
+    /**
+     * Customer-facing shipments released for the given SD sales orders, resolved by id
+     * through package → picking task → MM reservation header (source SD / SALES_ORDER),
+     * or the legacy `SALES_ORDER:<id>` picking source document. Read-only.
+     */
+    async findBySalesOrderIds(salesOrderIds: string[], take = 50) {
+        if (!salesOrderIds.length) return []
+        const legacySources = salesOrderIds.map((id) => `SALES_ORDER:${id}`)
+        const rows = await this.prisma.shipment.findMany({
+            where: {
+                movementType: ShipmentMovementType.DELIVERY,
+                package: {
+                    pickingTask: {
+                        OR: [
+                            {
+                                reservationHeader: {
+                                    sourceModule: 'SD',
+                                    sourceDocumentType: 'SALES_ORDER',
+                                    sourceDocumentId: { in: salesOrderIds },
+                                },
+                            },
+                            { sourceDocument: { in: legacySources } },
+                        ],
+                    },
+                },
+            },
+            select: {
+                id: true,
+                reference: true,
+                status: true,
+                requestedDeliveryAt: true,
+                latestDeliveryAt: true,
+                deliveredAt: true,
+                podSignatureUrl: true,
+                podPhotoUrl: true,
+                exceptionCode: true,
+                exceptionNote: true,
+                createdAt: true,
+                package: {
+                    select: {
+                        trackingNumber: true,
+                        carrier: true,
+                        pickingTask: {
+                            select: {
+                                sourceDocument: true,
+                                reservationHeader: { select: { sourceDocumentId: true } },
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take,
+        })
+        return rows.map(({ package: pkg, podSignatureUrl, podPhotoUrl, ...shipment }) => ({
+            ...shipment,
+            salesOrderId:
+                pkg?.pickingTask?.reservationHeader?.sourceDocumentId ??
+                pkg?.pickingTask?.sourceDocument?.replace(/^SALES_ORDER:/, '') ??
+                null,
+            trackingNumber: pkg?.trackingNumber ?? null,
+            carrier: pkg?.carrier ?? null,
+            hasProofOfDelivery: Boolean(podSignatureUrl || podPhotoUrl),
+        }))
+    }
+
     async findOne(id: string) {
         return assertFound(
             await this.prisma.shipment.findUnique({ where: { id } }),

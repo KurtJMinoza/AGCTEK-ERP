@@ -19,8 +19,11 @@
     "prisma:seed-scm-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-scm-reset.ts",
     "prisma:seed-demand-plan": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-demand-plan.ts",
     "prisma:seed-tms": "ts-node --project prisma/tsconfig.seed.json prisma/seed-scm-tms.ts",
+    "prisma:seed-crm-temp": "ts-node --transpile-only --project prisma/tsconfig.seed.json prisma/seed-crm-temp.ts",
+    "prisma:clean-crm-temp": "ts-node --transpile-only --project prisma/tsconfig.seed.json prisma/seed-crm-temp.ts --clean",
     "test": "jest --runInBand --forceExit",
-    "test:architecture": "jest src/mm/architecture --runInBand --forceExit"
+    "test:architecture": "jest src/mm/architecture --runInBand --forceExit",
+    "test:pg": "jest --runInBand --forceExit --testRegex \"\\.pg-spec\\.ts$\""
   },
   "jest": {
     "moduleFileExtensions": [

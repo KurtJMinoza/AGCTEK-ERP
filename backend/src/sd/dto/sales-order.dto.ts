@@ -30,6 +30,22 @@ export class CreateSalesOrderLineDto {
     quantity!: number
 }
 
+/**
+ * In-process input for the CRM Closed Won handoff: an ECOMMERCE / CRM draft priced
+ * from the SD catalog. Lines reference SD products only; materials, company and
+ * warehouse are resolved by SD at confirm.
+ */
+export interface CreateSalesOrderFromCrmOpportunityInput {
+    crmOpportunityId: string
+    customerId: string
+    /** Exactly one of `lines` (priced from the catalog now) or `quotationId` (frozen quotation prices). */
+    lines?: { productId: string; quantity: number }[]
+    quotationId?: string
+    notes?: string | null
+    salesOwnerId?: string | null
+    createdBy?: string | null
+}
+
 export class CreateSalesOrderDto {
     @IsString()
     @IsNotEmpty()
@@ -66,6 +82,10 @@ export class ChangeSalesOrderLineQtyDto {
 export const SALES_ORDER_CHANNELS = ['STANDARD', 'POS', 'ECOMMERCE'] as const
 export type SalesOrderChannel = (typeof SALES_ORDER_CHANNELS)[number]
 export const RETAIL_SALES_ORDER_CHANNELS = ['POS', 'ECOMMERCE'] as const
+export const SALES_ORDER_SOURCES = ['POS', 'WEBSITE', 'CRM', 'ERP'] as const
+export type SalesOrderSource = (typeof SALES_ORDER_SOURCES)[number]
+/** SdProduct prices carry no currency; they are maintained in this currency. */
+export const SD_CATALOG_CURRENCY = 'PHP'
 /** Storefront divisions allowed to capture retail orders (AWIC, LPG, MCONPINCO appliances). */
 export const RETAIL_SALES_DIVISIONS = [
     'DIV_RETAIL',
@@ -94,6 +114,10 @@ export class ListSalesOrdersQueryDto {
     @IsOptional()
     @IsIn(SALES_ORDER_CHANNELS)
     channel?: SalesOrderChannel
+
+    @IsOptional()
+    @IsIn(SALES_ORDER_SOURCES)
+    source?: SalesOrderSource
 
     /** Matches order number, customer name or customer email (case-insensitive). */
     @IsOptional()
