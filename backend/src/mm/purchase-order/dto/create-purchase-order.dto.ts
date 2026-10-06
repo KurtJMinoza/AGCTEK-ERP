@@ -93,9 +93,9 @@ export class CreatePurchaseOrderDto {
     @IsNotEmpty()
     companyId!: string
 
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    supplierId!: string
+    supplierId?: string
 
     @IsString()
     @IsNotEmpty()

@@ -2420,8 +2420,8 @@ model MmPurchaseOrder {
   company                 Company   @relation(fields: [companyId], references: [id])
   branchId                String?
   departmentId            String?
-  supplierId              String
-  supplier                MmSupplier @relation(fields: [supplierId], references: [id])
+  supplierId              String?
+  supplier                MmSupplier? @relation(fields: [supplierId], references: [id])
   buyerId                 String
   currencyId              String?
   currency                MmCurrency? @relation("PoCurrency", fields: [currencyId], references: [id])

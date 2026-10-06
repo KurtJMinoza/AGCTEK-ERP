@@ -38,7 +38,7 @@ const StockThresholdSummary = ({
         return (
             <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                 {onHandInput ?? (
-                    <ReadOnlyField label="On hand" value={fmt(onHand)} hint="Actual qty — source for Product Catalog." />
+                    <ReadOnlyField label="On hand" value={fmt(onHand)} hint="From live inventory ledger (synced on receipts/issues)." />
                 )}
                 {reservedInput ?? (
                     <ReadOnlyField label="Reserved" value={fmt(reserved)} hint="Reserved against orders." />

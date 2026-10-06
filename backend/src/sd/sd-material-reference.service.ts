@@ -37,10 +37,13 @@ export class SdMaterialReferenceService {
             where: { id: companyId.trim() },
         })
 
-        /** Stock thresholds on material master = source for product catalog & ecommerce. */
-        const onHandQty = Number(material.onHandQty ?? 0)
-        const reservedQty = Number(material.reservedQty ?? 0)
-        const availableQty = Math.max(0, onHandQty - reservedQty)
+        const ledger = await this.commercialAvailability.getCompanyMaterialLedger(
+            material.id,
+            companyId.trim(),
+        )
+        const onHandQty = ledger.onHandQty
+        const reservedQty = ledger.reservedQty
+        const availableQty = ledger.availableQty
 
         let fulfillmentAtpQty = availableQty
         let fulfillmentWarehouseCode: string | null = null

@@ -199,6 +199,8 @@ export interface Material {
 
     onHandQty: number
     reservedQty: number
+    /** Live sellable qty (ledger); present on API list/detail reads. */
+    availableQty?: number
     minimumStock: number
     maximumStock: number
     safetyStock: number

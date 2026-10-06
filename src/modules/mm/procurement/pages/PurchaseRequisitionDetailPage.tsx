@@ -178,13 +178,13 @@ const PurchaseRequisitionDetailPage = () => {
                 return
             }
 
-            if (!convertSupplierId || !convertBuyerId) {
-                pushToast('danger', 'Error', 'Supplier and buyer are required for PO')
+            if (!convertBuyerId) {
+                pushToast('danger', 'Error', 'Buyer is required for PO')
                 return
             }
             const created = await purchaseOrderService.createFromPr({
                 purchaseRequisitionId: pr.id,
-                supplierId: convertSupplierId,
+                supplierId: convertSupplierId || undefined,
                 buyerId: convertBuyerId,
                 createdBy: convertBuyerId,
                 lineIds: [{ lineId: convertLineId, quantity: qty }],
@@ -224,6 +224,20 @@ const PurchaseRequisitionDetailPage = () => {
         { header: 'Total', accessorKey: 'estimatedTotal', cell: ({ row }) => <span className="font-semibold">{Number(row.original.estimatedTotal).toFixed(2)}</span> },
         { header: 'Converted', accessorKey: 'convertedQty', cell: ({ row }) => <span>{Number(row.original.convertedQty)}</span> },
         { header: 'Remaining', id: 'remaining', cell: ({ row }) => <span className="font-medium text-primary">{prRemainingQty(row.original)}</span> },
+        {
+            header: 'Warehouse',
+            id: 'warehouse',
+            cell: ({ row }) => (
+                <span className="text-xs">{row.original.warehouse?.code ?? '—'}</span>
+            ),
+        },
+        {
+            header: 'Pref. supplier',
+            id: 'preferredSupplier',
+            cell: ({ row }) => (
+                <span className="text-xs">{row.original.preferredSupplier?.supplierCode ?? '—'}</span>
+            ),
+        },
         {
             header: 'Required',
             accessorKey: 'requiredDate',
@@ -553,12 +567,14 @@ const PurchaseRequisitionDetailPage = () => {
                 <FormItem label="Buyer">
                     <Input value={convertBuyerId} onChange={(e) => setConvertBuyerId(e.target.value)} />
                 </FormItem>
-                <FormItem label={convertTarget === 'PO' ? 'Supplier' : 'Supplier (optional invites)'}>
+                <FormItem label={convertTarget === 'PO' ? 'Supplier (optional)' : 'Supplier (optional invites)'}>
                     <Select
+                        isClearable
+                        isSearchable
+                        placeholder={convertTarget === 'PO' ? 'Optional — required before PO submit' : 'Invite suppliers…'}
                         options={supplierOpts}
                         value={supplierOpts.find((o) => o.value === convertSupplierId) ?? null}
                         onChange={(opt: any) => setConvertSupplierId(opt?.value ?? '')}
-                        isClearable={convertTarget === 'RFQ'}
                     />
                 </FormItem>
                 {convertTarget === 'RFQ' && (

@@ -460,6 +460,7 @@ export class GoodsReceiptService {
         const where: any = {}
         if (query.status) where.status = query.status
         if (query.warehouseId) where.warehouseId = query.warehouseId
+        if (query.purchaseOrderId) where.purchaseOrderId = query.purchaseOrderId
         if (query.search) {
             where.documentNumber = { contains: query.search, mode: 'insensitive' }
         }

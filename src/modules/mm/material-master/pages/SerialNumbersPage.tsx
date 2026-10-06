@@ -45,7 +45,6 @@ const SerialNumbersPage = () => {
     const [addOpen, setAddOpen] = useState(false)
     const [deleting, setDeleting] = useState<MmSerialNumber | null>(null)
     const [materialId, setMaterialId] = useState('')
-    const [serialNumber, setSerialNumber] = useState('')
     const [batchId, setBatchId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [binId, setBinId] = useState('')
@@ -62,9 +61,9 @@ const SerialNumbersPage = () => {
     const { options: materialOpts } = useMaterialOptions({ enabled: addOpen, serialManaged: true })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
+        materialId: required(materialId, 'Material'),
         batchId: required(batchId, 'Batch'),
     }), [materialId, batchId])
-    }), [materialId, serialNumber])
     const err = (key: string) => visibleError(fieldErrors, touched, key, forceValidate)
 
     const load = useCallback(async () => {
@@ -98,12 +97,18 @@ const SerialNumbersPage = () => {
         ).catch(() => setBatchOpts([]))
     }, [addOpen, materialId])
 
-        setMaterialId(''); setBatchId(''); setWarehouseId(''); setBinId('')
-        setSerialNumber(''); setMaterialId(''); setBatchId(''); setWarehouseId(''); setBinId('')
-        setStatus('AVAILABLE'); setTouched({}); setForceValidate(false)
+    const resetForm = () => {
+        setMaterialId('')
+        setBatchId('')
+        setWarehouseId('')
+        setBinId('')
+        setStatus('AVAILABLE')
+        setTouched({})
+        setForceValidate(false)
     }
 
     const handleAdd = async () => {
+        setForceValidate(true)
         if (fieldErrors.materialId || fieldErrors.batchId) {
             pushToast('danger', 'Validation', 'Fix the highlighted fields before saving.')
             return
@@ -117,8 +122,9 @@ const SerialNumbersPage = () => {
                 status,
             })
             pushToast('success', 'Created', `Serial ${created.serialNumber} added.`)
-            pushToast('success', 'Created', `Serial ${serialNumber} added.`)
-            setAddOpen(false); resetForm(); load()
+            setAddOpen(false)
+            resetForm()
+            load()
         } catch (e: any) { pushToast('danger', 'Error', e?.response?.data?.message || 'Failed') }
     }
 
@@ -193,13 +199,13 @@ const SerialNumbersPage = () => {
             >
                 <FormItem label="Material" asterisk invalid={Boolean(err('materialId'))} errorMessage={err('materialId')}>
                     <Select isSearchable placeholder="Search material…" options={materialOpts} value={materialOpts.find((o) => o.value === materialId) ?? null} onChange={(opt: any) => { setMaterialId(opt?.value ?? ''); setTouched((t) => ({ ...t, materialId: true })) }} />
+                </FormItem>
                 <FormItem label="Batch" asterisk invalid={Boolean(err('batchId'))} errorMessage={err('batchId')}>
                     <Select isSearchable placeholder="Select batch (uses same supplier prefix)…" options={batchOpts} value={batchOpts.find((o) => o.value === batchId) ?? null} onChange={(opt: any) => { setBatchId(opt?.value ?? ''); setTouched((t) => ({ ...t, batchId: true })) }} />
                 </FormItem>
                 <p className="mb-3 text-xs text-gray-500">
                     Serial number is generated automatically when you save (supplier code + SERIAL + sequence, e.g. SUP-PHILMAN-SERIAL-0001).
                 </p>
-                </FormItem>
                 <FormItem label="Warehouse">
                     <Select isClearable isSearchable placeholder="Optional warehouse…" options={warehouseOpts} value={warehouseOpts.find((o) => o.value === warehouseId) ?? null} onChange={(opt: any) => setWarehouseId(opt?.value ?? '')} />
                 </FormItem>

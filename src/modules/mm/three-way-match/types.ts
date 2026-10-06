@@ -48,6 +48,7 @@ export interface SupplierInvoiceLine {
     priceVariance?: string | number
     taxVariance?: string | number
     material?: { materialCode: string; materialName: string }
+    uom?: { id: string; code: string; name?: string }
     receipts?: Array<{
         id: string
         goodsReceiptLineId: string

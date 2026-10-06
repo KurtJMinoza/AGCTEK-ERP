@@ -51,6 +51,19 @@ const PO_INCLUDES = {
     award: { select: { id: true } },
     attachments: true,
     goodsReceipts: { select: { id: true, documentNumber: true, status: true, postingDate: true } },
+    supplierInvoices: {
+        select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            matchStatus: true,
+            paymentEligible: true,
+            totalAmount: true,
+            invoiceDate: true,
+            createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' as const },
+    },
 }
 
 /** List view — header only; lines/attachments loaded on detail. */
@@ -94,11 +107,21 @@ export class PurchaseOrderService {
         })
     }
 
+    private normalizeOptionalId(value?: string | null): string | null {
+        if (value == null) return null
+        const trimmed = String(value).trim()
+        return trimmed.length > 0 ? trimmed : null
+    }
+
+
     async create(dto: CreatePurchaseOrderDto) {
         if (!dto.lines?.length) {
             throw new BadRequestException('At least one line is required')
         }
-        await this.assertSupplierForPo(dto.supplierId, dto.companyId)
+        const supplierId = this.normalizeOptionalId(dto.supplierId)
+        if (supplierId) {
+            await this.assertSupplierForPo(supplierId, dto.companyId)
+        }
         const { assertPurchasableMaterials } = await import('../materials/assert-purchasable-materials')
         await assertPurchasableMaterials(
             this.prisma,
@@ -114,7 +137,7 @@ export class PurchaseOrderService {
                 companyId: dto.companyId,
                 branchId: dto.branchId ?? null,
                 departmentId: dto.departmentId ?? null,
-                supplierId: dto.supplierId,
+                supplierId,
                 buyerId: dto.buyerId,
                 currencyId: dto.currencyId ?? null,
                 paymentTermsId: dto.paymentTermsId ?? null,
@@ -183,9 +206,23 @@ export class PurchaseOrderService {
             })
         }
 
+        let supplierId = this.normalizeOptionalId(dto.supplierId)
+        if (!supplierId) {
+            const preferred = [
+                ...new Set(
+                    dto.lineIds
+                        .map((sel) => lineMap.get(sel.lineId)?.preferredSupplierId)
+                        .filter(Boolean) as string[],
+                ),
+            ]
+            if (preferred.length === 1) {
+                supplierId = preferred[0]
+            }
+        }
+
         const po = await this.create({
             companyId: pr.companyId,
-            supplierId: dto.supplierId,
+            supplierId: supplierId ?? undefined,
             buyerId: dto.buyerId,
             branchId: dto.branchId ?? pr.branchId ?? undefined,
             departmentId: (pr as any).departmentId ?? undefined,
@@ -236,12 +273,20 @@ export class PurchaseOrderService {
 
     async update(id: string, dto: UpdatePurchaseOrderDto, performedBy?: string) {
         const po = await this.findOneOrFail(id)
-        if (po.status !== 'DRAFT') {
+        const headerOnlyStatuses = ['DRAFT', 'RETURNED', 'APPROVED']
+        if (!headerOnlyStatuses.includes(po.status)) {
             throw new BadRequestException(`Cannot update: PO is ${po.status}`)
         }
+        if (po.status === 'APPROVED' && dto.lines?.length) {
+            throw new BadRequestException('Cannot change lines on an approved PO; update header fields only')
+        }
 
-        if (dto.supplierId && dto.supplierId !== po.supplierId) {
-            await this.assertSupplierForPo(dto.supplierId, po.companyId)
+        const nextSupplierId =
+            dto.supplierId !== undefined
+                ? this.normalizeOptionalId(dto.supplierId)
+                : po.supplierId
+        if (nextSupplierId && nextSupplierId !== po.supplierId) {
+            await this.assertSupplierForPo(nextSupplierId, po.companyId)
         }
         if (dto.lines?.length) {
             const { assertPurchasableMaterials } = await import('../materials/assert-purchasable-materials')
@@ -253,13 +298,19 @@ export class PurchaseOrderService {
 
         const data: any = {}
         const keys: (keyof UpdatePurchaseOrderDto)[] = [
-            'branchId', 'departmentId', 'supplierId', 'buyerId', 'currencyId', 'paymentTermsId',
-            'deliveryTerms', 'warehouseId',
+            'branchId', 'departmentId', 'buyerId', 'currencyId', 'paymentTermsId',
+            'deliveryTerms',
             'overDeliveryPctOverride', 'underDeliveryPctOverride',
             'priceTolerancePctOverride', 'quantityTolerancePctOverride',
         ]
         for (const key of keys) {
             if (dto[key] !== undefined) data[key] = dto[key]
+        }
+        if (dto.supplierId !== undefined) {
+            data.supplierId = this.normalizeOptionalId(dto.supplierId)
+        }
+        if (dto.warehouseId !== undefined) {
+            data.warehouseId = this.normalizeOptionalId(dto.warehouseId)
         }
         if (dto.expectedDeliveryDate) data.expectedDeliveryDate = new Date(dto.expectedDeliveryDate)
 
@@ -323,7 +374,9 @@ export class PurchaseOrderService {
             throw new BadRequestException('Cannot submit PO with no lines')
         }
 
-        await this.assertSupplierForPo(po.supplierId, po.companyId)
+        if (po.supplierId) {
+            await this.assertSupplierForPo(po.supplierId, po.companyId)
+        }
 
         const total = po.lines.reduce(
             (sum, l) => sum.plus(new Decimal(l.lineTotal)),
@@ -353,7 +406,7 @@ export class PurchaseOrderService {
                 companyId: po.companyId,
                 departmentId: po.departmentId ?? undefined,
                 costCenterId: costCenterIds[0] ?? undefined,
-                supplierId: po.supplierId,
+                supplierId: po.supplierId ?? undefined,
                 materialCategoryIds,
             },
         })
@@ -547,7 +600,9 @@ export class PurchaseOrderService {
         if (po.status !== 'APPROVED') {
             throw new BadRequestException(`Cannot send: PO is ${po.status}`)
         }
-        await this.assertSupplierForPo(po.supplierId, po.companyId)
+        if (po.supplierId) {
+            await this.assertSupplierForPo(po.supplierId, po.companyId)
+        }
         await this.recordPoCommitment(po, performedBy)
         const updated = await this.prisma.mmPurchaseOrder.update({
             where: { id },

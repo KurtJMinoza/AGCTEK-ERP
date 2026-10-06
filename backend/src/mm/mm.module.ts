@@ -45,6 +45,7 @@ import { InventoryPostingService } from './inventory/inventory-posting.service'
 import { InventoryBalanceQueryService } from './inventory/inventory-balance-query.service'
 import { MmInventoryBalanceService } from './inventory/inventory-balance.service'
 import { InventoryAvailabilityService } from './inventory/inventory-availability.service'
+import { MaterialInventorySyncListener } from './inventory/material-inventory-sync.listener'
 import { InventoryOperationService } from './inventory/inventory-operation.service'
 import { InventoryReversalService } from './inventory/inventory-reversal.service'
 import { InventoryTraceabilityService } from './inventory/inventory-traceability.service'
@@ -350,6 +351,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         InventoryBalanceQueryService,
         MmInventoryBalanceService,
         InventoryAvailabilityService,
+        MaterialInventorySyncListener,
         InventoryOperationService,
         InventoryReversalService,
         InventoryTraceabilityService,

@@ -25,9 +25,9 @@ export class CreatePoFromPrDto {
     @IsNotEmpty()
     purchaseRequisitionId!: string
 
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    supplierId!: string
+    supplierId?: string
 
     @IsString()
     @IsNotEmpty()

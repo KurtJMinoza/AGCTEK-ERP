@@ -246,7 +246,7 @@ export class BarcodeResolveService {
                 documentNumber: po.poNumber,
                 purchaseOrderId: po.id,
                 warehouseId: po.warehouseId ?? undefined,
-                supplierId: po.supplierId,
+                supplierId: po.supplierId ?? undefined,
             }
         }
 
