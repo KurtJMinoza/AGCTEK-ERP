@@ -25,6 +25,7 @@ import {
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { defaultMaterialUomId } from '@/modules/mm/shared/uomHelpers'
 import type {
     MmPurchaseOrder,
     PoListResponse,
@@ -516,7 +517,15 @@ const PurchaseOrderListPage = () => {
                                             <Select<FilterOption>
                                                 options={materials}
                                                 value={materials.find((m) => m.value === line.materialId) ?? null}
-                                                onChange={(opt) => updateLine(line.key, { materialId: opt?.value ?? '' })}
+                                                onChange={(opt) => {
+                                                    const uomId = defaultMaterialUomId(
+                                                        opt?.meta as Record<string, unknown> | undefined,
+                                                    )
+                                                    updateLine(line.key, {
+                                                        materialId: opt?.value ?? '',
+                                                        ...(uomId ? { uomId } : {}),
+                                                    })
+                                                }}
                                             />
                                         </FormItem>
                                         <FormItem label="UOM" asterisk invalid={Boolean(lnErr(line.key, 'uomId', le))} errorMessage={lnErr(line.key, 'uomId', le)}>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
@@ -13,7 +14,11 @@ import Button from '@/components/ui/Button'
 import Spinner from '@/components/ui/Spinner'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import { HiOutlineInboxIn } from 'react-icons/hi'
+import { HiOutlineInboxIn, HiOutlinePrinter } from 'react-icons/hi'
+import ReceivingReceiptPanel from '../components/ReceivingReceiptPanel'
+import ReceivingReceiptSlip from '../components/ReceivingReceiptSlip'
+import { expectedReceiptToSlip, goodsReceiptToSlip } from '../utils/receiptSlipMappers'
+import { goodsReceiptService } from '@/modules/mm/inventory/services/goodsReceiptService'
 import { inboundService } from '../services/inboundService'
 import ReceiveAgainstErDialog from '../components/ReceiveAgainstErDialog'
 import type { MmExpectedReceipt, MmExpectedReceiptLine } from '../types'
@@ -55,6 +60,27 @@ const ExpectedReceiptDetailPage = () => {
     const [loading, setLoading] = useState(true)
     const [receiveOpen, setReceiveOpen] = useState(false)
     const [lastGr, setLastGr] = useState<GoodsReceipt | null>(null)
+    const [lastGrFull, setLastGrFull] = useState<GoodsReceipt | null>(null)
+    const [printTarget, setPrintTarget] = useState<'er' | 'gr' | null>(null)
+
+    const queuePrint = useCallback((target: 'er' | 'gr') => {
+        setPrintTarget(target)
+    }, [])
+
+    useEffect(() => {
+        if (!printTarget) return
+        const timer = window.setTimeout(() => {
+            window.print()
+            setPrintTarget(null)
+        }, 80)
+        return () => window.clearTimeout(timer)
+    }, [printTarget])
+
+    const printSlipData = useMemo(() => {
+        if (printTarget === 'gr' && lastGrFull) return goodsReceiptToSlip(lastGrFull)
+        if (printTarget === 'er' && er) return expectedReceiptToSlip(er)
+        return null
+    }, [printTarget, er, lastGrFull])
 
     const fetchEr = useCallback(async () => {
         if (!id) return
@@ -147,6 +173,13 @@ const ExpectedReceiptDetailPage = () => {
                 actions={
                     <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge tone={STATUS_TONE[er.status] ?? 'default'}>{er.status}</StatusBadge>
+                        <Button
+                            size="sm"
+                            icon={<HiOutlinePrinter />}
+                            onClick={() => queuePrint('er')}
+                        >
+                            Print receipt
+                        </Button>
                         {canReceive ? (
                             <Button variant="solid" icon={<HiOutlineInboxIn />} onClick={() => setReceiveOpen(true)}>
                                 Receive
@@ -155,6 +188,33 @@ const ExpectedReceiptDetailPage = () => {
                     </div>
                 }
             />
+
+            <AdaptiveCard className="mb-4">
+                <ReceivingReceiptPanel
+                    data={expectedReceiptToSlip(er)}
+                    title="Expected receipt slip"
+                    onPrint={() => queuePrint('er')}
+                />
+            </AdaptiveCard>
+
+            {lastGrFull ? (
+                <AdaptiveCard className="mb-4">
+                    <ReceivingReceiptPanel
+                        data={goodsReceiptToSlip(lastGrFull)}
+                        title="Goods receipt slip"
+                        onPrint={() => queuePrint('gr')}
+                    />
+                </AdaptiveCard>
+            ) : null}
+
+            {printSlipData && typeof document !== 'undefined'
+                ? createPortal(
+                      <div className="print-isolate hidden print:block">
+                          <ReceivingReceiptSlip data={printSlipData} />
+                      </div>,
+                      document.body,
+                  )
+                : null}
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <AdaptiveCard>
@@ -224,8 +284,13 @@ const ExpectedReceiptDetailPage = () => {
                 isOpen={receiveOpen}
                 expectedReceipt={er}
                 onClose={() => setReceiveOpen(false)}
-                onSuccess={(gr) => {
+                onSuccess={async (gr) => {
                     setLastGr(gr)
+                    try {
+                        setLastGrFull(await goodsReceiptService.get(gr.id))
+                    } catch {
+                        setLastGrFull(gr)
+                    }
                     fetchEr()
                 }}
             />

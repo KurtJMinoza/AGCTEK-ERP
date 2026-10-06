@@ -81,8 +81,20 @@ export class UomConversionsService {
 
         const factor = await this.resolveFactor(args.materialId, args.fromUomId, args.toUomId)
         if (factor == null) {
+            const [fromUom, toUom] = await Promise.all([
+                this.prisma.mmUom.findUnique({
+                    where: { id: args.fromUomId },
+                    select: { code: true },
+                }),
+                this.prisma.mmUom.findUnique({
+                    where: { id: args.toUomId },
+                    select: { code: true },
+                }),
+            ])
+            const fromLabel = fromUom?.code ?? args.fromUomId
+            const toLabel = toUom?.code ?? args.toUomId
             throw new BadRequestException(
-                `No UOM conversion found from ${args.fromUomId} to ${args.toUomId}`,
+                `No UOM conversion found from ${fromLabel} to ${toLabel}`,
             )
         }
         return qty.mul(factor)

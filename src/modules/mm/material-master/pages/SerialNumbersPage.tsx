@@ -10,8 +10,6 @@ import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
-import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
-import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
 import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
@@ -64,8 +62,8 @@ const SerialNumbersPage = () => {
     const { options: materialOpts } = useMaterialOptions({ enabled: addOpen, serialManaged: true })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
-        materialId: required(materialId, 'Material'),
-        serialNumber: required(serialNumber, 'Serial number'),
+        batchId: required(batchId, 'Batch'),
+    }), [materialId, batchId])
     }), [materialId, serialNumber])
     const err = (key: string) => visibleError(fieldErrors, touched, key, forceValidate)
 
@@ -100,27 +98,25 @@ const SerialNumbersPage = () => {
         ).catch(() => setBatchOpts([]))
     }, [addOpen, materialId])
 
-    const resetForm = () => {
+        setMaterialId(''); setBatchId(''); setWarehouseId(''); setBinId('')
         setSerialNumber(''); setMaterialId(''); setBatchId(''); setWarehouseId(''); setBinId('')
         setStatus('AVAILABLE'); setTouched({}); setForceValidate(false)
     }
 
     const handleAdd = async () => {
-        setForceValidate(true)
-        if (fieldErrors.materialId || fieldErrors.serialNumber) {
+        if (fieldErrors.materialId || fieldErrors.batchId) {
             pushToast('danger', 'Validation', 'Fix the highlighted fields before saving.')
             return
         }
         try {
-            const normalizedSerial = formatTrackingNumber(serialNumber)
-            await serialNumberService.create({
+            const created = await serialNumberService.create({
                 materialId,
-                serialNumber: normalizedSerial,
                 batchId: batchId || undefined,
                 currentWarehouseId: warehouseId || undefined,
                 currentBinId: binId || undefined,
                 status,
             })
+            pushToast('success', 'Created', `Serial ${created.serialNumber} added.`)
             pushToast('success', 'Created', `Serial ${serialNumber} added.`)
             setAddOpen(false); resetForm(); load()
         } catch (e: any) { pushToast('danger', 'Error', e?.response?.data?.message || 'Failed') }
@@ -197,16 +193,12 @@ const SerialNumbersPage = () => {
             >
                 <FormItem label="Material" asterisk invalid={Boolean(err('materialId'))} errorMessage={err('materialId')}>
                     <Select isSearchable placeholder="Search material…" options={materialOpts} value={materialOpts.find((o) => o.value === materialId) ?? null} onChange={(opt: any) => { setMaterialId(opt?.value ?? ''); setTouched((t) => ({ ...t, materialId: true })) }} />
+                <FormItem label="Batch" asterisk invalid={Boolean(err('batchId'))} errorMessage={err('batchId')}>
+                    <Select isSearchable placeholder="Select batch (uses same supplier prefix)…" options={batchOpts} value={batchOpts.find((o) => o.value === batchId) ?? null} onChange={(opt: any) => { setBatchId(opt?.value ?? ''); setTouched((t) => ({ ...t, batchId: true })) }} />
                 </FormItem>
-                <FormItem label="Serial number" asterisk invalid={Boolean(err('serialNumber'))} errorMessage={err('serialNumber')}>
-                    <TrackingNumberInput
-                        value={serialNumber}
-                        onChange={(v) => { setSerialNumber(v); setTouched((t) => ({ ...t, serialNumber: true })) }}
-                        placeholder="e.g. beef 1 → BEEF-00001"
-                    />
-                </FormItem>
-                <FormItem label="Batch">
-                    <Select isClearable isSearchable placeholder="Optional batch…" options={batchOpts} value={batchOpts.find((o) => o.value === batchId) ?? null} onChange={(opt: any) => setBatchId(opt?.value ?? '')} />
+                <p className="mb-3 text-xs text-gray-500">
+                    Serial number is generated automatically when you save (supplier code + SERIAL + sequence, e.g. SUP-PHILMAN-SERIAL-0001).
+                </p>
                 </FormItem>
                 <FormItem label="Warehouse">
                     <Select isClearable isSearchable placeholder="Optional warehouse…" options={warehouseOpts} value={warehouseOpts.find((o) => o.value === warehouseId) ?? null} onChange={(opt: any) => setWarehouseId(opt?.value ?? '')} />

@@ -19,6 +19,57 @@ type SampleMaterial = {
     expiryManaged: boolean
 }
 
+/** Alternate units → material base UOM (1 SKU = 1 base unit unless noted). */
+const MATERIAL_ALTERNATE_UOM: Record<string, { from: string; factor: number }[]> = {
+    'SKU-LUBE-1L': [
+        { from: 'PCS', factor: 1 },
+        { from: 'BTL', factor: 1 },
+        { from: 'EA', factor: 1 },
+    ],
+}
+
+async function upsertMaterialUomConversions(
+    prisma: PrismaClient,
+    materialId: string,
+    baseUomId: string,
+    materialCode: string,
+) {
+    const alts = MATERIAL_ALTERNATE_UOM[materialCode]
+    if (!alts?.length) return
+
+    const uomByCode = Object.fromEntries(
+        (await prisma.mmUom.findMany({ where: { deletedAt: null } })).map((u) => [u.code, u]),
+    )
+
+    for (const alt of alts) {
+        const fromUom = uomByCode[alt.from]
+        if (!fromUom || fromUom.id === baseUomId) continue
+
+        const existing = await prisma.mmUomConversion.findFirst({
+            where: {
+                fromUomId: fromUom.id,
+                toUomId: baseUomId,
+                materialId,
+            },
+        })
+        if (existing) {
+            await prisma.mmUomConversion.update({
+                where: { id: existing.id },
+                data: { factor: alt.factor, deletedAt: null },
+            })
+        } else {
+            await prisma.mmUomConversion.create({
+                data: {
+                    fromUomId: fromUom.id,
+                    toUomId: baseUomId,
+                    factor: alt.factor,
+                    materialId,
+                },
+            })
+        }
+    }
+}
+
 const SAMPLES: SampleMaterial[] = [
     {
         materialCode: 'SKU-HELMET-001',
@@ -245,6 +296,13 @@ export async function seedMmMaterialSamples(prisma: PrismaClient) {
                 isActive: true,
             },
         })
+
+        await upsertMaterialUomConversions(
+            prisma,
+            material.id,
+            material.baseUomId,
+            sample.materialCode,
+        )
 
         console.log(
             `  ${material.materialCode} — ${material.materialName} (${trackingLabel}, cost ₱${sample.standardCost}, SRP ₱${sample.sellingReference})`,

@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { formatTrackingNumber } from '../common/tracking-number.format'
+import { generateSerialNumber } from './serial-number.util'
 
 @Injectable()
 export class SerialNumbersService {
@@ -37,7 +38,6 @@ export class SerialNumbersService {
 
     async create(data: {
         materialId: string
-        serialNumber: string
         batchId?: string
         currentWarehouseId?: string
         currentBinId?: string
@@ -51,22 +51,25 @@ export class SerialNumbersService {
             throw new BadRequestException('Material is not serial-managed')
         }
 
-        const serialNumber = formatTrackingNumber(data.serialNumber)
-        if (!serialNumber) {
-            throw new BadRequestException('Serial number is required')
-        }
-
-        const exists = await this.prisma.mmSerialNumber.findFirst({
-            where: { materialId: data.materialId, serialNumber, deletedAt: null },
-        })
-        if (exists) throw new ConflictException('Serial number already exists for this material')
-
+        let supplierId: string | null = null
         if (data.batchId) {
             const batch = await this.prisma.mmBatch.findFirst({
                 where: { id: data.batchId, materialId: data.materialId, deletedAt: null },
             })
             if (!batch) throw new BadRequestException('Batch not found for this material')
+            supplierId = batch.supplierId
         }
+
+        const serialNumber = await generateSerialNumber(
+            this.prisma,
+            data.materialId,
+            supplierId,
+        )
+
+        const exists = await this.prisma.mmSerialNumber.findFirst({
+            where: { materialId: data.materialId, serialNumber, deletedAt: null },
+        })
+        if (exists) throw new ConflictException('Serial number already exists for this material')
 
         return this.prisma.mmSerialNumber.create({
             data: {

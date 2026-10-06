@@ -2,13 +2,12 @@ import type { PrismaClient } from '@prisma/client'
 
 export type MmOrgWarehouseSeedResult = {
     company: { id: string; code: string; name: string }
-    plant: { id: string; code: string }
     branch: { id: string; code: string }
     mainWarehouse: { id: string; code: string }
 }
 
 /**
- * Seeds legal org (company → plant → branch → warehouse) and WM topology:
+ * Seeds legal org (company → branch → warehouse) and WM topology:
  * - Storage type  = storage area (receiving, bulk rack, shipping, …)
  * - Storage section = aisle / shelf within an area
  * - Storage bin     = exact pick/put location
@@ -18,7 +17,7 @@ export type MmOrgWarehouseSeedResult = {
 export async function seedMmOrgAndWarehouseStructure(
     prisma: PrismaClient,
 ): Promise<MmOrgWarehouseSeedResult> {
-    console.log('Seeding company, plant, branch, warehouse, and storage topology …')
+    console.log('Seeding company, branch, warehouse, and storage topology …')
 
     const company = await prisma.company.upsert({
         where: { code: 'AGCTEK' },
@@ -36,22 +35,11 @@ export async function seedMmOrgAndWarehouseStructure(
         },
     })
 
-    const plant = await prisma.plant.upsert({
-        where: { companyId_code: { companyId: company.id, code: 'PLT-MAIN' } },
-        update: { name: 'Main Plant', status: 'ACTIVE', deletedAt: null },
-        create: {
-            code: 'PLT-MAIN',
-            name: 'Main Plant',
-            companyId: company.id,
-            status: 'ACTIVE',
-        },
-    })
-
     const branch = await prisma.branch.upsert({
         where: { companyId_code: { companyId: company.id, code: 'BR-HQ' } },
         update: {
             name: 'HQ Branch',
-            plantId: plant.id,
+            plantId: null,
             status: 'ACTIVE',
             deletedAt: null,
         },
@@ -59,7 +47,6 @@ export async function seedMmOrgAndWarehouseStructure(
             code: 'BR-HQ',
             name: 'HQ Branch',
             companyId: company.id,
-            plantId: plant.id,
             status: 'ACTIVE',
         },
     })
@@ -69,7 +56,7 @@ export async function seedMmOrgAndWarehouseStructure(
         update: {
             name: 'Main Warehouse',
             companyId: company.id,
-            plantId: plant.id,
+            plantId: null,
             branchId: branch.id,
             status: 'ACTIVE',
             deletedAt: null,
@@ -83,7 +70,7 @@ export async function seedMmOrgAndWarehouseStructure(
             code: 'MAIN',
             name: 'Main Warehouse',
             companyId: company.id,
-            plantId: plant.id,
+            plantId: null,
             branchId: branch.id,
             status: 'ACTIVE',
             timezone: 'Asia/Manila',
@@ -271,10 +258,10 @@ export async function seedMmOrgAndWarehouseStructure(
     })
 
     console.log(`  Company: ${company.code} — ${company.name}`)
-    console.log(`  Plant: ${plant.code}, Branch: ${branch.code}, Warehouse: ${mainWarehouse.code}`)
+    console.log(`  Branch: ${branch.code}, Warehouse: ${mainWarehouse.code}`)
     console.log(
         `  Topology: ${typeCount} storage area(s), ${sectionCount} section(s)/shelf(s), ${binCount} bin(s) (${binsCreated} new).`,
     )
 
-    return { company, plant, branch, mainWarehouse }
+    return { company, branch, mainWarehouse }
 }

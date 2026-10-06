@@ -18,10 +18,6 @@ export class CreateSupplierMaterialDto {
     @IsNotEmpty()
     materialId!: string
 
-    @IsOptional()
-    @IsString()
-    supplierMaterialCode?: string
-
     @IsNumber()
     @Min(0)
     unitPrice!: number

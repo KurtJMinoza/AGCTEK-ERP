@@ -119,11 +119,10 @@ export class OrgService {
     async deleteCompany(id: string) {
         const company = await this.findCompany(id)
 
-        const [warehouses, materials, plants, branches, salesOrders, ficoPeriods] =
+        const [warehouses, materials, branches, salesOrders, ficoPeriods] =
             await Promise.all([
                 this.prisma.warehouse.count({ where: { companyId: id } }),
                 this.prisma.mmMaterial.count({ where: { companyId: id } }),
-                this.prisma.plant.count({ where: { companyId: id } }),
                 this.prisma.branch.count({ where: { companyId: id } }),
                 this.prisma.sdSalesOrder.count({ where: { companyId: id } }),
                 this.prisma.ficoFinancialPeriod.count({ where: { companyId: id } }),
@@ -155,9 +154,7 @@ export class OrgService {
                 if (branches > 0) {
                     await tx.branch.deleteMany({ where: { companyId: id } })
                 }
-                if (plants > 0) {
-                    await tx.plant.deleteMany({ where: { companyId: id } })
-                }
+                await tx.plant.deleteMany({ where: { companyId: id } })
                 return tx.company.delete({ where: { id } })
             })
             deleteCompanyLogoByUrl(company.logoUrl)
@@ -188,7 +185,6 @@ export class OrgService {
                 code: true,
                 name: true,
                 companyId: true,
-                plantId: true,
                 branchId: true,
                 status: true,
                 warehouseType: true,
@@ -198,113 +194,13 @@ export class OrgService {
         })
     }
 
-    findAllPlants(companyId?: string, activeOnly?: boolean) {
-        const where: { companyId?: string; status?: string; deletedAt: null } = {
-            deletedAt: null,
-        }
-        if (companyId) where.companyId = companyId
-        if (activeOnly) where.status = 'ACTIVE'
-        return this.prisma.plant.findMany({
-            where,
-            select: {
-                id: true,
-                code: true,
-                name: true,
-                companyId: true,
-                status: true,
-                company: { select: { id: true, code: true, name: true } },
-            },
-            orderBy: { name: 'asc' },
-            take: 500,
-        })
-    }
-
-    async findPlant(id: string) {
-        const plant = await this.prisma.plant.findFirst({
-            where: { id, deletedAt: null },
-            include: { company: { select: { id: true, code: true, name: true } } },
-        })
-        if (!plant) throw new NotFoundException('Plant not found')
-        return plant
-    }
-
-    async createPlant(data: {
-        code: string
-        name: string
-        companyId: string
-        status?: string
-    }) {
-        await this.findCompany(data.companyId)
-        const code = data.code.trim().toUpperCase()
-        const exists = await this.prisma.plant.findFirst({
-            where: { companyId: data.companyId, code, deletedAt: null },
-        })
-        if (exists) throw new ConflictException('Plant code already exists for this company')
-        return this.prisma.plant.create({
-            data: {
-                code,
-                name: data.name.trim(),
-                companyId: data.companyId,
-                status: data.status ?? 'ACTIVE',
-            },
-            include: { company: { select: { id: true, code: true, name: true } } },
-        })
-    }
-
-    async updatePlant(
-        id: string,
-        data: Partial<{ code: string; name: string; companyId: string; status: string }>,
-    ) {
-        const plant = await this.findPlant(id)
-        if (data.companyId && data.companyId !== plant.companyId) {
-            await this.findCompany(data.companyId)
-        }
-        const companyId = data.companyId ?? plant.companyId
-        const payload: {
-            code?: string
-            name?: string
-            companyId?: string
-            status?: string
-        } = {}
-        if (data.name != null) payload.name = data.name.trim()
-        if (data.status != null) payload.status = data.status
-        if (data.companyId != null) payload.companyId = data.companyId
-        if (data.code != null) {
-            const code = data.code.trim().toUpperCase()
-            const exists = await this.prisma.plant.findFirst({
-                where: { companyId, code, deletedAt: null, NOT: { id } },
-            })
-            if (exists) throw new ConflictException('Plant code already exists for this company')
-            payload.code = code
-        }
-        return this.prisma.plant.update({
-            where: { id },
-            data: payload,
-            include: { company: { select: { id: true, code: true, name: true } } },
-        })
-    }
-
-    async deletePlant(id: string) {
-        await this.findPlant(id)
-        const refs = await this.prisma.warehouse.count({ where: { plantId: id } })
-        if (refs > 0) {
-            throw new ConflictException('Plant has warehouses and cannot be deleted')
-        }
-        return this.prisma.plant.update({
-            where: { id },
-            data: { deletedAt: new Date(), status: 'INACTIVE' },
-        })
-    }
-
-    findAllBranches(companyId?: string, plantId?: string, activeOnly?: boolean) {
+    findAllBranches(companyId?: string, activeOnly?: boolean) {
         const where: {
             companyId?: string
-            plantId?: string
             status?: string
             deletedAt: null
         } = { deletedAt: null }
         if (companyId) where.companyId = companyId
-        if (plantId) where.plantId = plantId
         if (activeOnly) where.status = 'ACTIVE'
         return this.prisma.branch.findMany({
             where,
@@ -313,10 +209,8 @@ export class OrgService {
                 code: true,
                 name: true,
                 companyId: true,
-                plantId: true,
                 status: true,
                 company: { select: { id: true, code: true, name: true } },
-                plant: { select: { id: true, code: true, name: true } },
             },
             orderBy: { name: 'asc' },
             take: 500,
@@ -328,7 +222,6 @@ export class OrgService {
             where: { id, deletedAt: null },
             include: {
                 company: { select: { id: true, code: true, name: true } },
-                plant: { select: { id: true, code: true, name: true } },
             },
         })
         if (!branch) throw new NotFoundException('Branch not found')
@@ -339,16 +232,9 @@ export class OrgService {
         code: string
         name: string
         companyId: string
-        plantId?: string
         status?: string
     }) {
         await this.findCompany(data.companyId)
-        if (data.plantId) {
-            const plant = await this.findPlant(data.plantId)
-            if (plant.companyId !== data.companyId) {
-                throw new ConflictException('Plant does not belong to the selected company')
-            }
-        }
         const code = data.code.trim().toUpperCase()
         const exists = await this.prisma.branch.findFirst({
             where: { companyId: data.companyId, code, deletedAt: null },
@@ -359,12 +245,11 @@ export class OrgService {
                 code,
                 name: data.name.trim(),
                 companyId: data.companyId,
-                plantId: data.plantId || null,
+                plantId: null,
                 status: data.status ?? 'ACTIVE',
             },
             include: {
                 company: { select: { id: true, code: true, name: true } },
-                plant: { select: { id: true, code: true, name: true } },
             },
         })
     }
@@ -375,31 +260,21 @@ export class OrgService {
             code: string
             name: string
             companyId: string
-            plantId: string | null
             status: string
         }>,
     ) {
         const branch = await this.findBranch(id)
         const companyId = data.companyId ?? branch.companyId
         if (data.companyId) await this.findCompany(data.companyId)
-        const plantId = data.plantId === '' ? null : (data.plantId ?? branch.plantId)
-        if (plantId) {
-            const plant = await this.findPlant(plantId)
-            if (plant.companyId !== companyId) {
-                throw new ConflictException('Plant does not belong to the selected company')
-            }
-        }
         const payload: {
             code?: string
             name?: string
             companyId?: string
-            plantId?: string | null
             status?: string
         } = {}
         if (data.name != null) payload.name = data.name.trim()
         if (data.status != null) payload.status = data.status
         if (data.companyId != null) payload.companyId = data.companyId
-        if (data.plantId !== undefined) payload.plantId = plantId
         if (data.code != null) {
             const code = data.code.trim().toUpperCase()
             const exists = await this.prisma.branch.findFirst({
@@ -413,7 +288,6 @@ export class OrgService {
             data: payload,
             include: {
                 company: { select: { id: true, code: true, name: true } },
-                plant: { select: { id: true, code: true, name: true } },
             },
         })
     }

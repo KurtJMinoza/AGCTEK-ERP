@@ -64,7 +64,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
             mmHub(
                 'organization',
                 'Organization',
-                'Companies, plants, and branches that scope warehouses and MM transactions.',
+                'Companies and branches that scope warehouses and MM transactions.',
                 'building',
                 'Organization',
                 [
@@ -72,11 +72,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'companies',
                         title: 'Companies',
                         icon: 'building',
-                    },
-                    {
-                        code: 'plants',
-                        title: 'Plants',
-                        icon: 'warehouse',
                     },
                     {
                         code: 'branches',
