@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import {
     SETTINGS_BY_KEY,
     SETTINGS_CATALOG,
+    SETTING_KEYS,
     parseStoredValue,
     serializeValue,
     validateValue,
@@ -149,6 +150,11 @@ export class SystemSettingsService {
 
     async getBoolean(key: SettingKey): Promise<boolean> {
         return (await this.getValue(key)) === true
+    }
+
+    /** Single authority for maintenance state; read live (15s cache, cleared on update). */
+    isMaintenanceModeEnabled(): Promise<boolean> {
+        return this.getBoolean(SETTING_KEYS.MAINTENANCE_MODE)
     }
 
     async getString(key: SettingKey): Promise<string> {

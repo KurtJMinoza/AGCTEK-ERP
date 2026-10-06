@@ -8,11 +8,13 @@ import {
     protectedRoutes,
 } from '@/configs/routes.config'
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
-import { ACCESS_DENIED_PATH } from '@/constants/route.constant'
-import appConfig from '@/configs/app.config'
+import { ACCESS_DENIED_PATH, MAINTENANCE_PATH } from '@/constants/route.constant'
+import appConfig, { resolveErpApiBaseUrl } from '@/configs/app.config'
 import {
     MARKETPLACE_PATH,
+    MARKETPLACE_PRODUCTS_PATH,
     isMarketplaceHost,
+    isMarketplaceProductPath,
 } from '@/modules/storefront/marketplace/host'
 import {
     AWIC_STOREFRONT_PATH,
@@ -37,7 +39,31 @@ function isSessionActive(
     return true
 }
 
-export default auth((req) => {
+const MAINTENANCE_CACHE_MS = 5000
+let maintenanceCache: { enabled: boolean; at: number } | null = null
+
+/** Live `maintenance_mode` flag; an unreachable backend is treated as "off" so outages don't lock users out. */
+async function isMaintenanceModeEnabled(): Promise<boolean> {
+    if (maintenanceCache && Date.now() - maintenanceCache.at < MAINTENANCE_CACHE_MS) {
+        return maintenanceCache.enabled
+    }
+    let enabled = false
+    try {
+        const response = await fetch(`${resolveErpApiBaseUrl()}/system-settings/public`, {
+            cache: 'no-store',
+        })
+        if (response.ok) {
+            const body = (await response.json()) as { maintenance_mode?: boolean }
+            enabled = body.maintenance_mode === true
+        }
+    } catch {
+        enabled = false
+    }
+    maintenanceCache = { enabled, at: Date.now() }
+    return enabled
+}
+
+export default auth(async (req) => {
     const { nextUrl } = req
     const repairedPath = repairErpModulePath(nextUrl.pathname)
     if (repairedPath && repairedPath !== nextUrl.pathname) {
@@ -50,7 +76,9 @@ export default auth((req) => {
 
     /**
      * Dedicated marketplace host (e.g. shop.localhost):
-     * `/` serves the marketplace; ERP paths are not exposed on this host.
+     * `/` serves the marketplace, `/products` the full catalogue and
+     * `/<store>/<sku>` a product page; in-app `/shop/*` links pass through.
+     * ERP paths are not exposed on this host.
      */
     if (isMarketplaceHost(hostname)) {
         const path = nextUrl.pathname
@@ -63,12 +91,27 @@ export default auth((req) => {
             return
         }
 
-        if (path !== '/') {
+        const productsPage = MARKETPLACE_PRODUCTS_PATH.slice(
+            MARKETPLACE_PATH.length,
+        )
+        const isShopPage = (shopPath: string) =>
+            shopPath === productsPage || isMarketplaceProductPath(shopPath)
+
+        if (
+            path === MARKETPLACE_PATH ||
+            (path.startsWith(`${MARKETPLACE_PATH}/`) &&
+                isShopPage(path.slice(MARKETPLACE_PATH.length)))
+        ) {
+            return
+        }
+
+        if (path !== '/' && !isShopPage(path)) {
             return NextResponse.redirect(new URL(`/${nextUrl.search}`, req.url))
         }
 
         const rewriteUrl = nextUrl.clone()
-        rewriteUrl.pathname = MARKETPLACE_PATH
+        rewriteUrl.pathname =
+            path === '/' ? MARKETPLACE_PATH : `${MARKETPLACE_PATH}${path}`
         return NextResponse.rewrite(rewriteUrl)
     }
 
@@ -100,16 +143,16 @@ export default auth((req) => {
         }
 
         const isStorefrontPath =
-            path === '/' ||
-            path === '/checkout' ||
-            /^\/[^/]+$/.test(path)
+            path === '/' || path === '/checkout' || /^\/[^/]+$/.test(path)
 
         if (!isStorefrontPath) {
             return NextResponse.redirect(new URL('/', req.url))
         }
 
         const rewritePath =
-            path === '/' ? AWIC_STOREFRONT_PATH : `${AWIC_STOREFRONT_PATH}${path}`
+            path === '/'
+                ? AWIC_STOREFRONT_PATH
+                : `${AWIC_STOREFRONT_PATH}${path}`
         const rewriteUrl = nextUrl.clone()
         rewriteUrl.pathname = rewritePath
         return NextResponse.rewrite(rewriteUrl)
@@ -128,6 +171,34 @@ export default auth((req) => {
 
     /** NextAuth handlers, Nest rewrite (`/api/v1`), and Socket.IO proxy skip page auth. */
     if (isApiAuthRoute || isNestApiRoute || isSocketRoute) return
+
+    const isMaintenancePath = nextUrl.pathname === MAINTENANCE_PATH
+    const isSuperAdmin = (req.auth?.user?.authority ?? []).includes('super_admin')
+
+    if (isMaintenancePath) {
+        if (!(await isMaintenanceModeEnabled())) {
+            return Response.redirect(
+                new URL(
+                    isSignedIn
+                        ? appConfig.authenticatedEntryPath
+                        : appConfig.unAuthenticatedEntryPath,
+                    nextUrl,
+                ),
+            )
+        }
+        return
+    }
+
+    if (
+        isSignedIn &&
+        !isSuperAdmin &&
+        !isAuthRoute &&
+        !isPublicRoute &&
+        !nextUrl.pathname.startsWith(appConfig.apiPrefix) &&
+        (await isMaintenanceModeEnabled())
+    ) {
+        return Response.redirect(new URL(MAINTENANCE_PATH, nextUrl))
+    }
 
     if (isAuthRoute) {
         if (isSignedIn) {
@@ -172,5 +243,11 @@ export default auth((req) => {
 })
 
 export const config = {
-    matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api)(.*)'],
+    matcher: [
+        '/((?!.+\\.[\\w]+$|_next).*)',
+        '/',
+        '/(api)(.*)',
+        // Marketplace product paths: SKUs may contain dots (e.g. 2.7KG). Keep in sync with STORE_SLUGS in marketplace/host.ts.
+        '/(awic|lpg|mconpinco)/(.*)',
+    ],
 }
