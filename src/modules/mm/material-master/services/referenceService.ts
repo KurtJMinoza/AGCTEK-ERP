@@ -124,7 +124,6 @@ export const batchService = {
         ErpAxiosBase.get<MmBatch[]>(`${API}/batches`, { params: materialId ? { materialId } : {} }).then((r) => r.data),
     create: (data: {
         materialId: string
-        batchNumber: string
         manufacturingDate?: string
         expiryDate?: string
         supplierId?: string
@@ -140,7 +139,6 @@ export const serialNumberService = {
         ErpAxiosBase.get<MmSerialNumber[]>(`${API}/serial-numbers`, { params: materialId ? { materialId } : {} }).then((r) => r.data),
     create: (data: {
         materialId: string
-        serialNumber: string
         batchId?: string
         currentWarehouseId?: string
         currentBinId?: string
@@ -177,45 +175,18 @@ export const orgService = {
                 params: companyId ? { companyId } : {},
             }).then((r) => r.data),
         ),
-    plants: (params?: { companyId?: string; activeOnly?: boolean }) =>
+    branches: (params?: { companyId?: string; activeOnly?: boolean }) =>
         mmCachedFetch(
-            `org:plants:${params?.companyId ?? 'all'}:${params?.activeOnly ? '1' : '0'}`,
-            () =>
-                ErpAxiosBase.get<MmPlant[]>(`${API}/org/plants`, {
-                    params: {
-                        ...(params?.companyId ? { companyId: params.companyId } : {}),
-                        ...(params?.activeOnly ? { activeOnly: 'true' } : {}),
-                    },
-                }).then((r) => r.data),
-        ),
-    createPlant: (data: { code: string; name: string; companyId: string; status?: string }) =>
-        ErpAxiosBase.post<MmPlant>(`${API}/org/plants`, data).then((r) => {
-            mmInvalidateCache('org:plants')
-            return r.data
-        }),
-    updatePlant: (id: string, data: Partial<{ code: string; name: string; companyId: string; status: string }>) =>
-        ErpAxiosBase.put<MmPlant>(`${API}/org/plants/${id}`, data).then((r) => {
-            mmInvalidateCache('org:plants')
-            return r.data
-        }),
-    deletePlant: (id: string) =>
-        ErpAxiosBase.delete(`${API}/org/plants/${id}`).then((r) => {
-            mmInvalidateCache('org:plants')
-            return r.data
-        }),
-    branches: (params?: { companyId?: string; plantId?: string; activeOnly?: boolean }) =>
-        mmCachedFetch(
-            `org:branches:${params?.companyId ?? 'all'}:${params?.plantId ?? 'all'}:${params?.activeOnly ? '1' : '0'}`,
+            `org:branches:${params?.companyId ?? 'all'}:${params?.activeOnly ? '1' : '0'}`,
             () =>
                 ErpAxiosBase.get<MmBranch[]>(`${API}/org/branches`, {
                     params: {
                         ...(params?.companyId ? { companyId: params.companyId } : {}),
-                        ...(params?.plantId ? { plantId: params.plantId } : {}),
                         ...(params?.activeOnly ? { activeOnly: 'true' } : {}),
                     },
                 }).then((r) => r.data),
         ),
-    createBranch: (data: { code: string; name: string; companyId: string; plantId?: string; status?: string }) =>
+    createBranch: (data: { code: string; name: string; companyId: string; status?: string }) =>
         ErpAxiosBase.post<MmBranch>(`${API}/org/branches`, data).then((r) => {
             mmInvalidateCache('org:branches')
             return r.data

@@ -18,6 +18,7 @@ const INVOICE_INCLUDES = {
     lines: {
         include: {
             material: true,
+            uom: { select: { id: true, code: true, name: true } },
             purchaseOrderLine: true,
             receipts: {
                 include: {
@@ -95,7 +96,7 @@ export class SupplierInvoiceService {
         if (po.companyId !== dto.companyId) {
             throw new BadRequestException('PO company mismatch')
         }
-        if (po.supplierId !== dto.supplierId) {
+        if (po.supplierId && po.supplierId !== dto.supplierId) {
             throw new BadRequestException(
                 'Invoice supplier must match purchase order supplier',
             )

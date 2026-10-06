@@ -46,6 +46,7 @@ import { materialService } from '../services/materialService'
 import { barcodeService, batchService, serialNumberService } from '../services/referenceService'
 import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
 import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
+import { formatCalendarDate } from '@/modules/mm/shared/calendarDate'
 import { supplierMaterialService } from '@/modules/mm/supplier-management/services/supplierMaterialService'
 import { useLazyBinsForWarehouse, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -795,7 +796,6 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
 const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const batches = material.batches ?? []
     const [addOpen, setAddOpen] = useState(false)
-    const [batchNumber, setBatchNumber] = useState('')
     const [manufacturingDate, setManufacturingDate] = useState('')
     const [expiryDate, setExpiryDate] = useState('')
     const [supplierId, setSupplierId] = useState('')
@@ -803,21 +803,19 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
     const { options: supplierOpts } = useSupplierOptions({ enabled: addOpen })
 
     const resetForm = () => {
-        setBatchNumber(''); setManufacturingDate(''); setExpiryDate(''); setSupplierId(''); setStatus('AVAILABLE')
+        setManufacturingDate(''); setExpiryDate(''); setSupplierId(''); setStatus('AVAILABLE')
     }
 
     const handleAdd = async () => {
         try {
-            const normalizedBatch = formatTrackingNumber(batchNumber)
-            await batchService.create({
+            const created = await batchService.create({
                 materialId: material.id,
-                batchNumber: normalizedBatch,
                 manufacturingDate: manufacturingDate || undefined,
                 expiryDate: expiryDate || undefined,
                 supplierId: supplierId || undefined,
                 status,
             })
-            pushToast('success', 'Batch added', `Batch ${normalizedBatch} created.`)
+            pushToast('success', 'Batch added', `Batch ${created.batchNumber} created.`)
             setAddOpen(false); resetForm(); onRefresh()
         } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
     }
@@ -835,8 +833,8 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                 return s.supplierName ? `${s.supplierCode} — ${s.supplierName}` : s.supplierCode
             },
         },
-        { header: 'Mfg date', accessorKey: 'manufacturingDate', size: 140, cell: ({ row }) => row.original.manufacturingDate ? new Date(row.original.manufacturingDate).toLocaleDateString() : '—' },
-        { header: 'Expiry', accessorKey: 'expiryDate', size: 140, cell: ({ row }) => row.original.expiryDate ? new Date(row.original.expiryDate).toLocaleDateString() : '—' },
+        { header: 'Mfg date', accessorKey: 'manufacturingDate', size: 140, cell: ({ row }) => formatCalendarDate(row.original.manufacturingDate) },
+        { header: 'Expiry', accessorKey: 'expiryDate', size: 140, cell: ({ row }) => formatCalendarDate(row.original.expiryDate) },
     ]
 
     return (
@@ -860,17 +858,13 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                 footer={
                     <>
                         <Button size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleAdd} disabled={!batchNumber.trim()}>Add</Button>
+                        <Button size="sm" variant="solid" onClick={handleAdd}>Add</Button>
                     </>
                 }
             >
-                <FormItem label="Batch number">
-                    <TrackingNumberInput
-                        value={batchNumber}
-                        onChange={setBatchNumber}
-                        placeholder="e.g. beef 1 → BEEF-00001"
-                    />
-                </FormItem>
+                <p className="mb-3 text-xs text-gray-500">
+                    Batch number is generated automatically when you save (supplier code + sequence, e.g. SUP-0001; use supplier on this form, or BATCH-0001 if omitted).
+                </p>
                 <FormItem label="Manufacture date">
                     <Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} />
                 </FormItem>
@@ -902,7 +896,6 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
 const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const serials = material.serialNumbers ?? []
     const [addOpen, setAddOpen] = useState(false)
-    const [serialNumber, setSerialNumber] = useState('')
     const [batchId, setBatchId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [binId, setBinId] = useState('')
@@ -936,21 +929,19 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
     )
 
     const resetForm = () => {
-        setSerialNumber(''); setBatchId(''); setWarehouseId(''); setBinId(''); setStatus('AVAILABLE')
+        setBatchId(''); setWarehouseId(''); setBinId(''); setStatus('AVAILABLE')
     }
 
     const handleAdd = async () => {
         try {
-            const normalizedSerial = formatTrackingNumber(serialNumber)
-            await serialNumberService.create({
+            const created = await serialNumberService.create({
                 materialId: material.id,
-                serialNumber: normalizedSerial,
                 batchId: batchId || undefined,
                 currentWarehouseId: warehouseId || undefined,
                 currentBinId: binId || undefined,
                 status,
             })
-            pushToast('success', 'Serial added', `Serial ${normalizedSerial} created.`)
+            pushToast('success', 'Serial added', `Serial ${created.serialNumber} created.`)
             setAddOpen(false); resetForm(); onRefresh()
         } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
     }
@@ -994,17 +985,13 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                 footer={
                     <>
                         <Button size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleAdd} disabled={!serialNumber.trim()}>Add</Button>
+                        <Button size="sm" variant="solid" onClick={handleAdd}>Add</Button>
                     </>
                 }
             >
-                <FormItem label="Serial number">
-                    <TrackingNumberInput
-                        value={serialNumber}
-                        onChange={setSerialNumber}
-                        placeholder="e.g. hlm 2026 1 → HLM-2026-00001"
-                    />
-                </FormItem>
+                <p className="mb-3 text-xs text-gray-500">
+                    Serial number is generated automatically (supplier code + SERIAL + sequence, e.g. SUP-PHILMAN-SERIAL-0001). Select a batch to use that batch&apos;s supplier prefix, or leave batch empty for BATCH-SERIAL-0001.
+                </p>
                 <FormItem label="Batch">
                     <Select
                         isClearable

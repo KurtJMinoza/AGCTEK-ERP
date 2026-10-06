@@ -4,7 +4,6 @@ import { seedMmEndToEndFlow } from './seed-mm-flow'
 
 type SeedCtx = {
     company: { id: string }
-    plant: { id: string }
     branch: { id: string }
     mainWarehouse: { id: string }
     secondaryWarehouse: { id: string }

@@ -186,3 +186,13 @@ export function buildUomCodeOptions(
         label: `${u.code} — ${u.name}`,
     }))
 }
+
+/** Default transactional UOM from material list option meta (purchase → base). */
+export function defaultMaterialUomId(meta?: Record<string, unknown> | null): string {
+    if (!meta) return ''
+    const purchase = meta.purchaseUomId
+    const base = meta.baseUomId
+    if (typeof purchase === 'string' && purchase.trim()) return purchase
+    if (typeof base === 'string' && base.trim()) return base
+    return ''
+}

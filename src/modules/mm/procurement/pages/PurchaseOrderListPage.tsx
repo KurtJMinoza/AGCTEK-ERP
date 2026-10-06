@@ -25,6 +25,7 @@ import {
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { defaultMaterialUomId } from '@/modules/mm/shared/uomHelpers'
 import type {
     MmPurchaseOrder,
     PoListResponse,
@@ -203,9 +204,7 @@ const PurchaseOrderListPage = () => {
 
     const manualErrors = useMemo<FieldErrors>(() => ({
         companyId: required(header.companyId, 'Company'),
-        supplierId: required(header.supplierId, 'Supplier'),
         buyerId: required(header.buyerId, 'Buyer'),
-        warehouseId: required(header.warehouseId, 'Warehouse'),
     }), [header])
 
     const lineErrors = useMemo(() => lines.map((l) => ({
@@ -217,7 +216,6 @@ const PurchaseOrderListPage = () => {
 
     const prErrors = useMemo<FieldErrors>(() => ({
         purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase requisition'),
-        supplierId: required(fromPr.supplierId, 'Supplier'),
         buyerId: required(fromPr.buyerId, 'Buyer'),
         lineIds: fromPr.lineIds.length === 0 ? 'Select at least one PR line' : undefined,
     }), [fromPr])
@@ -253,7 +251,7 @@ const PurchaseOrderListPage = () => {
                 }
                 created = await purchaseOrderService.create({
                     companyId: header.companyId,
-                    supplierId: header.supplierId,
+                    supplierId: header.supplierId || undefined,
                     buyerId: header.buyerId,
                     warehouseId: header.warehouseId || undefined,
                     currencyId: header.currencyId || undefined,
@@ -274,7 +272,7 @@ const PurchaseOrderListPage = () => {
                 }
                 created = await purchaseOrderService.createFromPr({
                     purchaseRequisitionId: fromPr.purchaseRequisitionId,
-                    supplierId: fromPr.supplierId,
+                    supplierId: fromPr.supplierId || undefined,
                     buyerId: fromPr.buyerId,
                     warehouseId: fromPr.warehouseId || undefined,
                     createdBy: fromPr.buyerId,
@@ -462,22 +460,30 @@ const PurchaseOrderListPage = () => {
                                     onChange={(opt) => setHeaderField('companyId', opt?.value ?? '')}
                                 />
                             </FormItem>
-                            <FormItem label="Supplier" asterisk invalid={Boolean(hdrErr('supplierId'))} errorMessage={hdrErr('supplierId')}>
+                            <FormItem label="Supplier">
                                 <Select<FilterOption>
+                                    isClearable
+                                    isSearchable
+                                    placeholder="Optional on draft"
                                     options={suppliers}
                                     value={suppliers.find((s) => s.value === header.supplierId) ?? null}
                                     onChange={(opt) => setHeaderField('supplierId', opt?.value ?? '')}
                                 />
+                                <p className="mt-1 text-xs text-gray-500">Optional — assign later on the PO if needed.</p>
                             </FormItem>
                             <FormItem label="Buyer" asterisk invalid={Boolean(hdrErr('buyerId'))} errorMessage={hdrErr('buyerId')}>
                                 <Input value={header.buyerId ?? ''} onChange={(e) => setHeaderField('buyerId', e.target.value)} />
                             </FormItem>
-                            <FormItem label="Warehouse" asterisk invalid={Boolean(hdrErr('warehouseId'))} errorMessage={hdrErr('warehouseId')}>
+                            <FormItem label="Warehouse">
                                 <Select<FilterOption>
+                                    isClearable
+                                    isSearchable
+                                    placeholder="Optional receiving warehouse"
                                     options={warehouses}
                                     value={warehouses.find((w) => w.value === header.warehouseId) ?? null}
                                     onChange={(opt) => setHeaderField('warehouseId', opt?.value ?? '')}
                                 />
+                                <p className="mt-1 text-xs text-gray-500">Optional on draft; set before receiving if blank.</p>
                             </FormItem>
                             <FormItem label="Currency">
                                 <Select<FilterOption>
@@ -516,7 +522,15 @@ const PurchaseOrderListPage = () => {
                                             <Select<FilterOption>
                                                 options={materials}
                                                 value={materials.find((m) => m.value === line.materialId) ?? null}
-                                                onChange={(opt) => updateLine(line.key, { materialId: opt?.value ?? '' })}
+                                                onChange={(opt) => {
+                                                    const uomId = defaultMaterialUomId(
+                                                        opt?.meta as Record<string, unknown> | undefined,
+                                                    )
+                                                    updateLine(line.key, {
+                                                        materialId: opt?.value ?? '',
+                                                        ...(uomId ? { uomId } : {}),
+                                                    })
+                                                }}
                                             />
                                         </FormItem>
                                         <FormItem label="UOM" asterisk invalid={Boolean(lnErr(line.key, 'uomId', le))} errorMessage={lnErr(line.key, 'uomId', le)}>
@@ -549,17 +563,38 @@ const PurchaseOrderListPage = () => {
                                         ? { value: fromPr.purchaseRequisitionId, label: `${selectedPr?.requisitionNumber ?? ''} — ${selectedPr?.purpose ?? ''}` }
                                         : null}
                                     onChange={(opt) => {
+                                        const pr = approvedPrs.find((p) => p.id === opt?.value)
+                                        const openLines = (pr?.lines ?? []).filter((l) => prRemainingQty(l) > 0)
+                                        const prefIds = [
+                                            ...new Set(
+                                                openLines
+                                                    .map((l) => l.preferredSupplierId)
+                                                    .filter(Boolean) as string[],
+                                            ),
+                                        ]
+                                        const whIds = [
+                                            ...new Set(
+                                                openLines
+                                                    .map((l) => l.warehouseId)
+                                                    .filter(Boolean) as string[],
+                                            ),
+                                        ]
                                         setFromPr((p) => ({
                                             ...p,
                                             purchaseRequisitionId: opt?.value ?? '',
                                             lineIds: [],
+                                            supplierId: prefIds.length === 1 ? prefIds[0] : p.supplierId,
+                                            warehouseId: whIds.length === 1 ? whIds[0] : '',
                                         }))
                                         setTouched((t) => ({ ...t, purchaseRequisitionId: true }))
                                     }}
                                 />
                             </FormItem>
-                            <FormItem label="Supplier" asterisk invalid={Boolean(prErr('supplierId'))} errorMessage={prErr('supplierId')}>
+                            <FormItem label="Supplier">
                                 <Select<FilterOption>
+                                    isClearable
+                                    isSearchable
+                                    placeholder="Optional — set on PO or from PR line hint"
                                     options={suppliers}
                                     value={suppliers.find((s) => s.value === fromPr.supplierId) ?? null}
                                     onChange={(opt) => {
@@ -567,6 +602,9 @@ const PurchaseOrderListPage = () => {
                                         setTouched((t) => ({ ...t, supplierId: true }))
                                     }}
                                 />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Optional when creating from PR — assign on the PO later if needed.
+                                </p>
                             </FormItem>
                             <FormItem label="Buyer" asterisk invalid={Boolean(prErr('buyerId'))} errorMessage={prErr('buyerId')}>
                                 <Input
@@ -579,11 +617,16 @@ const PurchaseOrderListPage = () => {
                             </FormItem>
                             <FormItem label="Warehouse">
                                 <Select<FilterOption>
+                                    isClearable
+                                    isSearchable
+                                    placeholder="Receiving warehouse (optional)"
                                     options={warehouses}
                                     value={warehouses.find((w) => w.value === fromPr.warehouseId) ?? null}
                                     onChange={(opt) => setFromPr((p) => ({ ...p, warehouseId: opt?.value ?? '' }))}
-                                    isClearable
                                 />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Optional on PO; PR line warehouses are shown below when set.
+                                </p>
                             </FormItem>
                         </div>
                         {selectedPr && (
@@ -612,6 +655,12 @@ const PurchaseOrderListPage = () => {
                                             />
                                             <span>
                                                 {l.material?.materialCode ?? l.materialId} — remaining {prRemainingQty(l)} {l.uom?.code ?? ''}
+                                                {l.warehouse?.code ? (
+                                                    <span className="text-gray-500"> · WH {l.warehouse.code}</span>
+                                                ) : null}
+                                                {l.preferredSupplier?.supplierCode ? (
+                                                    <span className="text-gray-500"> · pref. {l.preferredSupplier.supplierCode}</span>
+                                                ) : null}
                                             </span>
                                         </label>
                                     ))}

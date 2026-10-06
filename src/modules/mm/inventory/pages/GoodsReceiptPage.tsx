@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -27,7 +28,11 @@ import {
     HiOutlineX,
     HiOutlineRewind,
     HiOutlineInboxIn,
+    HiOutlinePrinter,
 } from 'react-icons/hi'
+import ReceivingReceiptPanel from '@/modules/mm/receiving/components/ReceivingReceiptPanel'
+import ReceivingReceiptSlip from '@/modules/mm/receiving/components/ReceivingReceiptSlip'
+import { goodsReceiptToSlip } from '@/modules/mm/receiving/utils/receiptSlipMappers'
 import { goodsReceiptService } from '../services/goodsReceiptService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsReceipt, StockOpsQueryParams } from '../types'
@@ -161,11 +166,23 @@ const GoodsReceiptPage = () => {
     /* ── Detail dialog ── */
     const [detailOpen, setDetailOpen] = useState(false)
     const [detail, setDetail] = useState<GoodsReceipt | null>(null)
+    const [printSlip, setPrintSlip] = useState<ReturnType<typeof goodsReceiptToSlip> | null>(null)
+
+    const openPrint = useCallback(async (id: string) => {
+        try {
+            const gr = await goodsReceiptService.get(id)
+            setPrintSlip(goodsReceiptToSlip(gr))
+        } catch {
+            pushToast('danger', 'Error', 'Failed to load receipt for printing')
+        }
+    }, [])
 
     const openDetail = useCallback(async (id: string) => {
         setDetailOpen(true)
         try {
-            setDetail(await goodsReceiptService.get(id))
+            const gr = await goodsReceiptService.get(id)
+            setDetail(gr)
+            setPrintSlip(null)
         } catch {
             pushToast('danger', 'Error', 'Failed to load')
             setDetailOpen(false)
@@ -268,12 +285,13 @@ const GoodsReceiptPage = () => {
         { header: '', id: 'actions', cell: ({ row }) => (
             <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
                 <Dropdown.Item eventKey="view" onClick={() => openDetail(row.original.id)}><HiOutlineEye className="mr-2" /> View</Dropdown.Item>
+                <Dropdown.Item eventKey="print" onClick={() => openPrint(row.original.id)}><HiOutlinePrinter className="mr-2" /> Print receipt</Dropdown.Item>
                 {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="post" onClick={() => setConfirmAction({ action: 'Post', fn: async () => { await goodsReceiptService.post(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Post</Dropdown.Item>}
                 {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="cancel" onClick={() => setConfirmAction({ action: 'Cancel', fn: async () => { await goodsReceiptService.cancel(row.original.id); fetchList() } })}><HiOutlineX className="mr-2" /> Cancel</Dropdown.Item>}
                 {row.original.status === 'POSTED' && <Dropdown.Item eventKey="reverse" onClick={() => setConfirmAction({ action: 'Reverse', fn: async () => { await goodsReceiptService.reverse(row.original.id); fetchList() } })}><HiOutlineRewind className="mr-2" /> Reverse</Dropdown.Item>}
             </Dropdown>
         )},
-    ], [openDetail, fetchList])
+    ], [openDetail, openPrint, fetchList])
 
     return (
         <PageContainer>
@@ -379,7 +397,16 @@ const GoodsReceiptPage = () => {
                                     </Button>
                                 )}
                             </div>
-                            <Button size="sm" onClick={() => setDetailOpen(false)}>Close</Button>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlinePrinter />}
+                                    onClick={() => window.print()}
+                                >
+                                    Print receipt
+                                </Button>
+                                <Button size="sm" onClick={() => setDetailOpen(false)}>Close</Button>
+                            </div>
                         </>
                     ) : (
                         <Button size="sm" onClick={() => setDetailOpen(false)}>Close</Button>
@@ -388,6 +415,11 @@ const GoodsReceiptPage = () => {
             >
                 {detail && (
                     <div className="space-y-5">
+                        <ReceivingReceiptPanel
+                            data={goodsReceiptToSlip(detail)}
+                            enablePrintPortal={detailOpen}
+                            title="Goods receipt slip"
+                        />
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <InfoCard label="Supplier" value={supplierLabel(detail)} />
                             <InfoCard label="Warehouse" value={detail.warehouse?.name} />
@@ -415,6 +447,42 @@ const GoodsReceiptPage = () => {
                         </div>
                     </div>
                 )}
+            </FormDialog>
+
+            {printSlip && !detailOpen && typeof document !== 'undefined'
+                ? createPortal(
+                      <div className="print-isolate hidden print:block">
+                          <ReceivingReceiptSlip data={printSlip} />
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            <FormDialog
+                isOpen={printSlip !== null && !detailOpen}
+                onClose={() => setPrintSlip(null)}
+                size="sm"
+                title="Goods receipt"
+                icon={<HiOutlinePrinter />}
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setPrintSlip(null)}>Close</Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            icon={<HiOutlinePrinter />}
+                            onClick={() => window.print()}
+                        >
+                            Print receipt
+                        </Button>
+                    </>
+                }
+            >
+                {printSlip ? (
+                    <div className="max-h-[70vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-600">
+                        <ReceivingReceiptSlip data={printSlip} />
+                    </div>
+                ) : null}
             </FormDialog>
 
             <ConfirmDialog

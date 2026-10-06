@@ -13,10 +13,8 @@ import type { FastifyRequest } from 'fastify'
 import {
     CreateBranchDto,
     CreateCompanyDto,
-    CreatePlantDto,
     UpdateBranchDto,
     UpdateCompanyDto,
-    UpdatePlantDto,
 } from './org.dto'
 import { readCompanyPayload } from './org-company-payload'
 import { OrgService } from './org.service'
@@ -55,39 +53,12 @@ export class OrgController {
         return this.service.findAllWarehouses(companyId)
     }
 
-    @Get('plants')
-    plants(
-        @Query('companyId') companyId?: string,
-        @Query('activeOnly') activeOnly?: string,
-    ) {
-        return this.service.findAllPlants(companyId, activeOnly === 'true')
-    }
-
-    @Post('plants')
-    createPlant(@Body() body: CreatePlantDto) {
-        return this.service.createPlant(body)
-    }
-
-    @Put('plants/:id')
-    updatePlant(
-        @Param('id') id: string,
-        @Body() body: UpdatePlantDto,
-    ) {
-        return this.service.updatePlant(id, body)
-    }
-
-    @Delete('plants/:id')
-    deletePlant(@Param('id') id: string) {
-        return this.service.deletePlant(id)
-    }
-
     @Get('branches')
     branches(
         @Query('companyId') companyId?: string,
-        @Query('plantId') plantId?: string,
         @Query('activeOnly') activeOnly?: string,
     ) {
-        return this.service.findAllBranches(companyId, plantId, activeOnly === 'true')
+        return this.service.findAllBranches(companyId, activeOnly === 'true')
     }
 
     @Post('branches')

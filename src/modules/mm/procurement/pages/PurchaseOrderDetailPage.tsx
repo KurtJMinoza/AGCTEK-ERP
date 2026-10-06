@@ -11,7 +11,9 @@ import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
+import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
+import Dropdown from '@/components/ui/Dropdown'
 import Tabs from '@/components/ui/Tabs'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -38,6 +40,8 @@ import {
     HiOutlinePlus,
     HiOutlineInboxIn,
     HiOutlineInformationCircle,
+    HiOutlinePrinter,
+    HiOutlineEye,
 } from 'react-icons/hi'
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { workflowService } from '../services/workflowService'
@@ -52,9 +56,15 @@ import type {
     WorkflowInstance,
     ApprovalTask,
 } from '../types'
-import { poOpenQty } from '../types'
+import { poInvoiceOpenQty, poOpenQty } from '../types'
+import { threeWayMatchService } from '@/modules/mm/three-way-match/services/threeWayMatchService'
+import { SupplierInvoicePrintHost } from '@/modules/mm/three-way-match/components/SupplierInvoicePrintHost'
+import { supplierInvoiceToSlip } from '@/modules/mm/three-way-match/utils/supplierInvoiceSlipMappers'
+import type { SupplierInvoiceSlipData } from '@/modules/mm/three-way-match/components/SupplierInvoiceSlip'
+import type { GoodsReceipt } from '@/modules/mm/inventory/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { required, positiveNumber, firstError, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 
 const ROUTE_PATH = '/modules/mm/procurement/purchase-orders'
 
@@ -86,6 +96,8 @@ function fmtMoney(n: number | string | null | undefined) {
     return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+type GrLinePick = { value: string; label: string; maxQty: number; poLineId: string | null }
+
 const PurchaseOrderDetailPage = () => {
     const params = useParams()
     const router = useRouter()
@@ -101,6 +113,7 @@ const PurchaseOrderDetailPage = () => {
     const [confirming, setConfirming] = useState(false)
 
     const [grOpen, setGrOpen] = useState(false)
+    const [grWarehouseId, setGrWarehouseId] = useState('')
     const [grSubmitting, setGrSubmitting] = useState(false)
     const [grLines, setGrLines] = useState<Record<string, string>>({})
     const [grBatchIds, setGrBatchIds] = useState<Record<string, string>>({})
@@ -110,6 +123,19 @@ const PurchaseOrderDetailPage = () => {
     const [grRefsLoading, setGrRefsLoading] = useState(false)
     const [grTouched, setGrTouched] = useState<Record<string, boolean>>({})
     const [grForce, setGrForce] = useState(false)
+
+    const [invOpen, setInvOpen] = useState(false)
+    const [invSubmitting, setInvSubmitting] = useState(false)
+    const [invDate, setInvDate] = useState(() => new Date().toISOString().slice(0, 10))
+    const [invSupplierId, setInvSupplierId] = useState('')
+    const [invRemarks, setInvRemarks] = useState('')
+    const [invLines, setInvLines] = useState<Record<string, string>>({})
+    const [invGrLineId, setInvGrLineId] = useState<Record<string, string>>({})
+    const [invGrOpts, setInvGrOpts] = useState<Record<string, GrLinePick[]>>({})
+    const [invRefsLoading, setInvRefsLoading] = useState(false)
+    const [invTouched, setInvTouched] = useState<Record<string, boolean>>({})
+    const [invForce, setInvForce] = useState(false)
+    const [invPrintSlip, setInvPrintSlip] = useState<SupplierInvoiceSlipData | null>(null)
 
     const [attachOpen, setAttachOpen] = useState(false)
     const [attachForm, setAttachForm] = useState({ fileName: '', fileUrl: '' })
@@ -121,6 +147,11 @@ const PurchaseOrderDetailPage = () => {
     const [reasonAction, setReasonAction] = useState<'reject' | 'return' | 'cancel'>('reject')
     const [reasonText, setReasonText] = useState('')
     const [reasonSubmitting, setReasonSubmitting] = useState(false)
+
+    const [headerEditOpen, setHeaderEditOpen] = useState(false)
+    const [headerSaving, setHeaderSaving] = useState(false)
+    const [headerDraft, setHeaderDraft] = useState({ supplierId: '', warehouseId: '', buyerId: '' })
+    const { ensure: ensurePoRefs, suppliers: supplierOpts, warehouses: warehouseOpts } = useLazyMmRefs()
 
     const fetchPo = useCallback(async () => {
         setLoading(true)
@@ -173,6 +204,41 @@ const PurchaseOrderDetailPage = () => {
         setReasonOpen(true)
     }
 
+    const canEditPoHeader = po
+        ? ['DRAFT', 'RETURNED', 'APPROVED'].includes(String(po.status))
+        : false
+
+    const openHeaderEdit = useCallback(async () => {
+        if (!po) return
+        await ensurePoRefs('suppliers', 'warehouses')
+        setHeaderDraft({
+            supplierId: po.supplierId ?? '',
+            warehouseId: po.warehouseId ?? '',
+            buyerId: po.buyerId ?? '',
+        })
+        setHeaderEditOpen(true)
+    }, [po, ensurePoRefs])
+
+    const saveHeaderEdit = async () => {
+        if (!po) return
+        setHeaderSaving(true)
+        try {
+            await purchaseOrderService.update(po.id, {
+                supplierId: headerDraft.supplierId || null,
+                warehouseId: headerDraft.warehouseId || null,
+                buyerId: headerDraft.buyerId.trim() || po.buyerId,
+            })
+            pushToast('success', 'Saved', 'Draft PO header updated.')
+            setHeaderEditOpen(false)
+            fetchPo()
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { message?: string } } }
+            pushToast('danger', 'Error', e?.response?.data?.message || 'Update failed')
+        } finally {
+            setHeaderSaving(false)
+        }
+    }
+
     const submitReason = async () => {
         if (!po) return
         setReasonSubmitting(true)
@@ -200,6 +266,11 @@ const PurchaseOrderDetailPage = () => {
         [po],
     )
 
+    const invOpenQtyLines = useMemo(
+        () => (po?.lines ?? []).filter((l) => poInvoiceOpenQty(l) > 0),
+        [po],
+    )
+
     const syncSerialSlots = useCallback((lineId: string, qty: number) => {
         const n = Math.max(0, Math.floor(qty))
         setGrSerialIds((prev) => {
@@ -210,7 +281,21 @@ const PurchaseOrderDetailPage = () => {
         })
     }, [])
 
+    const resolveDefaultGrWarehouseId = useCallback(() => {
+        if (!po) return ''
+        if (po.warehouseId) return po.warehouseId
+        const lineWh = [
+            ...new Set(
+                openQtyLines.map((l) => l.warehouseId).filter(Boolean) as string[],
+            ),
+        ]
+        if (lineWh.length === 1) return lineWh[0]
+        return ''
+    }, [po, openQtyLines])
+
     const openGr = () => {
+        void ensurePoRefs('warehouses')
+        setGrWarehouseId(resolveDefaultGrWarehouseId())
         const init: Record<string, string> = {}
         const batchInit: Record<string, string> = {}
         const serialInit: Record<string, string[]> = {}
@@ -280,7 +365,9 @@ const PurchaseOrderDetailPage = () => {
     }, [grOpen, openQtyLines])
 
     const grErrors = useMemo<FieldErrors>(() => {
-        const errs: FieldErrors = {}
+        const errs: FieldErrors = {
+            warehouseId: required(grWarehouseId, 'Receiving warehouse'),
+        }
         for (const l of openQtyLines) {
             const qty = grLines[l.id] ?? ''
             errs[l.id] = firstError(required(qty, 'Qty'), positiveNumber(qty, 'Qty'))
@@ -305,13 +392,19 @@ const PurchaseOrderDetailPage = () => {
             }
         }
         return errs
-    }, [openQtyLines, grLines, grBatchIds, grSerialIds])
+    }, [openQtyLines, grLines, grBatchIds, grSerialIds, grWarehouseId])
 
     const handleCreateGr = async () => {
         if (!po) return
         setGrForce(true)
         if (Object.values(grErrors).some(Boolean)) {
-            pushToast('danger', 'Validation', 'Fix receipt quantities.')
+            pushToast(
+                'danger',
+                'Validation',
+                grErrors.warehouseId
+                    ? 'Choose a receiving warehouse (or set one on the PO under Edit draft).'
+                    : 'Fix receipt quantities.',
+            )
             return
         }
         setGrSubmitting(true)
@@ -366,9 +459,14 @@ const PurchaseOrderDetailPage = () => {
                 }
             }
 
+            const warehouseId =
+                grWarehouseId.trim()
+                || po.warehouseId
+                || selected.map((l) => l.warehouseId).find(Boolean)
+                || ''
             const gr = await goodsReceiptService.create({
                 companyId: po.companyId,
-                warehouseId: po.warehouseId || selected[0].warehouseId || '',
+                warehouseId,
                 purchaseOrderId: po.id,
                 postingDate: today,
                 documentDate: today,
@@ -386,6 +484,173 @@ const PurchaseOrderDetailPage = () => {
             pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
         } finally {
             setGrSubmitting(false)
+        }
+    }
+
+    const openInvPrint = useCallback(async (invoiceId: string) => {
+        try {
+            const inv = await threeWayMatchService.getInvoice(invoiceId)
+            setInvPrintSlip(supplierInvoiceToSlip(inv))
+        } catch {
+            pushToast('danger', 'Error', 'Failed to load invoice for printing')
+        }
+    }, [])
+
+    const openSupplierInvoice = useCallback(async () => {
+        if (!po) return
+        if (!po.supplierId) {
+            await ensurePoRefs('suppliers')
+        }
+        setInvDate(new Date().toISOString().slice(0, 10))
+        setInvSupplierId(po.supplierId ?? '')
+        setInvRemarks('')
+        setInvTouched({})
+        setInvForce(false)
+        setInvRefsLoading(true)
+        setInvOpen(true)
+        try {
+            const res = await goodsReceiptService.list({
+                purchaseOrderId: po.id,
+                status: 'POSTED',
+                pageSize: 100,
+            })
+            const receipts = (res.data ?? []) as GoodsReceipt[]
+            const optsByPoLine: Record<string, GrLinePick[]> = {}
+            const initQty: Record<string, string> = {}
+            const initGr: Record<string, string> = {}
+            for (const l of invOpenQtyLines) {
+                const open = poInvoiceOpenQty(l)
+                initQty[l.id] = String(open)
+                const picks: GrLinePick[] = []
+                for (const gr of receipts) {
+                    for (const gl of gr.lines ?? []) {
+                        if (
+                            gl.purchaseOrderLineId
+                            && gl.purchaseOrderLineId !== l.id
+                        ) {
+                            continue
+                        }
+                        if (!gl.purchaseOrderLineId && l.materialId !== gl.materialId) {
+                            continue
+                        }
+                        picks.push({
+                            value: gl.id,
+                            label: `${gr.documentNumber} · ${gl.material?.materialCode ?? gl.materialId} · qty ${Number(gl.quantity)}`,
+                            maxQty: Number(gl.quantity),
+                            poLineId: gl.purchaseOrderLineId ?? null,
+                        })
+                    }
+                }
+                optsByPoLine[l.id] = picks
+                initGr[l.id] = picks[0]?.value ?? ''
+            }
+            setInvGrOpts(optsByPoLine)
+            setInvLines(initQty)
+            setInvGrLineId(initGr)
+        } catch {
+            pushToast('danger', 'Error', 'Could not load posted goods receipts for this PO.')
+            setInvGrOpts({})
+            setInvLines({})
+            setInvGrLineId({})
+        } finally {
+            setInvRefsLoading(false)
+        }
+    }, [po, invOpenQtyLines, ensurePoRefs])
+
+    const invErrors = useMemo<FieldErrors>(() => {
+        const errs: FieldErrors = {}
+        const supplierId = po?.supplierId || invSupplierId
+        if (!supplierId) {
+            errs.supplierId = 'Supplier is required for supplier invoices'
+        }
+        for (const l of invOpenQtyLines) {
+            const qty = invLines[l.id] ?? ''
+            errs[l.id] = firstError(required(qty, 'Qty'), positiveNumber(qty, 'Qty'))
+            const n = Number(qty)
+            if (!errs[l.id] && n > poInvoiceOpenQty(l)) {
+                errs[l.id] = `Cannot exceed invoice-open qty ${poInvoiceOpenQty(l)}`
+            }
+            if (n > 0) {
+                const grId = invGrLineId[l.id]
+                if (!grId) {
+                    errs[`gr-${l.id}`] = 'Select a goods receipt line'
+                } else {
+                    const pick = (invGrOpts[l.id] ?? []).find((o) => o.value === grId)
+                    if (pick && n > pick.maxQty) {
+                        errs[l.id] = `GR line allows max ${pick.maxQty}`
+                    }
+                }
+            }
+        }
+        return errs
+    }, [po, invOpenQtyLines, invLines, invGrLineId, invGrOpts, invSupplierId])
+
+    const handleCreateSupplierInvoice = async () => {
+        if (!po) return
+        setInvForce(true)
+        if (Object.values(invErrors).some(Boolean)) {
+            pushToast(
+                'danger',
+                'Validation',
+                invErrors.supplierId
+                    ? 'Assign a supplier on the PO (Edit draft) or select one below.'
+                    : 'Fix invoice quantities and GR allocations.',
+            )
+            return
+        }
+        const supplierId = po.supplierId || invSupplierId
+        setInvSubmitting(true)
+        try {
+            const selected = invOpenQtyLines.filter((l) => Number(invLines[l.id]) > 0)
+            if (selected.length === 0) {
+                pushToast('danger', 'Validation', 'Enter at least one invoiced quantity.')
+                return
+            }
+            const payloadLines = selected.map((l) => {
+                const qty = Number(invLines[l.id])
+                const ordered = Number(l.quantity) || 1
+                const taxShare = (Number(l.tax || 0) / ordered) * qty
+                const grLineId = invGrLineId[l.id]
+                return {
+                    materialId: l.materialId,
+                    purchaseOrderLineId: l.id,
+                    uomId: l.uomId,
+                    invoicedQuantity: qty,
+                    unitPrice: Number(l.unitPrice),
+                    taxAmount: taxShare,
+                    receipts: [
+                        {
+                            goodsReceiptLineId: grLineId,
+                            allocatedQuantity: qty,
+                        },
+                    ],
+                }
+            })
+            const inv = await threeWayMatchService.createInvoice({
+                companyId: po.companyId,
+                supplierId,
+                purchaseOrderId: po.id,
+                currencyId: po.currencyId || undefined,
+                invoiceDate: invDate,
+                remarks: invRemarks.trim() || undefined,
+                lines: payloadLines,
+            })
+            await threeWayMatchService.submitInvoice(inv.id)
+            const full = await threeWayMatchService.getInvoice(inv.id)
+            setInvPrintSlip(supplierInvoiceToSlip(full))
+            pushToast(
+                'success',
+                'Supplier invoice',
+                `${inv.invoiceNumber} created — print your copy or continue matching.`,
+            )
+            setInvOpen(false)
+            fetchPo()
+        } catch (err: unknown) {
+            const e = err as { response?: { data?: { message?: string | string[] } } }
+            const msg = e?.response?.data?.message || 'Supplier invoice failed'
+            pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
+        } finally {
+            setInvSubmitting(false)
         }
     }
 
@@ -558,18 +823,28 @@ const PurchaseOrderDetailPage = () => {
     const canCancel = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'].includes(String(po.status)) && !hasReceipts
     const canClose = ['FULLY_RECEIVED', 'PARTIALLY_RECEIVED'].includes(String(po.status))
     const canReceive = ['SENT', 'PARTIALLY_RECEIVED', 'APPROVED'].includes(String(po.status)) && openQtyLines.length > 0
+    const hasPostedGr = (po.goodsReceipts ?? []).some((g) => g.status === 'POSTED')
+        || (po.lines ?? []).some((l) => Number(l.receivedQuantity || 0) > 0)
+    const canCreateInvoice = hasPostedGr && invOpenQtyLines.length > 0
 
     const tasks: ApprovalTask[] = workflow?.tasks ?? po.workflowInstance?.tasks ?? []
 
     const lifecycleActions = (
         <div className="flex flex-wrap items-center gap-2">
-            {po.status === 'DRAFT' && (
-                <Button size="sm" variant="solid" icon={<HiOutlineClipboardCheck />} onClick={() => setConfirmAction({
-                    action: 'Submit',
-                    fn: async () => { await purchaseOrderService.submit(po.id) },
-                })}>
-                    Submit
+            {canEditPoHeader && (
+                <Button size="sm" icon={<HiOutlineDocumentText />} onClick={() => void openHeaderEdit()}>
+                    Edit draft
                 </Button>
+            )}
+            {po.status === 'DRAFT' && (
+                <>
+                    <Button size="sm" variant="solid" icon={<HiOutlineClipboardCheck />} onClick={() => setConfirmAction({
+                        action: 'Submit',
+                        fn: async () => { await purchaseOrderService.submit(po.id) },
+                    })}>
+                        Submit
+                    </Button>
+                </>
             )}
             {po.status === 'PENDING_APPROVAL' && (
                 <>
@@ -588,10 +863,15 @@ const PurchaseOrderDetailPage = () => {
                 </>
             )}
             {po.status === 'APPROVED' && (
-                <Button size="sm" variant="solid" icon={<HiOutlinePaperAirplane />} onClick={() => setConfirmAction({
-                    action: 'Send',
-                    fn: async () => { await purchaseOrderService.send(po.id) },
-                })}>
+                <Button
+                    size="sm"
+                    variant="solid"
+                    icon={<HiOutlinePaperAirplane />}
+                    onClick={() => setConfirmAction({
+                        action: 'Send',
+                        fn: async () => { await purchaseOrderService.send(po.id) },
+                    })}
+                >
                     Send
                 </Button>
             )}
@@ -626,7 +906,7 @@ const PurchaseOrderDetailPage = () => {
                 description={
                     po.supplier
                         ? `${po.supplier.supplierCode} — ${po.supplier.supplierName}`
-                        : `Supplier ${po.supplierId}`
+                        : 'No supplier assigned (optional — use Edit draft anytime)'
                 }
                 actions={lifecycleActions}
             />
@@ -649,8 +929,23 @@ const PurchaseOrderDetailPage = () => {
                     <div className="p-5">
                         {tab === 'overview' && (
                             <div className="space-y-4">
+                                {!po.supplierId && (
+                                    <AdaptiveCard className="!border-gray-200 !bg-gray-50 dark:!border-gray-600 dark:!bg-gray-800/40">
+                                        <p className="text-sm text-gray-700 dark:text-gray-200">
+                                            Supplier is optional. Use <strong>Edit draft</strong> to assign one when needed (e.g. expected receipt from PO, supplier invoices, 3-way match).
+                                        </p>
+                                    </AdaptiveCard>
+                                )}
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                                     <InfoCard label="Company" value={po.company?.name || po.companyId} />
+                                    <InfoCard
+                                        label="Supplier"
+                                        value={
+                                            po.supplier
+                                                ? `${po.supplier.supplierCode} — ${po.supplier.supplierName}`
+                                                : '—'
+                                        }
+                                    />
                                     <InfoCard label="Buyer" value={po.buyerId} />
                                     <InfoCard label="Warehouse" value={po.warehouse?.name || '—'} />
                                     <InfoCard label="Currency" value={po.currency?.code || '—'} />
@@ -812,56 +1107,137 @@ const PurchaseOrderDetailPage = () => {
 
                         {tab === 'invoice' && (
                             <div className="space-y-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm text-gray-500">
+                                        Invoice-open qty (received − invoiced):{' '}
+                                        <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                            {invOpenQtyLines.reduce((s, l) => s + poInvoiceOpenQty(l), 0)}
+                                        </span>
+                                    </p>
+                                    {canCreateInvoice ? (
+                                        <Button
+                                            size="sm"
+                                            variant="solid"
+                                            icon={<HiOutlineReceiptTax />}
+                                            onClick={() => void openSupplierInvoice()}
+                                        >
+                                            Create Supplier Invoice
+                                        </Button>
+                                    ) : null}
+                                </div>
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                                     <InfoCard
                                         label="Ordered Qty"
                                         value={String((po.lines ?? []).reduce((s, l) => s + Number(l.quantity), 0))}
                                     />
                                     <InfoCard
+                                        label="Received Qty"
+                                        value={String((po.lines ?? []).reduce((s, l) => s + Number(l.receivedQuantity || 0), 0))}
+                                    />
+                                    <InfoCard
                                         label="Invoiced Qty"
                                         value={String((po.lines ?? []).reduce((s, l) => s + Number(l.invoicedQuantity || 0), 0))}
                                     />
-                                    <InfoCard
-                                        label="Remaining to Invoice"
-                                        value={String((po.lines ?? []).reduce(
-                                            (s, l) => s + Math.max(0, Number(l.quantity) - Number(l.invoicedQuantity || 0)),
-                                            0,
-                                        ))}
-                                    />
+                                </div>
+                                <DataTable<MmPurchaseOrderLine>
+                                    columns={[
+                                        { header: '#', accessorKey: 'lineNumber', size: 50 },
+                                        {
+                                            header: 'Material',
+                                            id: 'm',
+                                            cell: ({ row }) => (
+                                                <span className="text-sm">
+                                                    {row.original.material?.materialCode ?? row.original.materialId}
+                                                </span>
+                                            ),
+                                        },
+                                        { header: 'Ordered', accessorKey: 'quantity', cell: ({ row }) => <span>{Number(row.original.quantity)}</span> },
+                                        { header: 'Received', accessorKey: 'receivedQuantity', cell: ({ row }) => <span>{Number(row.original.receivedQuantity || 0)}</span> },
+                                        { header: 'Invoiced', accessorKey: 'invoicedQuantity', cell: ({ row }) => <span>{Number(row.original.invoicedQuantity || 0)}</span> },
+                                        { header: 'Open to invoice', id: 'openInv', cell: ({ row }) => <span className="font-medium text-primary">{poInvoiceOpenQty(row.original)}</span> },
+                                    ]}
+                                    data={po.lines ?? []}
+                                    compact
+                                    fit
+                                    noData={(po.lines ?? []).length === 0}
+                                />
+                                <div>
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Invoice History</p>
+                                    {(po.supplierInvoices ?? []).length === 0 ? (
+                                        <p className="text-sm text-gray-500">No supplier invoices yet. Post a goods receipt first, then create an invoice here.</p>
+                                    ) : (
+                                        <ul className="space-y-2">
+                                            {(po.supplierInvoices ?? []).map((inv) => (
+                                                <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-600">
+                                                    <Link
+                                                        href={`/modules/mm/procurement/supplier-invoices?invoiceId=${inv.id}`}
+                                                        className="font-mono font-semibold text-primary hover:underline"
+                                                    >
+                                                        {inv.invoiceNumber}
+                                                    </Link>
+                                                    <StatusBadge tone={inv.status === 'DRAFT' ? 'default' : inv.matchStatus === 'MATCHED' ? 'success' : 'warning'}>
+                                                        {inv.matchStatus ? `${inv.status} / ${inv.matchStatus}` : inv.status}
+                                                    </StatusBadge>
+                                                    <span className="text-xs text-gray-500">{fmtMoney(inv.totalAmount)}</span>
+                                                    <span className="text-xs text-gray-500">{fmtDate(inv.invoiceDate)}</span>
+                                                    <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
+                                                        <Dropdown.Item
+                                                            eventKey="view"
+                                                            onClick={() =>
+                                                                router.push(
+                                                                    `/modules/mm/procurement/supplier-invoices?invoiceId=${inv.id}`,
+                                                                )
+                                                            }
+                                                        >
+                                                            <HiOutlineEye className="mr-2 text-base" />
+                                                            View details
+                                                        </Dropdown.Item>
+                                                        <Dropdown.Item
+                                                            eventKey="print"
+                                                            onClick={() => void openInvPrint(inv.id)}
+                                                        >
+                                                            <HiOutlinePrinter className="mr-2 text-base" />
+                                                            Print invoice
+                                                        </Dropdown.Item>
+                                                        {inv.status === 'SUBMITTED' && (
+                                                            <Dropdown.Item
+                                                                eventKey="match"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await threeWayMatchService.runMatch(inv.id)
+                                                                        pushToast('success', 'Match', 'Three-way match completed.')
+                                                                        fetchPo()
+                                                                    } catch (err: unknown) {
+                                                                        const e = err as { response?: { data?: { message?: string } } }
+                                                                        pushToast('danger', 'Error', e?.response?.data?.message || 'Match failed')
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Run match
+                                                            </Dropdown.Item>
+                                                        )}
+                                                    </Dropdown>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
                                 <AdaptiveCard>
-                                    <div className="flex items-start gap-3 p-2">
-                                        <HiOutlineDocumentText className="mt-0.5 text-xl text-gray-400" />
-                                        <div className="space-y-2">
-                                            <p className="font-medium">Three-way match</p>
-                                            <p className="text-sm text-gray-500">
-                                                Capture supplier invoices and match against this PO and
-                                                posted goods receipts. Payment execution stays in AP/FI.
-                                            </p>
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="solid"
-                                                    onClick={() =>
-                                                        router.push(
-                                                            '/modules/mm/procurement/supplier-invoices',
-                                                        )
-                                                    }
-                                                >
-                                                    Supplier Invoices
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    onClick={() =>
-                                                        router.push(
-                                                            '/modules/mm/procurement/three-way-match',
-                                                        )
-                                                    }
-                                                >
-                                                    Run Match
-                                                </Button>
-                                            </div>
-                                        </div>
+                                    <div className="flex flex-wrap items-center gap-2 p-2">
+                                        <Button
+                                            size="sm"
+                                            variant="plain"
+                                            onClick={() => router.push('/modules/mm/procurement/supplier-invoices')}
+                                        >
+                                            All supplier invoices
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="plain"
+                                            onClick={() => router.push('/modules/mm/procurement/three-way-match')}
+                                        >
+                                            Match exceptions
+                                        </Button>
                                     </div>
                                 </AdaptiveCard>
                             </div>
@@ -980,6 +1356,55 @@ const PurchaseOrderDetailPage = () => {
             </FormDialog>
 
             <FormDialog
+                isOpen={headerEditOpen}
+                onClose={() => setHeaderEditOpen(false)}
+                title="Edit draft PO"
+                description="Supplier and warehouse are optional. Add a supplier when you need vendor-specific follow-up (ASN/ER, invoicing)."
+                width={520}
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setHeaderEditOpen(false)}>Cancel</Button>
+                        <Button size="sm" variant="solid" loading={headerSaving} onClick={() => void saveHeaderEdit()}>
+                            Save
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <FormItem label="Supplier">
+                        <Select
+                            isClearable
+                            isSearchable
+                            placeholder="Select supplier"
+                            options={supplierOpts}
+                            value={supplierOpts.find((o) => o.value === headerDraft.supplierId) ?? null}
+                            onChange={(opt: { value?: string } | null) =>
+                                setHeaderDraft((p) => ({ ...p, supplierId: opt?.value ?? '' }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Warehouse">
+                        <Select
+                            isClearable
+                            isSearchable
+                            placeholder="Optional receiving warehouse"
+                            options={warehouseOpts}
+                            value={warehouseOpts.find((o) => o.value === headerDraft.warehouseId) ?? null}
+                            onChange={(opt: { value?: string } | null) =>
+                                setHeaderDraft((p) => ({ ...p, warehouseId: opt?.value ?? '' }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Buyer">
+                        <Input
+                            value={headerDraft.buyerId}
+                            onChange={(e) => setHeaderDraft((p) => ({ ...p, buyerId: e.target.value }))}
+                        />
+                    </FormItem>
+                </div>
+            </FormDialog>
+
+            <FormDialog
                 isOpen={grOpen}
                 onClose={() => setGrOpen(false)}
                 title="Create Goods Receipt"
@@ -996,6 +1421,29 @@ const PurchaseOrderDetailPage = () => {
                 }
             >
                 <div className="space-y-4">
+                    <FormItem
+                        label="Receiving warehouse"
+                        asterisk
+                        invalid={Boolean(visibleError(grErrors, grTouched, 'warehouseId', grForce))}
+                        errorMessage={visibleError(grErrors, grTouched, 'warehouseId', grForce)}
+                    >
+                        <Select
+                            isSearchable
+                            placeholder="Select warehouse for this receipt"
+                            options={warehouseOpts}
+                            value={warehouseOpts.find((o) => o.value === grWarehouseId) ?? null}
+                            onChange={(opt: { value?: string } | null) => {
+                                setGrWarehouseId(opt?.value ?? '')
+                                setGrTouched((t) => ({ ...t, warehouseId: true }))
+                            }}
+                        />
+                    </FormItem>
+                    {!po.warehouseId ? (
+                        <p className="text-xs text-gray-500">
+                            This PO has no header warehouse — pick one here for posting, or set it under{' '}
+                            <strong>Edit draft</strong> for future receipts.
+                        </p>
+                    ) : null}
                     {grRefsLoading ? (
                         <p className="text-sm text-gray-500">Loading batches / serials…</p>
                     ) : null}
@@ -1084,6 +1532,126 @@ const PurchaseOrderDetailPage = () => {
             </FormDialog>
 
             <FormDialog
+                isOpen={invOpen}
+                onClose={() => setInvOpen(false)}
+                title="Create Supplier Invoice"
+                description={`Invoice against ${po.poNumber} — quantities must align to posted goods receipt lines.`}
+                width={640}
+                icon={<HiOutlineReceiptTax />}
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setInvOpen(false)}>Cancel</Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={invSubmitting}
+                            onClick={() => void handleCreateSupplierInvoice()}
+                        >
+                            Create & Submit
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <FormItem label="Invoice date" asterisk>
+                        <Input
+                            type="date"
+                            value={invDate}
+                            onChange={(e) => setInvDate(e.target.value)}
+                        />
+                    </FormItem>
+                    {!po.supplierId ? (
+                        <FormItem
+                            label="Supplier"
+                            asterisk
+                            invalid={Boolean(visibleError(invErrors, invTouched, 'supplierId', invForce))}
+                            errorMessage={visibleError(invErrors, invTouched, 'supplierId', invForce)}
+                        >
+                            <Select
+                                isSearchable
+                                placeholder="Required for supplier invoice"
+                                options={supplierOpts}
+                                value={supplierOpts.find((o) => o.value === invSupplierId) ?? null}
+                                onChange={(opt: { value?: string } | null) => {
+                                    setInvSupplierId(opt?.value ?? '')
+                                    setInvTouched((t) => ({ ...t, supplierId: true }))
+                                }}
+                            />
+                        </FormItem>
+                    ) : (
+                        <InfoCard
+                            label="Supplier"
+                            value={
+                                po.supplier
+                                    ? `${po.supplier.supplierCode} — ${po.supplier.supplierName}`
+                                    : po.supplierId
+                            }
+                        />
+                    )}
+                    <FormItem label="Remarks">
+                        <Input
+                            textArea
+                            value={invRemarks}
+                            onChange={(e) => setInvRemarks(e.target.value)}
+                            placeholder="Optional vendor invoice reference"
+                        />
+                    </FormItem>
+                    {invRefsLoading ? (
+                        <p className="text-sm text-gray-500">Loading posted goods receipts…</p>
+                    ) : null}
+                    {invOpenQtyLines.map((l) => {
+                        const err = visibleError(invErrors, invTouched, l.id, invForce)
+                        const grErr = visibleError(invErrors, invTouched, `gr-${l.id}`, invForce)
+                        const grOpts = (invGrOpts[l.id] ?? []).map((o) => ({
+                            value: o.value,
+                            label: o.label,
+                        }))
+                        return (
+                            <div key={l.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                                <FormItem
+                                    label={`${l.material?.materialCode ?? l.materialId} (open to invoice ${poInvoiceOpenQty(l)})`}
+                                    asterisk
+                                    invalid={Boolean(err)}
+                                    errorMessage={err}
+                                >
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={poInvoiceOpenQty(l)}
+                                        value={invLines[l.id] ?? ''}
+                                        onChange={(e) => {
+                                            setInvLines((p) => ({ ...p, [l.id]: e.target.value }))
+                                            setInvTouched((t) => ({ ...t, [l.id]: true }))
+                                        }}
+                                    />
+                                </FormItem>
+                                {Number(invLines[l.id]) > 0 ? (
+                                    <FormItem
+                                        label="Goods receipt line"
+                                        asterisk
+                                        className="mt-2"
+                                        invalid={Boolean(grErr)}
+                                        errorMessage={grErr}
+                                    >
+                                        <Select
+                                            isSearchable
+                                            placeholder={grOpts.length ? 'Select posted GR line…' : 'No posted GR lines for this PO line'}
+                                            options={grOpts}
+                                            value={grOpts.find((o) => o.value === invGrLineId[l.id]) ?? null}
+                                            onChange={(opt: { value?: string } | null) => {
+                                                setInvGrLineId((p) => ({ ...p, [l.id]: opt?.value ?? '' }))
+                                                setInvTouched((t) => ({ ...t, [`gr-${l.id}`]: true }))
+                                            }}
+                                        />
+                                    </FormItem>
+                                ) : null}
+                            </div>
+                        )
+                    })}
+                </div>
+            </FormDialog>
+
+            <FormDialog
                 isOpen={attachOpen}
                 onClose={() => setAttachOpen(false)}
                 title="Add Attachment"
@@ -1121,6 +1689,11 @@ const PurchaseOrderDetailPage = () => {
                     </FormItem>
                 </div>
             </FormDialog>
+
+            <SupplierInvoicePrintHost
+                slip={invPrintSlip}
+                onClose={() => setInvPrintSlip(null)}
+            />
         </PageContainer>
     )
 }

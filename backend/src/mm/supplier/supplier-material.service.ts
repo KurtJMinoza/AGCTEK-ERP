@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreateSupplierMaterialDto } from './dto/create-supplier-material.dto'
 import { Decimal } from '@prisma/client/runtime/library'
+import { generateSupplierMaterialCode } from './supplier-material-code.util'
 
 const INCLUDES = {
     supplier: { select: { id: true, supplierCode: true, supplierName: true } },
@@ -25,11 +26,17 @@ export class SupplierMaterialService {
             throw new ConflictException('Supplier-material combination already exists')
         }
 
+        const supplierMaterialCode = await generateSupplierMaterialCode(
+            this.prisma,
+            dto.supplierId,
+            dto.materialId,
+        )
+
         return this.prisma.mmSupplierMaterial.create({
             data: {
                 supplierId: dto.supplierId,
                 materialId: dto.materialId,
-                supplierMaterialCode: dto.supplierMaterialCode ?? null,
+                supplierMaterialCode,
                 unitPrice: new Decimal(dto.unitPrice),
                 currencyId: dto.currencyId ?? null,
                 minimumOrderQuantity: dto.minimumOrderQuantity != null ? new Decimal(dto.minimumOrderQuantity) : null,
@@ -47,7 +54,13 @@ export class SupplierMaterialService {
         if (!existing) throw new NotFoundException('Supplier-material record not found')
 
         const data: any = {}
-        if (dto.supplierMaterialCode !== undefined) data.supplierMaterialCode = dto.supplierMaterialCode
+        if (!existing.supplierMaterialCode?.trim()) {
+            data.supplierMaterialCode = await generateSupplierMaterialCode(
+                this.prisma,
+                existing.supplierId,
+                existing.materialId,
+            )
+        }
         if (dto.unitPrice !== undefined) data.unitPrice = new Decimal(dto.unitPrice)
         if (dto.currencyId !== undefined) data.currencyId = dto.currencyId
         if (dto.minimumOrderQuantity !== undefined) data.minimumOrderQuantity = dto.minimumOrderQuantity != null ? new Decimal(dto.minimumOrderQuantity) : null

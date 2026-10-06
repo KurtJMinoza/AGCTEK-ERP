@@ -375,6 +375,7 @@ export class DashboardAnalyticsService {
         const byMaterial = new Map<string, { code: string; amount: number }>()
 
         for (const po of pos) {
+            if (!po.supplierId || !po.supplier) continue
             const s = bySupplier.get(po.supplierId) ?? {
                 name: po.supplier.supplierName,
                 code: po.supplier.supplierCode,

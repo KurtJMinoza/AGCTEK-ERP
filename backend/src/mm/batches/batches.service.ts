@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ExpiryControlService } from '../returns-disposal/expiry-control.service'
 import { formatTrackingNumber } from '../common/tracking-number.format'
+import { parseCalendarDateString } from '../common/calendar-date.util'
+import { generateBatchNumber } from './batch-number.util'
 
 @Injectable()
 export class BatchesService {
@@ -52,7 +54,6 @@ export class BatchesService {
 
     async create(data: {
         materialId: string
-        batchNumber: string
         manufacturingDate?: string
         expiryDate?: string
         shelfLifeDays?: number
@@ -67,16 +68,6 @@ export class BatchesService {
             throw new BadRequestException('Material is not batch-managed')
         }
 
-        const batchNumber = formatTrackingNumber(data.batchNumber)
-        if (!batchNumber) {
-            throw new BadRequestException('Batch number is required')
-        }
-
-        const exists = await this.prisma.mmBatch.findFirst({
-            where: { materialId: data.materialId, batchNumber, deletedAt: null },
-        })
-        if (exists) throw new ConflictException('Batch number already exists for this material')
-
         if (data.supplierId) {
             const supplier = await this.prisma.mmSupplier.findFirst({
                 where: { id: data.supplierId, deletedAt: null },
@@ -86,8 +77,19 @@ export class BatchesService {
             }
         }
 
-        const manufacturingDate = this.parseOptionalDate(data.manufacturingDate)
-        const expiryDateInput = this.parseOptionalDate(data.expiryDate)
+        const batchNumber = await generateBatchNumber(
+            this.prisma,
+            data.materialId,
+            data.supplierId,
+        )
+
+        const exists = await this.prisma.mmBatch.findFirst({
+            where: { materialId: data.materialId, batchNumber, deletedAt: null },
+        })
+        if (exists) throw new ConflictException('Batch number already exists for this material')
+
+        const manufacturingDate = parseCalendarDateString(data.manufacturingDate)
+        const expiryDateInput = parseCalendarDateString(data.expiryDate)
         const resolved = this.expiryControl.resolveExpiryDate({
             manufacturingDate,
             expiryDate: expiryDateInput,
@@ -150,7 +152,7 @@ export class BatchesService {
         const manufacturingDate =
             data.manufacturingDate !== undefined
                 ? data.manufacturingDate
-                    ? new Date(data.manufacturingDate)
+                    ? parseCalendarDateString(data.manufacturingDate)
                     : null
                 : batch.manufacturingDate
         const shelfLifeDays =
@@ -168,7 +170,7 @@ export class BatchesService {
                       expiryDate:
                           data.expiryDate !== undefined
                               ? data.expiryDate
-                                  ? new Date(data.expiryDate)
+                                  ? parseCalendarDateString(data.expiryDate)
                                   : null
                               : batch.expiryDate,
                       shelfLifeDays,
@@ -204,12 +206,4 @@ export class BatchesService {
         return this.prisma.mmBatch.update({ where: { id }, data: { deletedAt: new Date() } })
     }
 
-    private parseOptionalDate(value?: string): Date | null {
-        if (!value?.trim()) return null
-        const d = new Date(value)
-        if (Number.isNaN(d.getTime())) {
-            throw new BadRequestException('Invalid date')
-        }
-        return d
-    }
 }
