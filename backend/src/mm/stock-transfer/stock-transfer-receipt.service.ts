@@ -120,18 +120,6 @@ export class StockTransferReceiptService {
                 },
             })
 
-            if (!destBin) {
-                await this.warehouseBridge.createPutawayFromReceipt({
-                    companyId: order.companyId,
-                    warehouseId: order.destinationWarehouseId,
-                    materialId: line.materialId,
-                    quantity: rl.quantity,
-                    batchId: line.batchId ?? undefined,
-                    serialId: line.serialNumberId ?? undefined,
-                    uomId: line.uomId,
-                    sourceDocument: order.orderNumber,
-                })
-            }
         }
 
         const refreshed = await this.prisma.mmStockTransferOrderLine.findMany({

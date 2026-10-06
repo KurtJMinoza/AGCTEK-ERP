@@ -15,7 +15,6 @@ import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto'
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto'
 import { PurchaseOrderQueryDto } from './dto/purchase-order-query.dto'
 import {
-    CreatePoFromAwardDto,
     CreatePoFromPrDto,
     CreatePoAttachmentDto,
     UpsertPoToleranceDto,
@@ -38,12 +37,6 @@ export class PurchaseOrderController {
     @MmMutation()
     create(@Body() dto: CreatePurchaseOrderDto) {
         return this.service.create(dto)
-    }
-
-    @Post('from-award')
-    @MmMutation()
-    fromAward(@Body() dto: CreatePoFromAwardDto) {
-        return this.service.createFromAward(dto)
     }
 
     @Post('from-pr')

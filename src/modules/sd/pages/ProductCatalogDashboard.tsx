@@ -1,37 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Image from 'next/image'
-import {
-    HiOutlineCube,
-    HiOutlinePencil,
-    HiOutlinePlus,
-    HiOutlineRefresh,
-    HiOutlineSearch,
-    HiOutlineTrash,
-} from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import Card from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
-import Select from '@/components/ui/Select'
-import Switcher from '@/components/ui/Switcher'
-import Tag from '@/components/ui/Tag'
 import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import ProductFormDialog from '../components/ProductFormDialog'
-import {
-    PRODUCT_DIVISIONS,
-    productDivisionLabel,
-} from '../catalogs/productDivisions'
+import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
+import { PRODUCT_DIVISIONS, productDivisionLabel } from '../catalogs/productDivisions'
 import {
     createProduct,
     deleteProduct,
@@ -45,18 +26,6 @@ import { useProductCatalogStore } from '../store/useProductCatalogStore'
 const ROUTE_PATH = '/modules/sd/product-catalog'
 const SEARCH_DEBOUNCE_MS = 350
 
-type FilterOption = { value: string; label: string }
-
-const DIVISION_FILTER_OPTIONS: FilterOption[] = [
-    { value: 'all', label: 'All divisions' },
-    ...PRODUCT_DIVISIONS.map((d) => ({ value: d.id, label: d.label })),
-]
-
-const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
-        value,
-    )
-
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
         <Notification type={type} title={title} closable>
@@ -64,32 +33,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         </Notification>,
         { placement: 'top-end' },
     )
-
-const SummaryStat = ({ label, value }: { label: string; value: string | number }) => (
-    <Card>
-        <div className="text-sm text-gray-500">{label}</div>
-        <div className="mt-1 break-words text-xl font-bold sm:text-2xl">
-            {value}
-        </div>
-    </Card>
-)
-
-const Thumbnail = ({ src, alt }: { src: string; alt: string }) => (
-    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
-        {isRenderableImageSrc(src) ? (
-            <Image
-                src={src}
-                alt={alt}
-                fill
-                sizes="48px"
-                unoptimized={isUnoptimizedImage(src)}
-                className="object-cover"
-            />
-        ) : (
-            <HiOutlineCube className="m-auto h-full w-5 text-gray-400" />
-        )}
-    </div>
-)
 
 type DialogState =
     | { mode: 'create' }
@@ -141,16 +84,6 @@ const ProductCatalogDashboard = () => {
         )
         return () => window.clearTimeout(timer)
     }, [searchInput, search])
-
-    const summary = useMemo(
-        () => ({
-            total: products.length,
-            active: products.filter((p) => p.isActive).length,
-            hidden: products.filter((p) => !p.isActive).length,
-            onSale: products.filter((p) => p.originalPrice !== null).length,
-        }),
-        [products],
-    )
 
     const afterChange = (...divisionIds: string[]) => {
         divisionIds.forEach(invalidateStorefront)
@@ -228,110 +161,6 @@ const ProductCatalogDashboard = () => {
         }
     }
 
-    const columns = useMemo<ColumnDef<SdProductRecord>[]>(
-        () => [
-            {
-                header: 'Product',
-                id: 'product',
-                cell: ({ row }) => (
-                    <div className="flex min-w-[14rem] items-center gap-3">
-                        <Thumbnail src={row.original.imageUrl} alt={row.original.name} />
-                        <div className="min-w-0">
-                            <div className="font-semibold">{row.original.name}</div>
-                            <div className="font-mono text-xs text-gray-500">
-                                {row.original.sku}
-                            </div>
-                        </div>
-                    </div>
-                ),
-            },
-            {
-                header: 'Division',
-                id: 'division',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {productDivisionLabel(row.original.divisionId)}
-                    </span>
-                ),
-            },
-            {
-                header: 'Category',
-                id: 'category',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">{row.original.category}</span>
-                ),
-            },
-            {
-                header: 'Price',
-                id: 'price',
-                cell: ({ row }) => (
-                    <div className="whitespace-nowrap">
-                        <div className="font-semibold">
-                            {formatPrice(row.original.price)}
-                        </div>
-                        {row.original.originalPrice !== null ? (
-                            <div className="text-xs text-gray-400 line-through">
-                                {formatPrice(row.original.originalPrice)}
-                            </div>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                header: 'Badge',
-                id: 'badge',
-                cell: ({ row }) =>
-                    row.original.badge ? (
-                        <Tag className="whitespace-nowrap">{row.original.badge}</Tag>
-                    ) : (
-                        <span className="text-gray-400">—</span>
-                    ),
-            },
-            {
-                header: 'Visible',
-                id: 'isActive',
-                cell: ({ row }) => (
-                    <div className="flex items-center gap-2">
-                        <Switcher
-                            checked={row.original.isActive}
-                            isLoading={togglingId === row.original.id}
-                            onChange={(checked) => void toggleActive(row.original, checked)}
-                        />
-                        <span className="text-xs text-gray-500">
-                            {row.original.isActive ? 'Active' : 'Hidden'}
-                        </span>
-                    </div>
-                ),
-            },
-            {
-                header: '',
-                id: 'actions',
-                cell: ({ row }) => (
-                    <div className="flex items-center gap-1">
-                        <Button
-                            size="xs"
-                            className="whitespace-nowrap"
-                            icon={<HiOutlinePencil />}
-                            onClick={() =>
-                                setDialog({ mode: 'edit', product: row.original })
-                            }
-                        >
-                            Edit
-                        </Button>
-                        <Button
-                            size="xs"
-                            variant="plain"
-                            icon={<HiOutlineTrash />}
-                            aria-label={`Delete ${row.original.name}`}
-                            onClick={() => setPendingDelete(row.original)}
-                        />
-                    </div>
-                ),
-            },
-        ],
-        [togglingId, toggleActive],
-    )
-
     return (
         <PageContainer>
             <ErpBackLink items={breadcrumbItems} />
@@ -339,26 +168,6 @@ const ProductCatalogDashboard = () => {
             <PageHeader
                 title="Product Catalog"
                 description="Products and prices sold on the AWIC, LPG and MCONPINCO storefronts and the POS."
-                actions={
-                    <div className="flex items-center gap-2">
-                        <Button
-                            size="sm"
-                            icon={<HiOutlineRefresh />}
-                            loading={loading}
-                            onClick={() => void fetchProducts()}
-                        >
-                            Refresh
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="solid"
-                            icon={<HiOutlinePlus />}
-                            onClick={() => setDialog({ mode: 'create' })}
-                        >
-                            Add New Product
-                        </Button>
-                    </div>
-                }
             />
 
             {error ? (
@@ -367,42 +176,21 @@ const ProductCatalogDashboard = () => {
                 </Alert>
             ) : null}
 
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <Input
-                    className="md:max-w-md"
-                    prefix={<HiOutlineSearch className="text-lg" />}
-                    placeholder="Search name, SKU or category..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                />
-                <div className="md:w-56">
-                    <Select<FilterOption>
-                        isSearchable={false}
-                        options={DIVISION_FILTER_OPTIONS}
-                        value={DIVISION_FILTER_OPTIONS.find(
-                            (option) => option.value === divisionFilter,
-                        )}
-                        onChange={(option) => setDivisionFilter(option?.value ?? 'all')}
-                    />
-                </div>
-            </div>
-
-            <div className="my-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <SummaryStat label="Products" value={summary.total} />
-                <SummaryStat label="Active" value={summary.active} />
-                <SummaryStat label="Hidden" value={summary.hidden} />
-                <SummaryStat label="With original price" value={summary.onSale} />
-            </div>
-
-            <Card>
-                <DataTable
-                    columns={columns}
-                    data={products}
-                    loading={loading && products.length === 0}
-                    noData={!loading && products.length === 0}
-                    hidePagination
-                />
-            </Card>
+            <ProductCatalogTableSection
+                products={products}
+                loading={loading}
+                refreshing={loading && products.length > 0}
+                searchInput={searchInput}
+                onSearchInputChange={setSearchInput}
+                divisionFilter={divisionFilter}
+                onDivisionFilterChange={setDivisionFilter}
+                togglingId={togglingId}
+                onToggleActive={toggleActive}
+                onEdit={(product) => setDialog({ mode: 'edit', product })}
+                onDelete={setPendingDelete}
+                onAddProduct={() => setDialog({ mode: 'create' })}
+                onRefresh={() => void fetchProducts()}
+            />
 
             <ProductFormDialog
                 isOpen={dialog !== null}

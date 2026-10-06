@@ -42,7 +42,6 @@ const blankForm = () => ({
     supplierId: '',
     materialId: '',
     unitPrice: '',
-    supplierMaterialCode: '',
     leadTimeDays: '',
     minimumOrderQuantity: '',
     validityStart: '',
@@ -121,7 +120,6 @@ const SupplierMaterialsPage = () => {
                     setForm((p: any) => ({
                         ...p,
                         unitPrice: String(hit.unitPrice ?? ''),
-                        supplierMaterialCode: hit.supplierMaterialCode || '',
                         leadTimeDays: hit.leadTimeDays != null ? String(hit.leadTimeDays) : '',
                         minimumOrderQuantity: hit.minimumOrderQuantity != null ? String(hit.minimumOrderQuantity) : '',
                     }))
@@ -158,7 +156,6 @@ const SupplierMaterialsPage = () => {
             supplierId: item.supplierId,
             materialId: item.materialId,
             unitPrice: String(item.unitPrice),
-            supplierMaterialCode: item.supplierMaterialCode || '',
             leadTimeDays: item.leadTimeDays != null ? String(item.leadTimeDays) : '',
             minimumOrderQuantity: item.minimumOrderQuantity != null ? String(item.minimumOrderQuantity) : '',
             validityStart: item.validityStart ? String(item.validityStart).slice(0, 10) : '',
@@ -182,7 +179,6 @@ const SupplierMaterialsPage = () => {
                 supplierId: form.supplierId.trim(),
                 materialId: form.materialId.trim(),
                 unitPrice: parseFloat(form.unitPrice) || 0,
-                supplierMaterialCode: form.supplierMaterialCode || undefined,
                 leadTimeDays: form.leadTimeDays ? parseInt(form.leadTimeDays, 10) : undefined,
                 minimumOrderQuantity: form.minimumOrderQuantity ? parseFloat(form.minimumOrderQuantity) : undefined,
                 validityStart: form.validityStart || undefined,
@@ -315,7 +311,6 @@ const SupplierMaterialsPage = () => {
                                 supplierId: opt?.value ?? '',
                                 ...(editItem ? {} : {
                                     unitPrice: '',
-                                    supplierMaterialCode: '',
                                     leadTimeDays: '',
                                     minimumOrderQuantity: '',
                                 }),
@@ -337,7 +332,6 @@ const SupplierMaterialsPage = () => {
                                 materialId: opt?.value ?? '',
                                 ...(editItem ? {} : {
                                     unitPrice: '',
-                                    supplierMaterialCode: '',
                                     leadTimeDays: '',
                                     minimumOrderQuantity: '',
                                 }),
@@ -351,9 +345,15 @@ const SupplierMaterialsPage = () => {
                 <FormItem label="Unit Price" asterisk invalid={Boolean(err('unitPrice'))} errorMessage={err('unitPrice')}>
                     <Input type="number" placeholder="e.g. 125.00" value={form.unitPrice ?? ''} onChange={(e) => setField('unitPrice', e.target.value)} />
                 </FormItem>
-                <FormItem label="Supplier Material Code">
-                    <Input placeholder="e.g. SUP-SKU-001" value={form.supplierMaterialCode ?? ''} onChange={(e) => setField('supplierMaterialCode', e.target.value)} />
-                </FormItem>
+                {editItem?.supplierMaterialCode ? (
+                    <FormItem label="Supplier material code">
+                        <Input value={editItem.supplierMaterialCode} disabled readOnly className="font-mono text-sm" />
+                    </FormItem>
+                ) : (
+                    <p className="mb-2 text-xs text-gray-500">
+                        Supplier material code is generated automatically when you save (supplier code + material code).
+                    </p>
+                )}
                 <FormItem label="Lead Time (days)" invalid={Boolean(err('leadTimeDays'))} errorMessage={err('leadTimeDays')}>
                     <Input type="number" placeholder="e.g. 7" value={form.leadTimeDays ?? ''} onChange={(e) => setField('leadTimeDays', e.target.value)} />
                 </FormItem>

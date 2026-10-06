@@ -15,7 +15,9 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineTruck, HiOutlineDocumentText } from 'react-icons/hi'
+import { HiOutlinePlus, HiOutlineSearch, HiOutlineTruck, HiOutlineDocumentText, HiOutlinePrinter } from 'react-icons/hi'
+import ReceivingReceiptPanel from '../components/ReceivingReceiptPanel'
+import { expectedReceiptToSlip } from '../utils/receiptSlipMappers'
 import { inboundService } from '../services/inboundService'
 import { purchaseOrderService } from '@/modules/mm/procurement/services/purchaseOrderService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
@@ -73,6 +75,8 @@ const ExpectedReceiptsPage = () => {
     const [fromAsn, setFromAsn] = useState({ asnId: '', warehouseId: '' })
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
+    const [printEr, setPrintEr] = useState<MmExpectedReceipt | null>(null)
+    const [printLoadingId, setPrintLoadingId] = useState<string | null>(null)
 
     const { ensure: ensureFormRefs, warehouses } = useLazyMmRefs()
     const [poOptions, setPoOptions] = useState<FilterOption[]>([])
@@ -261,7 +265,30 @@ const ExpectedReceiptsPage = () => {
                 </StatusBadge>
             ),
         },
-    ], [router])
+        {
+            header: '',
+            id: 'print',
+            size: 48,
+            cell: ({ row }) => (
+                <Button
+                    size="xs"
+                    variant="plain"
+                    loading={printLoadingId === row.original.id}
+                    icon={<HiOutlinePrinter />}
+                    onClick={async () => {
+                        setPrintLoadingId(row.original.id)
+                        try {
+                            setPrintEr(await inboundService.getExpectedReceipt(row.original.id))
+                        } catch {
+                            pushToast('danger', 'Error', 'Failed to load receipt')
+                        } finally {
+                            setPrintLoadingId(null)
+                        }
+                    }}
+                />
+            ),
+        },
+    ], [router, printLoadingId])
 
     return (
         <PageContainer>
@@ -306,6 +333,25 @@ const ExpectedReceiptsPage = () => {
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
                 />
             </AdaptiveCard>
+
+            <FormDialog
+                isOpen={printEr !== null}
+                onClose={() => setPrintEr(null)}
+                size="sm"
+                title={printEr?.documentNumber ?? 'Expected receipt'}
+                icon={<HiOutlinePrinter />}
+                footer={
+                    <Button size="sm" onClick={() => setPrintEr(null)}>Close</Button>
+                }
+            >
+                {printEr ? (
+                    <ReceivingReceiptPanel
+                        data={expectedReceiptToSlip(printEr)}
+                        enablePrintPortal
+                        title="Expected receipt slip"
+                    />
+                ) : null}
+            </FormDialog>
 
             <FormDialog
                 isOpen={fromPoOpen}

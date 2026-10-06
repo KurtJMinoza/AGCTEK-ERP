@@ -16,7 +16,6 @@ import { Type, Transform } from 'class-transformer'
 
 const OPERATIONS = [
     'RECEIVING',
-    'PUTAWAY',
     'PICKING',
     'PACKING',
     'COUNTING',

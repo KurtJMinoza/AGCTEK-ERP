@@ -4,6 +4,12 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { RESTRICTED_STOCK_STATUSES } from './inventory.constants'
 import { AvailabilityQueryDto } from './dto/availability-query.dto'
 
+export type CompanyMaterialTotals = {
+    onHandQty: number
+    reservedQty: number
+    availableQty: number
+}
+
 /**
  * Central availability engine (MM-08).
  *
@@ -199,6 +205,103 @@ export class InventoryAvailabilityService {
     /** Backward-compatible alias used by ReservationService. */
     async getAtp(query: AvailabilityQueryDto) {
         return this.getAvailability(query)
+    }
+
+    /** Company-wide totals from live inventory balances (same ATP rules as warehouse ATP). */
+    aggregateBalancesCompany(
+        balances: Array<{
+            stockStatus: string
+            quantity: any
+            reservedQuantity: any
+        }>,
+    ): CompanyMaterialTotals {
+        let onHand = new Decimal(0)
+        let unrestrictedOnHand = new Decimal(0)
+        let reserved = new Decimal(0)
+
+        for (const b of balances) {
+            const qty = new Decimal(b.quantity)
+            const reservedQty = new Decimal(b.reservedQuantity)
+            onHand = onHand.plus(qty)
+            if (b.stockStatus === 'UNRESTRICTED') {
+                unrestrictedOnHand = unrestrictedOnHand.plus(qty)
+                reserved = reserved.plus(reservedQty)
+            }
+        }
+
+        const available = unrestrictedOnHand.minus(reserved)
+        return {
+            onHandQty: Number(onHand),
+            reservedQty: Number(reserved),
+            availableQty: Math.max(0, Number(available)),
+        }
+    }
+
+    async getCompanyMaterialTotals(
+        companyId: string,
+        materialId: string,
+    ): Promise<CompanyMaterialTotals> {
+        const balances = await this.prisma.mmInventoryBalance.findMany({
+            where: { companyId, materialId },
+            select: {
+                stockStatus: true,
+                quantity: true,
+                reservedQuantity: true,
+            },
+        })
+        return this.aggregateBalancesCompany(balances)
+    }
+
+    async getCompanyMaterialTotalsBatch(
+        companyId: string,
+        materialIds: string[],
+    ): Promise<Map<string, CompanyMaterialTotals>> {
+        const result = new Map<string, CompanyMaterialTotals>()
+        if (!materialIds.length) return result
+
+        const balances = await this.prisma.mmInventoryBalance.findMany({
+            where: { companyId, materialId: { in: materialIds } },
+            select: {
+                materialId: true,
+                stockStatus: true,
+                quantity: true,
+                reservedQuantity: true,
+            },
+        })
+
+        const grouped = new Map<string, typeof balances>()
+        for (const b of balances) {
+            const list = grouped.get(b.materialId) ?? []
+            list.push(b)
+            grouped.set(b.materialId, list)
+        }
+
+        for (const materialId of materialIds) {
+            result.set(
+                materialId,
+                this.aggregateBalancesCompany(grouped.get(materialId) ?? []),
+            )
+        }
+        return result
+    }
+
+    /** Keep material master onHand/reserved aligned with ledger (catalog + MM UI). */
+    async syncMaterialMasterFromLedger(materialId: string): Promise<CompanyMaterialTotals | null> {
+        const material = await this.prisma.mmMaterial.findFirst({
+            where: { id: materialId, deletedAt: null },
+            select: { companyId: true },
+        })
+        if (!material?.companyId) return null
+
+        const totals = await this.getCompanyMaterialTotals(material.companyId, materialId)
+        await this.prisma.mmMaterial.update({
+            where: { id: materialId },
+            data: {
+                onHandQty: new Decimal(totals.onHandQty),
+                reservedQty: new Decimal(totals.reservedQty),
+            },
+        })
+        return totals
     }
 
     async assertAvailable(

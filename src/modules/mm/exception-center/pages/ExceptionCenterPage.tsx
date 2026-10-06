@@ -18,7 +18,7 @@ import toast from '@/components/ui/toast'
 import { HiOutlineRefresh, HiOutlineExternalLink } from 'react-icons/hi'
 import { exceptionCenterService } from '../services/exceptionCenterService'
 import type { MmExceptionItem, MmExceptionSeverity } from '../types'
-import { useDeferredFilterRefs, useLazyOrgRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/exception-center'
@@ -64,10 +64,7 @@ const ExceptionCenterPage = () => {
         'companies',
         'warehouses',
     )
-    const { plants, ensure: ensureOrgRefs } = useLazyOrgRefs()
-
     const [companyId, setCompanyId] = useState('')
-    const [plantId, setPlantId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [severity, setSeverity] = useState('')
     const [domain, setDomain] = useState(searchParams.get('domain') ?? '')
@@ -85,8 +82,7 @@ const ExceptionCenterPage = () => {
 
     useEffect(() => {
         loadFilterRefs()
-        void ensureOrgRefs('plants')
-    }, [loadFilterRefs, ensureOrgRefs])
+    }, [loadFilterRefs])
 
     useEffect(() => {
         if (!companyId && companies.length) setCompanyId(companies[0].value)
@@ -98,7 +94,6 @@ const ExceptionCenterPage = () => {
         try {
             const res = await exceptionCenterService.list({
                 companyId,
-                plantId: plantId || undefined,
                 warehouseId: warehouseId || undefined,
                 severity: severity || undefined,
                 domain: domain || undefined,
@@ -119,7 +114,7 @@ const ExceptionCenterPage = () => {
         } finally {
             setLoading(false)
         }
-    }, [companyId, plantId, warehouseId, severity, domain, dateFrom, dateTo, includeStale])
+    }, [companyId, warehouseId, severity, domain, dateFrom, dateTo, includeStale])
 
     useEffect(() => {
         load()
@@ -204,14 +199,6 @@ const ExceptionCenterPage = () => {
                             options={companies}
                             value={companies.find((c) => c.value === companyId) ?? null}
                             onChange={(o) => setCompanyId((o as Opt)?.value ?? '')}
-                        />
-                    </FormItem>
-                    <FormItem label="Plant">
-                        <Select
-                            isClearable
-                            options={plants}
-                            value={plants.find((p) => p.value === plantId) ?? null}
-                            onChange={(o) => setPlantId((o as Opt)?.value ?? '')}
                         />
                     </FormItem>
                     <FormItem label="Warehouse">

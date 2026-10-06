@@ -549,6 +549,7 @@ const TransfersPage = () => {
                 size="lg"
                 title="New Transfer"
                 icon={<HiOutlineSwitchHorizontal />}
+                bodyClassName="overflow-x-hidden"
                 footer={
                     <>
                         <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -556,7 +557,7 @@ const TransfersPage = () => {
                     </>
                 }
             >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <FormItem label="Source warehouse" asterisk>
                         <Select<FilterOption>
                             placeholder="Select source…"
@@ -590,31 +591,55 @@ const TransfersPage = () => {
                     <Button size="xs" icon={<HiOutlinePlus />} onClick={() => setCreateLines([...createLines, { materialId: '', quantity: 1, sourceBinId: '' }])}>Add Line</Button>
                 </div>
 
-                <div className="max-h-60 space-y-3 overflow-y-auto">
+                <div className="max-h-60 space-y-3 overflow-y-auto overflow-x-hidden">
                     {createLines.map((line, idx) => (
-                        <div key={idx} className="flex items-end gap-2 rounded-lg border p-2 dark:border-gray-600">
-                            <FormItem label="Material" className="flex-1">
-                                <Select<FilterOption>
-                                    size="sm"
-                                    placeholder="Select material"
-                                    options={materialOpts}
-                                    value={materialOpts.find((o) => o.value === line.materialId)}
-                                    onChange={(opt) => updateLine(idx, { materialId: opt?.value ?? '' })}
+                        <div
+                            key={idx}
+                            className="rounded-lg border p-3 dark:border-gray-600"
+                        >
+                            <div className="mb-2 flex items-center justify-between sm:hidden">
+                                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Line {idx + 1}</span>
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    icon={<HiOutlineTrash className="text-red-500" />}
+                                    onClick={() => removeLine(idx)}
+                                    aria-label={`Remove line ${idx + 1}`}
                                 />
-                            </FormItem>
-                            <FormItem label="Qty" className="w-20">
-                                <Input size="sm" type="number" min={1} value={String(line.quantity)} onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) || 1 })} />
-                            </FormItem>
-                            <FormItem label="Source bin" className="w-36">
-                                <Select<FilterOption>
-                                    size="sm"
-                                    placeholder="Optional"
-                                    options={binOpts}
-                                    value={binOpts.find((o) => o.value === (line.sourceBinId ?? ''))}
-                                    onChange={(opt) => updateLine(idx, { sourceBinId: opt?.value ?? '' })}
-                                />
-                            </FormItem>
-                            <Button size="xs" shape="circle" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => removeLine(idx)} />
+                            </div>
+                            <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 sm:grid-cols-12 sm:items-end">
+                                <FormItem label="Material" className="min-[480px]:col-span-2 sm:col-span-6">
+                                    <Select<FilterOption>
+                                        size="sm"
+                                        placeholder="Select material"
+                                        options={materialOpts}
+                                        value={materialOpts.find((o) => o.value === line.materialId)}
+                                        onChange={(opt) => updateLine(idx, { materialId: opt?.value ?? '' })}
+                                    />
+                                </FormItem>
+                                <FormItem label="Qty" className="min-[480px]:col-span-1 sm:col-span-2">
+                                    <Input size="sm" type="number" min={1} className="w-full min-w-0" value={String(line.quantity)} onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) || 1 })} />
+                                </FormItem>
+                                <FormItem label="Source bin" className="min-[480px]:col-span-1 sm:col-span-3">
+                                    <Select<FilterOption>
+                                        size="sm"
+                                        placeholder="Optional"
+                                        options={binOpts}
+                                        value={binOpts.find((o) => o.value === (line.sourceBinId ?? ''))}
+                                        onChange={(opt) => updateLine(idx, { sourceBinId: opt?.value ?? '' })}
+                                    />
+                                </FormItem>
+                                <div className="hidden sm:flex sm:col-span-1 sm:items-end sm:justify-end sm:pb-1">
+                                    <Button
+                                        size="xs"
+                                        shape="circle"
+                                        variant="plain"
+                                        icon={<HiOutlineTrash className="text-red-500" />}
+                                        onClick={() => removeLine(idx)}
+                                        aria-label={`Remove line ${idx + 1}`}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     ))}
                 </div>

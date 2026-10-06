@@ -304,6 +304,46 @@ export async function uploadProductImage(file: File): Promise<string> {
 }
 
 /** Uploads a product video (MP4/WEBM/MOV); returns the URL for `attributes.videos`. */
+export type CatalogStockSnapshot = {
+    availableQty: number
+    state: string
+}
+
+/** MM-backed available qty per product (storefront ATP by division + SKU). */
+export async function fetchProductCatalogStock(
+    products: SdProductRecord[],
+): Promise<Record<string, CatalogStockSnapshot>> {
+    if (!products.length) return {}
+    const pairs = await Promise.all(
+        products.map(async (product) => {
+            try {
+                const { data } = await ErpAxiosBase.get<{
+                    availableQuantity: number
+                    state: string
+                }>('/sd/products/storefront/availability', {
+                    params: {
+                        divisionId: product.divisionId,
+                        sku: product.sku,
+                    },
+                })
+                return [
+                    product.id,
+                    {
+                        availableQty: data.availableQuantity ?? 0,
+                        state: data.state ?? 'OUT_OF_STOCK',
+                    },
+                ] as const
+            } catch {
+                return [
+                    product.id,
+                    { availableQty: 0, state: 'NOT_MAPPED' },
+                ] as const
+            }
+        }),
+    )
+    return Object.fromEntries(pairs)
+}
+
 export async function uploadProductVideo(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)

@@ -122,6 +122,10 @@ model Company {
   id         String       @id @default(cuid())
   code       String       @unique
   name       String
+  /// Public URL under `/uploads/companies/` (Next.js `public/`).
+  logoUrl    String?
+  address    String       @default("")
+  tin        String       @default("")
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
   warehouses Warehouse[]
@@ -2494,8 +2498,8 @@ model MmPurchaseOrder {
   company                 Company   @relation(fields: [companyId], references: [id])
   branchId                String?
   departmentId            String?
-  supplierId              String
-  supplier                MmSupplier @relation(fields: [supplierId], references: [id])
+  supplierId              String?
+  supplier                MmSupplier? @relation(fields: [supplierId], references: [id])
   buyerId                 String
   currencyId              String?
   currency                MmCurrency? @relation("PoCurrency", fields: [currencyId], references: [id])

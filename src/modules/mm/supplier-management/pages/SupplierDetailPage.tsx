@@ -470,7 +470,7 @@ const MaterialsTab = ({
     const [addOpen, setAddOpen] = useState(false)
     const [editId, setEditId] = useState<string | null>(null)
     const [lookupHint, setLookupHint] = useState('')
-    const [form, setForm] = useState<any>({ materialId: '', unitPrice: '', supplierMaterialCode: '', leadTimeDays: '', minimumOrderQuantity: '' })
+    const [form, setForm] = useState<any>({ materialId: '', unitPrice: '', leadTimeDays: '', minimumOrderQuantity: '' })
     const { options: materialOpts } = useMaterialOptions({ enabled: addOpen })
 
     useEffect(() => {
@@ -494,7 +494,6 @@ const MaterialsTab = ({
                     setForm((p: any) => ({
                         ...p,
                         unitPrice: String(hit.unitPrice ?? ''),
-                        supplierMaterialCode: hit.supplierMaterialCode || '',
                         leadTimeDays: hit.leadTimeDays != null ? String(hit.leadTimeDays) : '',
                         minimumOrderQuantity: hit.minimumOrderQuantity != null ? String(hit.minimumOrderQuantity) : '',
                     }))
@@ -519,7 +518,6 @@ const MaterialsTab = ({
                 supplierId,
                 materialId: form.materialId,
                 unitPrice: parseFloat(form.unitPrice) || 0,
-                supplierMaterialCode: form.supplierMaterialCode || undefined,
                 leadTimeDays: form.leadTimeDays ? parseInt(form.leadTimeDays, 10) : undefined,
                 minimumOrderQuantity: form.minimumOrderQuantity ? parseFloat(form.minimumOrderQuantity) : undefined,
             }
@@ -533,7 +531,7 @@ const MaterialsTab = ({
             setAddOpen(false)
             setEditId(null)
             setLookupHint('')
-            setForm({ materialId: '', unitPrice: '', supplierMaterialCode: '', leadTimeDays: '', minimumOrderQuantity: '' })
+            setForm({ materialId: '', unitPrice: '', leadTimeDays: '', minimumOrderQuantity: '' })
             onRefresh()
         } catch (err: any) {
             pushToast('danger', 'Error', err?.response?.data?.message || 'Failed to add')
@@ -547,7 +545,7 @@ const MaterialsTab = ({
                 <Button size="sm" icon={<HiOutlinePlus />} variant="solid" onClick={() => {
                     setEditId(null)
                     setLookupHint('')
-                    setForm({ materialId: '', unitPrice: '', supplierMaterialCode: '', leadTimeDays: '', minimumOrderQuantity: '' })
+                    setForm({ materialId: '', unitPrice: '', leadTimeDays: '', minimumOrderQuantity: '' })
                     setAddOpen(true)
                 }}>
                     Add Material
@@ -587,7 +585,6 @@ const MaterialsTab = ({
                                 ...p,
                                 materialId: opt?.value ?? '',
                                 unitPrice: '',
-                                supplierMaterialCode: '',
                                 leadTimeDays: '',
                                 minimumOrderQuantity: '',
                             }))
@@ -598,9 +595,20 @@ const MaterialsTab = ({
                 <FormItem label="Unit Price" asterisk>
                     <Input type="number" placeholder="e.g. 125.00" value={form.unitPrice} onChange={(e) => setForm((p: any) => ({ ...p, unitPrice: e.target.value }))} />
                 </FormItem>
-                <FormItem label="Supplier Material Code">
-                    <Input placeholder="e.g. SUP-SKU-001" value={form.supplierMaterialCode} onChange={(e) => setForm((p: any) => ({ ...p, supplierMaterialCode: e.target.value }))} />
-                </FormItem>
+                {editId && materials.find((m) => m.id === editId)?.supplierMaterialCode ? (
+                    <FormItem label="Supplier material code">
+                        <Input
+                            value={materials.find((m) => m.id === editId)?.supplierMaterialCode ?? ''}
+                            disabled
+                            readOnly
+                            className="font-mono text-sm"
+                        />
+                    </FormItem>
+                ) : (
+                    <p className="mb-2 text-xs text-gray-500">
+                        Supplier material code is generated automatically when you save.
+                    </p>
+                )}
                 <FormItem label="Lead Time (days)">
                     <Input type="number" placeholder="e.g. 7" value={form.leadTimeDays} onChange={(e) => setForm((p: any) => ({ ...p, leadTimeDays: e.target.value }))} />
                 </FormItem>

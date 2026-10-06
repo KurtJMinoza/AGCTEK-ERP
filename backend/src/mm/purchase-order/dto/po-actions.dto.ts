@@ -9,28 +9,6 @@ import {
 } from 'class-validator'
 import { Type } from 'class-transformer'
 
-export class CreatePoFromAwardDto {
-    @IsString()
-    @IsNotEmpty()
-    awardId!: string
-
-    @IsOptional()
-    @IsString()
-    buyerId?: string
-
-    @IsOptional()
-    @IsString()
-    warehouseId?: string
-
-    @IsOptional()
-    @IsString()
-    branchId?: string
-
-    @IsOptional()
-    @IsString()
-    createdBy?: string
-}
-
 class FromPrLineDto {
     @IsString()
     @IsNotEmpty()
@@ -47,9 +25,9 @@ export class CreatePoFromPrDto {
     @IsNotEmpty()
     purchaseRequisitionId!: string
 
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    supplierId!: string
+    supplierId?: string
 
     @IsString()
     @IsNotEmpty()

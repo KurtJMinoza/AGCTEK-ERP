@@ -236,42 +236,30 @@ export function useLazyBinsForWarehouse() {
     return { loadForWarehouse, rows, loading }
 }
 
-/** Org plants/branches for warehouse/branch forms. */
+/** Org branches for warehouse forms. */
 export function useLazyOrgRefs() {
-    const cache = useRef<{ plants?: MmOpt[]; branches?: MmOpt[] }>({})
-    const [plants, setPlants] = useState<MmOpt[]>([])
+    const cache = useRef<{ branches?: MmOpt[] }>({})
     const [branches, setBranches] = useState<MmOpt[]>([])
     const [loading, setLoading] = useState(false)
 
-    const ensure = useCallback(async (...keys: Array<'plants' | 'branches'>) => {
+    const ensure = useCallback(async (...keys: Array<'branches'>) => {
         const missing = keys.filter((k) => !cache.current[k]?.length)
         if (!missing.length) return cache.current
         setLoading(true)
         try {
-            await Promise.all(
-                missing.map(async (key) => {
-                    if (key === 'plants') {
-                        const list = await orgService.plants({ activeOnly: true })
-                        cache.current.plants = list.map((p) => ({
-                            value: p.id,
-                            label: p.name || p.code,
-                        }))
-                        setPlants(cache.current.plants)
-                    } else {
-                        const list = await orgService.branches({ activeOnly: true })
-                        cache.current.branches = list.map((b) => ({
-                            value: b.id,
-                            label: b.name || b.code,
-                        }))
-                        setBranches(cache.current.branches)
-                    }
-                }),
-            )
+            if (missing.includes('branches')) {
+                const list = await orgService.branches({ activeOnly: true })
+                cache.current.branches = list.map((b) => ({
+                    value: b.id,
+                    label: b.name || b.code,
+                }))
+                setBranches(cache.current.branches)
+            }
         } finally {
             setLoading(false)
         }
         return cache.current
     }, [])
 
-    return { ensure, plants, branches, loading }
+    return { ensure, branches, loading }
 }

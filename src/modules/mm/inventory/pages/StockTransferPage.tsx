@@ -40,7 +40,199 @@ import type { BinTransfer, BinTransferLine, WarehouseTransferOrder, WtoLine, Sto
 import type { Warehouse, StorageBin } from '../../warehouse/types'
 import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import classNames from '@/utils/classNames'
 import InfoCard from '../../shared/InfoCard'
+
+type StatusFilterOption = { value: string; label: string }
+
+function TransferListToolbar({
+    search,
+    onSearchChange,
+    statusTab,
+    onStatusChange,
+    statusOptions,
+    createLabel,
+    onCreate,
+}: {
+    search: string
+    onSearchChange: (value: string) => void
+    statusTab: string
+    onStatusChange: (value: string) => void
+    statusOptions: StatusFilterOption[]
+    createLabel: string
+    onCreate: () => void
+}) {
+    return (
+        <div className="mb-4 space-y-3 border-b border-gray-200 pb-4 dark:border-gray-600">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Input
+                    prefix={<HiOutlineSearch className="text-lg" />}
+                    placeholder="Search document #, warehouse…"
+                    value={search}
+                    onChange={(e: { target: { value: string } }) => onSearchChange(e.target.value)}
+                    className="w-full min-w-0 sm:flex-1"
+                />
+                <Button
+                    variant="solid"
+                    size="sm"
+                    icon={<HiOutlinePlus />}
+                    className="w-full shrink-0 sm:w-auto"
+                    onClick={onCreate}
+                >
+                    {createLabel}
+                </Button>
+            </div>
+            <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
+                <div
+                    className="inline-flex min-w-full gap-1 rounded-lg bg-gray-100 p-1 sm:min-w-0 dark:bg-gray-800/70"
+                    role="tablist"
+                    aria-label="Filter by status"
+                >
+                    {statusOptions.map((t) => {
+                        const selected = statusTab === t.value
+                        return (
+                            <button
+                                key={t.value || 'all'}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                className={classNames(
+                                    'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                                    selected
+                                        ? 'bg-white text-primary shadow-sm dark:bg-gray-900 dark:text-primary'
+                                        : 'text-gray-600 hover:bg-white/60 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900/40 dark:hover:text-gray-100',
+                                )}
+                                onClick={() => onStatusChange(t.value)}
+                            >
+                                {t.label}
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+const BIN_STATUS_FILTERS: StatusFilterOption[] = [
+    { value: '', label: 'All' },
+    { value: 'DRAFT', label: 'Draft' },
+    { value: 'POSTED', label: 'Posted' },
+    { value: 'CANCELLED', label: 'Cancelled' },
+]
+
+const WTO_STATUS_FILTERS: StatusFilterOption[] = [
+    { value: '', label: 'All' },
+    { value: 'DRAFT', label: 'Request' },
+    { value: 'APPROVED', label: 'Approved' },
+    { value: 'PICKED', label: 'Picked' },
+    { value: 'IN_TRANSIT', label: 'In Transit' },
+    { value: 'COMPLETED', label: 'Closed' },
+]
+
+function BinTransferLineEditor({
+    line,
+    idx,
+    materialOpts,
+    binOpts,
+    onChange,
+    onRemove,
+}: {
+    line: { materialId: string; quantity: number; sourceBinId: string; destinationBinId: string }
+    idx: number
+    materialOpts: { value: string; label: string }[]
+    binOpts: { value: string; label: string }[]
+    onChange: (patch: Partial<{ materialId: string; quantity: number; sourceBinId: string; destinationBinId: string }>) => void
+    onRemove: () => void
+}) {
+    return (
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-600">
+            <div className="mb-2 flex items-center justify-between sm:hidden">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Line {idx + 1}</span>
+                <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={onRemove} aria-label={`Remove line ${idx + 1}`} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 sm:grid-cols-12 sm:items-end">
+                <FormItem label="Material" className="min-[520px]:col-span-2 sm:col-span-4">
+                    <Select
+                        options={materialOpts}
+                        value={materialOpts.find((o) => o.value === line.materialId) ?? null}
+                        onChange={(opt: { value?: string } | null) => onChange({ materialId: opt?.value ?? '' })}
+                    />
+                </FormItem>
+                <FormItem label="From bin" className="sm:col-span-2">
+                    <Select
+                        options={binOpts}
+                        value={binOpts.find((o) => o.value === line.sourceBinId) ?? null}
+                        onChange={(opt: { value?: string } | null) => onChange({ sourceBinId: opt?.value ?? '' })}
+                    />
+                </FormItem>
+                <FormItem label="To bin" className="sm:col-span-2">
+                    <Select
+                        options={binOpts}
+                        value={binOpts.find((o) => o.value === line.destinationBinId) ?? null}
+                        onChange={(opt: { value?: string } | null) => onChange({ destinationBinId: opt?.value ?? '' })}
+                    />
+                </FormItem>
+                <FormItem label="Qty" className="sm:col-span-2">
+                    <Input
+                        type="number"
+                        className="w-full min-w-0"
+                        min={1}
+                        value={line.quantity}
+                        onChange={(e: { target: { value: string } }) => onChange({ quantity: Number(e.target.value) || 1 })}
+                    />
+                </FormItem>
+                <div className="hidden sm:flex sm:col-span-2 sm:items-end sm:justify-end sm:pb-1">
+                    <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={onRemove} aria-label={`Remove line ${idx + 1}`} />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function WhTransferLineEditor({
+    line,
+    idx,
+    materialOpts,
+    onChange,
+    onRemove,
+}: {
+    line: { materialId: string; quantity: number }
+    idx: number
+    materialOpts: { value: string; label: string }[]
+    onChange: (patch: Partial<{ materialId: string; quantity: number }>) => void
+    onRemove: () => void
+}) {
+    return (
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-600">
+            <div className="mb-2 flex items-center justify-between sm:hidden">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Line {idx + 1}</span>
+                <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={onRemove} aria-label={`Remove line ${idx + 1}`} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 sm:items-end">
+                <FormItem label="Material" className="sm:col-span-9">
+                    <Select
+                        options={materialOpts}
+                        value={materialOpts.find((o) => o.value === line.materialId) ?? null}
+                        onChange={(opt: { value?: string } | null) => onChange({ materialId: opt?.value ?? '' })}
+                    />
+                </FormItem>
+                <FormItem label="Qty" className="sm:col-span-2">
+                    <Input
+                        type="number"
+                        className="w-full min-w-0"
+                        min={1}
+                        value={line.quantity}
+                        onChange={(e: { target: { value: string } }) => onChange({ quantity: Number(e.target.value) || 1 })}
+                    />
+                </FormItem>
+                <div className="hidden sm:flex sm:col-span-1 sm:items-end sm:justify-end sm:pb-1">
+                    <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={onRemove} aria-label={`Remove line ${idx + 1}`} />
+                </div>
+            </div>
+        </div>
+    )
+}
 
 const ROUTE = '/modules/mm/inventory-management/stock-transfers'
 
@@ -203,20 +395,19 @@ function BinTransferTab() {
 
     return (
         <>
-            <div className="flex flex-wrap items-center gap-4 mb-4">
-                <Input prefix={<HiOutlineSearch />} placeholder="Search..." value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(1) }} className="max-w-xs" />
-                <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New Bin Transfer</Button>
+            <TransferListToolbar
+                search={search}
+                onSearchChange={(v) => { setSearch(v); setPage(1) }}
+                statusTab={statusTab}
+                onStatusChange={(v) => { setStatusTab(v); setPage(1) }}
+                statusOptions={BIN_STATUS_FILTERS}
+                createLabel="New Bin Transfer"
+                onCreate={openCreate}
+            />
+
+            <div className="overflow-x-auto">
+                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
             </div>
-
-            <Tabs value={statusTab} onChange={(val) => { setStatusTab(val as string); setPage(1) }}>
-                <Tabs.TabList>
-                    {[{ value: '', label: 'All' }, { value: 'DRAFT', label: 'Draft' }, { value: 'POSTED', label: 'Posted' }, { value: 'CANCELLED', label: 'Cancelled' }].map((t) => (
-                        <Tabs.TabNav key={t.value} value={t.value}>{t.label}</Tabs.TabNav>
-                    ))}
-                </Tabs.TabList>
-            </Tabs>
-
-            <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
 
             <FormDialog
                 isOpen={createOpen}
@@ -224,6 +415,7 @@ function BinTransferTab() {
                 size="lg"
                 title="New Bin Transfer"
                 icon={<HiOutlineSwitchHorizontal />}
+                bodyClassName="overflow-x-hidden"
                 footer={
                     <>
                         <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -235,17 +427,29 @@ function BinTransferTab() {
                     <FormItem label="Warehouse"><Select options={warehouseOpts} value={warehouseOpts.find((o) => o.value === createForm.warehouseId)} onChange={(opt: any) => setCreateForm((p) => ({ ...p, warehouseId: opt?.value ?? '' }))} /></FormItem>
                     <FormItem label="Posting Date"><Input type="date" value={createForm.postingDate} onChange={(e: any) => setCreateForm((p) => ({ ...p, postingDate: e.target.value }))} /></FormItem>
                 </div>
-                <h6 className="mt-4 mb-2">Lines</h6>
-                {createLines.map((line, idx) => (
-                    <div key={idx} className="flex items-end gap-2 mb-2">
-                        <FormItem label="Material" className="flex-1"><Select options={materialOpts} value={materialOpts.find((o) => o.value === line.materialId)} onChange={(opt: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, materialId: opt?.value ?? '' } : l))} /></FormItem>
-                        <FormItem label="From Bin" className="w-32"><Select options={binOpts} value={binOpts.find((o) => o.value === line.sourceBinId)} onChange={(opt: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, sourceBinId: opt?.value ?? '' } : l))} /></FormItem>
-                        <FormItem label="To Bin" className="w-32"><Select options={binOpts} value={binOpts.find((o) => o.value === line.destinationBinId)} onChange={(opt: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, destinationBinId: opt?.value ?? '' } : l))} /></FormItem>
-                        <FormItem label="Qty" className="w-20"><Input type="number" value={line.quantity} onChange={(e: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, quantity: Number(e.target.value) } : l))} /></FormItem>
-                        <Button size="xs" variant="plain" onClick={() => setCreateLines((p) => p.filter((_, i) => i !== idx))}><HiOutlineTrash /></Button>
-                    </div>
-                ))}
-                <Button size="sm" variant="plain" onClick={() => setCreateLines((p) => [...p, { materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' }])}>+ Add Line</Button>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                    <h6 className="text-sm font-semibold heading-text">Lines</h6>
+                    <Button
+                        size="xs"
+                        icon={<HiOutlinePlus />}
+                        onClick={() => setCreateLines((p) => [...p, { materialId: '', quantity: 1, sourceBinId: '', destinationBinId: '' }])}
+                    >
+                        Add line
+                    </Button>
+                </div>
+                <div className="mt-3 max-h-72 space-y-3 overflow-y-auto overflow-x-hidden">
+                    {createLines.map((line, idx) => (
+                        <BinTransferLineEditor
+                            key={idx}
+                            line={line}
+                            idx={idx}
+                            materialOpts={materialOpts}
+                            binOpts={binOpts}
+                            onChange={(patch) => setCreateLines((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l)))}
+                            onRemove={() => setCreateLines((p) => p.filter((_, i) => i !== idx))}
+                        />
+                    ))}
+                </div>
             </FormDialog>
 
             <FormDialog
@@ -441,20 +645,19 @@ function WarehouseTransferTab() {
 
     return (
         <>
-            <div className="flex flex-wrap items-center gap-4 mb-4">
-                <Input prefix={<HiOutlineSearch />} placeholder="Search..." value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(1) }} className="max-w-xs" />
-                <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New WH Transfer</Button>
+            <TransferListToolbar
+                search={search}
+                onSearchChange={(v) => { setSearch(v); setPage(1) }}
+                statusTab={statusTab}
+                onStatusChange={(v) => { setStatusTab(v); setPage(1) }}
+                statusOptions={WTO_STATUS_FILTERS}
+                createLabel="New WH Transfer"
+                onCreate={openCreate}
+            />
+
+            <div className="overflow-x-auto">
+                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
             </div>
-
-            <Tabs value={statusTab} onChange={(val) => { setStatusTab(val as string); setPage(1) }}>
-                <Tabs.TabList>
-                    {[{ value: '', label: 'All' }, { value: 'DRAFT', label: 'Request' }, { value: 'APPROVED', label: 'Approved' }, { value: 'PICKED', label: 'Picked' }, { value: 'IN_TRANSIT', label: 'In Transit' }, { value: 'COMPLETED', label: 'Closed' }].map((t) => (
-                        <Tabs.TabNav key={t.value || 'all'} value={t.value}>{t.label}</Tabs.TabNav>
-                    ))}
-                </Tabs.TabList>
-            </Tabs>
-
-            <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
 
             <FormDialog
                 isOpen={createOpen}
@@ -462,6 +665,7 @@ function WarehouseTransferTab() {
                 size="lg"
                 title="New Warehouse Transfer Order"
                 icon={<HiOutlineTruck />}
+                bodyClassName="overflow-x-hidden"
                 footer={
                     <>
                         <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -474,15 +678,24 @@ function WarehouseTransferTab() {
                     <FormItem label="Destination Warehouse"><Select options={warehouseOpts} value={warehouseOpts.find((o) => o.value === createForm.destinationWarehouseId)} onChange={(opt: any) => setCreateForm((p) => ({ ...p, destinationWarehouseId: opt?.value ?? '' }))} /></FormItem>
                     <FormItem label="Posting Date"><Input type="date" value={createForm.postingDate} onChange={(e: any) => setCreateForm((p) => ({ ...p, postingDate: e.target.value }))} /></FormItem>
                 </div>
-                <h6 className="mt-4 mb-2">Lines</h6>
-                {createLines.map((line, idx) => (
-                    <div key={idx} className="flex items-end gap-2 mb-2">
-                        <FormItem label="Material" className="flex-1"><Select options={materialOpts} value={materialOpts.find((o) => o.value === line.materialId)} onChange={(opt: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, materialId: opt?.value ?? '' } : l))} /></FormItem>
-                        <FormItem label="Qty" className="w-24"><Input type="number" value={line.quantity} onChange={(e: any) => setCreateLines((p) => p.map((l, i) => i === idx ? { ...l, quantity: Number(e.target.value) } : l))} /></FormItem>
-                        <Button size="xs" variant="plain" onClick={() => setCreateLines((p) => p.filter((_, i) => i !== idx))}><HiOutlineTrash /></Button>
-                    </div>
-                ))}
-                <Button size="sm" variant="plain" onClick={() => setCreateLines((p) => [...p, { materialId: '', quantity: 1 }])}>+ Add Line</Button>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                    <h6 className="text-sm font-semibold heading-text">Lines</h6>
+                    <Button size="xs" icon={<HiOutlinePlus />} onClick={() => setCreateLines((p) => [...p, { materialId: '', quantity: 1 }])}>
+                        Add line
+                    </Button>
+                </div>
+                <div className="mt-3 max-h-72 space-y-3 overflow-y-auto overflow-x-hidden">
+                    {createLines.map((line, idx) => (
+                        <WhTransferLineEditor
+                            key={idx}
+                            line={line}
+                            idx={idx}
+                            materialOpts={materialOpts}
+                            onChange={(patch) => setCreateLines((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l)))}
+                            onRemove={() => setCreateLines((p) => p.filter((_, i) => i !== idx))}
+                        />
+                    ))}
+                </div>
             </FormDialog>
 
             <FormDialog
@@ -547,14 +760,18 @@ const StockTransferPage = () => {
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader title="Stock Transfers" description="Request → Approve → Pick → Dispatch (in transit) → Receive → Close. Same ledger as warehouse transfers." />
-            <AdaptiveCard>
+            <AdaptiveCard className="!p-0 sm:!p-5">
                 <Tabs value={tab} onChange={(val) => setTab(val as string)}>
-                    <Tabs.TabList>
+                    <Tabs.TabList className="border-b border-gray-200 px-4 pt-4 dark:border-gray-600 sm:px-0 sm:pt-0">
                         <Tabs.TabNav value="bin">Bin Transfer</Tabs.TabNav>
                         <Tabs.TabNav value="warehouse">Warehouse Transfer</Tabs.TabNav>
                     </Tabs.TabList>
-                    <Tabs.TabContent value="bin"><BinTransferTab /></Tabs.TabContent>
-                    <Tabs.TabContent value="warehouse"><WarehouseTransferTab /></Tabs.TabContent>
+                    <Tabs.TabContent value="bin" className="px-4 pb-4 pt-4 sm:px-0 sm:pb-0">
+                        <BinTransferTab />
+                    </Tabs.TabContent>
+                    <Tabs.TabContent value="warehouse" className="px-4 pb-4 pt-4 sm:px-0 sm:pb-0">
+                        <WarehouseTransferTab />
+                    </Tabs.TabContent>
                 </Tabs>
             </AdaptiveCard>
         </PageContainer>

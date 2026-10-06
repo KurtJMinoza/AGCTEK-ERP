@@ -23,6 +23,7 @@ import type { MmBatch } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
+import { formatCalendarDate } from '@/modules/mm/shared/calendarDate'
 
 const ROUTE = '/modules/mm/material-master/batches'
 const STATUS_OPTS = [
@@ -43,7 +44,6 @@ const BatchesPage = () => {
     const [addOpen, setAddOpen] = useState(false)
     const [deleting, setDeleting] = useState<MmBatch | null>(null)
     const [materialId, setMaterialId] = useState('')
-    const [batchNumber, setBatchNumber] = useState('')
     const [manufacturingDate, setManufacturingDate] = useState('')
     const [expiryDate, setExpiryDate] = useState('')
     const [supplierId, setSupplierId] = useState('')
@@ -54,13 +54,13 @@ const BatchesPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen })
+    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen, batchManaged: true })
     const { options: supplierOpts } = useSupplierOptions({ enabled: addOpen })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
         materialId: required(materialId, 'Material'),
-        batchNumber: required(batchNumber, 'Batch number'),
-    }), [materialId, batchNumber])
+        supplierId: required(supplierId, 'Supplier'),
+    }), [materialId, supplierId])
     const err = (key: string) => visibleError(fieldErrors, touched, key, forceValidate)
 
     const load = useCallback(async () => {
@@ -72,26 +72,25 @@ const BatchesPage = () => {
     useEffect(() => { load() }, [load])
 
     const resetForm = () => {
-        setBatchNumber(''); setMaterialId(''); setManufacturingDate(''); setExpiryDate('')
+        setMaterialId(''); setManufacturingDate(''); setExpiryDate('')
         setSupplierId(''); setStatus('AVAILABLE'); setTouched({}); setForceValidate(false)
     }
 
     const handleAdd = async () => {
         setForceValidate(true)
-        if (fieldErrors.materialId || fieldErrors.batchNumber) {
+        if (fieldErrors.materialId || fieldErrors.supplierId) {
             pushToast('danger', 'Validation', 'Fix the highlighted fields before saving.')
             return
         }
         try {
-            await batchService.create({
+            const created = await batchService.create({
                 materialId,
-                batchNumber,
                 manufacturingDate: manufacturingDate || undefined,
                 expiryDate: expiryDate || undefined,
                 supplierId: supplierId || undefined,
                 status,
             })
-            pushToast('success', 'Created', `Batch ${batchNumber} created.`)
+            pushToast('success', 'Created', `Batch ${created.batchNumber} created.`)
             setAddOpen(false); resetForm(); load()
         } catch (e: any) { pushToast('danger', 'Error', e?.response?.data?.message || 'Failed') }
     }
@@ -123,8 +122,8 @@ const BatchesPage = () => {
         { header: 'Batch #', accessorKey: 'batchNumber', size: 140 },
         { header: 'Supplier', id: 'supplier', size: 160, cell: ({ row }: any) => row.original.supplier ? `${row.original.supplier.supplierCode}` : '—' },
         { header: 'Status', accessorKey: 'status', size: 120, cell: ({ row }: any) => <Tag>{row.original.status}</Tag> },
-        { header: 'Mfg date', accessorKey: 'manufacturingDate', size: 120, cell: ({ row }: any) => row.original.manufacturingDate ? new Date(row.original.manufacturingDate).toLocaleDateString() : '—' },
-        { header: 'Expiry', accessorKey: 'expiryDate', size: 120, cell: ({ row }: any) => row.original.expiryDate ? new Date(row.original.expiryDate).toLocaleDateString() : '—' },
+        { header: 'Mfg date', accessorKey: 'manufacturingDate', size: 120, cell: ({ row }: any) => formatCalendarDate(row.original.manufacturingDate) },
+        { header: 'Expiry', accessorKey: 'expiryDate', size: 120, cell: ({ row }: any) => formatCalendarDate(row.original.expiryDate) },
         {
             id: 'actions', header: '', size: 56, enableSorting: false, cell: ({ row }: any) => (
                 <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
@@ -168,12 +167,12 @@ const BatchesPage = () => {
                 <FormItem label="Material" asterisk invalid={Boolean(err('materialId'))} errorMessage={err('materialId')}>
                     <Select isSearchable placeholder="Search material…" options={materialOpts} value={materialOpts.find((o) => o.value === materialId) ?? null} onChange={(opt: any) => { setMaterialId(opt?.value ?? ''); setTouched((t) => ({ ...t, materialId: true })) }} />
                 </FormItem>
-                <FormItem label="Batch number" asterisk invalid={Boolean(err('batchNumber'))} errorMessage={err('batchNumber')}>
-                    <Input value={batchNumber} onChange={(e) => { setBatchNumber(e.target.value); setTouched((t) => ({ ...t, batchNumber: true })) }} placeholder="e.g. BATCH-001" />
+                <FormItem label="Supplier" asterisk invalid={Boolean(err('supplierId'))} errorMessage={err('supplierId')}>
+                    <Select isSearchable placeholder="Search supplier…" options={supplierOpts} value={supplierOpts.find((o) => o.value === supplierId) ?? null} onChange={(opt: any) => { setSupplierId(opt?.value ?? ''); setTouched((t) => ({ ...t, supplierId: true })) }} />
                 </FormItem>
-                <FormItem label="Supplier">
-                    <Select isClearable isSearchable placeholder="Optional supplier…" options={supplierOpts} value={supplierOpts.find((o) => o.value === supplierId) ?? null} onChange={(opt: any) => setSupplierId(opt?.value ?? '')} />
-                </FormItem>
+                <p className="mb-3 text-xs text-gray-500">
+                    Batch number is generated automatically when you save (supplier code + sequence, e.g. SUP-0001).
+                </p>
                 <FormItem label="Manufacture date">
                     <Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} />
                 </FormItem>

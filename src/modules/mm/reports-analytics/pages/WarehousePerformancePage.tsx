@@ -14,7 +14,7 @@ const WarehousePerformancePage = () => (
     <AnalyticsReportPage
         route="/modules/mm/reports-analytics/warehouse-performance"
         title="Warehouse Performance"
-        description="Receiving, putaway, picking, packing, transfers, and bin utilization"
+        description="Receiving, picking, packing, transfers, and bin utilization"
         reportEndpoint="warehouse-performance"
         showDateRange
         render={(data) => (
@@ -23,21 +23,15 @@ const WarehousePerformancePage = () => (
                     <Stat label="GR documents" value={data?.receiving?.documentCount ?? 0} />
                     <Stat label="Qty received" value={Number(data?.receiving?.quantityReceived ?? 0).toLocaleString()} />
                     <Stat
-                        label="Putaway completion"
-                        value={`${((data?.putaway?.completionRate ?? 0) * 100).toFixed(1)}%`}
+                        label="Picking completion"
+                        value={`${((data?.picking?.completionRate ?? 0) * 100).toFixed(1)}%`}
                     />
                     <Stat
                         label="Bin utilization"
                         value={`${data?.binUtilization?.utilizationPct ?? 0}%`}
                     />
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                    <AdaptiveCard className="p-4">
-                        <h6 className="mb-2 font-semibold">Putaway</h6>
-                        <p className="text-sm">Open: {data?.putaway?.open ?? 0}</p>
-                        <p className="text-sm">Completed: {data?.putaway?.completed ?? 0}</p>
-                        <p className="text-sm">Avg hours: {data?.putaway?.avgCompletionHours ?? 0}</p>
-                    </AdaptiveCard>
+                <div className="grid gap-4 md:grid-cols-2">
                     <AdaptiveCard className="p-4">
                         <h6 className="mb-2 font-semibold">Picking</h6>
                         <p className="text-sm">Open: {data?.picking?.open ?? 0}</p>

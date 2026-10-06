@@ -1,6 +1,5 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { WarehouseTaskService } from '../warehouse/tasks/warehouse-task.service'
 import { Decimal } from '@prisma/client/runtime/library'
 
@@ -8,8 +7,6 @@ import { Decimal } from '@prisma/client/runtime/library'
 export class StockTransferWarehouseBridgeService {
     constructor(
         private prisma: PrismaService,
-        @Inject(forwardRef(() => PutawayService))
-        private putaway: PutawayService,
         @Inject(forwardRef(() => WarehouseTaskService))
         private warehouseTasks: WarehouseTaskService,
     ) {}
@@ -52,26 +49,5 @@ export class StockTransferWarehouseBridgeService {
             })
         }
         return tasks
-    }
-
-    async createPutawayFromReceipt(input: {
-        companyId: string
-        warehouseId: string
-        materialId: string
-        quantity: number
-        batchId?: string
-        serialId?: string
-        uomId?: string
-        sourceDocument?: string
-    }) {
-        return this.putaway.createFromEvent({
-            companyId: input.companyId,
-            warehouseId: input.warehouseId,
-            materialId: input.materialId,
-            quantity: input.quantity,
-            stockStatus: 'UNRESTRICTED',
-            goodsReceiptLineId: undefined,
-            sourceBinId: undefined,
-        })
     }
 }

@@ -7,15 +7,16 @@ import {
     Post,
     Put,
     Query,
+    Req,
 } from '@nestjs/common'
+import type { FastifyRequest } from 'fastify'
 import {
     CreateBranchDto,
     CreateCompanyDto,
-    CreatePlantDto,
     UpdateBranchDto,
     UpdateCompanyDto,
-    UpdatePlantDto,
 } from './org.dto'
+import { readCompanyPayload } from './org-company-payload'
 import { OrgService } from './org.service'
 
 @Controller('mm/org')
@@ -28,16 +29,18 @@ export class OrgController {
     }
 
     @Post('companies')
-    createCompany(@Body() body: CreateCompanyDto) {
-        return this.service.createCompany(body)
+    async createCompany(@Req() req: FastifyRequest) {
+        const { dto, logo } = await readCompanyPayload(req, CreateCompanyDto)
+        return this.service.createCompany(dto, logo)
     }
 
     @Put('companies/:id')
-    updateCompany(
+    async updateCompany(
         @Param('id') id: string,
-        @Body() body: UpdateCompanyDto,
+        @Req() req: FastifyRequest,
     ) {
-        return this.service.updateCompany(id, body)
+        const { dto, logo } = await readCompanyPayload(req, UpdateCompanyDto)
+        return this.service.updateCompany(id, dto, logo)
     }
 
     @Delete('companies/:id')
@@ -50,39 +53,12 @@ export class OrgController {
         return this.service.findAllWarehouses(companyId)
     }
 
-    @Get('plants')
-    plants(
-        @Query('companyId') companyId?: string,
-        @Query('activeOnly') activeOnly?: string,
-    ) {
-        return this.service.findAllPlants(companyId, activeOnly === 'true')
-    }
-
-    @Post('plants')
-    createPlant(@Body() body: CreatePlantDto) {
-        return this.service.createPlant(body)
-    }
-
-    @Put('plants/:id')
-    updatePlant(
-        @Param('id') id: string,
-        @Body() body: UpdatePlantDto,
-    ) {
-        return this.service.updatePlant(id, body)
-    }
-
-    @Delete('plants/:id')
-    deletePlant(@Param('id') id: string) {
-        return this.service.deletePlant(id)
-    }
-
     @Get('branches')
     branches(
         @Query('companyId') companyId?: string,
-        @Query('plantId') plantId?: string,
         @Query('activeOnly') activeOnly?: string,
     ) {
-        return this.service.findAllBranches(companyId, plantId, activeOnly === 'true')
+        return this.service.findAllBranches(companyId, activeOnly === 'true')
     }
 
     @Post('branches')

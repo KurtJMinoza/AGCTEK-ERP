@@ -35,8 +35,8 @@ import {
 } from 'react-icons/hi'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { defaultMaterialUomId } from '@/modules/mm/shared/uomHelpers'
 import type { PurchaseRequisition, PrListResponse } from '../types'
-import { prTotalAmount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
@@ -160,6 +160,11 @@ const PurchaseRequisitionListPage = () => {
     }, [page, pageSize, search, statusFilter])
 
     useEffect(() => { fetchData() }, [fetchData])
+
+    useEffect(() => {
+        if (!formOpen || wizardStep !== 1) return
+        void ensureFormRefs('warehouses', 'suppliers', 'materials', 'uoms')
+    }, [formOpen, wizardStep, ensureFormRefs])
 
     const openCreate = useCallback(async () => {
         const refs = await ensureFormRefs(
@@ -331,16 +336,6 @@ const PurchaseRequisitionListPage = () => {
             ),
         },
         {
-            header: 'Amount',
-            id: 'amount',
-            size: 110,
-            cell: ({ row }) => (
-                <span className="text-sm font-semibold">
-                    {prTotalAmount(row.original).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-            ),
-        },
-        {
             header: 'Status',
             accessorKey: 'status',
             size: 140,
@@ -349,16 +344,6 @@ const PurchaseRequisitionListPage = () => {
                     {row.original.status.replace(/_/g, ' ')}
                 </StatusBadge>
             ),
-        },
-        {
-            header: 'Approval',
-            id: 'approval',
-            size: 110,
-            cell: ({ row }) => {
-                const s = row.original.status
-                const label = s === 'PENDING_APPROVAL' ? 'Pending' : s === 'APPROVED' || s === 'PARTIALLY_CONVERTED' || s === 'FULLY_CONVERTED' ? 'Approved' : s === 'REJECTED' ? 'Rejected' : s === 'RETURNED' ? 'Returned' : '—'
-                return <span className="text-xs text-gray-500">{label}</span>
-            },
         },
         {
             id: 'actions',
@@ -549,6 +534,9 @@ const PurchaseRequisitionListPage = () => {
 
                     {wizardStep === 1 && (
                         <div className="space-y-4">
+                            <p className="text-xs text-gray-500">
+                                Warehouse and preferred supplier are optional on each line. Leave blank if not decided yet; you can set them when converting to a PO.
+                            </p>
                             <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Line Items</p>
                                 <Button size="xs" icon={<HiOutlinePlus />} onClick={() => setLines((p) => [...p, emptyLine()])}>
@@ -571,7 +559,15 @@ const PurchaseRequisitionListPage = () => {
                                                 <Select<FilterOption>
                                                     options={materials}
                                                     value={materials.find((m) => m.value === line.materialId) ?? null}
-                                                    onChange={(opt) => updateLine(line.key, { materialId: opt?.value ?? '' })}
+                                                    onChange={(opt) => {
+                                                        const uomId = defaultMaterialUomId(
+                                                            opt?.meta as Record<string, unknown> | undefined,
+                                                        )
+                                                        updateLine(line.key, {
+                                                            materialId: opt?.value ?? '',
+                                                            ...(uomId ? { uomId } : {}),
+                                                        })
+                                                    }}
                                                 />
                                             </FormItem>
                                             <FormItem label="UOM" asterisk invalid={Boolean(lnErr(line.key, 'uomId', le))} errorMessage={lnErr(line.key, 'uomId', le)}>
@@ -592,19 +588,25 @@ const PurchaseRequisitionListPage = () => {
                                             </FormItem>
                                             <FormItem label="Warehouse">
                                                 <Select<FilterOption>
+                                                    isClearable
+                                                    isSearchable
+                                                    placeholder="Receiving warehouse (optional)"
                                                     options={warehouses}
                                                     value={warehouses.find((w) => w.value === line.warehouseId) ?? null}
                                                     onChange={(opt) => updateLine(line.key, { warehouseId: opt?.value ?? '' })}
-                                                    isClearable
                                                 />
+                                                <p className="mt-1 text-xs text-gray-500">Optional — leave blank if not decided yet.</p>
                                             </FormItem>
-                                            <FormItem label="Preferred Supplier">
+                                            <FormItem label="Preferred supplier">
                                                 <Select<FilterOption>
+                                                    isClearable
+                                                    isSearchable
+                                                    placeholder="Supplier hint (optional)"
                                                     options={suppliers}
                                                     value={suppliers.find((s) => s.value === line.preferredSupplierId) ?? null}
                                                     onChange={(opt) => updateLine(line.key, { preferredSupplierId: opt?.value ?? '' })}
-                                                    isClearable
                                                 />
+                                                <p className="mt-1 text-xs text-gray-500">Optional — not a commitment; set supplier on the PO.</p>
                                             </FormItem>
                                             <FormItem label="Line Required Date">
                                                 <Input type="date" value={line.requiredDate} onChange={(e) => updateLine(line.key, { requiredDate: e.target.value })} />
@@ -635,13 +637,25 @@ const PurchaseRequisitionListPage = () => {
                                 <ReviewSection title="Lines" last>
                                     <ReviewRow label="Line count" value={String(lines.length)} />
                                     <ReviewRow label="Est. total" value={reviewTotal.toFixed(2)} />
-                                    {lines.map((l, i) => (
-                                        <ReviewRow
-                                            key={l.key}
-                                            label={`Line ${i + 1}`}
-                                            value={`${materials.find((m) => m.value === l.materialId)?.label ?? l.materialId} × ${l.requestedQuantity}`}
-                                        />
-                                    ))}
+                                    {lines.map((l, i) => {
+                                        const wh = l.warehouseId
+                                            ? warehouses.find((w) => w.value === l.warehouseId)?.label
+                                            : null
+                                        const sup = l.preferredSupplierId
+                                            ? suppliers.find((s) => s.value === l.preferredSupplierId)?.label
+                                            : null
+                                        const extras = [
+                                            wh ? `Warehouse: ${wh}` : null,
+                                            sup ? `Supplier: ${sup}` : null,
+                                        ].filter(Boolean).join(' · ')
+                                        return (
+                                            <ReviewRow
+                                                key={l.key}
+                                                label={`Line ${i + 1}`}
+                                                value={`${materials.find((m) => m.value === l.materialId)?.label ?? l.materialId} × ${l.requestedQuantity}${extras ? ` (${extras})` : ''}`}
+                                            />
+                                        )
+                                    })}
                                 </ReviewSection>
                             </div>
                         </div>

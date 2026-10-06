@@ -1,5 +1,7 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { formatTrackingNumber } from '../common/tracking-number.format'
+import { generateSerialNumber } from './serial-number.util'
 
 @Injectable()
 export class SerialNumbersService {
@@ -36,7 +38,6 @@ export class SerialNumbersService {
 
     async create(data: {
         materialId: string
-        serialNumber: string
         batchId?: string
         currentWarehouseId?: string
         currentBinId?: string
@@ -50,22 +51,30 @@ export class SerialNumbersService {
             throw new BadRequestException('Material is not serial-managed')
         }
 
-        const exists = await this.prisma.mmSerialNumber.findFirst({
-            where: { materialId: data.materialId, serialNumber: data.serialNumber, deletedAt: null },
-        })
-        if (exists) throw new ConflictException('Serial number already exists for this material')
-
+        let supplierId: string | null = null
         if (data.batchId) {
             const batch = await this.prisma.mmBatch.findFirst({
                 where: { id: data.batchId, materialId: data.materialId, deletedAt: null },
             })
             if (!batch) throw new BadRequestException('Batch not found for this material')
+            supplierId = batch.supplierId
         }
+
+        const serialNumber = await generateSerialNumber(
+            this.prisma,
+            data.materialId,
+            supplierId,
+        )
+
+        const exists = await this.prisma.mmSerialNumber.findFirst({
+            where: { materialId: data.materialId, serialNumber, deletedAt: null },
+        })
+        if (exists) throw new ConflictException('Serial number already exists for this material')
 
         return this.prisma.mmSerialNumber.create({
             data: {
                 materialId: data.materialId,
-                serialNumber: data.serialNumber,
+                serialNumber,
                 batchId: data.batchId || null,
                 currentWarehouseId: data.currentWarehouseId || null,
                 currentBinId: data.currentBinId || null,
@@ -87,20 +96,26 @@ export class SerialNumbersService {
         status: string
     }>) {
         const sn = await this.findOne(id)
-        if (data.serialNumber && data.serialNumber !== sn.serialNumber) {
+        const nextSerial =
+            data.serialNumber !== undefined ? formatTrackingNumber(data.serialNumber) : undefined
+        if (nextSerial && nextSerial !== sn.serialNumber) {
             const exists = await this.prisma.mmSerialNumber.findFirst({
                 where: {
                     materialId: sn.materialId,
-                    serialNumber: data.serialNumber,
+                    serialNumber: nextSerial,
                     deletedAt: null,
                     id: { not: id },
                 },
             })
             if (exists) throw new ConflictException('Serial number already exists for this material')
         }
+        const patch = { ...data } as typeof data
+        if (patch.serialNumber !== undefined) {
+            patch.serialNumber = formatTrackingNumber(patch.serialNumber)
+        }
         return this.prisma.mmSerialNumber.update({
             where: { id },
-            data: data as any,
+            data: patch as any,
             include: {
                 batch: { select: { id: true, batchNumber: true } },
                 currentWarehouse: { select: { id: true, code: true, name: true } },

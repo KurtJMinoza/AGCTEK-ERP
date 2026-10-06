@@ -37,7 +37,7 @@ import { warehouseService } from '../services/warehouseService'
 import { useWarehouses } from '../hooks/useWarehouses'
 import { orgService } from '../../material-master/services/referenceService'
 import type { Warehouse, CreateWarehousePayload } from '../types'
-import type { MmBranch, MmCompany, MmPlant } from '../../material-master/types'
+import type { MmBranch, MmCompany } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
@@ -114,7 +114,6 @@ const WarehousesPage = () => {
 
     const [formData, setFormData] = useState<Partial<CreateWarehousePayload>>({})
     const [companies, setCompanies] = useState<MmCompany[]>([])
-    const [plants, setPlants] = useState<MmPlant[]>([])
     const [branches, setBranches] = useState<MmBranch[]>([])
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
@@ -124,24 +123,12 @@ const WarehousesPage = () => {
         [companies],
     )
 
-    const plantOptions = useMemo<FilterOption[]>(
-        () =>
-            plants
-                .filter((p) => !formData.companyId || p.companyId === formData.companyId)
-                .map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })),
-        [plants, formData.companyId],
-    )
-
     const branchOptions = useMemo<FilterOption[]>(
         () =>
             branches
-                .filter((b) => {
-                    if (formData.companyId && b.companyId !== formData.companyId) return false
-                    if (formData.plantId && b.plantId && b.plantId !== formData.plantId) return false
-                    return true
-                })
+                .filter((b) => !formData.companyId || b.companyId === formData.companyId)
                 .map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
-        [branches, formData.companyId, formData.plantId],
+        [branches, formData.companyId],
     )
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
@@ -157,7 +144,7 @@ const WarehousesPage = () => {
     }
 
     useEffect(() => {
-        // Companies only on mount — plants/branches load when form opens
+        // Companies only on mount — branches load when form opens
         orgService
             .companies()
             .then((list) => setCompanies(Array.isArray(list) ? list : []))
@@ -165,14 +152,10 @@ const WarehousesPage = () => {
     }, [])
 
     const ensureFormRefs = useCallback(async () => {
-        if (plants.length && branches.length) return
-        const [p, b] = await Promise.all([
-            orgService.plants({ activeOnly: true }),
-            orgService.branches({ activeOnly: true }),
-        ])
-        setPlants(Array.isArray(p) ? p : [])
+        if (branches.length) return
+        const b = await orgService.branches({ activeOnly: true })
         setBranches(Array.isArray(b) ? b : [])
-    }, [plants.length, branches.length])
+    }, [branches.length])
 
     const stats = useMemo(() => {
         const total = meta.total
@@ -203,7 +186,6 @@ const WarehousesPage = () => {
         setFormData({
             name: wh.name,
             companyId: wh.companyId,
-            plantId: wh.plantId || '',
             branchId: wh.branchId || '',
             managerId: wh.managerId || '',
             warehouseType: wh.warehouseType || 'GENERAL',
@@ -320,12 +302,6 @@ const WarehousesPage = () => {
                 size: 150,
                 minSize: 120,
                 cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.company?.name ?? '—'}</span>,
-            },
-            {
-                header: 'Plant',
-                id: 'plant',
-                size: 120,
-                cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.plant?.code ?? '—'}</span>,
             },
             {
                 header: 'Branch',
@@ -471,7 +447,6 @@ const WarehousesPage = () => {
                                 setFormData((prev) => ({
                                     ...prev,
                                     companyId: opt?.value ?? '',
-                                    plantId: '',
                                     branchId: '',
                                 }))
                                 setTouched((t) => ({ ...t, companyId: true }))
@@ -482,26 +457,7 @@ const WarehousesPage = () => {
                         />
                     )}
                 </FormItem>
-                <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-                    <FormItem label="Plant">
-                        <Select<FilterOption>
-                            placeholder="Select plant"
-                            isClearable
-                            options={plantOptions}
-                            value={plantOptions.find((o) => o.value === formData.plantId) ?? null}
-                            onChange={(opt) => {
-                                setFormData((prev) => ({
-                                    ...prev,
-                                    plantId: opt?.value ?? '',
-                                    branchId: '',
-                                }))
-                            }}
-                            menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
-                            menuPosition="fixed"
-                            styles={{ menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 9999 }) }}
-                        />
-                    </FormItem>
-                    <FormItem label="Branch">
+                <FormItem label="Branch">
                         <Select<FilterOption>
                             placeholder="Select branch"
                             isClearable
@@ -512,8 +468,7 @@ const WarehousesPage = () => {
                             menuPosition="fixed"
                             styles={{ menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 9999 }) }}
                         />
-                    </FormItem>
-                </div>
+                </FormItem>
                 <FormItem label="Manager ID">
                     <Input value={formData.managerId ?? ''} onChange={(e) => setField('managerId', e.target.value)} placeholder="Optional manager identifier" />
                 </FormItem>
@@ -570,7 +525,6 @@ const WarehousesPage = () => {
                     <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                         <div><span className="text-gray-500">Status</span><p className="mt-0.5"><StatusBadge tone={STATUS_TONE[viewing.status] ?? 'default'}>{viewing.status}</StatusBadge></p></div>
                         <div><span className="text-gray-500">Type</span><p className="mt-0.5 font-medium">{(viewing.warehouseType || 'GENERAL').replace(/_/g, ' ')}</p></div>
-                        <div><span className="text-gray-500">Plant</span><p className="mt-0.5 font-medium">{viewing.plant?.name ?? viewing.plantId ?? '—'}</p></div>
                         <div><span className="text-gray-500">Branch</span><p className="mt-0.5 font-medium">{viewing.branch?.name ?? viewing.branchId ?? '—'}</p></div>
                         <div><span className="text-gray-500">Manager</span><p className="mt-0.5 font-medium">{viewing.managerId || '—'}</p></div>
                         <div><span className="text-gray-500">Timezone</span><p className="mt-0.5 font-medium">{viewing.timezone || 'UTC'}</p></div>
