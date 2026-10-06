@@ -13,7 +13,7 @@ const TaskQueuePage = () => (
         <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
         <PageHeader
             title="Task Queue"
-            description="All open warehouse execution tasks across putaway, picking, transfer, and count workflows."
+            description="All open warehouse execution tasks across picking, packing, transfer, and count workflows."
         />
         <WarehouseTaskTable mode="queue" />
     </PageContainer>

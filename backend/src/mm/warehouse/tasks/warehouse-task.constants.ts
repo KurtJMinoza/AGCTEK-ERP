@@ -1,5 +1,4 @@
 export const WAREHOUSE_TASK_TYPES = [
-    'PUTAWAY',
     'PICK',
     'TRANSFER',
     'REPLENISHMENT',

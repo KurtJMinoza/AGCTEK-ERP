@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import dynamic from 'next/dynamic'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
+    HiOutlineCamera,
     HiOutlineMinus,
     HiOutlinePlus,
     HiOutlinePrinter,
+    HiOutlineQrcode,
     HiOutlineTrash,
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
@@ -13,14 +16,13 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import Card from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
-import Select from '@/components/ui/Select'
-import { FormItem } from '@/components/ui/Form'
+import Tag from '@/components/ui/Tag'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
@@ -32,19 +34,15 @@ import {
     type POSCheckoutResult,
 } from '../services/posService'
 import POSReceipt from '../components/POSReceipt'
-import { SALES_BRANCHES, type SalesBranch } from '../catalogs/branchCatalog'
+import POSCheckoutPanel from '../components/POSCheckoutPanel'
+import { POS_RETAIL_BRANCH_ID } from '../catalogs/branchCatalog'
+
+const CameraBarcodeScanner = dynamic(
+    () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
+    { ssr: false },
+)
 
 const ROUTE_PATH = '/modules/sd/pos'
-/** Remembers the terminal's branch so the cashier picks it once per device. */
-const BRANCH_STORAGE_KEY = 'sd-pos-branch'
-
-type BranchOption = { value: string; label: string; branch: SalesBranch }
-
-const BRANCH_OPTIONS: BranchOption[] = SALES_BRANCHES.map((branch) => ({
-    value: branch.id,
-    label: branch.label,
-    branch,
-}))
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -81,58 +79,80 @@ const POSDashboard = () => {
     const [checkingOut, setCheckingOut] = useState(false)
     const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
     const [receipt, setReceipt] = useState<POSCheckoutResult | null>(null)
-    const [branchId, setBranchId] = useState<string | null>(null)
+    const [cameraOpen, setCameraOpen] = useState(false)
+    const [addingSku, setAddingSku] = useState(false)
 
-    useEffect(() => {
-        const saved = window.localStorage.getItem(BRANCH_STORAGE_KEY)
-        if (saved && SALES_BRANCHES.some((b) => b.id === saved)) setBranchId(saved)
-    }, [])
-
-    const selectBranch = (next: string | null) => {
-        setBranchId(next)
-        if (next) window.localStorage.setItem(BRANCH_STORAGE_KEY, next)
-        else window.localStorage.removeItem(BRANCH_STORAGE_KEY)
-    }
+    const itemCount = useMemo(
+        () => items.reduce((sum, row) => sum + row.quantity, 0),
+        [items],
+    )
 
     const cashReceived = Number(cash) || 0
+    const change = Math.max(0, cashReceived - subtotal)
     const canCheckout =
-        branchId !== null &&
-        items.length > 0 &&
-        cashReceived >= subtotal &&
-        !checkingOut
+        items.length > 0 && cashReceived >= subtotal && !checkingOut && catalog.ready
 
     const focusScanner = () => skuInputRef.current?.focus()
 
-    const handleAdd = () => {
-        const code = sku.trim()
-        if (!code) return
-        if (!catalog.ready) {
-            notify(
-                'danger',
-                'Catalog not loaded',
-                catalog.error ?? 'Products are still loading. Try again in a moment.',
+    const resolveProduct = useCallback(
+        (code: string) => {
+            const normalized = code.trim()
+            if (!normalized) return null
+            const lower = normalized.toLowerCase()
+            return (
+                catalog.products.find((p) => p.sku.toLowerCase() === lower) ??
+                catalog.products.find((p) => p.productId.toLowerCase() === lower) ??
+                catalog.products.find((p) => p.itemId.toLowerCase() === lower) ??
+                null
             )
-            if (catalog.error) void catalog.reload()
-            return
-        }
-        const product = catalog.products.find(
-            (p) => p.sku.toLowerCase() === code.toLowerCase(),
-        )
-        setSku('')
-        focusScanner()
-        if (!product) {
-            notify('danger', 'Invalid SKU', `${code} is not in the catalog.`)
-            return
-        }
-        addItem(product)
-    }
+        },
+        [catalog.products],
+    )
+
+    const handleAdd = useCallback(
+        async (override?: string) => {
+            const code = (override ?? sku).trim()
+            if (!code) return
+            if (!catalog.ready) {
+                notify(
+                    'danger',
+                    'Catalog not loaded',
+                    catalog.error ?? 'Products are still loading. Try again in a moment.',
+                )
+                if (catalog.error) void catalog.reload()
+                return
+            }
+            setAddingSku(true)
+            const product = resolveProduct(code)
+            setSku('')
+            focusScanner()
+            if (!product) {
+                notify('danger', 'Invalid SKU', `${code} is not in the catalog.`)
+                setAddingSku(false)
+                return
+            }
+            addItem(product)
+            setAddingSku(false)
+        },
+        [addItem, catalog.error, catalog.ready, catalog.reload, resolveProduct, sku],
+    )
 
     const handleScanKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter') {
             event.preventDefault()
-            handleAdd()
+            void handleAdd()
         }
     }
+
+    const handleCameraDetected = useCallback(
+        (value: string) => {
+            const trimmed = value.trim()
+            if (!trimmed) return
+            setSku(trimmed)
+            void handleAdd(trimmed)
+        },
+        [handleAdd],
+    )
 
     const handleConfirmVoid = () => {
         clearCart()
@@ -142,14 +162,10 @@ const POSDashboard = () => {
     }
 
     const handleCheckout = async () => {
-        if (!branchId) {
-            notify('danger', 'Select a branch', 'Choose the selling branch before completing the sale.')
-            return
-        }
         setCheckingOut(true)
         try {
             const result = await processPOSCheckout({
-                branchId,
+                branchId: POS_RETAIL_BRANCH_ID,
                 items: items.map((item) => ({
                     sku: item.product.sku,
                     quantity: item.quantity,
@@ -171,14 +187,20 @@ const POSDashboard = () => {
         }
     }
 
+    useEffect(() => {
+        focusScanner()
+    }, [])
+
     const columns = useMemo<ColumnDef<POSCartItem>[]>(
         () => [
             {
-                header: 'Name',
+                header: 'NAME',
                 id: 'name',
                 cell: ({ row }) => (
                     <div className="min-w-[9rem]">
-                        <div className="font-semibold">{row.original.product.name}</div>
+                        <div className="font-semibold heading-text">
+                            {row.original.product.name}
+                        </div>
                         <div className="text-xs text-gray-500">
                             {row.original.product.sku}
                         </div>
@@ -186,22 +208,8 @@ const POSDashboard = () => {
                 ),
             },
             {
-                header: 'Qty',
+                header: 'QTY',
                 id: 'quantity',
-                cell: ({ row }) => row.original.quantity,
-            },
-            {
-                header: 'Base Price',
-                id: 'basePrice',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {formatPrice(row.original.product.basePrice)}
-                    </span>
-                ),
-            },
-            {
-                header: 'Actions',
-                id: 'actions',
                 cell: ({ row }) => {
                     const { product, quantity } = row.original
                     return (
@@ -213,6 +221,9 @@ const POSDashboard = () => {
                                 aria-label={`Decrease ${product.name}`}
                                 onClick={() => updateQuantity(product.sku, quantity - 1)}
                             />
+                            <span className="min-w-[2rem] text-center font-semibold tabular-nums">
+                                {quantity}
+                            </span>
                             <Button
                                 size="xs"
                                 variant="default"
@@ -220,19 +231,37 @@ const POSDashboard = () => {
                                 aria-label={`Increase ${product.name}`}
                                 onClick={() => updateQuantity(product.sku, quantity + 1)}
                             />
-                            <Button
-                                size="xs"
-                                variant="plain"
-                                icon={<HiOutlineTrash />}
-                                aria-label={`Remove ${product.name}`}
-                                onClick={() => removeItem(product.sku)}
-                            />
                         </div>
                     )
                 },
             },
+            {
+                header: 'BASE PRICE',
+                id: 'basePrice',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap font-medium tabular-nums">
+                        {formatPrice(row.original.product.basePrice)}
+                    </span>
+                ),
+            },
+            {
+                header: 'ACTIONS',
+                id: 'actions',
+                cell: ({ row }) => {
+                    const { product } = row.original
+                    return (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineTrash />}
+                            aria-label={`Remove ${product.name}`}
+                            onClick={() => removeItem(product.sku)}
+                        />
+                    )
+                },
+            },
         ],
-        [updateQuantity, removeItem],
+        [removeItem, updateQuantity],
     )
 
     return (
@@ -243,116 +272,122 @@ const POSDashboard = () => {
                 title="POS Terminal"
                 description="Over-the-counter fast-track sale: immediate stock deduction and cash-sale billing. No delivery."
             />
-            <Card className="mb-4" bodyClass="py-3">
-                <FormItem
-                    label="Select Branch"
-                    asterisk
-                    layout="horizontal"
-                    className="mb-0"
-                    invalid={branchId === null}
-                    errorMessage={
-                        branchId === null
-                            ? 'Required before completing a sale'
-                            : undefined
-                    }
-                >
-                    <div className="w-full sm:w-72">
-                        <Select<BranchOption>
-                            isSearchable={false}
-                            placeholder="Select branch..."
-                            options={BRANCH_OPTIONS}
-                            value={
-                                BRANCH_OPTIONS.find((o) => o.value === branchId) ??
-                                null
-                            }
-                            onChange={(option) => selectBranch(option?.value ?? null)}
-                        />
-                    </div>
-                </FormItem>
-            </Card>
-            <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
-                <Card
-                    className="min-w-0 lg:col-span-2"
-                    header={{ content: 'Scan items' }}
-                >
-                    <div className="flex gap-2">
-                        <Input
-                            ref={skuInputRef}
-                            autoFocus
-                            placeholder="Scan SKU"
-                            value={sku}
-                            onChange={(e) => setSku(e.target.value)}
-                            onKeyDown={handleScanKeyDown}
-                        />
-                        <Button
-                            variant="solid"
-                            disabled={!sku.trim()}
-                            onClick={handleAdd}
-                        >
-                            Add
-                        </Button>
-                    </div>
-                    <div className="mt-4">
+
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+                <Tag className="text-xs font-semibold uppercase tracking-wide">
+                    Sales &amp; Distribution
+                </Tag>
+                <Tag className="border-primary/20 bg-primary-subtle text-xs font-semibold text-primary-deep">
+                    POS · AWIC Retail
+                </Tag>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                <div className="flex flex-col gap-6 xl:col-span-8">
+                    <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
+                        <div className="mb-4">
+                            <h3 className="text-lg font-bold heading-text">Scan items</h3>
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                Use a USB barcode wedge, type the SKU, or scan with your device
+                                camera.
+                            </p>
+                        </div>
+
+                        <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/80 p-4 dark:border-gray-600 dark:bg-gray-800/40">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                Scan SKU / barcode
+                            </label>
+                            <Input
+                                ref={skuInputRef}
+                                autoFocus
+                                autoComplete="off"
+                                className="h-14 border-gray-200 bg-white font-mono text-lg tracking-wide dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="Scan or type SKU…"
+                                value={sku}
+                                onChange={(e) => setSku(e.target.value)}
+                                onKeyDown={handleScanKeyDown}
+                            />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <Button
+                                block
+                                size="lg"
+                                variant="solid"
+                                className="h-12 sm:col-span-1"
+                                icon={<HiOutlineQrcode className="text-lg" />}
+                                loading={addingSku}
+                                disabled={!sku.trim() && !catalog.ready}
+                                onClick={() => void handleAdd()}
+                            >
+                                Add item
+                            </Button>
+                            <Button
+                                block
+                                size="lg"
+                                variant="default"
+                                className="h-12"
+                                icon={<HiOutlineCamera className="text-lg" />}
+                                disabled={addingSku}
+                                onClick={() => setCameraOpen(true)}
+                            >
+                                Scan with camera
+                            </Button>
+                            <Button
+                                block
+                                size="lg"
+                                variant="plain"
+                                className="h-12"
+                                disabled={!catalog.ready && !catalog.error}
+                                loading={!catalog.ready && !catalog.error}
+                                onClick={() => void catalog.reload()}
+                            >
+                                Refresh catalog
+                            </Button>
+                        </div>
+                    </AdaptiveCard>
+
+                    <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
+                        <div className="mb-4 flex items-center justify-between gap-2">
+                            <h3 className="text-base font-semibold heading-text">Cart</h3>
+                            {items.length > 0 ? (
+                                <span className="text-sm text-gray-500 tabular-nums">
+                                    {formatPrice(subtotal)} subtotal
+                                </span>
+                            ) : null}
+                        </div>
                         <DataTable
                             columns={columns}
                             data={items}
                             noData={items.length === 0}
                             hidePagination
                         />
-                    </div>
-                </Card>
+                    </AdaptiveCard>
+                </div>
 
-                <Card className="lg:sticky lg:top-4" header={{ content: 'Checkout' }}>
-                    <div className="flex flex-col gap-3">
-                        <div className="flex justify-between text-lg font-bold">
-                            <span>Total</span>
-                            <span>{formatPrice(subtotal)}</span>
-                        </div>
-                        <Input
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.01"
-                            placeholder="Cash received"
-                            value={cash}
-                            onChange={(e) => setCash(e.target.value)}
-                        />
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Change</span>
-                            <span>
-                                {formatPrice(Math.max(0, cashReceived - subtotal))}
-                            </span>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            <Button
-                                block
-                                variant="solid"
-                                loading={checkingOut}
-                                disabled={!canCheckout}
-                                onClick={handleCheckout}
-                            >
-                                Tender Cash &amp; Checkout
-                            </Button>
-                            {branchId === null && items.length > 0 ? (
-                                <p className="text-center text-xs text-red-500">
-                                    Select a branch above to complete the sale.
-                                </p>
-                            ) : null}
-                            <Button
-                                block
-                                variant="solid"
-                                customColorClass={() =>
-                                    'bg-red-500 hover:bg-red-600 text-white'
-                                }
-                                disabled={items.length === 0 || checkingOut}
-                                onClick={() => setConfirmVoidOpen(true)}
-                            >
-                                Void Transaction
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
+                <div className="xl:col-span-4">
+                    <POSCheckoutPanel
+                        itemCount={itemCount}
+                        lineCount={items.length}
+                        subtotal={subtotal}
+                        cash={cash}
+                        onCashChange={setCash}
+                        change={change}
+                        checkingOut={checkingOut}
+                        canCheckout={canCheckout}
+                        onCheckout={() => void handleCheckout()}
+                        onVoid={() => setConfirmVoidOpen(true)}
+                        formatPrice={formatPrice}
+                    />
+                </div>
             </div>
+
+            <CameraBarcodeScanner
+                isOpen={cameraOpen}
+                onClose={() => setCameraOpen(false)}
+                onDetected={handleCameraDetected}
+            />
+
             <ConfirmDialog
                 isOpen={confirmVoidOpen}
                 type="danger"

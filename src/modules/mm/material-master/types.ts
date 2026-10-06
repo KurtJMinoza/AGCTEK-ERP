@@ -71,6 +71,9 @@ export interface MmCompany {
     id: string
     code: string
     name: string
+    logoUrl?: string | null
+    address?: string
+    tin?: string
     createdAt?: string
     updatedAt?: string
 }

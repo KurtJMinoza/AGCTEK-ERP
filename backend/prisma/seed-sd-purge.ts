@@ -1,26 +1,38 @@
 import { PrismaClient, type PrismaClient as PrismaClientType } from '@prisma/client'
 
 /**
- * Removes SD demo master data (products, product–material links, related fulfillment rows).
- * Does not delete posted sales orders (historical snapshots stay on order lines).
+ * Removes all Sales & Distribution data (sd_* tables).
  */
-export async function purgeSalesDistributionDemoData(prisma: PrismaClientType) {
-    console.log('Purging Sales & Distribution demo data …')
+export async function purgeSalesDistributionData(prisma: PrismaClientType) {
+    console.log('Purging Sales & Distribution data …')
 
-    await prisma.sdFulfillmentLine.deleteMany({})
-    await prisma.sdFulfillment.deleteMany({})
-    await prisma.sdProductMaterialAssignment.deleteMany({})
-    await prisma.sdBranchFulfillment.deleteMany({})
+    const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename LIKE 'sd_%'
+        ORDER BY tablename
+    `
 
-    const products = await prisma.sdProduct.deleteMany({})
-    console.log(`  Deleted ${products.count} sd_product row(s).`)
+    if (tables.length > 0) {
+        const quoted = tables.map((t) => `"${t.tablename}"`).join(', ')
+        await prisma.$executeRawUnsafe(
+            `TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`,
+        )
+        console.log(`  Truncated ${tables.length} SD table(s).`)
+    } else {
+        console.log('  No sd_* tables found.')
+    }
 
-    console.log('SD demo purge complete.')
+    console.log('SD purge complete.')
 }
+
+/** @deprecated use purgeSalesDistributionData */
+export const purgeSalesDistributionDemoData = purgeSalesDistributionData
 
 if (require.main === module) {
     const prisma = new PrismaClient()
-    purgeSalesDistributionDemoData(prisma)
+    purgeSalesDistributionData(prisma)
         .catch((err: unknown) => {
             console.error(err)
             process.exitCode = 1

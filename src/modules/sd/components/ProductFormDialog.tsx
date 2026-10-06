@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { HiOutlineCube } from 'react-icons/hi'
+import { HiOutlineArrowLeft, HiOutlineArrowRight, HiOutlineCube } from 'react-icons/hi'
+import Steps from '@/components/ui/Steps'
 import FormDialog from '@/components/shared/FormDialog'
 import NumericInput from '@/components/shared/NumericInput'
 import Button from '@/components/ui/Button'
@@ -47,10 +48,13 @@ const productSchema = z
         addOn: z.boolean(),
         name: z.string().trim().min(2, 'At least 2 characters').max(200),
         price: z
-            .number({ message: 'Price is required' })
-            .min(0, 'Cannot be negative')
+            .number({ message: 'Selling price is required' })
+            .min(0.01, 'Enter a selling price greater than zero')
             .max(MAX_PRICE, 'Price is too large'),
-        originalPrice: z.number().min(0).max(MAX_PRICE).nullable(),
+        originalPrice: z
+            .number({ message: 'Original price is required' })
+            .min(0.01, 'Enter an original price greater than zero')
+            .max(MAX_PRICE, 'Price is too large'),
         imageUrl: z
             .string()
             .trim()
@@ -74,15 +78,10 @@ const productSchema = z
             volume: z.string().trim().max(120),
         }),
     })
-    .refine(
-        (values) =>
-            values.originalPrice === null ||
-            values.originalPrice > values.price,
-        {
-            path: ['originalPrice'],
-            message: 'Must be higher than the selling price, or leave blank',
-        },
-    )
+    .refine((values) => values.originalPrice > values.price, {
+        path: ['originalPrice'],
+        message: 'Must be higher than the selling price',
+    })
     .refine(
         (values) =>
             values.companyId.trim().length > 0 && values.materialIds.length > 0,
@@ -116,12 +115,24 @@ type Option = { value: string; label: string }
 
 const FORM_ID = 'sd-product-form'
 
+const CREATE_WIZARD_STEPS = [
+    'Storefront',
+    'MM material',
+    'Pricing & media',
+    'Details',
+] as const
+
+const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}`)[][] = [
+    ['divisionId', 'sku', 'name'],
+    ['companyId', 'materialIds', 'materialLinkMode'],
+    ['price', 'originalPrice', 'badge', 'imageUrl'],
+    ['description', 'sortOrder', 'isActive'],
+]
+
 const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
     value: d.id,
     label: d.label,
 }))
-
-const STOCK_ITEM_LABEL = 'Stock item (inventory)'
 
 const BADGE_PRESETS = ['Best Seller', 'New', 'Sale', 'Hot Deal', 'Limited']
 
@@ -136,7 +147,9 @@ const toFormValues = (
               sku: product.sku,
               name: product.name,
               price: product.price,
-              originalPrice: product.originalPrice,
+              originalPrice:
+                  product.originalPrice ??
+                  (undefined as unknown as FormShape['originalPrice']),
               imageUrl: product.imageUrl,
               imageGallery: productImageGallery(product).filter(
                   (url) => url !== product.imageUrl,
@@ -158,8 +171,8 @@ const toFormValues = (
               autoGenerateSku: true,
               sku: '',
               name: '',
-              price: 0,
-              originalPrice: null,
+              price: undefined as unknown as number,
+              originalPrice: undefined as unknown as number,
               imageUrl: '',
               imageGallery: [],
               videoUrls: [],
@@ -216,6 +229,8 @@ const ProductFormDialog = ({
         reset,
         setValue,
         getValues,
+        trigger,
+        setError,
         formState: { errors },
     } = useForm<FormShape>({
         defaultValues: toFormValues(product, defaultDivisionId),
@@ -233,12 +248,15 @@ const ProductFormDialog = ({
         reset(toFormValues(product, defaultDivisionId))
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
+        setWizardStep(0)
     }, [isOpen, product, defaultDivisionId, reset])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
     const materialIds = useWatch({ control, name: 'materialIds' })
     const editing = mode === 'edit'
+    const createWizard = !editing
+    const [wizardStep, setWizardStep] = useState(0)
     const [uploading, setUploading] = useState(false)
     const [editMaterialIds, setEditMaterialIds] = useState<string[]>([])
     const [editCompanyId, setEditCompanyId] = useState<string | null>(null)
@@ -376,6 +394,59 @@ const ProductFormDialog = ({
         return onSubmit(payload)
     }
 
+    const goWizardNext = async () => {
+        const fields = CREATE_STEP_FIELDS[wizardStep]
+        const ok = await trigger(fields as (keyof FormShape)[])
+        if (!ok) return
+
+        const values = getValues()
+        if (wizardStep === 1) {
+            if (!values.companyId?.trim()) {
+                setError('companyId', { message: 'Select a company' })
+                return
+            }
+            if (!values.materialIds?.length) {
+                setError('materialIds', {
+                    message: 'Select at least one MM material',
+                })
+                return
+            }
+            if (
+                values.materialLinkMode === 'single' &&
+                values.materialIds.length > 1
+            ) {
+                setError('materialIds', {
+                    message: 'Single-material mode allows only one MM material',
+                })
+                return
+            }
+        }
+        if (wizardStep === 2) {
+            if (
+                values.price != null &&
+                values.originalPrice != null &&
+                values.originalPrice <= values.price
+            ) {
+                setError('originalPrice', {
+                    message: 'Must be higher than the selling price',
+                })
+                return
+            }
+        }
+        setWizardStep((s) => Math.min(s + 1, CREATE_WIZARD_STEPS.length - 1))
+    }
+
+    const wizardStepHint = createWizard
+        ? [
+              'Choose storefront and product identity.',
+              'Link to Materials Management for inventory and fulfillment.',
+              'Set prices, badge, and storefront media.',
+              'Description, specs, display order, and visibility.',
+          ][wizardStep]
+        : null
+
+    const showStep = (step: number) => editing || wizardStep === step
+
     return (
         <FormDialog
             isOpen={isOpen}
@@ -385,34 +456,102 @@ const ProductFormDialog = ({
             description={
                 editing && product
                     ? `${product.sku} · ${product.name}`
-                    : 'Stock products must be linked to an MM material so orders can reserve and fulfill inventory.'
+                    : createWizard
+                      ? (wizardStepHint ??
+                        'Stock products must be linked to an MM material.')
+                      : 'Stock products must be linked to an MM material so orders can reserve and fulfill inventory.'
             }
             icon={<HiOutlineCube />}
+            headerExtra={
+                createWizard ? (
+                    <Steps current={wizardStep} className="mt-3">
+                        {CREATE_WIZARD_STEPS.map((title) => (
+                            <Steps.Item key={title} title={title} />
+                        ))}
+                    </Steps>
+                ) : undefined
+            }
+            footerClassName={createWizard ? '!justify-between' : undefined}
             footer={
-                <div className="flex items-center gap-2">
-                    <Button
-                        type="button"
-                        size="sm"
-                        disabled={saving}
-                        onClick={onClose}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="solid"
-                        type="submit"
-                        form={FORM_ID}
-                        loading={saving}
-                        disabled={uploading}
-                    >
-                        {editing ? 'Save changes' : 'Add product'}
-                    </Button>
-                </div>
+                createWizard ? (
+                    <>
+                        <div>
+                            {wizardStep > 0 ? (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    icon={<HiOutlineArrowLeft />}
+                                    disabled={saving}
+                                    onClick={() =>
+                                        setWizardStep((s) => Math.max(0, s - 1))
+                                    }
+                                >
+                                    Back
+                                </Button>
+                            ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                disabled={saving}
+                                onClick={onClose}
+                            >
+                                Cancel
+                            </Button>
+                            {wizardStep < CREATE_WIZARD_STEPS.length - 1 ? (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="solid"
+                                    disabled={uploading}
+                                    onClick={() => void goWizardNext()}
+                                >
+                                    Next{' '}
+                                    <HiOutlineArrowRight className="ml-1 inline" />
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    type="submit"
+                                    form={FORM_ID}
+                                    loading={saving}
+                                    disabled={uploading}
+                                >
+                                    Add product
+                                </Button>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            size="sm"
+                            disabled={saving}
+                            onClick={onClose}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            type="submit"
+                            form={FORM_ID}
+                            loading={saving}
+                            disabled={uploading}
+                        >
+                            Save changes
+                        </Button>
+                    </div>
+                )
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+                    {showStep(0) ? (
+                    <>
                     <FormItem
                         label="Division"
                         asterisk
@@ -522,9 +661,10 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
-                    <FormItem label="Product type">
-                        <Input readOnly disabled value={STOCK_ITEM_LABEL} />
-                    </FormItem>
+                    </>
+                    ) : null}
+                    {showStep(1) ? (
+                    <>
                     {(errors.materialIds || errors.companyId) && (
                         <p className="md:col-span-2 text-sm text-red-600">
                             {errors.materialIds?.message ??
@@ -581,6 +721,10 @@ const ProductFormDialog = ({
                             />
                         </FormItem>
                     ) : null}
+                    </>
+                    ) : null}
+                    {showStep(2) ? (
+                    <>
                     <FormItem
                         label="Badge"
                         invalid={Boolean(errors.badge)}
@@ -648,7 +792,7 @@ const ProductFormDialog = ({
                                     allowNegative={false}
                                     value={field.value}
                                     onValueChange={(v) =>
-                                        field.onChange(v.floatValue ?? 0)
+                                        field.onChange(v.floatValue)
                                     }
                                 />
                             )}
@@ -656,6 +800,7 @@ const ProductFormDialog = ({
                     </FormItem>
                     <FormItem
                         label="Original price (PHP)"
+                        asterisk
                         invalid={Boolean(errors.originalPrice)}
                         errorMessage={errors.originalPrice?.message}
                     >
@@ -664,14 +809,14 @@ const ProductFormDialog = ({
                             control={control}
                             render={({ field }) => (
                                 <NumericInput
-                                    placeholder="Optional, shown struck through"
+                                    placeholder="MSRP, shown struck through"
                                     thousandSeparator=","
                                     decimalScale={2}
                                     fixedDecimalScale
                                     allowNegative={false}
                                     value={field.value ?? ''}
                                     onValueChange={(v) =>
-                                        field.onChange(v.floatValue ?? null)
+                                        field.onChange(v.floatValue)
                                     }
                                 />
                             )}
@@ -722,6 +867,10 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    </>
+                    ) : null}
+                    {showStep(3) ? (
+                    <>
                     <FormItem
                         label="Description"
                         className="md:col-span-2"
@@ -812,6 +961,8 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    </>
+                    ) : null}
                 </div>
                 {editing && product?.attributes ? (
                     <p className="text-xs text-gray-500">

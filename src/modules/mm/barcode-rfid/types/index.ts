@@ -1,6 +1,5 @@
 export type ScannerOperation =
     | 'RECEIVING'
-    | 'PUTAWAY'
     | 'PICKING'
     | 'PACKING'
     | 'COUNTING'

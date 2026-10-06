@@ -26,7 +26,7 @@ const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> 
     EXCEPTION: 'danger',
 }
 
-const TASK_TYPES: WarehouseTaskType[] = ['PUTAWAY', 'PICK', 'TRANSFER', 'REPLENISHMENT', 'RELOCATION', 'COUNT']
+const TASK_TYPES: WarehouseTaskType[] = ['PICK', 'TRANSFER', 'REPLENISHMENT', 'RELOCATION', 'COUNT']
 const OPEN_STATUSES: WarehouseTaskStatus[] = ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'PARTIALLY_COMPLETED', 'EXCEPTION']
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
@@ -301,14 +301,14 @@ export default function WarehouseTaskTable({ mode }: Props) {
 
             <FormDialog isOpen={completeOpen} title="Complete Task" onClose={() => setCompleteOpen(false)} onSubmit={() => activeTask && runAction(() => warehouseTaskService.complete(activeTask.id, {
                 quantity: Number(completeQty),
-                destinationBinId: activeTask.taskType === 'PUTAWAY' || activeTask.taskType === 'RELOCATION' ? completeBinId : undefined,
+                destinationBinId: activeTask.taskType === 'RELOCATION' ? completeBinId : undefined,
                 sourceBinId: activeTask.taskType === 'PICK' ? completeBinId : undefined,
                 scannedBinId: completeBinId || undefined,
             }), 'Task completed')} confirmLoading={actionLoading}>
                 <FormItem label="Quantity">
                     <Input type="number" value={completeQty} onChange={(e) => setCompleteQty(e.target.value)} />
                 </FormItem>
-                {(activeTask?.taskType === 'PUTAWAY' || activeTask?.taskType === 'PICK' || activeTask?.taskType === 'RELOCATION') && (
+                {(activeTask?.taskType === 'PICK' || activeTask?.taskType === 'RELOCATION') && (
                     <FormItem label="Bin ID">
                         <Input value={completeBinId} onChange={(e) => setCompleteBinId(e.target.value)} placeholder="Storage bin ID" />
                     </FormItem>

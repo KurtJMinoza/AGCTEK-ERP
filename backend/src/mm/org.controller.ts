@@ -7,7 +7,9 @@ import {
     Post,
     Put,
     Query,
+    Req,
 } from '@nestjs/common'
+import type { FastifyRequest } from 'fastify'
 import {
     CreateBranchDto,
     CreateCompanyDto,
@@ -16,6 +18,7 @@ import {
     UpdateCompanyDto,
     UpdatePlantDto,
 } from './org.dto'
+import { readCompanyPayload } from './org-company-payload'
 import { OrgService } from './org.service'
 
 @Controller('mm/org')
@@ -28,16 +31,18 @@ export class OrgController {
     }
 
     @Post('companies')
-    createCompany(@Body() body: CreateCompanyDto) {
-        return this.service.createCompany(body)
+    async createCompany(@Req() req: FastifyRequest) {
+        const { dto, logo } = await readCompanyPayload(req, CreateCompanyDto)
+        return this.service.createCompany(dto, logo)
     }
 
     @Put('companies/:id')
-    updateCompany(
+    async updateCompany(
         @Param('id') id: string,
-        @Body() body: UpdateCompanyDto,
+        @Req() req: FastifyRequest,
     ) {
-        return this.service.updateCompany(id, body)
+        const { dto, logo } = await readCompanyPayload(req, UpdateCompanyDto)
+        return this.service.updateCompany(id, dto, logo)
     }
 
     @Delete('companies/:id')

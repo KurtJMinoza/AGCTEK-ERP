@@ -10,7 +10,6 @@ import { CreatePurchaseOrderDto, CreatePurchaseOrderLineDto } from './dto/create
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto'
 import { PurchaseOrderQueryDto } from './dto/purchase-order-query.dto'
 import {
-    CreatePoFromAwardDto,
     CreatePoFromPrDto,
     CreatePoAttachmentDto,
     UpsertPoToleranceDto,
@@ -24,7 +23,16 @@ import { DocumentFlowService } from '../document-flow/document-flow.service'
 const PO_INCLUDES = {
     lines: {
         include: {
-            material: { select: { id: true, materialCode: true, materialName: true, materialCategoryId: true } },
+            material: {
+                select: {
+                    id: true,
+                    materialCode: true,
+                    materialName: true,
+                    materialCategoryId: true,
+                    batchManaged: true,
+                    serialManaged: true,
+                },
+            },
             uom: { select: { id: true, code: true, name: true } },
             warehouse: { select: { id: true, name: true, code: true } },
             storageBin: { select: { id: true, code: true } },
@@ -120,7 +128,6 @@ export class PurchaseOrderService {
                 purchaseRequisitionId: dto.purchaseRequisitionId ?? null,
                 rfqId: dto.rfqId ?? null,
                 quotationId: dto.quotationId ?? null,
-                awardId: dto.awardId ?? null,
                 overDeliveryPctOverride: dto.overDeliveryPctOverride ?? null,
                 underDeliveryPctOverride: dto.underDeliveryPctOverride ?? null,
                 priceTolerancePctOverride: dto.priceTolerancePctOverride ?? null,
@@ -133,57 +140,6 @@ export class PurchaseOrderService {
 
         await this.audit(po.id, 'CREATED', null, null, `Created PO ${poNumber}`, dto.createdBy)
         return po
-    }
-
-    async createFromAward(dto: CreatePoFromAwardDto) {
-        const award = await this.prisma.mmRfqAward.findUnique({
-            where: { id: dto.awardId },
-            include: {
-                rfq: { include: { lines: true } },
-                quotation: { include: { lines: true, paymentTerms: true } },
-                supplier: true,
-            },
-        })
-        if (!award) throw new NotFoundException('Award not found')
-        if (!award.quotationId || !award.quotation) {
-            throw new BadRequestException('Award has no linked quotation')
-        }
-
-        const quotation = award.quotation
-        const lines: CreatePurchaseOrderLineDto[] = quotation.lines.map((ql) => {
-            const rfqLine = award.rfq.lines.find((rl) => rl.id === ql.rfqLineId)
-            return {
-                materialId: ql.materialId,
-                description: '',
-                quantity: Number(ql.quantity),
-                uomId: ql.uomId,
-                unitPrice: Number(ql.unitPrice),
-                discount: Number(ql.discount),
-                tax: Number(ql.tax),
-                freight: 0,
-                rfqLineId: ql.rfqLineId ?? undefined,
-                quotationLineId: ql.id,
-                prLineId: rfqLine?.prLineId ?? undefined,
-                warehouseId: dto.warehouseId,
-            }
-        })
-
-        return this.create({
-            companyId: award.rfq.companyId,
-            supplierId: award.supplierId,
-            buyerId: dto.buyerId ?? award.rfq.buyerId,
-            branchId: dto.branchId,
-            currencyId: quotation.currencyId ?? award.rfq.currencyId ?? undefined,
-            paymentTermsId: quotation.paymentTermsId ?? undefined,
-            deliveryTerms: quotation.deliveryTerms ?? undefined,
-            warehouseId: dto.warehouseId,
-            purchaseRequisitionId: award.rfq.purchaseRequisitionId ?? undefined,
-            rfqId: award.rfqId,
-            quotationId: quotation.id,
-            awardId: award.id,
-            createdBy: dto.createdBy,
-            lines,
-        })
     }
 
     async createFromPr(dto: CreatePoFromPrDto) {

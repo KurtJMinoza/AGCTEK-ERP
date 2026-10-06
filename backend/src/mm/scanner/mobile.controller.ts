@@ -75,12 +75,6 @@ export class MobileController {
     }
 
     @MmMutation()
-    @Post('putaway/scan')
-    async putawayScan(@Body() body: Record<string, any>) {
-        return this.mobile.putawayScan(await toEventDto(body, 'PUTAWAY'))
-    }
-
-    @MmMutation()
     @Post('picking/scan')
     async pickingScan(@Body() body: Record<string, any>) {
         return this.mobile.pickingScan(await toEventDto(body, 'PICKING'))

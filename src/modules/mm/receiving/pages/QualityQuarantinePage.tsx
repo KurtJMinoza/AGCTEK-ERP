@@ -258,7 +258,7 @@ const QualityQuarantinePage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Quality / Quarantine"
-                description="Legacy quality inspections and usage decisions. Pass → ACCEPT (unrestricted + putaway event); fail-only → REJECT (quarantine). For full 5-code decisions use Inspection Queue."
+                description="Legacy quality inspections and usage decisions. Pass → ACCEPT (unrestricted stock); fail-only → REJECT (quarantine). For full 5-code decisions use Inspection Queue."
             />
 
             <AdaptiveCard className="mb-4 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
@@ -310,8 +310,8 @@ const QualityQuarantinePage = () => {
                 title={selected?.inspectionNumber ?? 'Quality decision'}
                 description={
                     selected?.goodsReceipt?.documentNumber
-                        ? `GR ${selected.goodsReceipt.documentNumber} · Pass qty → unrestricted (+ putaway); fail qty → blocked`
-                        : 'Pass qty → unrestricted (+ putaway); fail qty → blocked'
+                        ? `GR ${selected.goodsReceipt.documentNumber} · Pass qty → unrestricted; fail qty → blocked`
+                        : 'Pass qty → unrestricted; fail qty → blocked'
                 }
                 icon={<HiOutlineClipboardCheck />}
                 headerExtra={

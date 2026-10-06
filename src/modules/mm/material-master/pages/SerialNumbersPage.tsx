@@ -10,7 +10,8 @@ import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
+import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
 import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
@@ -60,7 +61,7 @@ const SerialNumbersPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen })
+    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen, serialManaged: true })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
         materialId: required(materialId, 'Material'),
@@ -111,9 +112,10 @@ const SerialNumbersPage = () => {
             return
         }
         try {
+            const normalizedSerial = formatTrackingNumber(serialNumber)
             await serialNumberService.create({
                 materialId,
-                serialNumber,
+                serialNumber: normalizedSerial,
                 batchId: batchId || undefined,
                 currentWarehouseId: warehouseId || undefined,
                 currentBinId: binId || undefined,
@@ -197,7 +199,11 @@ const SerialNumbersPage = () => {
                     <Select isSearchable placeholder="Search material…" options={materialOpts} value={materialOpts.find((o) => o.value === materialId) ?? null} onChange={(opt: any) => { setMaterialId(opt?.value ?? ''); setTouched((t) => ({ ...t, materialId: true })) }} />
                 </FormItem>
                 <FormItem label="Serial number" asterisk invalid={Boolean(err('serialNumber'))} errorMessage={err('serialNumber')}>
-                    <Input value={serialNumber} onChange={(e) => { setSerialNumber(e.target.value); setTouched((t) => ({ ...t, serialNumber: true })) }} placeholder="e.g. SN-00001" />
+                    <TrackingNumberInput
+                        value={serialNumber}
+                        onChange={(v) => { setSerialNumber(v); setTouched((t) => ({ ...t, serialNumber: true })) }}
+                        placeholder="e.g. beef 1 → BEEF-00001"
+                    />
                 </FormItem>
                 <FormItem label="Batch">
                     <Select isClearable isSearchable placeholder="Optional batch…" options={batchOpts} value={batchOpts.find((o) => o.value === batchId) ?? null} onChange={(opt: any) => setBatchId(opt?.value ?? '')} />

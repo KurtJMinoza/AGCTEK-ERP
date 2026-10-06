@@ -32,11 +32,9 @@ import {
     HiOutlineScale,
     HiOutlinePlus,
     HiOutlineTrash,
-    HiOutlineDocumentDuplicate,
 } from 'react-icons/hi'
 import { rfqService } from '../services/rfqService'
 import { quotationService } from '../services/quotationService'
-import { purchaseOrderService } from '../services/purchaseOrderService'
 import { paymentTermsService } from '@/modules/mm/supplier-management/services/paymentTermsService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
@@ -129,7 +127,6 @@ const RfqDetailPage = () => {
     const [awardTouched, setAwardTouched] = useState<Record<string, boolean>>({})
     const [awardForce, setAwardForce] = useState(false)
     const [awarding, setAwarding] = useState(false)
-    const [creatingPo, setCreatingPo] = useState(false)
 
     const [quoteOpen, setQuoteOpen] = useState(false)
     const [quoteForm, setQuoteForm] = useState({
@@ -250,29 +247,6 @@ const RfqDetailPage = () => {
         setAwardOpen(true)
         if (!comparison) {
             rfqService.getComparison(id).then(setComparison).catch(() => {})
-        }
-    }
-
-    const handleCreatePoFromAward = async () => {
-        if (!rfq) return
-        const awards = rfq.awards ?? []
-        if (awards.length === 0) return
-        const latestAward = [...awards].sort(
-            (a, b) => new Date(b.evaluatedAt || b.createdAt).getTime() - new Date(a.evaluatedAt || a.createdAt).getTime(),
-        )[0]
-        setCreatingPo(true)
-        try {
-            const po = await purchaseOrderService.createFromAward({
-                awardId: latestAward.id,
-                buyerId: rfq.buyerId,
-            })
-            pushToast('success', 'PO Created', `${po.poNumber} created from award.`)
-            router.push(`/modules/mm/procurement/purchase-orders/${po.id}`)
-        } catch (e: unknown) {
-            const err = e as { response?: { data?: { message?: string } } }
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Create PO failed')
-        } finally {
-            setCreatingPo(false)
         }
     }
 
@@ -908,17 +882,6 @@ const RfqDetailPage = () => {
                                     {canAward && (rfq.awards ?? []).length === 0 && (
                                         <Button size="sm" variant="solid" icon={<HiOutlineBadgeCheck />} onClick={openAward}>
                                             Award RFQ
-                                        </Button>
-                                    )}
-                                    {rfq.status === 'AWARDED' && (rfq.awards ?? []).length > 0 && (
-                                        <Button
-                                            size="sm"
-                                            variant="solid"
-                                            icon={<HiOutlineDocumentDuplicate />}
-                                            loading={creatingPo}
-                                            onClick={handleCreatePoFromAward}
-                                        >
-                                            Create PO
                                         </Button>
                                     )}
                                 </div>

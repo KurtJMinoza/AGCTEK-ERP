@@ -6,7 +6,6 @@ import {
 import { PrismaService } from '../../prisma/prisma.service'
 import { BarcodeResolveService } from './barcode-resolve.service'
 import { ReceivingService } from '../inbound/receiving.service'
-import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { PickingService } from '../warehouse/picking/picking.service'
 import { PackingService } from '../warehouse/packing/packing.service'
 import { InventoryCountService } from '../inventory-control/inventory-count.service'
@@ -52,7 +51,6 @@ export class ScannerEventService {
         private prisma: PrismaService,
         private resolveService: BarcodeResolveService,
         private receivingService: ReceivingService,
-        private putawayService: PutawayService,
         private pickingService: PickingService,
         private packingService: PackingService,
         private countService: InventoryCountService,
@@ -204,8 +202,6 @@ export class ScannerEventService {
         switch (dto.operation) {
             case 'RECEIVING':
                 return this.opReceiving(dto)
-            case 'PUTAWAY':
-                return this.opPutaway(dto)
             case 'PICKING':
                 return this.opPicking(dto)
             case 'PACKING':
@@ -428,53 +424,6 @@ export class ScannerEventService {
                 documentNumber: gr.documentNumber,
                 status: gr.status,
             },
-        }
-    }
-
-    private async opPutaway(dto: ScannerEventDto) {
-        if (!dto.putawayTaskId) {
-            throw new BadRequestException(
-                'putawayTaskId is required for PUTAWAY',
-            )
-        }
-        if (!dto.bin && !dto.barcode) {
-            throw new BadRequestException(
-                'bin (destination) is required for PUTAWAY',
-            )
-        }
-        if (dto.quantity == null || dto.quantity <= 0) {
-            throw new BadRequestException('quantity is required for PUTAWAY')
-        }
-
-        let actualBinId: string
-        if (dto.bin) {
-            actualBinId = (await this.resolveService.resolveBin(dto.bin)).id
-        } else {
-            const hit = await this.resolveService.resolve(dto.barcode)
-            if (hit.type !== 'STORAGE_BIN' || !hit.storageBinId) {
-                throw new BadRequestException(
-                    'INVALID_BARCODE: Scan a storage bin barcode for PUTAWAY destination',
-                )
-            }
-            actualBinId = hit.storageBinId
-        }
-
-        const task = await this.putawayService.confirm(dto.putawayTaskId, {
-            actualBinId,
-            quantity: dto.quantity,
-            idempotencyKey: dto.idempotencyKey,
-        })
-
-        return {
-            companyId: task.companyId,
-            warehouseId: task.warehouseId,
-            materialId: task.materialId,
-            storageBinId: actualBinId,
-            batchId: task.batchId,
-            serialNumberId: task.serialId,
-            documentType: 'PUTAWAY',
-            documentId: task.id,
-            payload: { putawayTaskId: task.id, status: task.status },
         }
     }
 

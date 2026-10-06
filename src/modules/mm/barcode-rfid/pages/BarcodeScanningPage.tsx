@@ -21,7 +21,6 @@ const ROUTE = '/modules/mm/barcode-rfid/barcode-scanning'
 
 const OPS: { value: ScannerOperation; label: string }[] = [
     { value: 'RECEIVING', label: 'Receiving' },
-    { value: 'PUTAWAY', label: 'Putaway' },
     { value: 'PICKING', label: 'Picking' },
     { value: 'PACKING', label: 'Packing' },
     { value: 'COUNTING', label: 'Counting' },
@@ -45,7 +44,6 @@ const BarcodeScanningPage = () => {
     const [ctx, setCtx] = useState({
         expectedReceiptId: '',
         expectedReceiptLineId: '',
-        putawayTaskId: '',
         pickingTaskId: '',
         packageId: '',
         countLineId: '',
@@ -109,7 +107,6 @@ const BarcodeScanningPage = () => {
                 idempotencyKey: newIdempotencyKey(operation.toLowerCase()),
                 expectedReceiptId: ctx.expectedReceiptId || undefined,
                 expectedReceiptLineId: ctx.expectedReceiptLineId || undefined,
-                putawayTaskId: ctx.putawayTaskId || undefined,
                 pickingTaskId: ctx.pickingTaskId || undefined,
                 packageId: ctx.packageId || undefined,
                 countLineId: ctx.countLineId || undefined,
@@ -175,7 +172,7 @@ const BarcodeScanningPage = () => {
                     <FormItem label="Warehouse ID / barcode">
                         <Input value={ctx.warehouseId} onChange={(e: any) => setCtx((p) => ({ ...p, warehouseId: e.target.value }))} />
                     </FormItem>
-                    <FormItem label="Bin (source / dest for putaway)">
+                    <FormItem label="Bin (source)">
                         <Input value={ctx.bin} onChange={(e: any) => setCtx((p) => ({ ...p, bin: e.target.value }))} />
                     </FormItem>
                     <FormItem label="Batch">
@@ -193,11 +190,6 @@ const BarcodeScanningPage = () => {
                                 <Input value={ctx.expectedReceiptLineId} onChange={(e: any) => setCtx((p) => ({ ...p, expectedReceiptLineId: e.target.value }))} />
                             </FormItem>
                         </>
-                    )}
-                    {operation === 'PUTAWAY' && (
-                        <FormItem label="Putaway Task ID">
-                            <Input value={ctx.putawayTaskId} onChange={(e: any) => setCtx((p) => ({ ...p, putawayTaskId: e.target.value }))} />
-                        </FormItem>
                     )}
                     {operation === 'PICKING' && (
                         <FormItem label="Picking Task ID">

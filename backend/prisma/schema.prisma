@@ -51,6 +51,10 @@ model Company {
   id         String       @id @default(cuid())
   code       String       @unique
   name       String
+  /// Public URL under `/uploads/companies/` (Next.js `public/`).
+  logoUrl    String?
+  address    String       @default("")
+  tin        String       @default("")
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
   warehouses Warehouse[]
