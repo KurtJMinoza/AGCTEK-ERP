@@ -1,1 +1,5 @@
-export { default } from '@/modules/scm/pages/Dashboard'
+import { redirect } from 'next/navigation'
+
+export default function Page() {
+    redirect('/modules/scm')
+}

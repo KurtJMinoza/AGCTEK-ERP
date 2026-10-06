@@ -12,19 +12,13 @@ const scmRoot = (): BreadcrumbItem => {
 }
 
 const transportationHub = (): BreadcrumbItem => ({
-    label: 'Transportation',
-    href: '/scm',
+    label: 'Transportation Management',
 })
-
-/** Transportation Management hub (`/scm`). */
-export function scmDashboardBreadcrumbs(): BreadcrumbItem[] {
-    return [scmRoot(), { label: 'Transportation Management' }]
-}
 
 /**
  * Breadcrumbs for SCM pages.
- * - transportation (default): SCM → Transportation → page
- * - planning / reports: SCM → page (no Transportation redirect)
+ * - transportation (default): SCM → Transportation Management → page
+ * - planning / reports: SCM → page
  */
 export function scmPageBreadcrumbs(
     pageLabel: string,

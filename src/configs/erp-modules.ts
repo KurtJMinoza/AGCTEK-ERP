@@ -403,7 +403,7 @@ export const ERP_MODULES: ErpModule[] = [
         categories: [
             {
                 code: 'planning',
-                title: 'Planning',
+                title: 'Planning & Analytics',
                 submodules: [
                     {
                         code: 'demand-planning',
@@ -413,101 +413,6 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/scm/demand-planning',
                         icon: 'lineChart',
                     },
-                ],
-            },
-            {
-                code: 'execute',
-                title: 'Execute',
-                submodules: [
-                    {
-                        code: 'transportation',
-                        title: 'Transportation Management',
-                        description:
-                            'Plan deliveries, load trucks, send them out, and keep track of your fleet.',
-                        path: '/scm',
-                        icon: 'truck',
-                        childGroupTitle: 'Features',
-                        children: [
-                            {
-                                code: 'shipments',
-                                title: 'Shipments',
-                                description:
-                                    'See all orders waiting to be delivered.',
-                                path: '/scm/shipments',
-                                icon: 'package',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'load-building',
-                                title: 'Load Building',
-                                description:
-                                    'Choose what goes on each truck without overloading it.',
-                                path: '/scm/load-building',
-                                icon: 'layers',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'trip-planning',
-                                title: 'Trip Planning',
-                                description:
-                                    'Turn a loaded truck into a trip, pick a driver, and send it out.',
-                                path: '/scm/trip-planning',
-                                icon: 'gitBranch',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'trips',
-                                title: 'Trips',
-                                description:
-                                    'See every trip and where it stands.',
-                                path: '/scm/trips',
-                                icon: 'activity',
-                                group: 'Execution',
-                            },
-                            {
-                                code: 'tracking',
-                                title: 'Tracking',
-                                description:
-                                    'See where your trucks are right now on a map.',
-                                path: '/scm/tracking',
-                                icon: 'activity',
-                                group: 'Execution',
-                            },
-                            {
-                                code: 'vehicles',
-                                title: 'Vehicles',
-                                description:
-                                    'Add and manage your company trucks.',
-                                path: '/scm/vehicles',
-                                icon: 'truck',
-                                group: 'Fleet & Resources',
-                            },
-                            {
-                                code: 'drivers',
-                                title: 'Drivers',
-                                description:
-                                    'Add drivers and see who is available.',
-                                path: '/scm/drivers',
-                                icon: 'users',
-                                group: 'Fleet & Resources',
-                            },
-                            {
-                                code: 'maintenance',
-                                title: 'Maintenance',
-                                description:
-                                    'Schedule and record truck repairs and servicing.',
-                                path: '/scm/maintenance',
-                                icon: 'settings',
-                                group: 'Fleet & Resources',
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                code: 'reports',
-                title: 'Reports & Analytics',
-                submodules: [
                     {
                         code: 'supply-chain-dashboard',
                         title: 'Supply Chain Dashboard',
@@ -515,6 +420,72 @@ export const ERP_MODULES: ErpModule[] = [
                             'Ops KPIs — fleet utilization, shipments, trips; OTIF later.',
                         path: '/scm/supply-chain-dashboard',
                         icon: 'barChart',
+                    },
+                ],
+            },
+            {
+                code: 'transportation',
+                title: 'Transportation Management',
+                submodules: [
+                    {
+                        code: 'shipments',
+                        title: 'Shipments',
+                        description: 'See all orders waiting to be delivered.',
+                        path: '/scm/shipments',
+                        icon: 'package',
+                    },
+                    {
+                        code: 'load-building',
+                        title: 'Load Building',
+                        description:
+                            'Choose what goes on each truck without overloading it.',
+                        path: '/scm/load-building',
+                        icon: 'layers',
+                    },
+                    {
+                        code: 'trip-planning',
+                        title: 'Trip Planning',
+                        description:
+                            'Turn a loaded truck into a trip, pick a driver, and send it out.',
+                        path: '/scm/trip-planning',
+                        icon: 'gitBranch',
+                    },
+                    {
+                        code: 'trips',
+                        title: 'Trips',
+                        description: 'See every trip and where it stands.',
+                        path: '/scm/trips',
+                        icon: 'activity',
+                    },
+                    {
+                        code: 'tracking',
+                        title: 'Tracking',
+                        description:
+                            'See where your trucks are right now on a map.',
+                        path: '/scm/tracking',
+                        icon: 'activity',
+                    },
+                    {
+                        code: 'vehicles',
+                        title: 'Vehicles',
+                        description: 'Add and manage your company trucks.',
+                        path: '/scm/vehicles',
+                        icon: 'truck',
+                    },
+                    {
+                        code: 'drivers',
+                        title: 'Drivers',
+                        description: 'Add drivers and see who is available.',
+                        path: '/scm/drivers',
+                        icon: 'users',
+                    },
+                    {
+                        code: 'maintenance',
+                        title: 'Maintenance',
+                        description:
+                            'Schedule and record truck repairs and servicing.',
+                        path: '/scm/maintenance',
+                        icon: 'settings',
                     },
                 ],
             },
