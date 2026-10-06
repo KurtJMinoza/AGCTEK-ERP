@@ -11,9 +11,16 @@ export type EntityOpt = { value: string; label: string; meta?: Record<string, an
 /**
  * Load searchable Select options for materials / suppliers used across MM forms.
  */
-export function useMaterialOptions(params?: { limit?: number; enabled?: boolean }) {
+export function useMaterialOptions(params?: {
+    limit?: number
+    enabled?: boolean
+    serialManaged?: boolean
+    batchManaged?: boolean
+}) {
     const enabled = params?.enabled === true
     const limit = params?.limit ?? 100
+    const serialManaged = params?.serialManaged
+    const batchManaged = params?.batchManaged
     const [options, setOptions] = useState<EntityOpt[]>([])
     const [loading, setLoading] = useState(false)
 
@@ -22,7 +29,13 @@ export function useMaterialOptions(params?: { limit?: number; enabled?: boolean 
         let cancelled = false
         setLoading(true)
         materialService
-            .list({ page: 1, limit, status: 'ACTIVE' } as any)
+            .list({
+                page: 1,
+                limit,
+                status: 'ACTIVE',
+                ...(serialManaged !== undefined ? { serialManaged } : {}),
+                ...(batchManaged !== undefined ? { batchManaged } : {}),
+            } as any)
             .then((res: any) => {
                 if (cancelled) return
                 const list = Array.isArray(res) ? res : res?.data ?? []
@@ -43,7 +56,7 @@ export function useMaterialOptions(params?: { limit?: number; enabled?: boolean 
         return () => {
             cancelled = true
         }
-    }, [enabled, limit])
+    }, [enabled, limit, serialManaged, batchManaged])
 
     const byId = useMemo(() => new Map(options.map((o) => [o.value, o])), [options])
     return { options, byId, loading }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -16,7 +16,9 @@ import Dropdown from '@/components/ui/Dropdown'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
+import Upload from '@/components/ui/Upload'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi'
+import { PiImageDuotone } from 'react-icons/pi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { getApiErrorMessage } from '@/modules/mm/shared/apiError'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
@@ -35,13 +37,133 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 
+const LOGO_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
+
+function FileFieldInput<T extends { id: string }>({
+    field,
+    editing,
+    value,
+    onChange,
+}: {
+    field: RefCrudField
+    editing: T | null
+    value: unknown
+    onChange: (file: File | null) => void
+}) {
+    const existingUrl =
+        field.existingUrlField && editing
+            ? String((editing as Record<string, unknown>)[field.existingUrlField] ?? '')
+            : ''
+    const previewUrl = useMemo(() => {
+        if (value instanceof File) return URL.createObjectURL(value)
+        return existingUrl || ''
+    }, [value, existingUrl])
+
+    useEffect(() => {
+        if (!(value instanceof File) || !previewUrl.startsWith('blob:')) return
+        return () => URL.revokeObjectURL(previewUrl)
+    }, [value, previewUrl])
+
+    const fileList = value instanceof File ? [value] : []
+
+    return (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-900/50 lg:w-36">
+                {previewUrl ? (
+                    <img
+                        src={previewUrl}
+                        alt=""
+                        className="h-28 w-28 rounded-lg object-contain"
+                    />
+                ) : (
+                    <div className="flex h-28 w-28 flex-col items-center justify-center gap-1 rounded-lg bg-gray-50 text-gray-400 dark:bg-gray-800">
+                        <PiImageDuotone className="text-3xl" />
+                        <span className="text-[10px] font-medium uppercase tracking-wide">
+                            Preview
+                        </span>
+                    </div>
+                )}
+                {value instanceof File ? (
+                    <span className="mt-2 max-w-full truncate text-center text-xs text-gray-500">
+                        {value.name}
+                    </span>
+                ) : existingUrl ? (
+                    <span className="mt-2 text-center text-xs text-gray-500">Current logo</span>
+                ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+                <Upload
+                    key={value instanceof File ? value.name : 'logo-empty'}
+                    draggable
+                    accept={field.accept ?? LOGO_ACCEPT}
+                    uploadLimit={1}
+                    showList={false}
+                    fileList={fileList}
+                    className="min-h-[9.5rem] w-full"
+                    onChange={(files) => onChange(files[0] ?? null)}
+                >
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-subtle text-primary-deep">
+                            <PiImageDuotone className="text-2xl" />
+                        </span>
+                        <p className="text-sm font-semibold heading-text">
+                            Drop your logo here, or{' '}
+                            <span className="text-primary">browse</span>
+                        </p>
+                        <p className="max-w-xs text-xs text-gray-500 dark:text-gray-400">
+                            {field.helpText ??
+                                'PNG, JPG, WEBP, or GIF. Recommended square image, max 5 MB.'}
+                        </p>
+                    </div>
+                </Upload>
+                {previewUrl && (value instanceof File || existingUrl) ? (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="plain"
+                        className="mt-2"
+                        onClick={() => onChange(null)}
+                    >
+                        Clear selection
+                    </Button>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+function RefCrudFormSection({
+    title,
+    description,
+    children,
+}: {
+    title: string
+    description?: string
+    children: ReactNode
+}) {
+    return (
+        <section className="rounded-xl border border-gray-200/80 bg-gray-50/60 dark:border-gray-700 dark:bg-gray-800/25">
+            <div className="border-b border-gray-200/80 px-4 py-3 dark:border-gray-700 sm:px-5">
+                <h6 className="text-sm font-semibold heading-text">{title}</h6>
+                {description ? (
+                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{description}</p>
+                ) : null}
+            </div>
+            <div className="space-y-1 px-4 py-4 sm:px-5 sm:py-5">{children}</div>
+        </section>
+    )
+}
+
 export interface RefCrudField {
     key: string
     label: string
     required?: boolean
-    type?: 'text' | 'number' | 'select'
+    type?: 'text' | 'number' | 'select' | 'textarea' | 'file'
     minLength?: number
     maxLength?: number
+    /** When `type` is `file`, existing URL on the row (e.g. `logoUrl`) satisfies required on edit. */
+    existingUrlField?: string
+    accept?: string
     /** System-assigned on create; shown read-only in the form */
     autoGenerate?: boolean
     autoGenerateHint?: string
@@ -49,6 +171,14 @@ export interface RefCrudField {
     helpText?: string
     options?: { value: string; label: string }[]
     isClearable?: boolean
+    /** Grid columns in sectioned forms (default 1). */
+    colSpan?: 1 | 2
+}
+
+export interface RefCrudFormSectionConfig {
+    title: string
+    description?: string
+    keys: string[]
 }
 
 interface RefCrudPageProps<T extends { id: string }> {
@@ -63,6 +193,17 @@ interface RefCrudPageProps<T extends { id: string }> {
     deleteItem: (id: string) => Promise<any>
     getItemLabel?: (item: T) => string
     prepareFormOpen?: () => void | Promise<void>
+    /** Multipart or custom save (e.g. company logo upload). */
+    saveItem?: (args: {
+        editing: T | null
+        payload: Record<string, unknown>
+        formData: Record<string, unknown>
+    }) => Promise<T>
+    formDialogSize?: 'sm' | 'md' | 'lg' | 'xl'
+    formSections?: RefCrudFormSectionConfig[]
+    formDialogIcon?: React.ReactNode
+    formDialogTitle?: (editing: T | null) => React.ReactNode
+    formDialogDescription?: (editing: T | null) => React.ReactNode
 }
 
 export default function RefCrudPage<T extends { id: string }>({
@@ -77,6 +218,12 @@ export default function RefCrudPage<T extends { id: string }>({
     deleteItem,
     getItemLabel,
     prepareFormOpen,
+    saveItem,
+    formDialogSize = 'md',
+    formSections,
+    formDialogIcon,
+    formDialogTitle,
+    formDialogDescription,
 }: RefCrudPageProps<T>) {
     const breadcrumbItems = buildErpBreadcrumbs(routePath)
     const [search, setSearch] = useState('')
@@ -110,7 +257,18 @@ export default function RefCrudPage<T extends { id: string }>({
         for (const f of fields) {
             if (f.autoGenerate && !editing) continue
             const value = formData[f.key]
-            if (f.type === 'number') {
+            if (f.type === 'file') {
+                const hasFile = value instanceof File
+                const existingUrl =
+                    f.existingUrlField && editing
+                        ? String((editing as Record<string, unknown>)[f.existingUrlField] ?? '')
+                        : ''
+                errors[f.key] = firstError(
+                    f.required && !hasFile && !existingUrl
+                        ? required('', f.label)
+                        : undefined,
+                )
+            } else if (f.type === 'number') {
                 errors[f.key] = firstError(
                     f.required ? required(value === '' || value == null ? '' : value, f.label) : undefined,
                     nonNegativeNumber(value, f.label),
@@ -138,7 +296,10 @@ export default function RefCrudPage<T extends { id: string }>({
         await prepareFormOpen?.()
         setEditing(null)
         const blank: Record<string, any> = {}
-        fields.forEach((f) => { blank[f.key] = f.type === 'number' ? '' : '' })
+        fields.forEach((f) => {
+            if (f.type === 'file') blank[f.key] = null
+            else blank[f.key] = f.type === 'number' ? '' : ''
+        })
         setFormData(blank)
         setTouched({})
         setForceValidate(false)
@@ -149,7 +310,10 @@ export default function RefCrudPage<T extends { id: string }>({
         await prepareFormOpen?.()
         setEditing(item)
         const data: Record<string, any> = {}
-        fields.forEach((f) => { data[f.key] = (item as any)[f.key] ?? '' })
+        fields.forEach((f) => {
+            if (f.type === 'file') data[f.key] = null
+            else data[f.key] = (item as any)[f.key] ?? ''
+        })
         setFormData(data)
         setTouched({})
         setForceValidate(false)
@@ -165,6 +329,7 @@ export default function RefCrudPage<T extends { id: string }>({
         try {
             const payload: Record<string, any> = {}
             for (const f of fields) {
+                if (f.type === 'file') continue
                 if (f.autoGenerate) {
                     // Omit on create (server generates); never send on edit (immutable)
                     if (!editing) continue
@@ -184,7 +349,10 @@ export default function RefCrudPage<T extends { id: string }>({
                     payload[f.key] = ''
                 }
             }
-            if (editing) {
+            if (saveItem) {
+                await saveItem({ editing, payload, formData })
+                pushToast('success', editing ? 'Updated' : 'Created', `${title} ${editing ? 'updated' : 'created'}.`)
+            } else if (editing) {
                 await updateItem(editing.id, payload)
                 pushToast('success', 'Updated', `${title} updated.`)
             } else {
@@ -270,6 +438,118 @@ export default function RefCrudPage<T extends { id: string }>({
         [items, search],
     )
 
+    const fieldByKey = useMemo(
+        () => Object.fromEntries(fields.map((f) => [f.key, f])),
+        [fields],
+    )
+
+    const renderFormField = useCallback(
+        (f: RefCrudField) => {
+            const message = err(f.key)
+            const isAuto = Boolean(f.autoGenerate)
+            const displayValue = isAuto
+                ? (editing ? String(formData[f.key] ?? '') : (f.autoGenerateHint ?? 'Auto-generated'))
+                : (formData[f.key] ?? '')
+            const selectOpts = f.options ?? []
+            const spanClass =
+                f.colSpan === 2 || f.type === 'textarea' || f.type === 'file'
+                    ? 'sm:col-span-2'
+                    : ''
+
+            return (
+                <div key={f.key} className={spanClass}>
+                    <FormItem
+                        label={f.label}
+                        asterisk={f.required && !isAuto}
+                        invalid={Boolean(message)}
+                        errorMessage={message}
+                        className="mb-0"
+                    >
+                        {f.type === 'select' && !isAuto ? (
+                            <Select
+                                isSearchable
+                                isClearable={f.isClearable}
+                                placeholder={f.placeholder ?? `Select ${f.label.toLowerCase()}…`}
+                                options={selectOpts}
+                                value={selectOpts.find((o) => o.value === formData[f.key]) ?? null}
+                                onChange={(opt: any) => setField(f.key, opt?.value ?? '')}
+                            />
+                        ) : f.type === 'textarea' && !isAuto ? (
+                            <Input
+                                textArea
+                                rows={3}
+                                value={displayValue}
+                                onChange={(e) => setField(f.key, e.target.value)}
+                                placeholder={f.placeholder ?? f.label}
+                            />
+                        ) : f.type === 'file' && !isAuto ? (
+                            <FileFieldInput
+                                field={f}
+                                editing={editing}
+                                value={formData[f.key]}
+                                onChange={(file) => setField(f.key, file)}
+                            />
+                        ) : (
+                            <Input
+                                type={f.type === 'number' ? 'number' : 'text'}
+                                value={displayValue}
+                                disabled={isAuto}
+                                className={isAuto ? '!bg-gray-100 dark:!bg-gray-700/50' : undefined}
+                                onChange={(e) => setField(
+                                    f.key,
+                                    f.type === 'number' ? e.target.value : e.target.value,
+                                )}
+                                placeholder={f.placeholder ?? f.label}
+                            />
+                        )}
+                        {isAuto && (
+                            <p className="mt-1 text-xs text-gray-400">
+                                Assigned automatically and cannot be changed.
+                            </p>
+                        )}
+                        {!isAuto && f.helpText && f.type !== 'file' ? (
+                            <p className="mt-1 text-xs text-gray-400">{f.helpText}</p>
+                        ) : null}
+                    </FormItem>
+                </div>
+            )
+        },
+        [editing, err, formData, setField],
+    )
+
+    const formBody = formSections?.length ? (
+        <div className="flex flex-col gap-5">
+            {formSections.map((section) => (
+                <RefCrudFormSection
+                    key={section.title}
+                    title={section.title}
+                    description={section.description}
+                >
+                    <div className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 sm:gap-x-4">
+                        {section.keys.map((key) => {
+                            const f = fieldByKey[key]
+                            return f ? renderFormField(f) : null
+                        })}
+                    </div>
+                </RefCrudFormSection>
+            ))}
+        </div>
+    ) : (
+        <div className="space-y-4">{fields.map((f) => renderFormField(f))}</div>
+    )
+
+    const resolvedDialogTitle = formDialogTitle
+        ? formDialogTitle(editing)
+        : editing
+          ? `Edit ${title}`
+          : `New ${title}`
+    const resolvedDialogDescription = formDialogDescription
+        ? formDialogDescription(editing)
+        : editing
+          ? `Update ${title.toLowerCase()} details.`
+          : `Create a new ${title.toLowerCase()}.`
+    const resolvedDialogIcon = formDialogIcon ?? (editing ? <HiOutlinePencil /> : <HiOutlinePlus />)
+
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
@@ -316,65 +596,27 @@ export default function RefCrudPage<T extends { id: string }>({
             <FormDialog
                 isOpen={formOpen}
                 onClose={() => setFormOpen(false)}
-                size="md"
-                title={editing ? `Edit ${title}` : `New ${title}`}
-                description={editing ? `Update ${title.toLowerCase()} details.` : `Create a new ${title.toLowerCase()}.`}
-                icon={editing ? <HiOutlinePencil /> : <HiOutlinePlus />}
+                size={formDialogSize}
+                title={resolvedDialogTitle}
+                description={resolvedDialogDescription}
+                icon={resolvedDialogIcon}
+                bodyClassName={formSections?.length ? '!py-5 !px-4 sm:!px-5' : undefined}
                 footer={
                     <>
-                        <Button size="sm" onClick={() => setFormOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleSave} disabled={forceValidate && formInvalid}>
-                            {editing ? 'Save' : 'Create'}
+                        <Button variant="plain" onClick={() => setFormOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="solid"
+                            onClick={handleSave}
+                            disabled={forceValidate && formInvalid}
+                        >
+                            {editing ? 'Save changes' : 'Create'}
                         </Button>
                     </>
                 }
             >
-                {fields.map((f) => {
-                    const message = err(f.key)
-                    const isAuto = Boolean(f.autoGenerate)
-                    const displayValue = isAuto
-                        ? (editing ? String(formData[f.key] ?? '') : (f.autoGenerateHint ?? 'Auto-generated'))
-                        : (formData[f.key] ?? '')
-                    const selectOpts = f.options ?? []
-                    return (
-                        <FormItem
-                            key={f.key}
-                            label={f.label}
-                            asterisk={f.required && !isAuto}
-                            invalid={Boolean(message)}
-                            errorMessage={message}
-                        >
-                            {f.type === 'select' && !isAuto ? (
-                                <Select
-                                    isSearchable
-                                    isClearable={f.isClearable}
-                                    placeholder={f.placeholder ?? `Select ${f.label.toLowerCase()}…`}
-                                    options={selectOpts}
-                                    value={selectOpts.find((o) => o.value === formData[f.key]) ?? null}
-                                    onChange={(opt: any) => setField(f.key, opt?.value ?? '')}
-                                />
-                            ) : (
-                                <Input
-                                    type={f.type === 'number' ? 'number' : 'text'}
-                                    value={displayValue}
-                                    disabled={isAuto}
-                                    className={isAuto ? '!bg-gray-100 dark:!bg-gray-700/50' : undefined}
-                                    onChange={(e) => setField(
-                                        f.key,
-                                        f.type === 'number' ? e.target.value : e.target.value,
-                                    )}
-                                    placeholder={f.placeholder ?? f.label}
-                                />
-                            )}
-                            {isAuto && (
-                                <p className="mt-1 text-xs text-gray-400">Assigned automatically and cannot be changed.</p>
-                            )}
-                            {!isAuto && f.helpText && (
-                                <p className="mt-1 text-xs text-gray-400">{f.helpText}</p>
-                            )}
-                        </FormItem>
-                    )
-                })}
+                {formBody}
             </FormDialog>
 
             <ConfirmDialog

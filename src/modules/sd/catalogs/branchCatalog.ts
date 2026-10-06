@@ -16,3 +16,7 @@ export const SALES_BRANCHES: readonly SalesBranch[] = [
 
 export const branchLabel = (branchId: string | null | undefined) =>
     branchId ? (SALES_BRANCHES.find((b) => b.id === branchId)?.label ?? branchId) : '—'
+
+/** Default selling location for the retail POS terminal (no branch picker in UI). */
+export const POS_RETAIL_BRANCH_ID =
+    SALES_BRANCHES.find((b) => b.divisionId === 'DIV_RETAIL')?.id ?? 'BR_AWIC_DAVAO_MAIN'

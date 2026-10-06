@@ -6,7 +6,6 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
-import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { QualityDecideDto, InboundQueryDto } from './dto/inbound.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { postingKey } from '../common/idempotency.util'
@@ -42,7 +41,6 @@ export class QualityInspectionService {
     constructor(
         private prisma: PrismaService,
         private posting: InventoryPostingService,
-        private putaway: PutawayService,
         private events: EventEmitter2,
         private domainEvents: MmDomainEventsService,
         @Inject(forwardRef(() => InspectionLotService))
@@ -198,20 +196,6 @@ export class QualityInspectionService {
                     createdBy: dto.inspectedBy,
                 })
 
-                await this.putaway.createFromGoodsReceiptLine({
-                    companyId: gr.companyId,
-                    warehouseId: gr.warehouseId,
-                    goodsReceiptId: gr.id,
-                    goodsReceiptLineId: grLine.id,
-                    materialId: grLine.materialId,
-                    quantity: pass,
-                    uomId: grLine.uomId,
-                    batchId: grLine.batchId ?? undefined,
-                    serialId: grLine.serialNumberId ?? undefined,
-                    stockStatus: 'UNRESTRICTED',
-                    sourceBinId: grLine.storageBinId ?? undefined,
-                    sourceDocument: gr.documentNumber,
-                })
             }
 
             // Move FAIL qty: QI → BLOCKED

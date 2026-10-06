@@ -1353,23 +1353,6 @@ export class DocumentFlowService {
         for (const lot of lots) {
             nodes.push(...(await this.collectInspectionDownstream(lot.id, companyId)))
         }
-        const putaways = await this.prisma.wmPutawayTask.findMany({
-            where: { goodsReceiptId: grId },
-            include: { goodsReceipt: { select: { companyId: true } } },
-        })
-        for (const pt of putaways) {
-            if (pt.goodsReceipt?.companyId !== companyId) continue
-            nodes.push(
-                toFlowNode({
-                    documentType: 'PUTAWAY_TASK',
-                    documentId: pt.id,
-                    status: pt.status,
-                    displayNumber: pt.taskNumber,
-                    createdAt: pt.createdAt,
-                    companyId,
-                }),
-            )
-        }
         nodes.push(
             ...(await this.collectInventoryAndAccounting(
                 companyId,

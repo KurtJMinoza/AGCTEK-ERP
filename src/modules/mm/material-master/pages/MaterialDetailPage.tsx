@@ -44,6 +44,8 @@ import StockThresholdSummary from '../components/StockThresholdSummary'
 import { useMaterial } from '../hooks/useMaterial'
 import { materialService } from '../services/materialService'
 import { barcodeService, batchService, serialNumberService } from '../services/referenceService'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
+import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
 import { supplierMaterialService } from '@/modules/mm/supplier-management/services/supplierMaterialService'
 import { useLazyBinsForWarehouse, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -806,15 +808,16 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
 
     const handleAdd = async () => {
         try {
+            const normalizedBatch = formatTrackingNumber(batchNumber)
             await batchService.create({
                 materialId: material.id,
-                batchNumber,
+                batchNumber: normalizedBatch,
                 manufacturingDate: manufacturingDate || undefined,
                 expiryDate: expiryDate || undefined,
                 supplierId: supplierId || undefined,
                 status,
             })
-            pushToast('success', 'Batch added', `Batch ${batchNumber} created.`)
+            pushToast('success', 'Batch added', `Batch ${normalizedBatch} created.`)
             setAddOpen(false); resetForm(); onRefresh()
         } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
     }
@@ -861,7 +864,13 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                     </>
                 }
             >
-                <FormItem label="Batch number"><Input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g. BATCH-001" /></FormItem>
+                <FormItem label="Batch number">
+                    <TrackingNumberInput
+                        value={batchNumber}
+                        onChange={setBatchNumber}
+                        placeholder="e.g. beef 1 → BEEF-00001"
+                    />
+                </FormItem>
                 <FormItem label="Manufacture date">
                     <Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} />
                 </FormItem>
@@ -932,15 +941,16 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
 
     const handleAdd = async () => {
         try {
+            const normalizedSerial = formatTrackingNumber(serialNumber)
             await serialNumberService.create({
                 materialId: material.id,
-                serialNumber,
+                serialNumber: normalizedSerial,
                 batchId: batchId || undefined,
                 currentWarehouseId: warehouseId || undefined,
                 currentBinId: binId || undefined,
                 status,
             })
-            pushToast('success', 'Serial added', `Serial ${serialNumber} created.`)
+            pushToast('success', 'Serial added', `Serial ${normalizedSerial} created.`)
             setAddOpen(false); resetForm(); onRefresh()
         } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
     }
@@ -988,7 +998,13 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
                     </>
                 }
             >
-                <FormItem label="Serial number"><Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="e.g. SN-00001" /></FormItem>
+                <FormItem label="Serial number">
+                    <TrackingNumberInput
+                        value={serialNumber}
+                        onChange={setSerialNumber}
+                        placeholder="e.g. hlm 2026 1 → HLM-2026-00001"
+                    />
+                </FormItem>
                 <FormItem label="Batch">
                     <Select
                         isClearable

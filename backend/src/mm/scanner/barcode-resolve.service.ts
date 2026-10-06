@@ -309,40 +309,6 @@ export class BarcodeResolveService {
             }
         }
 
-        const putaway = await this.prisma.wmPutawayTask.findFirst({
-            where: { taskNumber: value },
-            select: {
-                id: true,
-                taskNumber: true,
-                companyId: true,
-                warehouseId: true,
-                materialId: true,
-                sourceBinId: true,
-                recommendedBinId: true,
-                batchId: true,
-                serialId: true,
-                status: true,
-            },
-        })
-        if (putaway) {
-            return {
-                type: 'PUTAWAY_TASK',
-                barcode: value,
-                documentType: 'PUTAWAY_TASK',
-                documentId: putaway.id,
-                documentNumber: putaway.taskNumber,
-                putawayTaskId: putaway.id,
-                warehouseTaskId: putaway.id,
-                warehouseId: putaway.warehouseId,
-                materialId: putaway.materialId,
-                storageBinId:
-                    putaway.recommendedBinId ?? putaway.sourceBinId ?? undefined,
-                batchId: putaway.batchId ?? undefined,
-                serialNumberId: putaway.serialId ?? undefined,
-                status: putaway.status,
-            }
-        }
-
         const whTask = await this.prisma.wmWarehouseTask.findFirst({
             where: { taskNumber: value },
             select: {

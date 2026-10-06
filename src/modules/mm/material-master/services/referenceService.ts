@@ -156,13 +156,13 @@ export const orgService = {
         mmCachedFetch('org:companies', () =>
             ErpAxiosBase.get<MmCompany[]>(`${API}/org/companies`).then((r) => r.data),
         ),
-    createCompany: (data: { code: string; name: string }) =>
-        ErpAxiosBase.post<MmCompany>(`${API}/org/companies`, data).then((r) => {
+    createCompany: (formData: FormData) =>
+        ErpAxiosBase.post<MmCompany>(`${API}/org/companies`, formData).then((r) => {
             mmInvalidateCache('org:')
             return r.data
         }),
-    updateCompany: (id: string, data: Partial<{ code: string; name: string }>) =>
-        ErpAxiosBase.put<MmCompany>(`${API}/org/companies/${id}`, data).then((r) => {
+    updateCompany: (id: string, formData: FormData) =>
+        ErpAxiosBase.put<MmCompany>(`${API}/org/companies/${id}`, formData).then((r) => {
             mmInvalidateCache('org:')
             return r.data
         }),

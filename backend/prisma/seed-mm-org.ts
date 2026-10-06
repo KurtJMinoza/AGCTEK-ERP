@@ -8,7 +8,13 @@ export async function seedMmOrg(prisma: PrismaClient) {
     const company = await prisma.company.upsert({
         where: { code: 'AGCTEK' },
         update: {},
-        create: { code: 'AGCTEK', name: 'AGCTEK Corporation' },
+        create: {
+            code: 'AGCTEK',
+            name: 'AGCTEK Corporation',
+            address: '123 Industrial Blvd, Makati City, Philippines',
+            tin: '000-000-000-000',
+            logoUrl: '/img/logo/AGC_DARK.png',
+        },
     })
 
     // ── Plant / Branch ──────────────────────────────────────────────

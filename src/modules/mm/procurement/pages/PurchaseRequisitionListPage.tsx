@@ -36,7 +36,6 @@ import {
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PurchaseRequisition, PrListResponse } from '../types'
-import { prTotalAmount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
@@ -331,16 +330,6 @@ const PurchaseRequisitionListPage = () => {
             ),
         },
         {
-            header: 'Amount',
-            id: 'amount',
-            size: 110,
-            cell: ({ row }) => (
-                <span className="text-sm font-semibold">
-                    {prTotalAmount(row.original).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-            ),
-        },
-        {
             header: 'Status',
             accessorKey: 'status',
             size: 140,
@@ -349,16 +338,6 @@ const PurchaseRequisitionListPage = () => {
                     {row.original.status.replace(/_/g, ' ')}
                 </StatusBadge>
             ),
-        },
-        {
-            header: 'Approval',
-            id: 'approval',
-            size: 110,
-            cell: ({ row }) => {
-                const s = row.original.status
-                const label = s === 'PENDING_APPROVAL' ? 'Pending' : s === 'APPROVED' || s === 'PARTIALLY_CONVERTED' || s === 'FULLY_CONVERTED' ? 'Approved' : s === 'REJECTED' ? 'Rejected' : s === 'RETURNED' ? 'Returned' : '—'
-                return <span className="text-xs text-gray-500">{label}</span>
-            },
         },
         {
             id: 'actions',

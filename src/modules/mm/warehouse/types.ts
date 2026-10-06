@@ -501,7 +501,6 @@ export interface CreateTransferPayload {
 
 // Unified warehouse task engine
 export type WarehouseTaskType =
-    | 'PUTAWAY'
     | 'PICK'
     | 'TRANSFER'
     | 'REPLENISHMENT'

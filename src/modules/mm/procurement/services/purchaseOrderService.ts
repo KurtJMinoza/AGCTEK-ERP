@@ -21,8 +21,6 @@ export const purchaseOrderService = {
     create: (data: Record<string, unknown>) =>
         ErpAxiosBase.post<MmPurchaseOrder>(BASE, data).then((r) => r.data),
 
-    createFromAward: (data: Record<string, unknown>) =>
-        ErpAxiosBase.post<MmPurchaseOrder>(`${BASE}/from-award`, data).then((r) => r.data),
 
     createFromPr: (data: Record<string, unknown>) =>
         ErpAxiosBase.post<MmPurchaseOrder>(`${BASE}/from-pr`, data).then((r) => r.data),

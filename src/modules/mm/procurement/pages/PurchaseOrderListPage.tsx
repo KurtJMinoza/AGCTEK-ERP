@@ -24,13 +24,11 @@ import {
 } from 'react-icons/hi'
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
-import { rfqService } from '../services/rfqService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     MmPurchaseOrder,
     PoListResponse,
     PurchaseRequisition,
-    MmRfq,
 } from '../types'
 import { prRemainingQty } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -70,7 +68,7 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
     { value: 'CLOSED', label: 'Closed' },
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
-type CreateMode = 'manual' | 'award' | 'pr'
+type CreateMode = 'manual' | 'pr'
 
 type LineDraft = {
     key: string
@@ -126,9 +124,7 @@ const PurchaseOrderListPage = () => {
         suppliers,
     } = useLazyMmRefs()
 
-    const [awardedRfqs, setAwardedRfqs] = useState<MmRfq[]>([])
     const [approvedPrs, setApprovedPrs] = useState<PurchaseRequisition[]>([])
-    const [fromAward, setFromAward] = useState({ awardId: '', buyerId: 'current-user', warehouseId: '' })
     const [fromPr, setFromPr] = useState({
         purchaseRequisitionId: '',
         supplierId: '',
@@ -158,19 +154,6 @@ const PurchaseOrderListPage = () => {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    const awardOptions = useMemo<FilterOption[]>(() => {
-        const opts: FilterOption[] = []
-        for (const rfq of awardedRfqs) {
-            for (const award of rfq.awards ?? []) {
-                opts.push({
-                    value: award.id,
-                    label: `${rfq.rfqNumber} → ${award.supplier?.supplierName ?? award.supplierId}${award.quotation?.quotationNumber ? ` (${award.quotation.quotationNumber})` : ''}`,
-                })
-            }
-        }
-        return opts
-    }, [awardedRfqs])
-
     const selectedPr = useMemo(
         () => approvedPrs.find((p) => p.id === fromPr.purchaseRequisitionId) ?? null,
         [approvedPrs, fromPr.purchaseRequisitionId],
@@ -195,7 +178,6 @@ const PurchaseOrderListPage = () => {
             expectedDeliveryDate: '',
         })
         setLines([emptyLine()])
-        setFromAward({ awardId: '', buyerId: 'current-user', warehouseId: '' })
         setFromPr({
             purchaseRequisitionId: '',
             supplierId: '',
@@ -206,14 +188,6 @@ const PurchaseOrderListPage = () => {
         setTouched({})
         setForceValidate(false)
         setFormOpen(true)
-        if (mode === 'award') {
-            try {
-                const res = await rfqService.list({ status: 'AWARDED', page: 1, pageSize: 100 })
-                setAwardedRfqs(res.data)
-            } catch {
-                setAwardedRfqs([])
-            }
-        }
         if (mode === 'pr') {
             try {
                 const [a, p] = await Promise.all([
@@ -241,11 +215,6 @@ const PurchaseOrderListPage = () => {
         unitPrice: nonNegativeNumber(l.unitPrice, 'Unit price'),
     })), [lines])
 
-    const awardErrors = useMemo<FieldErrors>(() => ({
-        awardId: required(fromAward.awardId, 'Award'),
-        buyerId: required(fromAward.buyerId, 'Buyer'),
-    }), [fromAward])
-
     const prErrors = useMemo<FieldErrors>(() => ({
         purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase requisition'),
         supplierId: required(fromPr.supplierId, 'Supplier'),
@@ -268,7 +237,6 @@ const PurchaseOrderListPage = () => {
     const hdrErr = (key: string) => visibleError(manualErrors, touched, key, forceValidate)
     const lnErr = (lineKey: string, field: string, errors: FieldErrors) =>
         visibleError(errors, touched, `${lineKey}.${field}`, forceValidate)
-    const awardErr = (key: string) => visibleError(awardErrors, touched, key, forceValidate)
     const prErr = (key: string) => visibleError(prErrors, touched, key, forceValidate)
 
     const handleCreate = useCallback(async () => {
@@ -299,17 +267,6 @@ const PurchaseOrderListPage = () => {
                         warehouseId: header.warehouseId || undefined,
                     })),
                 })
-            } else if (createMode === 'award') {
-                if (Object.values(awardErrors).some(Boolean)) {
-                    pushToast('danger', 'Validation', 'Select an award and buyer.')
-                    return
-                }
-                created = await purchaseOrderService.createFromAward({
-                    awardId: fromAward.awardId,
-                    buyerId: fromAward.buyerId,
-                    warehouseId: fromAward.warehouseId || undefined,
-                    createdBy: fromAward.buyerId,
-                })
             } else {
                 if (Object.values(prErrors).some(Boolean)) {
                     pushToast('danger', 'Validation', 'Complete PR conversion fields.')
@@ -334,7 +291,7 @@ const PurchaseOrderListPage = () => {
         } finally {
             setSubmitting(false)
         }
-    }, [createMode, header, lines, manualErrors, lineErrors, awardErrors, fromAward, prErrors, fromPr, router])
+    }, [createMode, header, lines, manualErrors, lineErrors, prErrors, fromPr, router])
 
     const columns = useMemo<ColumnDef<MmPurchaseOrder>[]>(() => [
         {
@@ -415,9 +372,7 @@ const PurchaseOrderListPage = () => {
     ], [router])
 
     const modeTitle =
-        createMode === 'manual' ? 'New Purchase Order (Manual)'
-            : createMode === 'award' ? 'Create PO from Award'
-                : 'Create PO from PR'
+        createMode === 'manual' ? 'New Purchase Order (Manual)' : 'Create PO from PR'
 
     return (
         <PageContainer>
@@ -427,9 +382,6 @@ const PurchaseOrderListPage = () => {
                 description="Supplier commitments with approval, delivery, and receiving tracking."
                 actions={
                     <div className="flex flex-wrap gap-2">
-                        <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={() => openCreate('award')}>
-                            From Award
-                        </Button>
                         <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={() => openCreate('pr')}>
                             From PR
                         </Button>
@@ -488,14 +440,14 @@ const PurchaseOrderListPage = () => {
                 }
             >
                 <div className="mb-4 flex flex-wrap gap-2">
-                    {(['manual', 'award', 'pr'] as CreateMode[]).map((m) => (
+                    {(['manual', 'pr'] as CreateMode[]).map((m) => (
                         <Button
                             key={m}
                             size="xs"
                             variant={createMode === m ? 'solid' : 'default'}
                             onClick={() => openCreate(m)}
                         >
-                            {m === 'manual' ? 'Manual DRAFT' : m === 'award' ? 'From Award' : 'From PR'}
+                            {m === 'manual' ? 'Manual DRAFT' : 'From PR'}
                         </Button>
                     ))}
                 </div>
@@ -584,38 +536,6 @@ const PurchaseOrderListPage = () => {
                                 </div>
                             )
                         })}
-                    </div>
-                )}
-
-                {createMode === 'award' && (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <FormItem label="Award" asterisk className="sm:col-span-2" invalid={Boolean(awardErr('awardId'))} errorMessage={awardErr('awardId')}>
-                            <Select<FilterOption>
-                                options={awardOptions}
-                                value={awardOptions.find((a) => a.value === fromAward.awardId) ?? null}
-                                onChange={(opt) => {
-                                    setFromAward((p) => ({ ...p, awardId: opt?.value ?? '' }))
-                                    setTouched((t) => ({ ...t, awardId: true }))
-                                }}
-                            />
-                        </FormItem>
-                        <FormItem label="Buyer" asterisk invalid={Boolean(awardErr('buyerId'))} errorMessage={awardErr('buyerId')}>
-                            <Input
-                                value={fromAward.buyerId}
-                                onChange={(e) => {
-                                    setFromAward((p) => ({ ...p, buyerId: e.target.value }))
-                                    setTouched((t) => ({ ...t, buyerId: true }))
-                                }}
-                            />
-                        </FormItem>
-                        <FormItem label="Warehouse">
-                            <Select<FilterOption>
-                                options={warehouses}
-                                value={warehouses.find((w) => w.value === fromAward.warehouseId) ?? null}
-                                onChange={(opt) => setFromAward((p) => ({ ...p, warehouseId: opt?.value ?? '' }))}
-                                isClearable
-                            />
-                        </FormItem>
                     </div>
                 )}
 

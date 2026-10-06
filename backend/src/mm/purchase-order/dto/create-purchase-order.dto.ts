@@ -142,10 +142,6 @@ export class CreatePurchaseOrderDto {
     quotationId?: string
 
     @IsOptional()
-    @IsString()
-    awardId?: string
-
-    @IsOptional()
     @IsNumber()
     overDeliveryPctOverride?: number
 

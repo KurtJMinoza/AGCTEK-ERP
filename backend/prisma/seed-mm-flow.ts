@@ -39,7 +39,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
     const taskSpecs = [
         {
             taskNumber: 'WT-FLOW-001',
-            taskType: 'PUTAWAY',
+            taskType: 'RELOCATION',
             status: 'PENDING',
             materialId: ctx.matA.id,
             quantity: 30,

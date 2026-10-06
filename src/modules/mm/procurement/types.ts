@@ -399,6 +399,8 @@ export interface MmPurchaseOrderLine {
         materialCode: string
         materialName: string
         materialCategoryId?: string | null
+        batchManaged?: boolean
+        serialManaged?: boolean
     } | null
     description: string
     quantity: number | string

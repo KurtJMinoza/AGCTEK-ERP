@@ -11,6 +11,8 @@ import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
+import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
 import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
@@ -54,7 +56,7 @@ const BatchesPage = () => {
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
 
-    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen })
+    const { options: materialOpts } = useMaterialOptions({ enabled: addOpen, batchManaged: true })
     const { options: supplierOpts } = useSupplierOptions({ enabled: addOpen })
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
@@ -85,7 +87,7 @@ const BatchesPage = () => {
         try {
             await batchService.create({
                 materialId,
-                batchNumber,
+                batchNumber: formatTrackingNumber(batchNumber),
                 manufacturingDate: manufacturingDate || undefined,
                 expiryDate: expiryDate || undefined,
                 supplierId: supplierId || undefined,
@@ -169,7 +171,11 @@ const BatchesPage = () => {
                     <Select isSearchable placeholder="Search material…" options={materialOpts} value={materialOpts.find((o) => o.value === materialId) ?? null} onChange={(opt: any) => { setMaterialId(opt?.value ?? ''); setTouched((t) => ({ ...t, materialId: true })) }} />
                 </FormItem>
                 <FormItem label="Batch number" asterisk invalid={Boolean(err('batchNumber'))} errorMessage={err('batchNumber')}>
-                    <Input value={batchNumber} onChange={(e) => { setBatchNumber(e.target.value); setTouched((t) => ({ ...t, batchNumber: true })) }} placeholder="e.g. BATCH-001" />
+                    <TrackingNumberInput
+                        value={batchNumber}
+                        onChange={(v) => { setBatchNumber(v); setTouched((t) => ({ ...t, batchNumber: true })) }}
+                        placeholder="e.g. beef 1 → BEEF-00001"
+                    />
                 </FormItem>
                 <FormItem label="Supplier">
                     <Select isClearable isSearchable placeholder="Optional supplier…" options={supplierOpts} value={supplierOpts.find((o) => o.value === supplierId) ?? null} onChange={(opt: any) => setSupplierId(opt?.value ?? '')} />

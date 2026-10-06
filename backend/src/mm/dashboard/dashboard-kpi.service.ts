@@ -79,7 +79,6 @@ export class DashboardKpiService {
             receivingToday,
             inspectionPending,
             receivingVariances,
-            openPutaway,
             openPicking,
             openPacking,
             transfersInTransit,
@@ -175,11 +174,6 @@ export class DashboardKpiService {
                     companyId: filters.companyId,
                     ...wh,
                 },
-            }),
-            this.countDocs('wmPutawayTask', {
-                ...(filters.companyId ? { companyId: filters.companyId } : {}),
-                status: { in: ['PENDING', 'ASSIGNED', 'IN_PROGRESS'] },
-                ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}),
             }),
             this.countDocs('wmPickingTask', {
                 status: { in: ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PARTIALLY_PICKED'] },
@@ -391,14 +385,6 @@ export class DashboardKpiService {
                 ),
             ],
             warehouse: [
-                kpi(
-                    'openPutaway',
-                    'Putaway Tasks',
-                    openPutaway,
-                    'warehouse',
-                    '/modules/mm/warehouse-management/putaway',
-                    { status: 'PENDING' },
-                ),
                 kpi(
                     'openPicking',
                     'Picking Tasks',

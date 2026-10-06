@@ -25,8 +25,6 @@ export class WarehousePerformanceReportService {
 
         const [
             grAgg,
-            putawayOpen,
-            putawayCompleted,
             pickOpen,
             pickCompleted,
             packOpen,
@@ -43,21 +41,6 @@ export class WarehousePerformanceReportService {
                     postingDate: { gte: from, lte: to },
                 },
                 _count: { id: true },
-            }),
-            this.prisma.wmPutawayTask.count({
-                where: {
-                    ...wmWhFilter,
-                    status: { notIn: ['COMPLETED', 'CANCELLED'] },
-                    createdAt: { gte: from, lte: to },
-                },
-            }),
-            this.prisma.wmPutawayTask.findMany({
-                where: {
-                    ...wmWhFilter,
-                    status: 'COMPLETED',
-                    completedAt: { gte: from, lte: to },
-                },
-                select: { createdAt: true, completedAt: true },
             }),
             this.prisma.wmPickingTask.count({
                 where: {
@@ -166,7 +149,6 @@ export class WarehousePerformanceReportService {
             )
         }
 
-        const putawayTotal = putawayOpen + putawayCompleted.length
         const pickTotal = pickOpen + pickCompleted.length
         const packTotal = packOpen + packCompleted
 
@@ -190,19 +172,6 @@ export class WarehousePerformanceReportService {
             receiving: {
                 documentCount: grAgg._count.id,
                 quantityReceived: Number(grLines._sum.quantity ?? 0),
-            },
-            putaway: {
-                open: putawayOpen,
-                completed: putawayCompleted.length,
-                completionRate:
-                    putawayTotal > 0
-                        ? Number(
-                              (
-                                  putawayCompleted.length / putawayTotal
-                              ).toFixed(4),
-                          )
-                        : 0,
-                avgCompletionHours: avgHours(putawayCompleted),
             },
             picking: {
                 open: pickOpen,
@@ -228,15 +197,9 @@ export class WarehousePerformanceReportService {
                 warehouseTransferCount: transferVolume,
             },
             binUtilization: {
-                binsTracked: bins.filter((b) => Number(b.capacityQuantity) > 0)
-                    .length,
-                totalCapacity,
-                totalOccupied,
                 utilizationPct:
                     totalCapacity > 0
-                        ? Number(
-                              ((totalOccupied / totalCapacity) * 100).toFixed(2),
-                          )
+                        ? Number(((totalOccupied / totalCapacity) * 100).toFixed(1))
                         : 0,
             },
         }

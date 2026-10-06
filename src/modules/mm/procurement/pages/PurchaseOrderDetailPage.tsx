@@ -14,6 +14,7 @@ import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Tabs from '@/components/ui/Tabs'
 import Input from '@/components/ui/Input'
+import Select from '@/components/ui/Select'
 import Spinner from '@/components/ui/Spinner'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -41,6 +42,7 @@ import {
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import { workflowService } from '../services/workflowService'
 import { goodsReceiptService } from '@/modules/mm/inventory/services/goodsReceiptService'
+import { batchService, serialNumberService } from '@/modules/mm/material-master/services/referenceService'
 import DocumentFlowTimeline from '@/components/shared/DocumentFlowTimeline'
 import type {
     MmPurchaseOrder,
@@ -101,6 +103,11 @@ const PurchaseOrderDetailPage = () => {
     const [grOpen, setGrOpen] = useState(false)
     const [grSubmitting, setGrSubmitting] = useState(false)
     const [grLines, setGrLines] = useState<Record<string, string>>({})
+    const [grBatchIds, setGrBatchIds] = useState<Record<string, string>>({})
+    const [grSerialIds, setGrSerialIds] = useState<Record<string, string[]>>({})
+    const [grBatchOpts, setGrBatchOpts] = useState<Record<string, { value: string; label: string }[]>>({})
+    const [grSerialOpts, setGrSerialOpts] = useState<Record<string, { value: string; label: string }[]>>({})
+    const [grRefsLoading, setGrRefsLoading] = useState(false)
     const [grTouched, setGrTouched] = useState<Record<string, boolean>>({})
     const [grForce, setGrForce] = useState(false)
 
@@ -193,16 +200,84 @@ const PurchaseOrderDetailPage = () => {
         [po],
     )
 
+    const syncSerialSlots = useCallback((lineId: string, qty: number) => {
+        const n = Math.max(0, Math.floor(qty))
+        setGrSerialIds((prev) => {
+            const cur = prev[lineId] ?? []
+            const next = [...cur]
+            while (next.length < n) next.push('')
+            return { ...prev, [lineId]: next.slice(0, n) }
+        })
+    }, [])
+
     const openGr = () => {
         const init: Record<string, string> = {}
+        const batchInit: Record<string, string> = {}
+        const serialInit: Record<string, string[]> = {}
         for (const l of openQtyLines) {
-            init[l.id] = String(poOpenQty(l))
+            const open = poOpenQty(l)
+            init[l.id] = String(open)
+            batchInit[l.id] = ''
+            if (l.material?.serialManaged) {
+                serialInit[l.id] = Array.from({ length: open }, () => '')
+            }
         }
         setGrLines(init)
+        setGrBatchIds(batchInit)
+        setGrSerialIds(serialInit)
         setGrTouched({})
         setGrForce(false)
         setGrOpen(true)
     }
+
+    useEffect(() => {
+        if (!grOpen || !openQtyLines.length) return
+        let cancelled = false
+        setGrRefsLoading(true)
+        const materialIds = [...new Set(openQtyLines.map((l) => l.materialId))]
+        Promise.all(
+            materialIds.map(async (materialId) => {
+                const line = openQtyLines.find((l) => l.materialId === materialId)
+                const needsBatch = line?.material?.batchManaged
+                const needsSerial = line?.material?.serialManaged
+                const [batches, serials] = await Promise.all([
+                    needsBatch ? batchService.list(materialId).catch(() => []) : Promise.resolve([]),
+                    needsSerial ? serialNumberService.list(materialId).catch(() => []) : Promise.resolve([]),
+                ])
+                return {
+                    materialId,
+                    batches: (batches as { id: string; batchNumber: string }[]).map((b) => ({
+                        value: b.id,
+                        label: b.batchNumber,
+                    })),
+                    serials: (serials as { id: string; serialNumber: string }[]).map((s) => ({
+                        value: s.id,
+                        label: s.serialNumber,
+                    })),
+                }
+            }),
+        )
+            .then((rows) => {
+                if (cancelled) return
+                const batchMap: Record<string, { value: string; label: string }[]> = {}
+                const serialMap: Record<string, { value: string; label: string }[]> = {}
+                for (const l of openQtyLines) {
+                    const row = rows.find((r) => r.materialId === l.materialId)
+                    if (row) {
+                        batchMap[l.id] = row.batches
+                        serialMap[l.id] = row.serials
+                    }
+                }
+                setGrBatchOpts(batchMap)
+                setGrSerialOpts(serialMap)
+            })
+            .finally(() => {
+                if (!cancelled) setGrRefsLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [grOpen, openQtyLines])
 
     const grErrors = useMemo<FieldErrors>(() => {
         const errs: FieldErrors = {}
@@ -213,9 +288,24 @@ const PurchaseOrderDetailPage = () => {
             if (!errs[l.id] && n > poOpenQty(l)) {
                 errs[l.id] = `Cannot exceed open qty ${poOpenQty(l)}`
             }
+            if (l.material?.batchManaged && n > 0) {
+                const b = grBatchIds[l.id]
+                if (!b) errs[`batch-${l.id}`] = 'Batch is required'
+            }
+            if (l.material?.serialManaged && n > 0) {
+                const picks = grSerialIds[l.id] ?? []
+                if (picks.length !== n) {
+                    errs[`serial-${l.id}`] = `Select ${n} serial number(s)`
+                } else {
+                    const missing = picks.some((id) => !id)
+                    const dup = new Set(picks.filter(Boolean)).size !== picks.filter(Boolean).length
+                    if (missing) errs[`serial-${l.id}`] = 'Each unit needs a serial'
+                    if (dup) errs[`serial-${l.id}`] = 'Duplicate serial on this line'
+                }
+            }
         }
         return errs
-    }, [openQtyLines, grLines])
+    }, [openQtyLines, grLines, grBatchIds, grSerialIds])
 
     const handleCreateGr = async () => {
         if (!po) return
@@ -232,6 +322,50 @@ const PurchaseOrderDetailPage = () => {
                 return
             }
             const today = new Date().toISOString().slice(0, 10)
+            const grPayloadLines: Array<{
+                materialId: string
+                quantity: number
+                uomId: string
+                unitCost: number
+                totalCost: number
+                purchaseOrderLineId: string
+                storageBinId?: string
+                batchId?: string
+                serialNumberId?: string
+            }> = []
+
+            for (const l of selected) {
+                const qty = Number(grLines[l.id])
+                const unitCost = Number(l.unitPrice)
+                const base = {
+                    materialId: l.materialId,
+                    uomId: l.uomId,
+                    unitCost,
+                    purchaseOrderLineId: l.id,
+                    storageBinId: l.storageBinId || undefined,
+                }
+                if (l.material?.serialManaged) {
+                    const serials = grSerialIds[l.id] ?? []
+                    for (const serialNumberId of serials) {
+                        grPayloadLines.push({
+                            ...base,
+                            quantity: 1,
+                            totalCost: unitCost,
+                            serialNumberId,
+                        })
+                    }
+                } else {
+                    grPayloadLines.push({
+                        ...base,
+                        quantity: qty,
+                        totalCost: qty * unitCost,
+                        batchId: l.material?.batchManaged
+                            ? grBatchIds[l.id] || undefined
+                            : undefined,
+                    })
+                }
+            }
+
             const gr = await goodsReceiptService.create({
                 companyId: po.companyId,
                 warehouseId: po.warehouseId || selected[0].warehouseId || '',
@@ -240,15 +374,7 @@ const PurchaseOrderDetailPage = () => {
                 documentDate: today,
                 stockStatus: 'UNRESTRICTED',
                 remarks: `GR against ${po.poNumber}`,
-                lines: selected.map((l) => ({
-                    materialId: l.materialId,
-                    quantity: Number(grLines[l.id]),
-                    uomId: l.uomId,
-                    unitCost: Number(l.unitPrice),
-                    totalCost: Number(grLines[l.id]) * Number(l.unitPrice),
-                    purchaseOrderLineId: l.id,
-                    storageBinId: l.storageBinId || undefined,
-                })),
+                lines: grPayloadLines,
             })
             await goodsReceiptService.post(gr.id)
             pushToast('success', 'Received', `${gr.documentNumber} created and posted.`)
@@ -869,26 +995,89 @@ const PurchaseOrderDetailPage = () => {
                     </>
                 }
             >
-                <div className="space-y-3">
+                <div className="space-y-4">
+                    {grRefsLoading ? (
+                        <p className="text-sm text-gray-500">Loading batches / serials…</p>
+                    ) : null}
                     {openQtyLines.map((l) => {
                         const err = visibleError(grErrors, grTouched, l.id, grForce)
+                        const batchErr = visibleError(grErrors, grTouched, `batch-${l.id}`, grForce)
+                        const serialErr = visibleError(grErrors, grTouched, `serial-${l.id}`, grForce)
+                        const batchOpts = grBatchOpts[l.id] ?? []
+                        const serialOpts = grSerialOpts[l.id] ?? []
+                        const serialPicks = grSerialIds[l.id] ?? []
                         return (
-                            <FormItem
-                                key={l.id}
-                                label={`${l.material?.materialCode ?? l.materialId} (open ${poOpenQty(l)})`}
-                                asterisk
-                                invalid={Boolean(err)}
-                                errorMessage={err}
-                            >
-                                <Input
-                                    type="number"
-                                    value={grLines[l.id] ?? ''}
-                                    onChange={(e) => {
-                                        setGrLines((p) => ({ ...p, [l.id]: e.target.value }))
-                                        setGrTouched((t) => ({ ...t, [l.id]: true }))
-                                    }}
-                                />
-                            </FormItem>
+                            <div key={l.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                                <FormItem
+                                    label={`${l.material?.materialCode ?? l.materialId} (open ${poOpenQty(l)})`}
+                                    asterisk
+                                    invalid={Boolean(err)}
+                                    errorMessage={err}
+                                >
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={poOpenQty(l)}
+                                        value={grLines[l.id] ?? ''}
+                                        onChange={(e) => {
+                                            const v = e.target.value
+                                            setGrLines((p) => ({ ...p, [l.id]: v }))
+                                            setGrTouched((t) => ({ ...t, [l.id]: true }))
+                                            if (l.material?.serialManaged) {
+                                                syncSerialSlots(l.id, Number(v) || 0)
+                                            }
+                                        }}
+                                    />
+                                </FormItem>
+                                {l.material?.batchManaged && Number(grLines[l.id]) > 0 ? (
+                                    <FormItem
+                                        label="Batch"
+                                        asterisk
+                                        className="mt-2"
+                                        invalid={Boolean(batchErr)}
+                                        errorMessage={batchErr}
+                                    >
+                                        <Select
+                                            isSearchable
+                                            placeholder={batchOpts.length ? 'Select batch…' : 'No batches — create in Material Master → Batches'}
+                                            options={batchOpts}
+                                            value={batchOpts.find((o) => o.value === grBatchIds[l.id]) ?? null}
+                                            onChange={(opt: { value: string } | null) => {
+                                                setGrBatchIds((p) => ({ ...p, [l.id]: opt?.value ?? '' }))
+                                                setGrTouched((t) => ({ ...t, [`batch-${l.id}`]: true }))
+                                            }}
+                                        />
+                                    </FormItem>
+                                ) : null}
+                                {l.material?.serialManaged && serialPicks.length > 0 ? (
+                                    <div className="mt-2 space-y-2">
+                                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                                            Serial numbers (one per unit)
+                                        </p>
+                                        {serialErr ? (
+                                            <p className="text-xs text-red-500">{serialErr}</p>
+                                        ) : null}
+                                        {serialPicks.map((pick, idx) => (
+                                            <FormItem key={`${l.id}-sn-${idx}`} label={`Serial ${idx + 1}`} asterisk>
+                                                <Select
+                                                    isSearchable
+                                                    placeholder={serialOpts.length ? 'Select serial…' : 'No serials — create in Material Master → Serial Numbers'}
+                                                    options={serialOpts}
+                                                    value={serialOpts.find((o) => o.value === pick) ?? null}
+                                                    onChange={(opt: { value: string } | null) => {
+                                                        setGrSerialIds((prev) => {
+                                                            const next = [...(prev[l.id] ?? [])]
+                                                            next[idx] = opt?.value ?? ''
+                                                            return { ...prev, [l.id]: next }
+                                                        })
+                                                        setGrTouched((t) => ({ ...t, [`serial-${l.id}`]: true }))
+                                                    }}
+                                                />
+                                            </FormItem>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </div>
                         )
                     })}
                 </div>
