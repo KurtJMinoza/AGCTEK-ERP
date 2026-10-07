@@ -127,4 +127,96 @@ describe('WarehouseService', () => {
         const updateCall = mockPrisma.warehouse.update.mock.calls[0][0]
         expect(updateCall.data.code).toBeUndefined()
     })
+
+    describe('geocode integrity', () => {
+        const confirmed = {
+            id: '1',
+            code: 'WH-000001',
+            name: 'Main',
+            status: 'ACTIVE',
+            address: '1 Main St, Manila',
+            lat: 14.6,
+            lng: 120.98,
+            geocodeConfirmed: true,
+            geocodeConfirmedAt: new Date('2026-01-01'),
+        }
+
+        beforeEach(() => {
+            mockPrisma.warehouse.findFirst.mockResolvedValue(confirmed)
+            mockPrisma.warehouse.update.mockImplementation(({ data }) => ({ ...confirmed, ...data }))
+            mockPrisma.wmWarehouseAudit.create.mockResolvedValue({})
+        })
+
+        it('editing the address text clears the confirmation', async () => {
+            await service.update('1', { address: '99 Other Rd, Makati' } as any)
+            const { data } = mockPrisma.warehouse.update.mock.calls[0][0]
+            expect(data.geocodeConfirmed).toBe(false)
+            expect(data.geocodeConfirmedAt).toBeNull()
+        })
+
+        it('whitespace / case-only address edits keep the confirmation', async () => {
+            await service.update('1', { address: '  1 MAIN st,   manila ' } as any)
+            const { data } = mockPrisma.warehouse.update.mock.calls[0][0]
+            expect(data.geocodeConfirmed).toBeUndefined()
+        })
+
+        it('non-address edits keep the confirmation', async () => {
+            await service.update('1', { name: 'Renamed' } as any)
+            const { data } = mockPrisma.warehouse.update.mock.calls[0][0]
+            expect(data.geocodeConfirmed).toBeUndefined()
+        })
+
+        it('update / create cannot mass-assign coordinates or confirmation', async () => {
+            await service.update('1', { lat: 1, lng: 2, geocodeConfirmed: true } as any)
+            const { data } = mockPrisma.warehouse.update.mock.calls[0][0]
+            expect(data).not.toHaveProperty('lat')
+            expect(data).not.toHaveProperty('lng')
+            expect(data).not.toHaveProperty('geocodeConfirmed')
+
+            mockPrisma.warehouse.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+            mockPrisma.warehouse.create.mockResolvedValue({ id: '2' })
+            await service.create({ name: 'X', companyId: 'c1', lat: 1, lng: 2, geocodeConfirmed: true } as any)
+            const created = mockPrisma.warehouse.create.mock.calls[0][0].data
+            expect(created).not.toHaveProperty('lat')
+            expect(created).not.toHaveProperty('geocodeConfirmed')
+        })
+
+        it('confirmGeocode stores the pin, confirms, and audits', async () => {
+            mockPrisma.warehouse.findFirst.mockResolvedValue({ ...confirmed, geocodeConfirmed: false })
+            const r = await service.confirmGeocode('1', { lat: 14.55, lng: 121.02 })
+            const { data } = mockPrisma.warehouse.update.mock.calls[0][0]
+            expect(data).toMatchObject({ lat: 14.55, lng: 121.02, geocodeConfirmed: true })
+            expect(data.geocodeConfirmedAt).toBeInstanceOf(Date)
+            expect(r.geocodeConfirmed).toBe(true)
+            expect(mockPrisma.wmWarehouseAudit.create).toHaveBeenCalledWith(
+                expect.objectContaining({ data: expect.objectContaining({ action: 'GEOCODE_CONFIRM' }) }),
+            )
+        })
+
+        it.each([
+            ['missing', {}],
+            ['null', { lat: null, lng: null }],
+            ['lat out of range', { lat: 91, lng: 120 }],
+            ['lng out of range', { lat: 14, lng: 181 }],
+            ['non-numeric', { lat: 'abc', lng: 120 }],
+            ['0,0 placeholder', { lat: 0, lng: 0 }],
+        ])('confirmGeocode rejects %s coordinates and writes nothing', async (_label, body) => {
+            await expect(service.confirmGeocode('1', body as any)).rejects.toThrow(BadRequestException)
+            expect(mockPrisma.warehouse.update).not.toHaveBeenCalled()
+        })
+
+        it('confirmGeocode requires an address', async () => {
+            mockPrisma.warehouse.findFirst.mockResolvedValue({ ...confirmed, address: '  ' })
+            await expect(service.confirmGeocode('1', { lat: 14, lng: 120 })).rejects.toThrow(
+                BadRequestException,
+            )
+        })
+
+        it('confirmGeocode 404s for a missing / deleted warehouse', async () => {
+            mockPrisma.warehouse.findFirst.mockResolvedValue(null)
+            await expect(service.confirmGeocode('x', { lat: 14, lng: 120 })).rejects.toThrow(
+                NotFoundException,
+            )
+        })
+    })
 })

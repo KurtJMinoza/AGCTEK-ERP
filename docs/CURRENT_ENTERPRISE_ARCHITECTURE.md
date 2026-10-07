@@ -24,7 +24,7 @@ This document answers: **what each module owns, how value flows today, what is i
 | **SD** | **Integration** | `backend/src/sd/` · nav in `erp-modules.ts` · no `src/modules/sd` |
 | **PP** | **Integration** | `backend/src/pp/` (BOM / production orders for MM MRP) |
 | **FICO** | **Integration** | `backend/src/fico/` · nav scaffold · MM accounting consumer |
-| **CRM** | **Nav scaffold** | Nav only · no `backend/src/crm` · no `src/modules/crm` |
+| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; SO / RMA / loyalty accrual deferred |
 
 **Strategic posture:** MM and SCM are **deep enough to freeze**; do not redesign MM again. The imbalance is maturity across modules — next work is **cross-module business cycles**, not more MM surface area. See [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
 
@@ -105,7 +105,7 @@ PP  = PRODUCTION / BOM          (demand + BOM for MRP; not inventory writer)
 MARKET / CUSTOMER
        │
        ▼
-┌─────────────┐     Closed Won (planned)
+┌─────────────┐     Closed Won (draft SO)  
 │     CRM     │ ──────────────────────────► ┌─────────────┐
 │  (scaffold) │                             │     SD      │
 └─────────────┘                             │ Integration │
@@ -356,8 +356,9 @@ Customer relationship layer: leads, accounts, contacts, opportunities, campaigns
 ## 7.2 Target flow
 
 ```text
-Lead → Qualify → Opportunity → Quote/Proposal → Negotiate → CLOSED WON
-  → SD Sales Order
+Lead → Qualify → Opportunity → SD Quotation (Proposal / Negotiation) → CLOSED WON
+  → SD Sales Order (converts the sent / accepted quotation, or direct lines)
+Opportunity → CLOSED LOST → active SD Quotation cancelled
 
 Support / RMA request → SD return auth → MM return receiving → QI → disposition
 ```
@@ -366,13 +367,82 @@ Support / RMA request → SD return auth → MM return receiving → QI → disp
 
 | Layer | Status |
 | --- | --- |
-| Navigation | Full hub under `/modules/crm` |
-| Backend | **None** (`backend/src/crm` missing) |
-| Frontend | **None** (`src/modules/crm` missing) |
+| Navigation | Hub `/modules/crm` → Dashboard, Customers, Leads, Opportunities, Tickets at `/crm/*` (permission-aware) |
+| Backend | `backend/src/crm` — leads, opportunities, tickets + comments, loyalty (read), Customer 360; `/api/v1/crm/*`, every handler `RequirePermission(MODULE_CODES.CRM, …)` |
+| Data | `crm_*` tables (migration `20261011120000_add_crm_core`); every CRM record references `SdCustomer` (`onDelete: Restrict`) — no CRM customer master, number or credit fields |
+| Frontend | `src/modules/crm` (SCM layout: types · services · hooks · components · pages); `/crm` layout calls `requireModuleView('crm')` |
 
-**Nav surface (scaffold):** Accounts, Contacts, Leads · Opportunities, Activities, Campaigns · Pipeline Analytics, Customer Insights · Sales Stages, Lead Sources  
+**Customer identity:** `SdCustomer` (SD) is the only customer master. CRM extends it via `CrmProfile` (1:0..1) and FKs from leads, opportunities, tickets and loyalty accounts. CRM writes only `crm_*` tables and reads `SdCustomer` / `User`.
 
-Treat CRM as **planned ownership** constrained by the master flow; do not invent inventory or SO engines inside CRM.
+**Activities:** `CrmActivity` (migration `20261012120000_add_crm_activities`) — scheduled next actions on opportunities and tickets (one `CrmActivitiesService`, endpoints `/crm/opportunities/:id/activities` and `/crm/tickets/:id/activities`). Opportunities accept new activities only in open stages; tickets accept them until CLOSED / CANCELLED (RESOLVED still takes follow-ups). Opportunity and ticket payloads carry `nextActivityStatus` (OVERDUE > DUE_TODAY > UPCOMING > NONE, business day Asia/Manila) from one grouped query. Lead conversion relinks the lead's activities (open and done) to the new opportunity, keeping `leadId`.
+
+**Lead conversion:** `POST /crm/leads/:id/convert` (crm:create) is the only way to reach `CONVERTED` (PATCH refuses it). One transaction: link an existing `SdCustomer` or create one through SD's `CustomerService` (caller also needs sd:create; credit limit starts at 0 for SD to set), mark the lead CONVERTED, create the opportunity via `CrmOpportunitiesService` (stage gates apply), relink activities. LOST / UNQUALIFIED leads must be re-engaged first; any failure (gate, SD email conflict, concurrent edit) rolls everything back.
+
+**Pipeline rules:** stage metadata (default probability, won/lost flags, gates) lives in `backend/src/crm/opportunities/opportunity-stages.ts` and is served by `GET /crm/opportunities/stages`. Forward moves are gated (Proposal/Negotiation: amount + expected close; Closed Won: amount + ACTIVE `SdCustomer`); backward moves are ungated and never clear amount, dates, customer or activities. Closed Lost requires `lostReason` (OTHER also `lostNotes`); leaving Lost clears only those. Closed Won may be reopened; `sdSalesOrderId` is never client-writable. `GET /crm/opportunities/pipeline` returns open amount and weighted amount (amount × probability) per stage and currency.
+
+**Closed Won → SD handoff:** closing as won is `POST /crm/opportunities/:id/win` (crm:update + sd:create) with either a quotation (`quotationId`, or an empty body for the active SENT / ACCEPTED quotation; see **SD quotations** below) or `lines: [{productId, quantity}]` (SD product ids only), and optional `notes`; `PATCH` refuses `stage = CLOSED_WON`. The stage gates (amount, ACTIVE SdCustomer) run first, then one database transaction creates (or finds) the SD order and commits CLOSED_WON + `sdSalesOrderId` guarded by `stage`/`updatedAt`/`sdSalesOrderId IS NULL`; any failure (invalid product, currency, conflict) rolls back and the opportunity keeps its previous stage. A unique-key collision or stale row re-reads the opportunity: if it is already won with an order (concurrent or earlier request), that order is returned with `created: false`; otherwise the transaction is retried (max 3). Re-winning a reopened opportunity keeps its existing order and needs no lines. `POST /crm/opportunities/:id/sales-order` is the **Retry ERP handoff** for CLOSED_WON opportunities without an order (e.g. won before the handoff existed): same idempotent service, links without changing the stage. CRM calls SD's `SalesOrderService.createFromCrmOpportunity`, which prices lines from the SD catalog (`SD_CATALOG_CURRENCY` = PHP; a customer billed in another currency is rejected, never converted), requires one division and an ACTIVE customer, and creates a DRAFT with `channel = ECOMMERCE`, `source = CRM`, `crmOpportunityId` (unique; the idempotency key), `salesOwnerId` (opportunity owner) and `notes` (CRM estimated amount, informational only, + user notes). It runs in one transaction (optionally the caller's); a concurrent duplicate hits the unique constraint and the retry returns the recorded order. Every SD order carries `source` (POS | WEBSITE | CRM | ERP). Materials, company and warehouse resolve at SD confirm through the normal SD→MM pipeline. CRM writes `sdSalesOrderId` once (`WHERE sdSalesOrderId IS NULL`); a repeat call, or a retry after a partial failure, returns or links the same order. Once linked, the opportunity's customer is locked, reopening keeps the link, and CRM never edits or cancels the order. `GET /crm/opportunities/:id/sales-order` returns a read-only summary.
+
+**SD quotations (from CRM opportunities):** `SdQuotation` / `SdQuotationLine` (migration `20261016120000_add_sd_quotations`) are SD documents; CRM only orchestrates. Ownership and flow:
+
+```text
+CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
+ ├── POST /crm/opportunities/:id/quotations ──► SD QuotationService.create (DRAFT, rev 1, Q-000012)
+ │        SD: PATCH / send / accept / reject / cancel / revise  (/sd/quotations/:id[/action])
+ ├── Closed Won  (POST :id/win, or Retry ERP handoff POST :id/sales-order)
+ │        SENT / ACCEPTED quotation ──► SD Sales Order (DRAFT, frozen quotation lines + prices, quotationId set)
+ │        no active quotation      ──► SD Sales Order from direct lines (catalog prices, quotationId NULL)
+ └── Closed Lost ──► active quotation CANCELLED ("Opportunity closed as lost (<reason>)")
+```
+
+- **Statuses:** DRAFT → SENT → ACCEPTED / REJECTED / EXPIRED / CANCELLED / CONVERTED. Revising a SENT or ACCEPTED quotation marks it SUPERSEDED. Revising a REJECTED or EXPIRED one keeps its status. A revision keeps the number and increments `revision`. Allowed transitions live in `backend/src/sd/quotation.rules.ts`.
+- **One active quotation per opportunity:** DRAFT, SENT and ACCEPTED count as active. The service refuses a second one with 409 `QUOTATION_ACTIVE_EXISTS`, and the partial unique index `sd_quotations_one_active_per_opportunity` enforces the same rule in the database under concurrency.
+- **Pricing:**
+  - A DRAFT is re-priced from the SD catalog (PHP) on every edit.
+  - **Send** freezes the prices. If catalog prices changed since the last save, send stores the new prices on the draft and returns 409 `QUOTATION_PRICES_CHANGED` with `changedLines`, so the user reviews and sends again. Nothing is sent automatically.
+  - Inactive or deleted products block send with `QUOTATION_UNAVAILABLE_PRODUCTS`.
+  - Validity ends at 23:59:59.999 Asia/Manila on the chosen day (default 30 days). An overdue SENT or ACCEPTED quotation reads as EXPIRED and is persisted as EXPIRED before any write.
+- **Win rules (CRM `CrmOpportunityHandoffService`, under the opportunity row lock):**
+  - An empty body converts the active SENT or ACCEPTED quotation.
+  - A DRAFT blocks the win with `QUOTATION_DRAFT_PENDING`.
+  - Lines sent while a SENT or ACCEPTED quotation exists are refused with `QUOTATION_ACTIVE`.
+  - An explicitly chosen expired quotation is refused with `QUOTATION_EXPIRED`.
+  - When no active quotation exists (including one that has expired), direct lines are used.
+  - Sending a quotation and lines together returns 400.
+  - Conversion claims the quotation under its row lock and re-checks opportunity, customer and expiry. It does not re-read the catalog: a product deactivated after sending still converts.
+  - Concurrent wins and retries all succeed with one order. A failed order creation rolls the claim back and the quotation stays SENT / ACCEPTED.
+- **Opportunity guards:**
+  - A customer change is refused with `QUOTATION_ACTIVE` while a quotation is active.
+  - Closed Lost cancels the active quotation in the same transaction.
+  - Revise is refused with `QUOTATION_OPPORTUNITY_ORDERED` once the opportunity has an SD order.
+  - New quotations are refused once an order is linked, even after reopening.
+- **Permissions:**
+  - Creating from CRM needs crm:update and sd:create.
+  - SD endpoints use sd:read and sd:update.
+  - Closed Lost cancellation only needs crm:update.
+- **Out of scope:** PDF / e-mail delivery, a customer portal, and an SD quotations list page.
+- **Migration warning:** the partial index and the sequence `sd_quotation_number_seq` are raw SQL that Prisma cannot model. `prisma migrate dev` / `migrate diff` may propose dropping `sd_quotations_one_active_per_opportunity`; delete that statement from any generated migration.
+- **Real-database verification:** `npm run test:pg` (backend, uses `DATABASE_URL`) runs `src/sd/quotation.pg-spec.ts`. It covers the partial index, the sequence, rollback, concurrent creation and wins, and the lock races. It creates and deletes its own data, and the default `npm test` does not run it.
+
+**Customer 360:** `GET /crm/customers/:id/360` returns 404 only when the `SdCustomer` is missing. Profile, opportunities, tickets, loyalty, SD orders and SCM shipments are read live and independently; each reports `sections.<name>.status` (`ok` | `unavailable` | `not_connected`). A failing section falls back to null/[] (summary counts null) and the rest of the payload still returns 200. SD orders come from `SalesOrderService.list({ customerId, limit: 20 })`, each tagged with the CRM opportunity that handed it off. Shipments come from SCM's `ShipmentsService.findBySalesOrderIds`, which resolves by id through package → picking task → MM reservation header (source SD / SALES_ORDER), or the legacy `SALES_ORDER:<id>` picking source. Shipments depend on the orders read, so they become unavailable when SD fails. Nothing is copied into CRM.
+
+**Ticket queue:** `GET /crm/tickets` defaults to the working queue (OPEN + WAITING_CUSTOMER) sorted by priority (URGENT → LOW, oldest first within a priority); `queue=ALL` drops the status filter, an explicit `status` overrides the queue, and `sort=newest` orders by creation date. Priority paging uses per-priority counts (one `groupBy`) rather than a stored rank column. `rmaReference` is free text, searchable, and informational until the SD return flow exists.
+
+**Opportunity workspace:** `/crm/opportunities/[id]` is the canonical place to work a deal (table name / Open, board card click, Customer 360 and "New opportunity" all land there). It reuses the existing APIs only: `GET /crm/opportunities/:id` (also returns `owner` display fields and the source lead's `source`), `PATCH` for stage moves and details (server gates, transitions and lost reason apply; the stage bar adds the no-activity and reopen advisories), `POST :id/win`, the opportunity activity endpoints, and the read-only `GET :id/sales-order`. A **Quotations** panel (`#quotations`) lists the opportunity's SD quotations newest first.
+- Each shows number and revision, status, total, validity and dates, with the lines on demand.
+- Actions follow the quotation status: Edit / Send / Cancel for a DRAFT, Accept / Reject / Revise / Cancel for SENT, Revise / Cancel for ACCEPTED, and Revise for REJECTED or EXPIRED while the deal is open and has no order.
+- The send dialog shows the catalog price changes and highlights the affected lines.
+
+Choosing Closed Won opens the win dialog with a readiness checklist (active SD customer, customer currency equals the SD catalog currency PHP, estimated amount, and an order source). The checklist must pass before the confirm button is enabled; the server re-checks everything. The order source depends on the quotation:
+- A SENT or ACCEPTED quotation is shown as "Convert Q-… rev n" with its lines.
+- A DRAFT blocks the win and offers "Open quotation".
+- An expired quotation shows a warning plus the product-line picker.
+- With no quotation, the dialog shows the shared product-line picker (`ProductLinesEditor`, also used by the quotation editor). The edit form never offers Closed Won. After success the page shows the SD order number with E-commerce / CRM origin badges and a link to the SD sales-orders list (SD has no order detail route). Won deals without a linked order show "Retry ERP handoff" (workspace header and opportunities table), which calls `POST :id/sales-order`. The timeline is derived from stored data (activities, creation, current close, SD order link); there is no stage-change audit.
+
+**CRM dashboard:** `GET /crm/dashboard?days=30|90|365` (crm:read, default 90) is a read-only summary from CRM tables only. Live counts are new / qualified leads, records with overdue activities (opportunities and tickets, each with an activity count), the weighted open pipeline (same query as `/crm/opportunities/pipeline`), and the default ticket queue by priority and status. The period covers win/loss by `closedAt` (won amount per currency, lost by reason, win rate) and the lead cohort created in the window with its current status (no `convertedAt` is stored). Every widget links to a list filtered to exactly those records: `opportunities?activity=OVERDUE|stage|lostReason|closedFrom|view=board`, `tickets?queue=ALL&activity=OVERDUE|priority|status`, `leads?status|createdFrom`. The "overdue" rule (record still accepts activities and has an open activity past due) lives once in `CrmActivitiesService` and is shared by the list filters and the dashboard. List pages read these query parameters on load and show filters without a control as removable chips.
+
+**Deferred (`TODO(crm-integration)`):** ticket RMA → SD return authorization; loyalty accrual from FICO invoice clearance; FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
+
+Do not invent inventory or SO engines inside CRM.
 
 ---
 
@@ -463,7 +533,7 @@ PP creates **production demand / component requirements**; physical issues still
 
 | From → To | Mechanism (current / planned) |
 | --- | --- |
-| CRM → SD | Closed Won → Sales Order (**planned**) |
+| CRM → SD | Opportunity quotations via `QuotationService` (SD owns them; CRM creates them through `CrmOpportunityQuotationsService`). Closed Won → ECOMMERCE / CRM draft Sales Order via `SalesOrderService.createFromCrmOpportunity`, which converts the SENT / ACCEPTED quotation at its frozen prices or prices direct lines from the catalog (idempotent on `crmOpportunityId`). Closed Lost cancels the active quotation through `QuotationService.cancelActiveForOpportunity` |
 | SD → MM | Confirm SO → reservation / demand events (**integration**) |
 | MM → SD | ATP / reservation / GI status (**events; UI thin**) |
 | MM → SCM | `READY_FOR_DISPATCH` → Shipment (**implemented**) |

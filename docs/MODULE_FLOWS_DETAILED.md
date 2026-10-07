@@ -30,7 +30,7 @@ This document is **flow-first**: for each module (CRM, SD, MM, FICO, SCM) it sta
 │ CRM  Lead → Qualify → Opportunity → Closed Won                          │
 │      Support / RMA initiation · Customer 360 (ETA/POD from SCM)         │
 └──────────────────────────────────┬───────────────────────────────────────┘
-                                   │ Closed Won ⬜
+                                   │ Closed Won ✅ (draft SO)
                                    ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ SD   Quote → SO → Price → Credit(FICO) → ATP(MM) → Confirm → Fulfill    │
@@ -77,17 +77,18 @@ Write inventory · Own sales-order posting · Own fleet/POD execution.
       │
 ② Qualify / score                      ⬜
       │
-③ Convert to opportunity               ⬜
+③ Convert to opportunity               ✅ link/create SdCustomer via SD · activities relinked
       │
-④ Activities (call / meeting / task)   ⬜
+④ Activities (call / meeting / task)   ✅ opportunities (next-activity badge)
       │
 ⑤ Proposal / quote (commercial may live in SD)  ⬜
       │
 ⑥ Negotiation                          ⬜
       │
-⑦ CLOSED WON                           ⬜
+⑦ CLOSED WON                           ✅ gated (amount + ACTIVE SdCustomer)
       │
-      └──► handoff payload ──► SD Create Sales Order  ⬜
+      └──► handoff payload ──► SD Create Sales Order  ✅ STANDARD DRAFT, SD product lines,
+                                                       idempotent per opportunity; MM at SD confirm
 ```
 
 ## 2.4 Detailed flow — support / return
@@ -114,16 +115,25 @@ FICO credit / adjustment event                🔶/⬜
 SCM: ShipmentStatus · ETA · Exception · POD   ✅ (SCM produces)
       │
       ▼
-CRM Customer 360 / notifications              ⬜ (consume)
+CRM Customer 360                              ✅ live SD orders + SCM shipments (status, ETA, POD flag),
+                                                 per-section soft degradation
+CRM notifications                             ⬜
 ```
 
 ## 2.6 Repo today
 
 | Piece | Status |
 | --- | --- |
-| Nav `/modules/crm/*` | ✅ scaffold |
-| Backend `crm` module | ⬜ |
-| Frontend `src/modules/crm` | ⬜ |
+| Nav hub `/modules/crm` → `/crm/*` | ✅ Dashboard · Customers · Leads · Opportunities · Tickets |
+| Backend `crm` module | ✅ core (leads, opportunities, tickets + comments, loyalty read, Customer 360) |
+| Opportunity activities · stage gates · lost reason · weighted pipeline | ✅ |
+| Closed Won → SD draft Sales Order, channel ECOMMERCE / source CRM (`POST /crm/opportunities/:id/win`; retry `POST :id/sales-order`; UI readiness checklist) | ✅ |
+| SD quotations from opportunities (`/crm/opportunities/:id/quotations`, `/sd/quotations/:id[/action]`): one active per opportunity, prices frozen at send, win converts SENT / ACCEPTED, Closed Lost cancels; Quotations panel on the opportunity workspace | ✅ |
+| Frontend `src/modules/crm` | ✅ |
+| Customer 360 live SD orders + SCM shipments, section-level degradation | ✅ |
+| Ticket activities · default queue (Open + Waiting customer, priority sort) · RMA free-text reference | ✅ |
+| CRM dashboard (`GET /crm/dashboard`): leads, overdue activities, weighted pipeline, tickets by priority, win/loss by reason, lead conversion; deep links to filtered lists / board | ✅ |
+| RMA → SD · loyalty accrual · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
 
 ---
 
@@ -140,6 +150,8 @@ Direct inventory write · Second ATP engine · Fleet routing.
 ## 3.3 Detailed flow — order to cash (target)
 
 ```text
+⓪ Quotation (from CRM opportunity)           ✅ send freezes prices · win converts
+      │
 ① Create Sales Order (DRAFT)                 🔶 API
       │
 ② Pricing / conditions                       ⬜
@@ -164,6 +176,23 @@ Direct inventory write · Second ATP engine · Fleet routing.
       │
 ⑩ AR / Revenue ──────────────────► FICO      ⬜
 ```
+
+## 3.3a Quotation flow (CRM opportunity → SD)
+
+```text
+CRM Opportunity (Proposal / Negotiation)
+ │  POST /crm/opportunities/:id/quotations            ✅ DRAFT rev 1 (catalog prices)
+ ▼
+DRAFT ── send ──► SENT ── accept ──► ACCEPTED          ✅ prices frozen at send
+ │                 │  └─ reject ──► REJECTED            ✅ reason required
+ │                 └─ validity ends ──► EXPIRED          ✅ end of Manila day
+ └─ cancel ──► CANCELLED      revise ──► new DRAFT rev n+1 (same number)
+ │
+Closed Won ──► SENT / ACCEPTED converted ──► SD Sales Order DRAFT (frozen lines)   ✅
+Closed Lost ──► active quotation CANCELLED                                       ✅
+```
+
+Rules and error codes: `docs/CURRENT_ENTERPRISE_ARCHITECTURE.md` (SD quotations). The partial unique index `sd_quotations_one_active_per_opportunity` is raw SQL; `prisma migrate diff` may try to drop it.
 
 ## 3.4 Detailed flow — confirm → MM (current API)
 
@@ -505,8 +534,8 @@ Forecast stub API / UI hooks 🔶
 # 7. Cross-module sequence — full O2C (as designed)
 
 ```text
-CRM Closed Won ⬜
-  → SD Sales Order 🔶
+CRM Closed Won ✅
+  → SD Sales Order 🔶 (CRM creates the draft; SD confirms)
   → Credit FICO ⬜
   → ATP MM ✅
   → Confirm + Reserve MM 🔶

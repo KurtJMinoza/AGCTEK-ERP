@@ -53,11 +53,12 @@ export class SdMmPipelineService {
         for (const line of order.lines) {
             let productId = line.productId
             let materialId = line.materialId
+            const divisionId = line.divisionId ?? order.divisionId
 
-            if (!materialId && line.sku && order.divisionId) {
+            if (!materialId && line.sku && divisionId) {
                 const product =
                     await this.materialResolution.findProductByDivisionSku(
-                        order.divisionId,
+                        divisionId,
                         line.sku,
                     )
                 if (product) {
@@ -68,7 +69,7 @@ export class SdMmPipelineService {
                                 {
                                     productId: product.id,
                                     companyId,
-                                    divisionId: order.divisionId,
+                                    divisionId,
                                     channel: order.channel,
                                 },
                             )
@@ -129,7 +130,7 @@ export class SdMmPipelineService {
                     companyId,
                     channel: order.channel,
                     branchId: order.branchId,
-                    divisionId: order.divisionId,
+                    divisionId,
                     explicitWarehouseId: order.warehouseId,
                     materialId,
                 })

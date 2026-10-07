@@ -27,7 +27,6 @@ import Tabs from '@/components/ui/Tabs'
 import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import type { PricedLine } from '../services/pricingEngine'
 import {
     summarizeSalesOrders,
     type RetailStatusTarget,
@@ -50,6 +49,9 @@ const DIVISION_LABEL: Record<string, string> = {
 
 const divisionLabel = (divisionId: string | null) =>
     divisionId ? (DIVISION_LABEL[divisionId] ?? divisionId) : '—'
+
+const divisionsLabel = (divisionIds: string[]) =>
+    divisionIds.length ? divisionIds.map(divisionLabel).join(', ') : '—'
 
 const ROUTE_PATH = '/modules/sd/sales-orders'
 const REFRESH_INTERVAL_MS = 30_000
@@ -121,7 +123,7 @@ const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
     <StatusBadge tone={STATUS_TONE[status]}>{status}</StatusBadge>
 )
 
-const lineColumns: ColumnDef<PricedLine>[] = [
+const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
     {
         header: 'SKU',
         id: 'sku',
@@ -131,6 +133,11 @@ const lineColumns: ColumnDef<PricedLine>[] = [
                 <div className="text-xs text-gray-500">{row.original.name}</div>
             </div>
         ),
+    },
+    {
+        header: 'Division',
+        id: 'division',
+        cell: ({ row }) => divisionLabel(row.original.divisionId),
     },
     { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
     {
@@ -275,7 +282,7 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Division',
                 id: 'division',
-                cell: ({ row }) => divisionLabel(row.original.divisionId),
+                cell: ({ row }) => divisionsLabel(row.original.divisionIds),
             },
             {
                 header: 'Branch',
@@ -479,8 +486,7 @@ const SalesOrdersDashboard = () => {
                             </div>
                             <div>
                                 <span className="text-gray-500">Division: </span>
-                                {divisionLabel(selected.divisionId)}
-                                {selected.divisionId ? ` (${selected.divisionId})` : ''}
+                                {divisionsLabel(selected.divisionIds)}
                             </div>
                             <div>
                                 <span className="text-gray-500">Branch: </span>

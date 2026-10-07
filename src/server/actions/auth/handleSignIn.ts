@@ -4,7 +4,6 @@ import { signIn } from '@/auth'
 import appConfig from '@/configs/app.config'
 import { AuthError } from 'next-auth'
 import type { SignInCredential } from '@/@types/auth'
-
 export const onSignInWithCredentials = async (
     { userName, password, rememberMe }: SignInCredential,
     callbackUrl?: string,

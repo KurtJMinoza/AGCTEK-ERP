@@ -1,11 +1,32 @@
 import {
     BadRequestException,
+    ConflictException,
     Inject,
     Injectable,
     Logger,
     forwardRef,
 } from '@nestjs/common'
-import { LoadPlanStatus, Prisma, ShipmentMovementType, ShipmentStatus, StopStatus, TripStatus, VehicleStatus, DriverStatus } from '@prisma/client'
+import {
+    DeliveryFailureReason,
+    LoadPlanStatus,
+    Prisma,
+    ShipmentMovementType,
+    ShipmentStatus,
+    StopStatus,
+    TripStatus,
+    TripStopEventType,
+    VehicleStatus,
+    DriverStatus,
+} from '@prisma/client'
+import {
+    assertAssignedDriver,
+    isTerminalStop,
+    parseDeliverOutcome,
+    parseExecutionMeta,
+    parseFailureReason,
+    validateStopExecution,
+    type ExecutionMeta,
+} from './trip-execution.rules'
 import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { VehiclesService } from '../vehicles/vehicles.service'
@@ -71,6 +92,53 @@ type CreateTripBody = {
     plannedStartAt?: string | Date
     notes?: string | null
     stops?: StopInput[]
+    /** Dispatcher override (ERP only) — driver may execute stops out of sequence. */
+    allowOutOfOrder?: boolean
+}
+
+/** Optional client metadata on driver execution calls (GPS best-effort). */
+type StopExecutionBody = {
+    latitude?: number
+    longitude?: number
+    accuracy?: number
+    deviceId?: string
+    clientOccurredAt?: string
+    clientActionId?: string
+}
+
+type PodBody = {
+    podSignatureUrl?: string | null
+    podPhotoUrl?: string | null
+    podNotes?: string | null
+    notes?: string | null
+}
+
+type DeliverStopBody = StopExecutionBody &
+    PodBody & {
+        /** DELIVERED (→ stop COMPLETED) | FAILED */
+        outcome?: string
+        /** Required when outcome = FAILED */
+        reasonCode?: string
+        /** Free-text failure note (required when reasonCode = OTHER) */
+        failureReason?: string | null
+    }
+
+/** Shipments that a stop outcome must not overwrite. */
+const SHIPMENT_CLOSED_STATUSES: ShipmentStatus[] = [
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.CANCELLED,
+    ShipmentStatus.EXCEPTION_HOLD,
+]
+
+function podFields(body: PodBody): Prisma.TripStopUpdateManyMutationInput {
+    const field = (value: string | null | undefined) =>
+        value !== undefined ? optionalString(value) ?? null : undefined
+    return {
+        podSignatureUrl: field(body.podSignatureUrl),
+        podPhotoUrl: field(body.podPhotoUrl),
+        podNotes: field(body.podNotes),
+        notes: field(body.notes),
+    }
 }
 
 const TRIP_STATUSES = new Set(Object.values(TripStatus))
@@ -177,8 +245,9 @@ export class TripsService {
      * Driver 5.1 — start route → IN_TRANSIT.
      * Cargo-first trips: DISPATCHED only. Legacy trips: PLANNED / ASSIGNED.
      */
-    async startTrip(id: string) {
+    async startTrip(id: string, callerDriverId?: string | null) {
         const trip = await this.findOne(id)
+        assertAssignedDriver(trip, callerDriverId)
         if (trip.status === TripStatus.IN_TRANSIT) return trip
         const startable: TripStatus[] = trip.loadPlanId
             ? [TripStatus.DISPATCHED]
@@ -193,171 +262,257 @@ export class TripsService {
         return this.updateStatus(id, TripStatus.IN_TRANSIT)
     }
 
-    /** Driver 5.5 — mark stop arrived. */
-    async arriveStop(tripId: string, stopId: string) {
-        return this.updateStop(tripId, stopId, { status: StopStatus.ARRIVED })
-    }
-
-    /** Driver 6.x — save POD fields on stop (and optionally shipments). */
-    async saveStopPod(
+    /** Driver 5.5 — PENDING → ARRIVED (trip must be IN_TRANSIT, stops in order). */
+    async arriveStop(
         tripId: string,
         stopId: string,
-        body: {
-            podSignatureUrl?: string | null
-            podPhotoUrl?: string | null
-            podNotes?: string | null
-            notes?: string | null
-        },
+        callerDriverId: string | null | undefined,
+        body: StopExecutionBody = {},
     ) {
-        await this.findOne(tripId)
-        assertFound(
-            await this.prisma.tripStop.findFirst({
-                where: { id: stopId, tripId },
-            }),
-            'Stop not found',
-        )
+        const trip = await this.findOne(tripId)
+        assertAssignedDriver(trip, callerDriverId)
+        const meta = parseExecutionMeta(body)
+        if (await this.isReplay(meta.clientActionId, stopId, TripStopEventType.ARRIVED)) {
+            return trip
+        }
+        validateStopExecution({ trip, stopId, action: 'ARRIVE', callerDriverId })
 
-        await this.prisma.tripStop.update({
-            where: { id: stopId },
-            data: {
-                podSignatureUrl:
-                    body.podSignatureUrl !== undefined
-                        ? optionalString(body.podSignatureUrl) ?? null
-                        : undefined,
-                podPhotoUrl:
-                    body.podPhotoUrl !== undefined
-                        ? optionalString(body.podPhotoUrl) ?? null
-                        : undefined,
-                podNotes:
-                    body.podNotes !== undefined
-                        ? optionalString(body.podNotes) ?? null
-                        : undefined,
-                notes:
-                    body.notes !== undefined
-                        ? optionalString(body.notes) ?? null
-                        : undefined,
-            },
+        await this.runStopTransition(async (tx) => {
+            await this.transitionStop(tx, stopId, StopStatus.PENDING, {
+                status: StopStatus.ARRIVED,
+                arrivedAt: new Date(),
+            })
+            await this.recordStopEvent(tx, {
+                tripId,
+                stopId,
+                eventType: TripStopEventType.ARRIVED,
+                driverId: trip.driverId,
+                meta,
+            })
         })
         return this.findOne(tripId)
     }
 
+    /** Driver 6.x — save draft POD fields while the stop is ARRIVED. */
+    async saveStopPod(
+        tripId: string,
+        stopId: string,
+        body: PodBody,
+        callerDriverId?: string | null,
+    ) {
+        const trip = await this.findOne(tripId)
+        validateStopExecution({ trip, stopId, action: 'POD', callerDriverId })
+
+        await this.transitionStop(this.prisma, stopId, StopStatus.ARRIVED, podFields(body))
+        return this.findOne(tripId)
+    }
+
     /**
-     * Driver 6.x — confirm deliver (or fail) at stop.
-     * Marks stop COMPLETED/FAILED and updates DROPOFF shipments.
+     * Driver 6.x — ARRIVED → COMPLETED (outcome DELIVERED) or FAILED (reasonCode required).
+     * Stop update, audit event and linked-shipment side effects commit together.
+     * A failed stop does not end the trip; the trip auto-completes once every stop is terminal.
      */
     async deliverStop(
         tripId: string,
         stopId: string,
-        body: {
-            outcome?: 'DELIVERED' | 'FAILED'
-            podSignatureUrl?: string | null
-            podPhotoUrl?: string | null
-            podNotes?: string | null
-            failureReason?: string | null
+        body: DeliverStopBody,
+        callerDriverId?: string | null,
+    ) {
+        const trip = await this.findOne(tripId)
+        assertAssignedDriver(trip, callerDriverId)
+        const outcome = parseDeliverOutcome(body.outcome)
+        const meta = parseExecutionMeta(body)
+        const eventType =
+            outcome === 'FAIL' ? TripStopEventType.FAILED : TripStopEventType.COMPLETED
+        const failureCode = outcome === 'FAIL' ? parseFailureReason(body.reasonCode) : null
+        const failureNote = optionalString(body.failureReason) ?? null
+        if (failureCode === DeliveryFailureReason.OTHER && !failureNote) {
+            throw new BadRequestException('Describe the failure (failureReason) when reasonCode is OTHER')
+        }
+        if (await this.isReplay(meta.clientActionId, stopId, eventType)) return trip
+
+        const stop = validateStopExecution({
+            trip,
+            stopId,
+            action: outcome === 'FAIL' ? 'FAIL' : 'COMPLETE',
+            callerDriverId,
+        })
+        const now = new Date()
+
+        await this.runStopTransition(async (tx) => {
+            if (outcome === 'FAIL') {
+                await this.transitionStop(tx, stopId, StopStatus.ARRIVED, {
+                    ...podFields(body),
+                    status: StopStatus.FAILED,
+                    failedAt: now,
+                    failureCode,
+                    failureReason: failureNote,
+                })
+                await this.handleDeliveryFailure(tx, stop.shipments, {
+                    code: failureCode!,
+                    note: failureNote,
+                    at: now,
+                })
+            } else {
+                await this.transitionStop(tx, stopId, StopStatus.ARRIVED, {
+                    ...podFields(body),
+                    status: StopStatus.COMPLETED,
+                    completedAt: now,
+                })
+                await this.settleDeliveredShipments(tx, stop.shipments, body, now)
+            }
+            await this.recordStopEvent(tx, {
+                tripId,
+                stopId,
+                eventType,
+                driverId: trip.driverId,
+                meta,
+                reasonCode: failureCode,
+                notes:
+                    outcome === 'FAIL'
+                        ? failureNote
+                        : optionalString(body.podNotes) ?? optionalString(body.notes) ?? null,
+            })
+        })
+
+        const refreshed = await this.findOne(tripId)
+        const remaining = refreshed.stops.filter((s) => !isTerminalStop(s.status))
+        if (remaining.length === 0 && refreshed.status === TripStatus.IN_TRANSIT) {
+            return this.updateStatus(tripId, TripStatus.COMPLETED)
+        }
+        return refreshed
+    }
+
+    /** DROPOFF shipments at a completed stop → DELIVERED (shipments on exception hold stay held). */
+    private async settleDeliveredShipments(
+        tx: Prisma.TransactionClient,
+        links: Array<{ action: string; shipmentId: string }>,
+        body: DeliverStopBody,
+        now: Date,
+    ) {
+        const dropoffIds = links.filter((l) => l.action === 'DROPOFF').map((l) => l.shipmentId)
+        if (dropoffIds.length === 0) return
+        const data: Prisma.ShipmentUpdateManyMutationInput = {
+            status: ShipmentStatus.DELIVERED,
+            deliveredAt: now,
+        }
+        const sig = optionalString(body.podSignatureUrl)
+        const photo = optionalString(body.podPhotoUrl)
+        const note = optionalString(body.podNotes) ?? optionalString(body.notes)
+        if (sig) data.podSignatureUrl = sig
+        if (photo) data.podPhotoUrl = photo
+        if (note) data.notes = note
+        await tx.shipment.updateMany({
+            where: { id: { in: dropoffIds }, status: { notIn: SHIPMENT_CLOSED_STATUSES } },
+            data,
+        })
+    }
+
+    /**
+     * Failed stop → linked PICKUP/DROPOFF shipments go to EXCEPTION_HOLD with the reason.
+     * Fulfilment only — no inventory posting (goods remain issued to the trip; returns are a dispatcher decision).
+     */
+    private async handleDeliveryFailure(
+        tx: Prisma.TransactionClient,
+        links: Array<{ action: string; shipmentId: string }>,
+        failure: { code: DeliveryFailureReason; note: string | null; at: Date },
+    ) {
+        const ids = [
+            ...new Set(
+                links
+                    .filter((l) => l.action === 'PICKUP' || l.action === 'DROPOFF')
+                    .map((l) => l.shipmentId),
+            ),
+        ]
+        if (ids.length === 0) return
+        const { count } = await tx.shipment.updateMany({
+            where: { id: { in: ids }, status: { notIn: SHIPMENT_CLOSED_STATUSES } },
+            data: {
+                status: ShipmentStatus.EXCEPTION_HOLD,
+                exceptionCode: failure.code,
+                exceptionNote: failure.note,
+                exceptionAt: failure.at,
+            },
+        })
+        this.logger.log(`Delivery failure ${failure.code}: ${count} shipment(s) on EXCEPTION_HOLD`)
+    }
+
+    /** Conditional status write — fails if another request moved the stop first. */
+    private async transitionStop(
+        client: Prisma.TransactionClient | PrismaService,
+        stopId: string,
+        expected: StopStatus,
+        data: Prisma.TripStopUpdateManyMutationInput,
+    ) {
+        const { count } = await client.tripStop.updateMany({
+            where: { id: stopId, status: expected },
+            data,
+        })
+        if (count !== 1) {
+            throw new ConflictException('Stop was updated by another request — refresh and retry')
+        }
+    }
+
+    private async recordStopEvent(
+        tx: Prisma.TransactionClient,
+        input: {
+            tripId: string
+            stopId: string
+            eventType: TripStopEventType
+            driverId: string | null
+            meta: ExecutionMeta
+            reasonCode?: DeliveryFailureReason | null
             notes?: string | null
         },
     ) {
-        const trip = await this.findOne(tripId)
-        const stop = assertFound(
-            await this.prisma.tripStop.findFirst({
-                where: { id: stopId, tripId },
-                include: { shipments: true },
-            }),
-            'Stop not found',
-        )
-
-        const outcome = body.outcome === 'FAILED' ? 'FAILED' : 'DELIVERED'
-        if (outcome === 'FAILED') {
-            const reason = optionalString(body.failureReason)
-            if (!reason) {
-                throw new BadRequestException(
-                    'failureReason is required when outcome is FAILED',
-                )
-            }
-        }
-
-        const now = new Date()
-        await this.prisma.tripStop.update({
-            where: { id: stopId },
+        const { meta } = input
+        await tx.tripStopEvent.create({
             data: {
-                status:
-                    outcome === 'FAILED'
-                        ? StopStatus.FAILED
-                        : StopStatus.COMPLETED,
-                completedAt: stop.completedAt ?? now,
-                arrivedAt: stop.arrivedAt ?? now,
-                podSignatureUrl:
-                    body.podSignatureUrl !== undefined
-                        ? optionalString(body.podSignatureUrl) ?? null
-                        : undefined,
-                podPhotoUrl:
-                    body.podPhotoUrl !== undefined
-                        ? optionalString(body.podPhotoUrl) ?? null
-                        : undefined,
-                podNotes:
-                    body.podNotes !== undefined
-                        ? optionalString(body.podNotes) ?? null
-                        : undefined,
-                failureReason:
-                    outcome === 'FAILED'
-                        ? optionalString(body.failureReason) ?? null
-                        : null,
-                notes:
-                    body.notes !== undefined
-                        ? optionalString(body.notes) ?? null
-                        : undefined,
+                tripId: input.tripId,
+                stopId: input.stopId,
+                eventType: input.eventType,
+                occurredAt: meta.occurredAt,
+                driverId: input.driverId,
+                latitude: meta.latitude,
+                longitude: meta.longitude,
+                accuracyM: meta.accuracyM,
+                deviceId: meta.deviceId,
+                reasonCode: input.reasonCode ?? null,
+                notes: input.notes ?? null,
+                clientActionId: meta.clientActionId,
             },
         })
+    }
 
-        const dropoffIds = (stop.shipments ?? [])
-            .filter((link) => link.action === 'DROPOFF')
-            .map((link) => link.shipmentId)
+    /**
+     * Idempotency: a clientActionId already recorded for the same stop + event is a no-op replay.
+     * Reusing it for a different action is a conflict.
+     */
+    private async isReplay(
+        clientActionId: string | null,
+        stopId: string,
+        eventType: TripStopEventType,
+    ) {
+        if (!clientActionId) return false
+        const existing = await this.prisma.tripStopEvent.findUnique({
+            where: { clientActionId },
+            select: { stopId: true, eventType: true },
+        })
+        if (!existing) return false
+        if (existing.stopId === stopId && existing.eventType === eventType) return true
+        throw new ConflictException('clientActionId was already used for a different stop action')
+    }
 
-        if (dropoffIds.length > 0) {
-            if (outcome === 'DELIVERED') {
-                const shipmentData: Prisma.ShipmentUpdateManyMutationInput = {
-                    status: ShipmentStatus.DELIVERED,
-                    deliveredAt: now,
-                }
-                const sig = optionalString(body.podSignatureUrl)
-                const photo = optionalString(body.podPhotoUrl)
-                const note =
-                    optionalString(body.podNotes) ?? optionalString(body.notes)
-                if (sig) shipmentData.podSignatureUrl = sig
-                if (photo) shipmentData.podPhotoUrl = photo
-                if (note) shipmentData.notes = note
-                await this.prisma.shipment.updateMany({
-                    where: { id: { in: dropoffIds } },
-                    data: shipmentData,
-                })
-            } else {
-                const note =
-                    optionalString(body.failureReason) ??
-                    optionalString(body.podNotes)
-                await this.prisma.shipment.updateMany({
-                    where: { id: { in: dropoffIds } },
-                    data: {
-                        status: ShipmentStatus.CANCELLED,
-                        ...(note ? { notes: note } : {}),
-                    },
-                })
+    /** Runs a stop transition; a concurrent replay racing on clientActionId surfaces as a conflict. */
+    private async runStopTransition(fn: (tx: Prisma.TransactionClient) => Promise<void>) {
+        try {
+            await this.prisma.$transaction(fn)
+        } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+                throw new ConflictException('This stop action was already recorded')
             }
+            throw err
         }
-
-        const refreshed = await this.findOne(tripId)
-        const remaining = (refreshed.stops ?? []).filter(
-            (s) =>
-                s.status === StopStatus.PENDING ||
-                s.status === StopStatus.ARRIVED,
-        )
-        if (
-            remaining.length === 0 &&
-            refreshed.status === TripStatus.IN_TRANSIT
-        ) {
-            return this.updateStatus(tripId, TripStatus.COMPLETED)
-        }
-
-        return refreshed
     }
 
     async findOne(id: string) {
@@ -616,6 +771,12 @@ export class TripsService {
         if (body.notes !== undefined) {
             data.notes = optionalString(body.notes) ?? null
         }
+        if (body.allowOutOfOrder !== undefined) {
+            if (typeof body.allowOutOfOrder !== 'boolean') {
+                throw new BadRequestException('allowOutOfOrder must be a boolean')
+            }
+            data.allowOutOfOrder = body.allowOutOfOrder
+        }
 
         return this.prisma.trip.update({
             where: { id },
@@ -719,9 +880,7 @@ export class TripsService {
             await this.prisma.shipment.updateMany({
                 where: {
                     id: { in: shipmentIds },
-                    status: {
-                        notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED],
-                    },
+                    status: { notIn: SHIPMENT_CLOSED_STATUSES },
                 },
                 data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
             })
@@ -899,17 +1058,25 @@ export class TripsService {
         if (body.windowEnd !== undefined) {
             data.windowEnd = optionalDate(body.windowEnd) ?? null
         }
-        if (body.status !== undefined) {
+        if (body.status !== undefined && body.status !== stop.status) {
             if (!STOP_STATUSES.has(body.status)) {
                 throw new BadRequestException('Invalid stop status')
             }
+            if (
+                body.status === StopStatus.ARRIVED ||
+                body.status === StopStatus.COMPLETED ||
+                body.status === StopStatus.FAILED
+            ) {
+                throw new BadRequestException(
+                    `Stop execution (${body.status}) goes through the driver arrive / deliver endpoints`,
+                )
+            }
+            if (isTerminalStop(stop.status)) {
+                throw new ConflictException(
+                    `Stop #${stop.sequence} is ${stop.status} and cannot be changed`,
+                )
+            }
             data.status = body.status
-            if (body.status === StopStatus.ARRIVED && !stop.arrivedAt) {
-                data.arrivedAt = new Date()
-            }
-            if (body.status === StopStatus.COMPLETED && !stop.completedAt) {
-                data.completedAt = new Date()
-            }
         }
         if (body.notes !== undefined) {
             data.notes = optionalString(body.notes) ?? null

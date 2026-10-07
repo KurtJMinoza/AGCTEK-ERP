@@ -195,12 +195,15 @@ export const ProductImage = ({
     sizes,
     className,
     fit = 'cover',
+    priority,
 }: {
     product: Pick<SdProductRecord, 'imageUrl' | 'name'>
     sizes: string
     className?: string
     /** `contain` shows the whole product on the soft grey tile. */
     fit?: 'cover' | 'contain'
+    /** Above-the-fold image (e.g. the product page's main photo). */
+    priority?: boolean
 }) => {
     const src = productImageSrc(product.imageUrl)
     return (
@@ -215,6 +218,7 @@ export const ProductImage = ({
                 alt={product.name}
                 fill
                 sizes={sizes}
+                priority={priority}
                 unoptimized={isUnoptimizedImage(src)}
                 className={
                     fit === 'contain' ? 'object-contain' : 'object-cover'

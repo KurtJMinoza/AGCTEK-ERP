@@ -10,6 +10,7 @@
     "prettier": "npx prettier src --check",
     "prettier:fix": "npm run prettier -- --write",
     "driver": "npm --prefix apps/driver start",
+    "storefront": "npm --prefix apps/storefront start",
     "edge": "node scripts/erp-edge-proxy.cjs",
     "pm2:start": "npx pm2 start ecosystem.config.cjs",
     "pm2:restart": "npx pm2 restart ecosystem.config.cjs",

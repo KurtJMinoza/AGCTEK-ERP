@@ -30,6 +30,22 @@ export class CreateSalesOrderLineDto {
     quantity!: number
 }
 
+/**
+ * In-process input for the CRM Closed Won handoff: an ECOMMERCE / CRM draft priced
+ * from the SD catalog. Lines reference SD products only; materials, company and
+ * warehouse are resolved by SD at confirm.
+ */
+export interface CreateSalesOrderFromCrmOpportunityInput {
+    crmOpportunityId: string
+    customerId: string
+    /** Exactly one of `lines` (priced from the catalog now) or `quotationId` (frozen quotation prices). */
+    lines?: { productId: string; quantity: number }[]
+    quotationId?: string
+    notes?: string | null
+    salesOwnerId?: string | null
+    createdBy?: string | null
+}
+
 export class CreateSalesOrderDto {
     @IsString()
     @IsNotEmpty()
@@ -66,6 +82,10 @@ export class ChangeSalesOrderLineQtyDto {
 export const SALES_ORDER_CHANNELS = ['STANDARD', 'POS', 'ECOMMERCE'] as const
 export type SalesOrderChannel = (typeof SALES_ORDER_CHANNELS)[number]
 export const RETAIL_SALES_ORDER_CHANNELS = ['POS', 'ECOMMERCE'] as const
+export const SALES_ORDER_SOURCES = ['POS', 'WEBSITE', 'CRM', 'ERP'] as const
+export type SalesOrderSource = (typeof SALES_ORDER_SOURCES)[number]
+/** SdProduct prices carry no currency; they are maintained in this currency. */
+export const SD_CATALOG_CURRENCY = 'PHP'
 /** Storefront divisions allowed to capture retail orders (AWIC, LPG, MCONPINCO appliances). */
 export const RETAIL_SALES_DIVISIONS = [
     'DIV_RETAIL',
@@ -94,6 +114,10 @@ export class ListSalesOrdersQueryDto {
     @IsOptional()
     @IsIn(SALES_ORDER_CHANNELS)
     channel?: SalesOrderChannel
+
+    @IsOptional()
+    @IsIn(SALES_ORDER_SOURCES)
+    source?: SalesOrderSource
 
     /** Matches order number, customer name or customer email (case-insensitive). */
     @IsOptional()
@@ -264,42 +288,16 @@ export class CreateRetailSalesOrderDto {
     createdBy?: string
 }
 
-/** Cart line tagged with the selling division; the server splits orders on it. */
+/** Cart item tagged with the selling division; stored on its sales order line. */
 export class MarketplaceCheckoutLineDto extends CreateRetailSalesOrderLineDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
 }
 
-/** One store's charges (verified against its lines) for its share of the cart. */
-export class MarketplaceStoreChargesDto {
-    @IsIn(RETAIL_SALES_DIVISIONS)
-    divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    subtotal!: number
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    discountAmount!: number
-
-    @IsOptional()
-    @IsString()
-    promoCode?: string
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    shippingAmount!: number
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    totalAmount!: number
-}
-
 /**
- * Marketplace (mixed-division) e-commerce checkout. Lines are grouped by their
- * `divisionId` into one ECOMMERCE sales order per division, created in a single
- * transaction and sharing `correlationId = checkoutId`. Idempotent on `checkoutId`.
+ * Marketplace (mixed-division) e-commerce checkout. The whole cart becomes ONE
+ * master ECOMMERCE sales order; each line keeps its own `divisionId` and MM
+ * splits fulfillment downstream. Idempotent on `checkoutId`.
  */
 export class CreateMarketplaceCheckoutDto {
     @IsString()
@@ -324,17 +322,29 @@ export class CreateMarketplaceCheckoutDto {
     @ArrayMaxSize(200)
     @ValidateNested({ each: true })
     @Type(() => MarketplaceCheckoutLineDto)
-    lines!: MarketplaceCheckoutLineDto[]
+    cartItems!: MarketplaceCheckoutLineDto[]
 
-    /** Exactly one entry per division present in `lines`. */
-    @IsArray()
-    @ArrayMinSize(1)
-    @ArrayMaxSize(RETAIL_SALES_DIVISIONS.length)
-    @ValidateNested({ each: true })
-    @Type(() => MarketplaceStoreChargesDto)
-    stores!: MarketplaceStoreChargesDto[]
+    /** Whole-cart charges: Σ line totals, promo discount and per-store delivery. */
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    subtotal!: number
 
-    /** Copied onto every division's order so each store can deliver independently. */
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    discountAmount!: number
+
+    @IsOptional()
+    @IsString()
+    promoCode?: string
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    shippingAmount!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    totalAmount!: number
+
     @IsDefined({ message: 'shippingAddress is required' })
     @ValidateNested()
     @Type(() => SalesOrderShippingAddressDto)

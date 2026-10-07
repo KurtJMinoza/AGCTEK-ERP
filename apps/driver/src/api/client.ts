@@ -1,6 +1,13 @@
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
-import type { AuthUser, Driver, Trip } from '../types'
+import { loadSession } from './storage'
+import type {
+    AuthUser,
+    DeliveryFailureReason,
+    Driver,
+    StopExecutionMeta,
+    Trip,
+} from '../types'
 
 /**
  * Nest API base URL.
@@ -107,9 +114,16 @@ export async function apiGetTrip(tripId: string): Promise<Trip> {
     return request<Trip>(`/scm/trips/${encodeURIComponent(tripId)}`)
 }
 
+/** Trip execution endpoints only accept the trip's assigned driver. */
+async function driverHeaders(): Promise<Record<string, string>> {
+    const session = await loadSession()
+    return session?.driver.id ? { 'x-driver-id': session.driver.id } : {}
+}
+
 export async function apiStartTrip(tripId: string): Promise<Trip> {
     return request<Trip>(`/scm/trips/${encodeURIComponent(tripId)}/start`, {
         method: 'PATCH',
+        headers: await driverHeaders(),
         body: JSON.stringify({}),
     })
 }
@@ -117,10 +131,15 @@ export async function apiStartTrip(tripId: string): Promise<Trip> {
 export async function apiArriveStop(
     tripId: string,
     stopId: string,
+    meta: StopExecutionMeta = {},
 ): Promise<Trip> {
     return request<Trip>(
         `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/arrive`,
-        { method: 'PATCH', body: JSON.stringify({}) },
+        {
+            method: 'PATCH',
+            headers: await driverHeaders(),
+            body: JSON.stringify(meta),
+        },
     )
 }
 
@@ -136,25 +155,35 @@ export async function apiSaveStopPod(
 ): Promise<Trip> {
     return request<Trip>(
         `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/pod`,
-        { method: 'PATCH', body: JSON.stringify(body) },
+        {
+            method: 'PATCH',
+            headers: await driverHeaders(),
+            body: JSON.stringify(body),
+        },
     )
 }
 
+/** outcome DELIVERED → stop COMPLETED; FAILED requires reasonCode (and a note for OTHER). */
 export async function apiDeliverStop(
     tripId: string,
     stopId: string,
-    body: {
+    body: StopExecutionMeta & {
         outcome?: 'DELIVERED' | 'FAILED'
         podSignatureUrl?: string | null
         podPhotoUrl?: string | null
         podNotes?: string | null
+        reasonCode?: DeliveryFailureReason
         failureReason?: string | null
         notes?: string | null
     },
 ): Promise<Trip> {
     return request<Trip>(
         `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/deliver`,
-        { method: 'PATCH', body: JSON.stringify(body) },
+        {
+            method: 'PATCH',
+            headers: await driverHeaders(),
+            body: JSON.stringify(body),
+        },
     )
 }
 

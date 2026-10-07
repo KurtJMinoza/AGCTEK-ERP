@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common'
 import { AuthService } from './auth.service'
+import { AllowDuringMaintenance } from '../system-settings/maintenance-mode.guard'
 
 type SignUpBody = {
     email: string
@@ -8,7 +9,8 @@ type SignUpBody = {
     lastName?: string
     jobPosition?: string
     password: string
-    role: string
+    /** Ignored: public sign-up always uses the `default_user_role` system setting. */
+    role?: string
 }
 
 type SignInBody = {
@@ -38,11 +40,14 @@ export class AuthController {
     constructor(private readonly authService: AuthService) {}
 
     @Post('sign-up')
+    @AllowDuringMaintenance()
     signUp(@Body() body: SignUpBody) {
         return this.authService.signUp(body)
     }
 
+    /** Valid credentials always authenticate; the frontend routes non-super-admins to /maintenance. */
     @Post('sign-in')
+    @AllowDuringMaintenance()
     signIn(@Body() body: SignInBody) {
         return this.authService.signIn(body)
     }

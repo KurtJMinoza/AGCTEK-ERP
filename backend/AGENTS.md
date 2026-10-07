@@ -48,6 +48,8 @@ Register routes in the owning module’s `*.module.ts`; avoid orphan controllers
 ## Prisma & seeds
 
 - Schema changes → `prisma migrate dev` with reviewed SQL impact.
+- Raw-SQL objects Prisma cannot model (partial unique index `sd_quotations_one_active_per_opportunity`, sequence `sd_quotation_number_seq`; migration `20261016120000_add_sd_quotations`): generated migrations may propose dropping the index — delete that statement before applying.
+- Real-PostgreSQL concurrency suite: `npm run test:pg` (`*.pg-spec.ts`, uses `DATABASE_URL`, cleans up its own rows; not part of `npm test`).
 - MM data purge (no demo re-seed): `npm run prisma:seed-mm-purge`. SD demo purge: `npm run prisma:seed-sd-purge`.
 - Do not duplicate models that overlap existing `Mm*` / `Wm*` tables.
 

@@ -14,6 +14,7 @@ import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import { LPG_DIVISION_ID } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
+import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import { SURFACE, SURFACE_HOVER, divisionTheme } from '../marketplaceUi'
 
 type OfficialStore = {
@@ -56,7 +57,7 @@ export type MarketplaceStoreCard = {
 
 type MarketplaceOfficialStoresProps = {
     stores?: readonly MarketplaceStoreCard[]
-    /** Product count per store id (company id or division id). */
+    /** Product count per store (division id). */
     counts: Map<string, number>
     activeStoreId: string | null
     onSelect: (storeId: string) => void
@@ -128,15 +129,30 @@ const defaultStoreCards = (): MarketplaceStoreCard[] =>
         themeDivisionId: store.divisionId,
     }))
 
-/** Brand-store cards; selecting one filters products for that MM company (or division fallback). */
+/**
+ * Store cards stay keyed by sales division (store URLs and per-store checkout
+ * depend on it) but show the MM company linked to that store's products.
+ */
+export const storeCardsFromCatalog = (
+    records: readonly Pick<SdProductRecord, 'divisionId' | 'company'>[],
+): MarketplaceStoreCard[] =>
+    defaultStoreCards().map((card) => {
+        const company = records.find(
+            (p) => p.divisionId === card.id && p.company?.name?.trim(),
+        )?.company
+        return company
+            ? { ...card, name: company.name.trim(), logoUrl: company.logoUrl }
+            : card
+    })
+
+/** Brand-store cards; selecting one opens that store's products. */
 const MarketplaceOfficialStores = ({
     stores,
     counts,
     activeStoreId,
     onSelect,
 }: MarketplaceOfficialStoresProps) => {
-    const cards =
-        stores?.length > 0 ? stores : defaultStoreCards()
+    const cards = stores && stores.length > 0 ? stores : defaultStoreCards()
     return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {cards.map((store) => {

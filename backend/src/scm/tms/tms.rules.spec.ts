@@ -1,5 +1,7 @@
 import {
+    applyStopOrder,
     buildTripStops,
+    stopKey,
     canTransitionLoadPlan,
     checkLoadCapacity,
     locationKey,
@@ -74,30 +76,72 @@ describe('locationKey', () => {
     })
 })
 
+describe('applyStopOrder', () => {
+    const { stops } = buildTripStops([line('1', 'A St'), line('2', 'B St')])
+    const [ship, a, b, home] = stops.map(stopKey)
+
+    it('returns stops unchanged without an order', () => {
+        expect(applyStopOrder(stops, undefined).stops).toBe(stops)
+    })
+
+    it('moves TO stops and renumbers sequence', () => {
+        const r = applyStopOrder(stops, [ship, b, a, home])
+        expect(r.error).toBeNull()
+        expect(r.stops.map(stopKey)).toEqual([ship, b, a, home])
+        expect(r.stops.map((s) => s.sequence)).toEqual([1, 2, 3, 4])
+    })
+
+    it('rejects moving a TO stop before the pickup', () => {
+        expect(applyStopOrder(stops, [a, ship, b, home]).error).toMatch(/SHIP → TO → RETURN/)
+    })
+
+    it('rejects moving a TO stop after the return', () => {
+        expect(applyStopOrder(stops, [ship, a, home, b]).error).toMatch(/SHIP → TO → RETURN/)
+    })
+
+    it('rejects unknown or missing keys', () => {
+        expect(applyStopOrder(stops, [ship, a, b]).error).toBeTruthy()
+        expect(applyStopOrder(stops, [ship, a, 'TO|ADDR:nowhere', home]).error).toBeTruthy()
+    })
+})
+
 describe('buildTripStops', () => {
-    it('dedupes SHIP by warehouse and TO by address, ordered SHIP → TO', () => {
+    it('dedupes SHIP by warehouse and TO by address, ordered SHIP → TO → back to origin', () => {
         const { stops, errors } = buildTripStops([
             line('1', 'Makati Ave 1'),
             line('2', 'makati  ave 1'),
             line('3', 'Quezon Blvd 9'),
         ])
         expect(errors).toEqual([])
-        expect(stops.map((s) => s.stopType)).toEqual(['SHIP', 'TO', 'TO'])
-        expect(stops.map((s) => s.sequence)).toEqual([1, 2, 3])
+        expect(stops.map((s) => s.stopType)).toEqual(['SHIP', 'TO', 'TO', 'RETURN'])
+        expect(stops.map((s) => s.sequence)).toEqual([1, 2, 3, 4])
         expect(stops[0].warehouseId).toBe('wh-main')
         expect(stops[0].lines).toHaveLength(3)
         expect(stops[1].lines.map((l) => l.shipmentLineId)).toEqual(['sl-1', 'sl-2'])
         expect(stops[1].name).toBe('Deliver · 2 customers')
         expect(stops[2].name).toBe('Deliver · Customer 3')
+        expect(stops[3].warehouseId).toBe('wh-main')
+        expect(stops[3].lines).toEqual([])
     })
 
-    it('adds RETURN only for lines with a return location, after deliveries', () => {
+    it('merges line returns to the origin into the final return stop', () => {
         const { stops } = buildTripStops([
             line('1', 'A St', { ret: WH_MAIN }),
             line('2', 'B St'),
         ])
         expect(stops.map((s) => s.stopType)).toEqual(['SHIP', 'TO', 'TO', 'RETURN'])
         expect(stops[3].lines.map((l) => l.shipmentLineId)).toEqual(['sl-1'])
+    })
+
+    it('ends with the origin warehouse after returns to other locations', () => {
+        const OTHER = { warehouseId: 'wh-2', warehouseName: 'Depot 2', address: 'Depot Rd' }
+        const { stops } = buildTripStops([line('1', 'A St', { ret: OTHER })])
+        expect(stops.map((s) => `${s.stopType}:${s.warehouseId ?? ''}`)).toEqual([
+            'SHIP:wh-main',
+            'TO:',
+            'RETURN:wh-2',
+            'RETURN:wh-main',
+        ])
     })
 
     it('orders TO stops by earliest delivery window', () => {
@@ -117,7 +161,9 @@ describe('buildTripStops', () => {
             line('2', '', {}),
         ])
         expect(errors).toHaveLength(2)
-        expect(stops.every((s) => s.lines.length > 0)).toBe(true)
+        expect(
+            stops.filter((s) => s.stopType !== 'RETURN').every((s) => s.lines.length > 0),
+        ).toBe(true)
     })
 })
 

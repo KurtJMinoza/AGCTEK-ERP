@@ -4,6 +4,7 @@ import {
     Delete,
     Get,
     Headers,
+    HttpCode,
     Param,
     Patch,
     Post,
@@ -12,6 +13,7 @@ import {
 import type { ListQuery } from '../scm.utils'
 import { TmsLoadPlansService } from './tms-load-plans.service'
 import { TmsTripsService } from './tms-trips.service'
+import { TmsRoutePreviewService } from './tms-route-preview.service'
 
 /**
  * Cargo-first TMS: Load Building (what is on which vehicle) → READY load plan
@@ -22,6 +24,7 @@ export class TmsController {
     constructor(
         private readonly loadPlans: TmsLoadPlansService,
         private readonly trips: TmsTripsService,
+        private readonly routePreviews: TmsRoutePreviewService,
     ) {}
 
     // ─── Load building ──────────────────────────────────────────────────────
@@ -77,6 +80,13 @@ export class TmsController {
     @Post('load-plans/:id/cancel')
     cancelLoadPlan(@Param('id') id: string) {
         return this.loadPlans.cancel(id)
+    }
+
+    /** Stateless route / ETA preview for a READY load — creates nothing. */
+    @Post('load-plans/:id/route-preview')
+    @HttpCode(200)
+    routePreview(@Param('id') id: string, @Body() body: Record<string, unknown> = {}) {
+        return this.routePreviews.preview(id, body ?? {})
     }
 
     // ─── Trip planning ──────────────────────────────────────────────────────

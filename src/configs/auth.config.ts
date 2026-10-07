@@ -82,8 +82,7 @@ export default {
                 user: {
                     ...session.user,
                     id: token.sub,
-                    /** Uncomment this if you want to enable role based access */
-                    // authority: token.authority,
+                    authority: token.authority ?? [],
                 },
             }
         },
