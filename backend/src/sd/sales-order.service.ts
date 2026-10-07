@@ -12,6 +12,7 @@ import {
     ChangeSalesOrderLineQtyDto,
     CreateMarketplaceCheckoutDto,
     CreateRetailSalesOrderDto,
+    CreateRetailSalesOrderLineDto,
     CreateSalesOrderDto,
     ListSalesOrdersQueryDto,
     UpdateRetailSalesOrderStatusDto,
@@ -22,6 +23,12 @@ import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
 import { SdMmPipelineService } from './sd-mm-pipeline.service'
+
+/** Retail order to persist: single-division (header `divisionId`) or a marketplace master (lines tagged). */
+type RetailOrderInput = Omit<CreateRetailSalesOrderDto, 'divisionId' | 'lines'> & {
+    divisionId: string | null
+    lines: ReadonlyArray<CreateRetailSalesOrderLineDto & { divisionId?: string }>
+}
 
 /** Storefront divisions whose e-commerce orders require a registered client account. */
 const SIGNED_IN_ECOMMERCE_DIVISIONS: ReadonlySet<string> = new Set([
@@ -79,19 +86,30 @@ export class SalesOrderService {
 
     async list(query: ListSalesOrdersQueryDto) {
         const where: Prisma.SdSalesOrderWhereInput = {}
+        const and: Prisma.SdSalesOrderWhereInput[] = []
         if (query.channel) where.channel = query.channel
         if (query.customerId) where.customerId = query.customerId
-        if (query.divisionId) where.divisionId = query.divisionId
+        if (query.divisionId) {
+            and.push({
+                OR: [
+                    { divisionId: query.divisionId },
+                    { lines: { some: { divisionId: query.divisionId } } },
+                ],
+            })
+        }
         if (query.branchId) where.branchId = query.branchId
 
         const search = query.search?.trim()
         if (search) {
-            where.OR = [
-                { orderNumber: { contains: search, mode: 'insensitive' } },
-                { customerName: { contains: search, mode: 'insensitive' } },
-                { customerEmail: { contains: search, mode: 'insensitive' } },
-            ]
+            and.push({
+                OR: [
+                    { orderNumber: { contains: search, mode: 'insensitive' } },
+                    { customerName: { contains: search, mode: 'insensitive' } },
+                    { customerEmail: { contains: search, mode: 'insensitive' } },
+                ],
+            })
         }
+        if (and.length) where.AND = and
 
         const from = this.dateRangeStart(query.dateRange)
         if (from) where.createdAt = { gte: from }
@@ -118,7 +136,7 @@ export class SalesOrderService {
         })
         if (existing) return existing
 
-        await this.verifyCatalogPrices(dto)
+        await this.verifyCatalogPrices(dto.divisionId, dto.lines)
         const totals = this.verifyRetailTotals(dto)
         const isPos = dto.channel === 'POS'
         if (isPos && !dto.branchId) {
@@ -126,7 +144,11 @@ export class SalesOrderService {
                 'Select a branch before completing a POS sale.',
             )
         }
-        const account = await this.requireSignedInClient(dto)
+        const account = await this.requireSignedInClient(
+            dto.channel,
+            [dto.divisionId],
+            dto.customerId,
+        )
 
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber(
@@ -175,106 +197,63 @@ export class SalesOrderService {
     }
 
     /**
-     * Marketplace checkout: a cart with products from several divisions becomes
-     * one ECOMMERCE sales order per division (each division keeps its own
-     * pricing, freight and order document), created all-or-nothing and linked
-     * by `correlationId = checkoutId`. Retrying the same `checkoutId` returns
-     * the orders already recorded.
+     * Marketplace checkout: the whole cart (any mix of divisions) becomes ONE
+     * master ECOMMERCE sales order. SD does not split the cart — every line
+     * carries its own `divisionId` and MM splits fulfillment downstream. The
+     * header `divisionId` stays null. Idempotent on `checkoutId`.
      */
     async createMarketplaceCheckout(dto: CreateMarketplaceCheckoutDto) {
-        const linesByDivision = groupLinesByDivision(dto.lines)
-        const storeDivisions = new Set<string>(
-            dto.stores.map((store) => store.divisionId),
+        const master: RetailOrderInput = {
+            channel: 'ECOMMERCE',
+            idempotencyKey: dto.checkoutId,
+            divisionId: null,
+            customerId: dto.customerId,
+            customerName: dto.customerName,
+            customerEmail: dto.customerEmail,
+            lines: dto.cartItems,
+            subtotal: dto.subtotal,
+            discountAmount: dto.discountAmount,
+            promoCode: dto.promoCode,
+            shippingAmount: dto.shippingAmount,
+            totalAmount: dto.totalAmount,
+            shippingAddress: dto.shippingAddress,
+            createdBy: dto.createdBy,
+        }
+
+        const existing = await this.findCheckoutOrder(dto.checkoutId)
+        if (existing) return this.checkoutResult(dto, existing)
+
+        for (const [divisionId, items] of groupLinesByDivision(
+            dto.cartItems.map((line, idx) => ({ ...line, lineNumber: idx + 1 })),
+        )) {
+            await this.verifyCatalogPrices(divisionId, items)
+        }
+        const totals = this.verifyRetailTotals(master)
+        const account = await this.requireSignedInClient(
+            master.channel,
+            dto.cartItems.map((line) => line.divisionId),
+            dto.customerId,
         )
-        if (storeDivisions.size !== dto.stores.length) {
-            throw new BadRequestException(
-                'Each store may appear only once per checkout',
-            )
-        }
-        if (
-            storeDivisions.size !== linesByDivision.size ||
-            [...linesByDivision.keys()].some(
-                (divisionId) => !storeDivisions.has(divisionId),
-            )
-        ) {
-            throw new BadRequestException(
-                'Store charges must list exactly the stores that have items in the cart',
-            )
-        }
-
-        const subOrders = dto.stores.map((store) =>
-            Object.assign(new CreateRetailSalesOrderDto(), {
-                ...store,
-                lines: linesByDivision.get(store.divisionId)!,
-                channel: 'ECOMMERCE' as const,
-                idempotencyKey: `${dto.checkoutId}:${store.divisionId}`,
-                customerId: dto.customerId,
-                customerName: dto.customerName,
-                customerEmail: dto.customerEmail,
-                shippingAddress: dto.shippingAddress,
-                createdBy: dto.createdBy,
-            }),
-        )
-
-        const recorded = await this.findCheckoutOrders(dto.checkoutId)
-        if (recorded.length > 0) {
-            const sameCart =
-                recorded.length === subOrders.length &&
-                subOrders.every((sub) =>
-                    recorded.some(
-                        (order) => order.idempotencyKey === sub.idempotencyKey,
-                    ),
-                )
-            if (!sameCart) {
-                throw new ConflictException(
-                    'This checkout was already placed with a different cart',
-                )
-            }
-            return { checkoutId: dto.checkoutId, orders: recorded }
-        }
-
-        const totals: ReturnType<SalesOrderService['verifyRetailTotals']>[] = []
-        for (const sub of subOrders) {
-            await this.verifyCatalogPrices(sub)
-            totals.push(this.verifyRetailTotals(sub))
-        }
-        const account = await this.requireSignedInClient(subOrders[0])
 
         for (let attempt = 0; attempt < 3; attempt++) {
+            const orderNumber = await this.nextOrderNumber('SO', attempt)
             try {
-                const orders = await this.prisma.$transaction(async (tx) => {
-                    const created = []
-                    for (const [idx, sub] of subOrders.entries()) {
-                        const orderNumber = await this.nextOrderNumber(
-                            'SO',
-                            attempt,
-                            tx,
-                        )
-                        created.push(
-                            await tx.sdSalesOrder.create({
-                                data: this.retailOrderData(
-                                    sub,
-                                    totals[idx],
-                                    account?.email,
-                                    orderNumber,
-                                    dto.checkoutId,
-                                ),
-                                include: {
-                                    lines: { orderBy: { lineNumber: 'asc' } },
-                                },
-                            }),
-                        )
-                    }
-                    return created
+                const order = await this.prisma.sdSalesOrder.create({
+                    data: this.retailOrderData(
+                        master,
+                        totals,
+                        account?.email,
+                        orderNumber,
+                        dto.checkoutId,
+                    ),
+                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                return { checkoutId: dto.checkoutId, orders }
+                return this.checkoutResult(dto, order)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {
-                    return {
-                        checkoutId: dto.checkoutId,
-                        orders: await this.findCheckoutOrders(dto.checkoutId),
-                    }
+                    const recorded = await this.findCheckoutOrder(dto.checkoutId)
+                    if (recorded) return this.checkoutResult(dto, recorded)
                 }
                 if (target?.includes('orderNumber')) continue
                 throw error
@@ -285,16 +264,46 @@ export class SalesOrderService {
         )
     }
 
-    private findCheckoutOrders(checkoutId: string) {
-        return this.prisma.sdSalesOrder.findMany({
-            where: { correlationId: checkoutId, channel: 'ECOMMERCE' },
-            orderBy: { orderNumber: 'asc' },
+    private findCheckoutOrder(checkoutId: string) {
+        return this.prisma.sdSalesOrder.findUnique({
+            where: { idempotencyKey: checkoutId },
             include: { lines: { orderBy: { lineNumber: 'asc' } } },
         })
     }
 
+    /** A replayed `checkoutId` must describe the cart that was recorded. */
+    private checkoutResult(
+        dto: CreateMarketplaceCheckoutDto,
+        order: NonNullable<
+            Awaited<ReturnType<SalesOrderService['findCheckoutOrder']>>
+        >,
+    ) {
+        const sameCart =
+            order.channel === 'ECOMMERCE' &&
+            order.lines.length === dto.cartItems.length &&
+            dto.cartItems.every((item, idx) => {
+                const line = order.lines[idx]
+                return (
+                    line.sku === item.sku &&
+                    line.divisionId === item.divisionId &&
+                    line.quantity.eq(item.quantity)
+                )
+            })
+        if (!sameCart) {
+            throw new ConflictException(
+                'This checkout was already placed with a different cart',
+            )
+        }
+        return {
+            checkoutId: dto.checkoutId,
+            salesOrderId: order.id,
+            orderNumber: order.orderNumber,
+            order,
+        }
+    }
+
     private retailOrderData(
-        dto: CreateRetailSalesOrderDto,
+        dto: RetailOrderInput,
         totals: ReturnType<SalesOrderService['verifyRetailTotals']>,
         accountEmail: string | undefined,
         orderNumber: string,
@@ -331,6 +340,7 @@ export class SalesOrderService {
             lines: {
                 create: dto.lines.map((line, idx) => ({
                     lineNumber: idx + 1,
+                    divisionId: line.divisionId ?? dto.divisionId,
                     sku: line.sku,
                     description: line.description,
                     quantity: new Decimal(line.quantity),
@@ -408,28 +418,43 @@ export class SalesOrderService {
         return start
     }
 
-    /** Each line must be an active SdProduct of the order's division, at its current price. */
-    private async verifyCatalogPrices(dto: CreateRetailSalesOrderDto) {
+    /** Each line must be an active SdProduct of `divisionId`, at its current price. */
+    private async verifyCatalogPrices(
+        divisionId: string,
+        lines: ReadonlyArray<CreateRetailSalesOrderLineDto & { lineNumber?: number }>,
+    ) {
         const prices = await this.products.activePriceMap(
-            dto.divisionId,
-            dto.lines.map((line) => line.sku),
+            divisionId,
+            lines.map((line) => line.sku),
         )
-        dto.lines.forEach((line, idx) => {
+        lines.forEach((line, idx) => {
+            const lineNumber = line.lineNumber ?? idx + 1
             const price = prices.get(line.sku)
             if (!price) {
                 throw new BadRequestException(
-                    `Line ${idx + 1}: ${line.sku} is not an active ${dto.divisionId} product`,
+                    `Line ${lineNumber}: ${line.sku} is not an active ${divisionId} product`,
                 )
             }
             if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(price)) {
                 throw new BadRequestException(
-                    `Line ${idx + 1}: price for ${line.sku} changed to ${price.toFixed(2)}, refresh and try again`,
+                    `Line ${lineNumber}: price for ${line.sku} changed to ${price.toFixed(2)}, refresh and try again`,
                 )
             }
         })
     }
 
-    private verifyRetailTotals(dto: CreateRetailSalesOrderDto) {
+    private verifyRetailTotals(
+        dto: Pick<
+            RetailOrderInput,
+            | 'channel'
+            | 'lines'
+            | 'subtotal'
+            | 'discountAmount'
+            | 'shippingAmount'
+            | 'totalAmount'
+            | 'paymentReceived'
+        >,
+    ) {
         const money = (value: number | Decimal) =>
             new Decimal(value).toDecimalPlaces(2)
         const mismatch = (label: string, expected: Decimal, got: number) => {
@@ -500,15 +525,19 @@ export class SalesOrderService {
         }
     }
 
-    private async requireSignedInClient(dto: CreateRetailSalesOrderDto) {
+    private async requireSignedInClient(
+        channel: RetailOrderInput['channel'],
+        divisionIds: readonly string[],
+        customerId: string,
+    ) {
         if (
-            dto.channel !== 'ECOMMERCE' ||
-            !SIGNED_IN_ECOMMERCE_DIVISIONS.has(dto.divisionId)
+            channel !== 'ECOMMERCE' ||
+            !divisionIds.some((id) => SIGNED_IN_ECOMMERCE_DIVISIONS.has(id))
         ) {
             return null
         }
         try {
-            return await this.retailClients.getProfile(dto.customerId)
+            return await this.retailClients.getProfile(customerId)
         } catch (error) {
             if (error instanceof NotFoundException) {
                 throw new BadRequestException(

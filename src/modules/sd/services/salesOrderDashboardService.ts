@@ -16,10 +16,13 @@ export type SalesOrderRecord = {
     /** Business document number (POS-000001 / SO-000001) */
     orderId: string
     channel: SalesOrderChannel
+    /** Header division; null for marketplace orders that span divisions. */
     divisionId: string | null
+    /** Every division on the order (header, else its lines'), first seen first. */
+    divisionIds: string[]
     branchId: string | null
     customer: { id: string; name: string; email: string | null }
-    lines: PricedLine[]
+    lines: (PricedLine & { divisionId: string | null })[]
     subtotal: number
     promoCode: string | null
     discountAmount: number
@@ -61,6 +64,7 @@ export type CreateRetailSalesOrderInput = {
 type DecimalString = string | number | null
 
 type ApiSalesOrderLine = {
+    divisionId: string | null
     sku: string | null
     description: string | null
     quantity: DecimalString
@@ -110,11 +114,17 @@ const numOrNull = (value: DecimalString) =>
     value === null ? null : Number(value)
 
 function toRecord(order: ApiSalesOrder): SalesOrderRecord {
+    const lineDivisions = order.lines
+        .map((line) => line.divisionId ?? order.divisionId)
+        .filter((id): id is string => Boolean(id))
     return {
         id: order.id,
         orderId: order.orderNumber,
         channel: CHANNEL_LABEL[order.channel] ?? 'Standard',
         divisionId: order.divisionId,
+        divisionIds: order.divisionId
+            ? [order.divisionId]
+            : [...new Set(lineDivisions)],
         branchId: order.branchId ?? null,
         customer: {
             id: order.customerId,
@@ -122,6 +132,7 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             email: order.customerEmail,
         },
         lines: order.lines.map((line) => ({
+            divisionId: line.divisionId ?? order.divisionId,
             sku: line.sku ?? '—',
             name: line.description ?? line.sku ?? '—',
             quantity: num(line.quantity),
@@ -182,35 +193,32 @@ export type MarketplaceCheckoutInput = {
     customerId: string
     customerName: string
     customerEmail?: string
-    /** Delivery address, stored on every division's order. */
     shippingAddress: Omit<SalesOrderShippingDetails, 'email'>
-    /** Every cart line, tagged with the division that sells it. */
-    lines: (PricedLine & { divisionId: string })[]
-    /** One entry per division in `lines`: that store's charges. */
-    stores: {
-        divisionId: string
-        subtotal: number
-        discountAmount: number
-        promoCode?: string | null
-        shippingAmount: number
-        totalAmount: number
-    }[]
+    /** Every cart item, tagged with the division that sells it. */
+    cartItems: (PricedLine & { divisionId: string })[]
+    /** Whole-cart charges. */
+    subtotal: number
+    discountAmount: number
+    promoCode?: string | null
+    shippingAmount: number
+    totalAmount: number
 }
 
 /**
  * Mixed-division storefront checkout (POST /sd/sales-orders/retail/checkout):
- * the server groups lines by `divisionId` into one e-commerce sales order per
- * division, all or nothing.
+ * the server records ONE master e-commerce sales order whose lines keep their
+ * `divisionId`; MM splits fulfillment later.
  */
 export async function createMarketplaceCheckout(
     input: MarketplaceCheckoutInput,
-): Promise<SalesOrderRecord[]> {
+): Promise<SalesOrderRecord> {
     try {
-        const { data } = await ErpAxiosBase.post<{ orders: ApiSalesOrder[] }>(
+        const { data } = await ErpAxiosBase.post<{ order: ApiSalesOrder }>(
             '/sd/sales-orders/retail/checkout',
             {
                 ...input,
-                lines: input.lines.map((line) => ({
+                promoCode: input.promoCode ?? undefined,
+                cartItems: input.cartItems.map((line) => ({
                     divisionId: line.divisionId,
                     sku: line.sku,
                     description: line.name,
@@ -218,16 +226,12 @@ export async function createMarketplaceCheckout(
                     unitPrice: line.unitPrice,
                     lineTotal: line.lineTotal,
                 })),
-                stores: input.stores.map((store) => ({
-                    ...store,
-                    promoCode: store.promoCode ?? undefined,
-                })),
             },
         )
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event(SALES_ORDER_RECORDED_EVENT))
         }
-        return data.orders.map(toRecord)
+        return toRecord(data.order)
     } catch (error) {
         throw toError(error, 'Unable to place your order')
     }
