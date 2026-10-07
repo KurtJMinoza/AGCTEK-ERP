@@ -1,6 +1,7 @@
 import { Global, Module, OnModuleInit } from '@nestjs/common'
 import { PermissionsController } from './permissions.controller'
 import { PermissionsService } from './permissions.service'
+import { RoleTemplatesService } from './role-templates.service'
 import { PermissionGuard } from './permission.guard'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 
@@ -8,7 +9,7 @@ import { UserAuthGuard } from '../auth/user-auth.guard'
 @Global()
 @Module({
     controllers: [PermissionsController],
-    providers: [PermissionsService, PermissionGuard, UserAuthGuard],
+    providers: [PermissionsService, RoleTemplatesService, PermissionGuard, UserAuthGuard],
     exports: [PermissionsService, PermissionGuard, UserAuthGuard],
 })
 export class PermissionsModule implements OnModuleInit {

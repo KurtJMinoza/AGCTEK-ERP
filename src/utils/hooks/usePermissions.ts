@@ -4,17 +4,10 @@ import { useCallback, useEffect, useState } from 'react'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import {
     apiGetMyPermissions,
+    hasPermission,
     type MyPermissions,
     type PermissionAction,
 } from '@/services/PermissionService'
-
-const ACTION_FIELD = {
-    view: 'canView',
-    create: 'canCreate',
-    read: 'canRead',
-    update: 'canUpdate',
-    delete: 'canDelete',
-} as const
 
 const CACHE_TTL_MS = 60_000
 
@@ -38,7 +31,8 @@ export function invalidatePermissions() {
 }
 
 /**
- * Module CRUD permissions for the signed-in user, for menu/button visibility only.
+ * Resource CRUD permissions for the signed-in user, for menu/button visibility only.
+ * `can('crm.leads', 'create')` checks a resource; `can('crm')` checks whether any CRM resource is readable.
  * The backend remains the security boundary.
  */
 function usePermissions() {
@@ -61,12 +55,11 @@ function usePermissions() {
     }, [userId])
 
     const can = useCallback(
-        (moduleCode: string, action: PermissionAction = 'view') =>
-            Boolean(data?.permissions[moduleCode]?.[ACTION_FIELD[action]]),
+        (code: string, action: PermissionAction = 'read') => hasPermission(data, code, action),
         [data],
     )
 
-    return { role: data?.role, permissions: data?.permissions ?? {}, loading, can }
+    return { role: data?.role, permissions: data, loading, can }
 }
 
 export default usePermissions

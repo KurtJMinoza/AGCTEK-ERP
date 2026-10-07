@@ -16,6 +16,7 @@ import {
     RegisterDeviceDto,
 } from './dto/mobile.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 function normalize(raw: Record<string, any>): Record<string, any> {
     const alias = (camel: string, snake: string) =>
@@ -56,37 +57,37 @@ export class MobileController {
         private devices: MobileDeviceService,
     ) {}
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'mobile-receiving', 'mobile-picking', 'mobile-counting'))
     @Post('devices/register')
     registerDevice(@Body() dto: RegisterDeviceDto) {
         return this.devices.register(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'mobile-receiving', 'mobile-picking', 'mobile-counting'))
     @Post('devices/revoke')
     revokeDevice(@Body() body: { deviceCode: string }) {
         return this.devices.revoke(body.deviceCode)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-receiving'))
     @Post('receiving/scan')
     async receivingScan(@Body() body: Record<string, any>) {
         return this.mobile.receivingScan(await toEventDto(body, 'RECEIVING'))
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-picking'))
     @Post('picking/scan')
     async pickingScan(@Body() body: Record<string, any>) {
         return this.mobile.pickingScan(await toEventDto(body, 'PICKING'))
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-counting'))
     @Post('counting/scan')
     async countingScan(@Body() body: Record<string, any>) {
         return this.mobile.countingScan(await toEventDto(body, 'COUNTING'))
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-receiving', 'mobile-picking', 'mobile-counting'))
     @Post('sync')
     async sync(@Body() body: Record<string, any>) {
         const dto = plainToInstance(MobileSyncDto, normalize(body), {

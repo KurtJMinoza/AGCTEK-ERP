@@ -12,6 +12,9 @@ export const SUPER_ADMIN_USERS_PATH = '/super-admin/users'
 
 export const superAdminRolePath = (role: string) => `/super-admin/roles/${role}`
 
+export const superAdminTemplatePath = (template: string) =>
+    `/super-admin/templates/${template}`
+
 export const SUPER_ADMIN_SYSTEM_SETTINGS_PATH = '/super-admin/system-settings'
 
 export const MAINTENANCE_PATH = '/maintenance'

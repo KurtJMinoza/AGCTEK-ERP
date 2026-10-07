@@ -14,7 +14,6 @@ import Select from '@/components/ui/Select'
 import Spinner from '@/components/ui/Spinner'
 import Switcher from '@/components/ui/Switcher'
 import toast from '@/components/ui/toast'
-import { getRoleLabel } from '@/constants/roles.constant'
 import { SUPER_ADMIN_SETTINGS_PATH } from '@/constants/route.constant'
 import { invalidatePermissions } from '@/utils/hooks/usePermissions'
 import {
@@ -60,8 +59,8 @@ function notify(type: 'success' | 'danger', title: string, message: string) {
     )
 }
 
-function optionLabel(key: string, value: string) {
-    return key === 'default_user_role' ? getRoleLabel(value) || value : value
+function optionLabel(setting: SystemSetting, value: string) {
+    return setting.optionLabels?.[value] ?? value
 }
 
 const SettingControl = ({
@@ -101,7 +100,7 @@ const SettingControl = ({
     if (setting.options?.length) {
         const options: Option[] = setting.options.map((o) => ({
             value: o,
-            label: optionLabel(setting.key, o),
+            label: optionLabel(setting, o),
         }))
         return (
             <div className="w-48">

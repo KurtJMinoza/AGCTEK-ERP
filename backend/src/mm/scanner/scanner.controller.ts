@@ -18,6 +18,7 @@ import {
     ScannerEventBatchDto,
 } from './dto/scanner.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 function normalizeScannerBody(raw: Record<string, any>): Record<string, any> {
     const alias = (camel: string, snake: string) =>
@@ -43,7 +44,7 @@ export class ScannerController {
         private resolveService: BarcodeResolveService,
     ) {}
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'serial-scanning'))
     @Post('events')
     async processEvent(@Body() body: Record<string, any>) {
         const dto = plainToInstance(ScannerEventDto, normalizeScannerBody(body), {
@@ -53,7 +54,7 @@ export class ScannerController {
         return this.eventService.processEvent(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'serial-scanning'))
     @Post('events/batch')
     async processBatch(@Body() body: Record<string, any>) {
         const rawEvents = Array.isArray(body?.events) ? body.events : []

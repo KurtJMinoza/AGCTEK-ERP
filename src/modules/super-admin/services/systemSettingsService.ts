@@ -14,6 +14,8 @@ export type SystemSetting = {
     group: SettingGroup
     sortOrder: number
     options: string[] | null
+    /** Display labels for `options`, e.g. role names for the default role. */
+    optionLabels: Record<string, string> | null
     updatedAt: string | null
     updatedBy: { id: string; userName: string } | null
 }

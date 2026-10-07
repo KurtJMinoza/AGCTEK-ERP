@@ -11,6 +11,8 @@ export type AuthProfile = {
     bio: string
     avatar: string
     role: string
+    /** Display name of the assigned role (system or custom). */
+    roleName?: string
     authority: string[]
 }
 

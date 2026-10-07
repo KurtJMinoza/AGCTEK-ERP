@@ -25,6 +25,11 @@ function mockPrisma() {
             update: jest.fn(),
         },
         company: { findUnique: jest.fn() },
+        role: {
+            findUnique: jest.fn(async ({ where }: { where: { code: string } }) =>
+                where.code === 'ghost_role' ? null : { isActive: true },
+            ),
+        },
         userCompany: {
             findUnique: jest.fn(),
             findFirst: jest.fn(),
@@ -106,6 +111,40 @@ describe('UsersService', () => {
         expect(prisma.userCompany.create).toHaveBeenCalledWith({
             data: { userId: 'new', companyId: 'c1', isDefault: true },
         })
+    })
+
+    it('creates a user with a custom role', async () => {
+        prisma.user.findUnique.mockResolvedValue(null)
+        prisma.company.findUnique.mockResolvedValue({ id: 'c1' })
+        prisma.user.create.mockResolvedValue({ id: 'new' })
+        await service.create({
+            email: 'w@x.com',
+            userName: 'w',
+            password: 'secret1',
+            role: 'warehouse_operator',
+            companyId: 'c1',
+        })
+        expect(prisma.user.create).toHaveBeenCalledWith(
+            expect.objectContaining({ data: expect.objectContaining({ role: 'warehouse_operator' }) }),
+        )
+    })
+
+    it('rejects roles that do not exist', async () => {
+        await expect(
+            service.create({
+                email: 'g@x.com',
+                userName: 'g',
+                password: 'secret1',
+                role: 'ghost_role',
+                companyId: 'c1',
+            }),
+        ).rejects.toThrow(BadRequestException)
+        prisma.user.findUnique.mockResolvedValue({ id: 'u3', role: USER_ROLES.EMPLOYEE })
+        await expect(service.update('u3', { role: 'ghost_role' }, 'me')).rejects.toThrow(
+            BadRequestException,
+        )
+        expect(prisma.user.create).not.toHaveBeenCalled()
+        expect(prisma.user.update).not.toHaveBeenCalled()
     })
 
     it('blocks demoting a super admin who has no companies', async () => {
@@ -239,13 +278,14 @@ describe('UserAuthGuard', () => {
         } as unknown as ExecutionContext
     }
 
-    function guardFor(role: string) {
+    function guardFor(role: string, roleActive = true) {
         const prisma = mockPrisma()
         prisma.user.findUnique.mockResolvedValue({
             id: 'u1',
             userName: 'u1',
             role,
             isActive: true,
+            roleRef: { isActive: roleActive },
         })
         const reflector = new Reflector()
         jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) =>
@@ -263,6 +303,12 @@ describe('UserAuthGuard', () => {
     it.each([USER_ROLES.ADMIN, USER_ROLES.EMPLOYEE])('forbids %s', async (role) => {
         await expect(
             guardFor(role).canActivate(ctx({ 'x-user-id': 'u1' })),
+        ).rejects.toThrow(ForbiddenException)
+    })
+
+    it('forbids users whose assigned role is inactive', async () => {
+        await expect(
+            guardFor(USER_ROLES.SUPER_ADMIN, false).canActivate(ctx({ 'x-user-id': 'u1' })),
         ).rejects.toThrow(ForbiddenException)
     })
 })

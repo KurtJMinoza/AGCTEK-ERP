@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { Prisma, type CrmOpportunity } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { MODULE_CODES } from '../../permissions/permissions.constants'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { QuotationService } from '../../sd/quotation.service'
 import { SalesOrderService } from '../../sd/sales-order.service'
@@ -157,7 +156,7 @@ export class CrmOpportunityHandoffService {
         if (dto.quotationId && dto.lines?.length) {
             throw new BadRequestException('Send either a quotation or lines, not both')
         }
-        await this.permissions.assertPermission({ role: user.role }, MODULE_CODES.SD, 'create')
+        await this.permissions.assertPermission({ role: user.role }, 'sd.sales-orders', 'create')
         let source: Awaited<ReturnType<typeof this.commercialSource>>
         try {
             source = await this.commercialSource(current.id, dto)

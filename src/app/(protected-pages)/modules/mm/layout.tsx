@@ -1,8 +1,8 @@
-import { requireModuleView } from '@/server/actions/permissions/getMyPermissions'
+import { requireRead } from '@/server/actions/permissions/getMyPermissions'
 import type { ReactNode } from 'react'
 
 const MmLayout = async ({ children }: { children: ReactNode }) => {
-    await requireModuleView('mm')
+    await requireRead('mm')
     return <>{children}</>
 }
 

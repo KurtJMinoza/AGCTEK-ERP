@@ -7,6 +7,7 @@ import {
     AtpQueryDto,
 } from './dto/reservation.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 @Controller('mm')
 export class ReservationController {
@@ -25,19 +26,19 @@ export class ReservationController {
         return this.reservations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations')
     create(@Body() dto: CreateReservationDto) {
         return this.reservations.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/cancel')
     cancel(@Param('id') id: string) {
         return this.reservations.cancel(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/expire-due')
     expireDue() {
         return this.reservations.expireDue()

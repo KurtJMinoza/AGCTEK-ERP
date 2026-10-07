@@ -11,7 +11,8 @@ export const AUTH_ROLES_KEY = 'authRoles'
 export type AuthRequestUser = {
     id: string
     userName: string
-    role: UserRole
+    /** Role code from the `roles` table (system or custom). */
+    role: string
 }
 
 export const CurrentUser = createParamDecorator(

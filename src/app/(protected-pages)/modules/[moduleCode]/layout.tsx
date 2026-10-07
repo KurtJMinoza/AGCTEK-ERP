@@ -1,4 +1,4 @@
-import { requireModuleView } from '@/server/actions/permissions/getMyPermissions'
+import { requireRead } from '@/server/actions/permissions/getMyPermissions'
 import type { ReactNode } from 'react'
 
 const ModuleLayout = async ({
@@ -8,7 +8,7 @@ const ModuleLayout = async ({
     children: ReactNode
     params: Promise<{ moduleCode: string }>
 }) => {
-    await requireModuleView((await params).moduleCode)
+    await requireRead((await params).moduleCode)
     return <>{children}</>
 }
 

@@ -18,6 +18,8 @@ import {
 
 export type SettingUpdate = { key: string; value: unknown }
 
+type RoleOption = { code: string; name: string }
+
 const CACHE_TTL_MS = 15_000
 
 const SETTING_SELECT = {
@@ -69,20 +71,23 @@ export class SystemSettingsService {
 
     /** Full list for Super Admin Settings, ordered by group then sortOrder. Unknown stored keys are ignored. */
     async list() {
-        const rows = await this.prisma.systemSetting.findMany({ select: SETTING_SELECT })
+        const [rows, roles] = await Promise.all([
+            this.prisma.systemSetting.findMany({ select: SETTING_SELECT }),
+            this.assignableRoles(),
+        ])
         const byKey = new Map(rows.map((r) => [r.key, r]))
-        return SETTINGS_CATALOG.map((def) => this.toDto(def.key, byKey.get(def.key)))
+        return SETTINGS_CATALOG.map((def) => this.toDto(def.key, byKey.get(def.key), roles))
     }
 
     async get(key: string) {
         if (!SETTINGS_BY_KEY.has(key)) {
             throw new NotFoundException(`Unknown setting "${key}".`)
         }
-        const row = await this.prisma.systemSetting.findUnique({
-            where: { key },
-            select: SETTING_SELECT,
-        })
-        return this.toDto(key, row ?? undefined)
+        const [row, roles] = await Promise.all([
+            this.prisma.systemSetting.findUnique({ where: { key }, select: SETTING_SELECT }),
+            this.assignableRoles(),
+        ])
+        return this.toDto(key, row ?? undefined, roles)
     }
 
     /** Settings safe to expose without authentication (flags the sign-in/sign-up and layout need). */
@@ -107,6 +112,7 @@ export class SystemSettingsService {
         }
 
         const errors: string[] = []
+        let roles: RoleOption[] | null = null
         for (const e of entries) {
             const def = SETTINGS_BY_KEY.get(e.key)
             if (!def) {
@@ -114,7 +120,17 @@ export class SystemSettingsService {
                 continue
             }
             const error = validateValue(def, e.value)
-            if (error) errors.push(error)
+            if (error) {
+                errors.push(error)
+                continue
+            }
+            if (def.optionSource === 'assignable_roles') {
+                roles ??= await this.assignableRoles()
+                const allowed = roles.filter((r) => !def.excludedValues?.includes(r.code))
+                if (!allowed.some((r) => r.code === e.value)) {
+                    errors.push(`"${def.key}" must be an active role: ${allowed.map((r) => r.code).join(', ')}.`)
+                }
+            }
         }
         if (errors.length) throw new BadRequestException(errors)
 
@@ -169,13 +185,26 @@ export class SystemSettingsService {
         return values
     }
 
+    private assignableRoles(): Promise<RoleOption[]> {
+        return this.prisma.role.findMany({
+            where: { isActive: true },
+            select: { code: true, name: true },
+            orderBy: [{ isSystem: 'desc' }, { createdAt: 'asc' }],
+        })
+    }
+
     private toDto(
         key: string,
         row:
             | { value: string; updatedAt: Date; updatedBy: { id: string; userName: string } | null }
             | undefined,
+        roles: RoleOption[],
     ) {
         const def = SETTINGS_BY_KEY.get(key)!
+        const dynamic =
+            def.optionSource === 'assignable_roles'
+                ? roles.filter((r) => !def.excludedValues?.includes(r.code))
+                : null
         return {
             key: def.key,
             value: parseStoredValue(def, row?.value),
@@ -185,7 +214,8 @@ export class SystemSettingsService {
             description: def.description,
             group: def.group,
             sortOrder: def.sortOrder,
-            options: def.options ?? null,
+            options: dynamic ? dynamic.map((r) => r.code) : (def.options ?? null),
+            optionLabels: dynamic ? Object.fromEntries(dynamic.map((r) => [r.code, r.name])) : null,
             updatedAt: row?.updatedAt ?? null,
             updatedBy: row?.updatedBy ?? null,
         }
