@@ -2,25 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
 import {
+    HiOutlineLogout,
     HiOutlineMinus,
+    HiOutlineOfficeBuilding,
     HiOutlinePlus,
     HiOutlinePrinter,
+    HiOutlineSwitchHorizontal,
     HiOutlineTrash,
 } from 'react-icons/hi'
-import PageContainer from '@/components/shared/PageContainer'
-import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
-import ErpBackLink from '@/components/erp/ErpBackLink'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import Loading from '@/components/shared/Loading'
 import Card from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
-import Select from '@/components/ui/Select'
-import { FormItem } from '@/components/ui/Form'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
@@ -28,23 +26,14 @@ import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import { useDivisionProducts } from '../hooks/useDivisionProducts'
 import { usePOSCartStore, type POSCartItem } from '../store/usePOSCartStore'
 import {
+    POS_GATEWAY_PATH,
+    useActivePOSBranch,
+} from '../store/usePOSBranchStore'
+import {
     processPOSCheckout,
     type POSCheckoutResult,
 } from '../services/posService'
 import POSReceipt from '../components/POSReceipt'
-import { SALES_BRANCHES, type SalesBranch } from '../catalogs/branchCatalog'
-
-const ROUTE_PATH = '/modules/sd/pos'
-/** Remembers the terminal's branch so the cashier picks it once per device. */
-const BRANCH_STORAGE_KEY = 'sd-pos-branch'
-
-type BranchOption = { value: string; label: string; branch: SalesBranch }
-
-const BRANCH_OPTIONS: BranchOption[] = SALES_BRANCHES.map((branch) => ({
-    value: branch.id,
-    label: branch.label,
-    branch,
-}))
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -66,6 +55,13 @@ const notify = (
     )
 
 const POSDashboard = () => {
+    const router = useRouter()
+    const { hydrated, branch } = useActivePOSBranch()
+
+    useEffect(() => {
+        if (hydrated && !branch) router.replace(POS_GATEWAY_PATH)
+    }, [hydrated, branch, router])
+
     const items = usePOSCartStore((s) => s.items)
     const subtotal = usePOSCartStore((s) => s.getCartTotal())
     const addItem = usePOSCartStore((s) => s.addItem)
@@ -74,29 +70,16 @@ const POSDashboard = () => {
     const clearCart = usePOSCartStore((s) => s.clearCart)
     const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
 
-    const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const skuInputRef = useRef<HTMLInputElement>(null)
     const [sku, setSku] = useState('')
     const [cash, setCash] = useState('')
     const [checkingOut, setCheckingOut] = useState(false)
     const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
     const [receipt, setReceipt] = useState<POSCheckoutResult | null>(null)
-    const [branchId, setBranchId] = useState<string | null>(null)
-
-    useEffect(() => {
-        const saved = window.localStorage.getItem(BRANCH_STORAGE_KEY)
-        if (saved && SALES_BRANCHES.some((b) => b.id === saved)) setBranchId(saved)
-    }, [])
-
-    const selectBranch = (next: string | null) => {
-        setBranchId(next)
-        if (next) window.localStorage.setItem(BRANCH_STORAGE_KEY, next)
-        else window.localStorage.removeItem(BRANCH_STORAGE_KEY)
-    }
 
     const cashReceived = Number(cash) || 0
     const canCheckout =
-        branchId !== null &&
+        branch !== null &&
         items.length > 0 &&
         cashReceived >= subtotal &&
         !checkingOut
@@ -142,14 +125,11 @@ const POSDashboard = () => {
     }
 
     const handleCheckout = async () => {
-        if (!branchId) {
-            notify('danger', 'Select a branch', 'Choose the selling branch before completing the sale.')
-            return
-        }
+        if (!branch) return
         setCheckingOut(true)
         try {
             const result = await processPOSCheckout({
-                branchId,
+                branchId: branch.id,
                 items: items.map((item) => ({
                     sku: item.product.sku,
                     quantity: item.quantity,
@@ -235,42 +215,55 @@ const POSDashboard = () => {
         [updateQuantity, removeItem],
     )
 
+    if (!hydrated || !branch) {
+        return (
+            <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-gray-900">
+                <Loading loading />
+            </div>
+        )
+    }
+
     return (
-        <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
-            <Breadcrumb items={breadcrumbItems} className="mb-4" />
-            <PageHeader
-                title="POS Terminal"
-                description="Over-the-counter fast-track sale: immediate stock deduction and cash-sale billing. No delivery."
-            />
-            <Card className="mb-4" bodyClass="py-3">
-                <FormItem
-                    label="Select Branch"
-                    asterisk
-                    layout="horizontal"
-                    className="mb-0"
-                    invalid={branchId === null}
-                    errorMessage={
-                        branchId === null
-                            ? 'Required before completing a sale'
-                            : undefined
-                    }
-                >
-                    <div className="w-full sm:w-72">
-                        <Select<BranchOption>
-                            isSearchable={false}
-                            placeholder="Select branch..."
-                            options={BRANCH_OPTIONS}
-                            value={
-                                BRANCH_OPTIONS.find((o) => o.value === branchId) ??
-                                null
-                            }
-                            onChange={(option) => selectBranch(option?.value ?? null)}
-                        />
+        <div className="flex min-h-screen w-full flex-col bg-gray-50 dark:bg-gray-900">
+            <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                        <HiOutlineOfficeBuilding />
                     </div>
-                </FormItem>
-            </Card>
-            <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
+                    <div className="min-w-0">
+                        <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                            POS Terminal
+                        </div>
+                        <h5 className="truncate font-bold">
+                            Terminal: {branch.label}
+                        </h5>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        size="sm"
+                        icon={<HiOutlineSwitchHorizontal />}
+                        disabled={items.length > 0 || checkingOut}
+                        title={
+                            items.length > 0
+                                ? 'Finish or void the current sale first'
+                                : undefined
+                        }
+                        onClick={() => router.push(POS_GATEWAY_PATH)}
+                    >
+                        Change branch
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="plain"
+                        icon={<HiOutlineLogout />}
+                        onClick={() => router.push('/modules/sd')}
+                    >
+                        Exit POS
+                    </Button>
+                </div>
+            </header>
+            <div className="grid flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-3 lg:items-start">
                 <Card
                     className="min-w-0 lg:col-span-2"
                     header={{ content: 'Scan items' }}
@@ -302,7 +295,7 @@ const POSDashboard = () => {
                     </div>
                 </Card>
 
-                <Card className="lg:sticky lg:top-4" header={{ content: 'Checkout' }}>
+                <Card className="lg:sticky lg:top-24" header={{ content: 'Checkout' }}>
                     <div className="flex flex-col gap-3">
                         <div className="flex justify-between text-lg font-bold">
                             <span>Total</span>
@@ -333,11 +326,6 @@ const POSDashboard = () => {
                             >
                                 Tender Cash &amp; Checkout
                             </Button>
-                            {branchId === null && items.length > 0 ? (
-                                <p className="text-center text-xs text-red-500">
-                                    Select a branch above to complete the sale.
-                                </p>
-                            ) : null}
                             <Button
                                 block
                                 variant="solid"
@@ -411,7 +399,7 @@ const POSDashboard = () => {
                       document.body,
                   )
                 : null}
-        </PageContainer>
+        </div>
     )
 }
 
