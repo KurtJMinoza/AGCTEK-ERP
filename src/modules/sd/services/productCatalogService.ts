@@ -3,9 +3,19 @@ import { toApiError as toError } from './apiError'
 
 export type ProductAttributes = Record<string, unknown>
 
+/** MM company from the primary active product ↔ material assignment. */
+export type SdProductCompany = {
+    id: string
+    name: string
+    code: string
+    logoUrl: string | null
+}
+
 export type SdProductRecord = {
     id: string
     divisionId: string
+    /** Linked MM company (stock items); null when not mapped to material. */
+    company?: SdProductCompany | null
     sku: string
     name: string
     description: string
@@ -24,6 +34,7 @@ export type SdProductRecord = {
 
 export type ProductListParams = {
     divisionId?: string
+    companyId?: string
     activeOnly?: boolean
     sku?: string
     search?: string
@@ -125,6 +136,7 @@ export async function listProducts(
         const { data } = await ErpAxiosBase.get<ApiProduct[]>('/sd/products', {
             params: {
                 divisionId: params.divisionId || undefined,
+                companyId: params.companyId || undefined,
                 activeOnly: params.activeOnly ? 'true' : undefined,
                 sku: params.sku || undefined,
                 search: params.search?.trim() || undefined,

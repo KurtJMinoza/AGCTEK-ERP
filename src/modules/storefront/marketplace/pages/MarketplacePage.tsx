@@ -33,7 +33,6 @@ import Select from '@/components/ui/Select'
 import toast from '@/components/ui/toast'
 import classNames from '@/utils/classNames'
 import useResponsive from '@/utils/hooks/useResponsive'
-import { PRODUCT_DIVISIONS } from '@/modules/sd/catalogs/productDivisions'
 import { LPG_DIVISION_ID, isLpgAddon } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { useMarketplaceProducts } from '@/modules/sd/hooks/useMarketplaceProducts'
@@ -58,7 +57,10 @@ import MarketplaceCategoryGrid, {
     marketplaceCategories,
     type MarketplaceCategory,
 } from '../components/MarketplaceCategoryGrid'
-import MarketplaceOfficialStores from '../components/MarketplaceOfficialStores'
+import MarketplaceOfficialStores, {
+    OFFICIAL_STORES,
+    type MarketplaceStoreCard,
+} from '../components/MarketplaceOfficialStores'
 import MarketplaceCheckoutDialog from '../components/MarketplaceCheckoutDialog'
 import MarketplaceFilters, {
     type FilterOption,
@@ -81,6 +83,7 @@ import {
     SellerTag,
     formatPrice,
     productKey,
+    productStoreKey,
 } from '../marketplaceUi'
 import {
     buildSearchIndex,
@@ -301,16 +304,46 @@ const MarketplacePage = () => {
         [searchScores],
     )
 
+    const marketplaceStores = useMemo((): readonly MarketplaceStoreCard[] => {
+        const byCompany = new Map<string, MarketplaceStoreCard>()
+        for (const product of catalog.records) {
+            const co = product.company
+            if (!co?.id || !co.name?.trim()) continue
+            if (!byCompany.has(co.id)) {
+                byCompany.set(co.id, {
+                    id: co.id,
+                    name: co.name.trim(),
+                    tagline: co.code,
+                    logoUrl: co.logoUrl,
+                    themeDivisionId: product.divisionId,
+                })
+            }
+        }
+        if (byCompany.size > 0) {
+            return [...byCompany.values()].sort((a, b) =>
+                a.name.localeCompare(b.name),
+            )
+        }
+        return OFFICIAL_STORES.map((store) => ({
+            id: store.divisionId,
+            name: store.name,
+            tagline: store.tagline,
+            icon: store.icon,
+            themeDivisionId: store.divisionId,
+        }))
+    }, [catalog.records])
+
     const storeOptions = useMemo<FilterOption[]>(
         () =>
-            PRODUCT_DIVISIONS.map((division) => ({
-                value: division.id,
-                label: division.label,
+            marketplaceStores.map((store) => ({
+                value: store.id,
+                label: store.name,
                 count: catalog.records.filter(
-                    (p) => p.divisionId === division.id && matchesSearch(p),
+                    (p) =>
+                        productStoreKey(p) === store.id && matchesSearch(p),
                 ).length,
             })),
-        [catalog.records, matchesSearch],
+        [catalog.records, marketplaceStores, matchesSearch],
     )
 
     const categoryOptions = useMemo<FilterOption[]>(() => {
@@ -318,7 +351,7 @@ const MarketplacePage = () => {
         for (const product of catalog.records) {
             if (
                 selectedStores.length > 0 &&
-                !selectedStores.includes(product.divisionId)
+                !selectedStores.includes(productStoreKey(product))
             )
                 continue
             if (!matchesSearch(product)) continue
@@ -339,10 +372,8 @@ const MarketplacePage = () => {
     const storeCounts = useMemo(() => {
         const counts = new Map<string, number>()
         for (const product of catalog.records) {
-            counts.set(
-                product.divisionId,
-                (counts.get(product.divisionId) ?? 0) + 1,
-            )
+            const key = productStoreKey(product)
+            counts.set(key, (counts.get(key) ?? 0) + 1)
         }
         return counts
     }, [catalog.records])
@@ -355,7 +386,7 @@ const MarketplacePage = () => {
         const filtered = catalog.records.filter(
             (product) =>
                 (selectedStores.length === 0 ||
-                    selectedStores.includes(product.divisionId)) &&
+                    selectedStores.includes(productStoreKey(product))) &&
                 (activeCategories.length === 0 ||
                     activeCategories.includes(product.category)) &&
                 matchesSearch(product),
@@ -605,10 +636,10 @@ const MarketplacePage = () => {
             block: 'start',
         })
 
-    const selectStore = (divisionId: string) => {
+    const selectStore = (storeId: string) => {
         const isOnlyStore =
-            selectedStores.length === 1 && selectedStores[0] === divisionId
-        setSelectedStores(isOnlyStore ? [] : [divisionId])
+            selectedStores.length === 1 && selectedStores[0] === storeId
+        setSelectedStores(isOnlyStore ? [] : [storeId])
         if (!isOnlyStore) showProducts()
     }
 
@@ -849,7 +880,7 @@ const MarketplacePage = () => {
                                 </h2>
                                 <p className={SECTION_SUBTITLE}>
                                     Shop directly from AGC&apos;s verified
-                                    divisions.
+                                    companies.
                                 </p>
                             </div>
                             {selectedStores.length > 0 ? (
@@ -864,8 +895,9 @@ const MarketplacePage = () => {
                             ) : null}
                         </div>
                         <MarketplaceOfficialStores
+                            stores={marketplaceStores}
                             counts={storeCounts}
-                            activeDivisionId={
+                            activeStoreId={
                                 selectedStores.length === 1
                                     ? selectedStores[0]
                                     : null
@@ -1120,9 +1152,7 @@ const MarketplacePage = () => {
             >
                 {requestedAdd ? (
                     <div className="flex flex-col gap-2 text-sm">
-                        <SellerTag
-                            divisionId={requestedAdd.product.divisionId}
-                        />
+                        <SellerTag product={requestedAdd.product} />
                         <p className="font-semibold text-gray-900">
                             {requestedAdd.product.name}
                         </p>

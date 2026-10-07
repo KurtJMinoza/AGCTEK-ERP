@@ -16,7 +16,7 @@ import Dialog from '@/components/ui/Dialog'
 import Tabs from '@/components/ui/Tabs'
 import classNames from '@/utils/classNames'
 import { isRenderableImageSrc } from '@/utils/productImage'
-import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
+import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import {
     fetchStorefrontAvailability,
     productAttribute,
@@ -513,10 +513,7 @@ const ProductDetail = ({
             <div className="grid shrink-0 grid-cols-1 gap-6 md:grid-cols-2">
                 <Gallery product={product} />
                 <div className="flex min-w-0 flex-col gap-3">
-                    <SellerTag
-                        divisionId={product.divisionId}
-                        className="self-start"
-                    />
+                    <SellerTag product={product} className="self-start" />
                     <div>
                         <h3 className="text-2xl font-semibold leading-snug tracking-tight text-gray-900">
                             {product.name}
@@ -587,8 +584,7 @@ const ProductDetail = ({
                     ) : null}
                     <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <Perk icon={<HiOutlineTruck />}>
-                            Delivered by{' '}
-                            {productDivisionLabel(product.divisionId)}
+                            Delivered by {productSellerLabel(product)}
                         </Perk>
                         <Perk icon={<HiOutlineCash />}>Cash on delivery</Perk>
                         {warranty ? (

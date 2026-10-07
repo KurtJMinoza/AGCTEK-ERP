@@ -80,9 +80,17 @@ const collectText = (value: unknown, out: string[], depth = 0) => {
     }
 }
 
-const storeText = (divisionId: string) => {
-    const store = OFFICIAL_STORES.find((s) => s.divisionId === divisionId)
-    return [productDivisionLabel(divisionId), store?.name, store?.tagline]
+const storeText = (product: SdProductRecord) => {
+    const store = OFFICIAL_STORES.find(
+        (s) => s.divisionId === product.divisionId,
+    )
+    return [
+        product.company?.name,
+        product.company?.code,
+        productDivisionLabel(product.divisionId),
+        store?.name,
+        store?.tagline,
+    ]
         .filter(Boolean)
         .join(' ')
 }
@@ -103,7 +111,7 @@ export const buildSearchIndex = (
                 { text: name, weight: 10 },
                 { text: sku, weight: 8 },
                 {
-                    text: normalizeSearchText(storeText(product.divisionId)),
+                    text: normalizeSearchText(storeText(product)),
                     weight: 5,
                 },
                 { text: normalizeSearchText(product.category), weight: 5 },

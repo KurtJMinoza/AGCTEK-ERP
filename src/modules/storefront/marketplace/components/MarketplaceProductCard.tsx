@@ -4,7 +4,7 @@ import { Heart } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
-import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
+import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
     PRIMARY_BUTTON,
@@ -13,6 +13,7 @@ import {
     QuantityStepper,
     StarRating,
     SURFACE,
+    CompanyLogo,
     divisionTheme,
     SURFACE_HOVER,
     formatPrice,
@@ -114,11 +115,16 @@ const MarketplaceProductCard = ({
             <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                 <span
                     className={classNames(
-                        'truncate text-xs font-medium',
+                        'flex min-w-0 items-center gap-1.5 truncate text-xs font-medium',
                         divisionTheme(product.divisionId).text,
                     )}
                 >
-                    {productDivisionLabel(product.divisionId)}
+                    {product.company ? (
+                        <CompanyLogo company={product.company} size={18} />
+                    ) : null}
+                    <span className="truncate">
+                        {productSellerLabel(product)}
+                    </span>
                 </span>
                 <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-snug text-gray-900">
                     {product.name}
