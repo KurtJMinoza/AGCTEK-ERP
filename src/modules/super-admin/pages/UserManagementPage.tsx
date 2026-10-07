@@ -17,12 +17,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Tag from '@/components/ui/Tag'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
-import {
-    ROLE_OPTIONS,
-    getRoleLabel,
-    type UserRole,
-} from '@/constants/roles.constant'
 import { SUPER_ADMIN_SETTINGS_PATH } from '@/constants/route.constant'
+import { apiListRoles } from '@/services/PermissionService'
 import {
     HiOutlineBan,
     HiOutlineCheckCircle,
@@ -40,10 +36,7 @@ import type {
 
 type FilterOption<T extends string> = { value: T | ''; label: string }
 
-const ROLE_FILTER_OPTIONS: FilterOption<UserRole>[] = [
-    { value: '', label: 'All roles' },
-    ...ROLE_OPTIONS,
-]
+const ALL_ROLES_OPTION: FilterOption<string> = { value: '', label: 'All roles' }
 
 const STATUS_FILTER_OPTIONS: FilterOption<UserStatusFilter>[] = [
     { value: '', label: 'All statuses' },
@@ -86,7 +79,8 @@ const UserManagementPage = () => {
 
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
-    const [roleFilter, setRoleFilter] = useState<UserRole | ''>('')
+    const [roleFilter, setRoleFilter] = useState('')
+    const [roleFilterOptions, setRoleFilterOptions] = useState<FilterOption<string>[]>([ALL_ROLES_OPTION])
     const [statusFilter, setStatusFilter] = useState<UserStatusFilter | ''>('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(10)
@@ -98,6 +92,17 @@ const UserManagementPage = () => {
 
     const [statusTarget, setStatusTarget] = useState<ManagedUser | null>(null)
     const [statusSaving, setStatusSaving] = useState(false)
+
+    useEffect(() => {
+        apiListRoles()
+            .then((roles) =>
+                setRoleFilterOptions([
+                    ALL_ROLES_OPTION,
+                    ...roles.map((r) => ({ value: r.code, label: r.name })),
+                ]),
+            )
+            .catch(() => setRoleFilterOptions([ALL_ROLES_OPTION]))
+    }, [])
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -219,7 +224,7 @@ const UserManagementPage = () => {
                 accessorKey: 'role',
                 cell: ({ row }) => (
                     <Tag className="border-0 bg-primary-subtle text-primary">
-                        {getRoleLabel(row.original.role) || row.original.role}
+                        {row.original.roleName || row.original.role}
                     </Tag>
                 ),
             },
@@ -327,9 +332,9 @@ const UserManagementPage = () => {
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
-                    <Select<FilterOption<UserRole>>
-                        options={ROLE_FILTER_OPTIONS}
-                        value={ROLE_FILTER_OPTIONS.find((o) => o.value === roleFilter)}
+                    <Select<FilterOption<string>>
+                        options={roleFilterOptions}
+                        value={roleFilterOptions.find((o) => o.value === roleFilter) ?? ALL_ROLES_OPTION}
                         onChange={(opt) => {
                             setRoleFilter(opt?.value ?? '')
                             setPage(1)

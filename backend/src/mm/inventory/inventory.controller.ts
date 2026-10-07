@@ -28,6 +28,7 @@ import {
 } from './dto/inventory-operation.dto'
 import { PostStatusChangeDto } from './dto/post-status-change.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 @Controller('mm/inventory')
 export class InventoryController {
@@ -97,50 +98,50 @@ export class InventoryController {
 
     // ── Posting APIs ───────────────────────────────────────────────────────
 
-    @MmMutation()
+    @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')])
     @Post('receipts')
     postReceipt(@Body() dto: PostReceiptDto) {
         return this.operations.postReceipt(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post('issues')
     postIssue(@Body() dto: PostIssueDto) {
         return this.operations.postIssue(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-transfers'))
     @Post('transfers')
     postTransfer(@Body() dto: PostTransferDto) {
         return this.operations.postTransfer(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'inventory-adjustments'))
     @Post('adjustments')
     postAdjustment(@Body() dto: PostAdjustmentDto) {
         return this.operations.postAdjustment(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'inventory-status'))
     @Post('status-changes')
     postStatusChange(@Body() dto: PostStatusChangeDto) {
         return this.stockStatus.postStatusChange(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements', 'inventory-ledger'))
     @Post('reversals')
     postReversal(@Body() body: ReverseTransactionDto & { transactionId: string }) {
         return this.reversalService.reverse(body.transactionId, body)
     }
 
     /** Low-level posting — prefer typed operation endpoints above. */
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements'))
     @Post('post')
     postTransaction(@Body() dto: PostTransactionDto) {
         return this.postingService.postTransaction(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements', 'inventory-ledger'))
     @Post(':transactionId/reverse')
     reverseTransaction(
         @Param('transactionId') transactionId: string,

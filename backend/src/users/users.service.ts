@@ -32,6 +32,7 @@ const USER_LIST_SELECT = {
 
 const USER_LIST_WITH_COMPANY_SELECT = {
     ...USER_LIST_SELECT,
+    roleRef: { select: { name: true } },
     companies: {
         where: { isDefault: true },
         select: { company: { select: { id: true, code: true, name: true } } },
@@ -83,8 +84,9 @@ export class UsersService {
             this.prisma.user.count({ where }),
         ])
 
-        const data = rows.map(({ companies, _count, ...user }) => ({
+        const data = rows.map(({ companies, _count, roleRef, ...user }) => ({
             ...user,
+            roleName: roleRef.name,
             defaultCompany: companies[0]?.company ?? null,
             companyCount: _count.companies,
         }))
@@ -93,13 +95,14 @@ export class UsersService {
     }
 
     async create(input: CreateUserDto) {
+        await this.assertAssignableRole(input.role)
         if (
             !input.companyId &&
             input.role !== USER_ROLES.SUPER_ADMIN &&
             (await this.companyRequired())
         ) {
             throw new BadRequestException(
-                'Admin and Employee users must be assigned to a company.',
+                'Users other than Super Admin must be assigned to a company.',
             )
         }
 
@@ -139,6 +142,7 @@ export class UsersService {
             if (id === actorId) {
                 throw new BadRequestException('You cannot change your own role.')
             }
+            await this.assertAssignableRole(input.role)
             if (user.role === USER_ROLES.SUPER_ADMIN) {
                 await this.assertNotLastActiveSuperAdmin(id)
             }
@@ -148,7 +152,7 @@ export class UsersService {
                 })
                 if (companyCount === 0) {
                     throw new BadRequestException(
-                        'Assign at least one company before changing this user to Admin or Employee.',
+                        'Assign at least one company before changing this user to a role other than Super Admin.',
                     )
                 }
             }
@@ -224,6 +228,19 @@ export class UsersService {
             if (taken) {
                 throw new ConflictException('An account with this username already exists.')
             }
+        }
+    }
+
+    private async assertAssignableRole(code: string) {
+        const role = await this.prisma.role.findUnique({
+            where: { code },
+            select: { isActive: true },
+        })
+        if (!role) {
+            throw new BadRequestException(`Role "${code}" does not exist.`)
+        }
+        if (!role.isActive) {
+            throw new BadRequestException(`Role "${code}" is inactive and cannot be assigned.`)
         }
     }
 

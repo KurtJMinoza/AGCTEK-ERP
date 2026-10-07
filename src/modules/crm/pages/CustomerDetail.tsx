@@ -84,8 +84,8 @@ export default function CustomerDetailPage() {
         updateTicket,
     } = useCustomer360(customerId)
     const { can } = usePermissions()
-    const canCreate = can('crm', 'create')
-    const canUpdate = can('crm', 'update')
+    const canCreate = can('crm.tickets', 'create')
+    const canUpdate = can('crm.tickets', 'update')
 
     const [opportunityDialog, setOpportunityDialog] = useState<{ row: Opportunity | null } | null>(
         null,

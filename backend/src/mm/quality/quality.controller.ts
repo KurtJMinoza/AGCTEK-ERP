@@ -11,6 +11,7 @@ import { NonconformanceService } from './nonconformance.service'
 import { CorrectiveActionService } from './corrective-action.service'
 import { QualityReportingService } from './quality-reporting.service'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CapaQueryDto,
     CompleteInspectionLotDto,
@@ -75,19 +76,19 @@ export class QualityController {
     }
 
     @Post('inspection-plans')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     createPlan(@Body() dto: CreateInspectionPlanDto) {
         return this.plans.create(dto)
     }
 
     @Put('inspection-plans/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     updatePlan(@Param('id') id: string, @Body() dto: UpdateInspectionPlanDto) {
         return this.plans.update(id, dto)
     }
 
     @Delete('inspection-plans/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     removePlan(@Param('id') id: string) {
         return this.plans.remove(id)
     }
@@ -104,25 +105,25 @@ export class QualityController {
     }
 
     @Post('inspection-rules')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     createInspectionRule(@Body() dto: CreateInspectionRuleDto) {
         return this.inspectionRules.create(dto)
     }
 
     @Put('inspection-rules/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     updateInspectionRule(@Param('id') id: string, @Body() dto: UpdateInspectionRuleDto) {
         return this.inspectionRules.update(id, dto)
     }
 
     @Delete('inspection-rules/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     removeInspectionRule(@Param('id') id: string) {
         return this.inspectionRules.remove(id)
     }
 
     @Post('inspection-rules/seed-legacy/:companyId')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     seedLegacyInspectionRules(@Param('companyId') companyId: string) {
         return this.inspectionRules.seedLegacyFlags(companyId)
     }
@@ -134,13 +135,13 @@ export class QualityController {
     }
 
     @Post('defect-codes')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'defect-codes'))
     createDefectCode(@Body() dto: CreateDefectCodeDto) {
         return this.defectCodes.create(dto)
     }
 
     @Post('defect-codes/seed/:companyId')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'defect-codes'))
     seedDefectCodes(@Param('companyId') companyId: string) {
         return this.defectCodes.seedDefaults(companyId)
     }
@@ -157,32 +158,32 @@ export class QualityController {
     }
 
     @Post('inspection-lots/:id/start')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     startLot(@Param('id') id: string, @Body() dto: StartInspectionLotDto) {
         return this.lifecycle.start(id, dto)
     }
 
     @Post('inspection-lots/:id/results')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     recordResults(@Param('id') id: string, @Body() dto: RecordInspectionResultsDto) {
         return this.lots.recordResults(id, dto)
     }
 
     @Post('inspection-lots/:id/complete')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     completeLot(@Param('id') id: string, @Body() dto: CompleteInspectionLotDto) {
         return this.lifecycle.complete(id, dto)
     }
 
     @Post('inspection-lots/:id/usage-decision')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'usage-decisions', 'inspection-queue', 'receiving-inspection'))
     usageDecision(@Param('id') id: string, @Body() dto: UsageDecisionExtendedDto) {
         return this.lots.usageDecision(id, dto)
     }
 
     // ── Holds ──
     @Post('holds')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     createHold(@Body() dto: CreateQualityHoldDtoExtended) {
         return this.holds.create(dto)
     }
@@ -193,7 +194,7 @@ export class QualityController {
     }
 
     @Post('holds/:id/release')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     releaseHold(@Param('id') id: string, @Body() dto: ReleaseQualityHoldDto) {
         return this.holds.release(id, dto)
     }
@@ -210,13 +211,13 @@ export class QualityController {
     }
 
     @Post('nonconformances')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     createNc(@Body() dto: CreateNonconformanceDto) {
         return this.nc.create(dto)
     }
 
     @Post('nonconformances/:id/resolve')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     resolveNc(@Param('id') id: string, @Body() dto: ResolveNonconformanceDto) {
         return this.nc.resolve(id, dto)
     }
@@ -227,7 +228,7 @@ export class QualityController {
     }
 
     @Post('nonconformances/:id/corrective-actions')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     createCapa(@Param('id') id: string, @Body() dto: CreateCorrectiveActionDto) {
         return this.capa.create(id, dto)
     }
@@ -244,13 +245,13 @@ export class QualityController {
     }
 
     @Put('corrective-actions/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     updateCapa(@Param('id') id: string, @Body() dto: UpdateCorrectiveActionDto) {
         return this.capa.update(id, dto)
     }
 
     @Post('corrective-actions/:id/transition')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     transitionCapa(@Param('id') id: string, @Body() dto: TransitionCorrectiveActionDto) {
         return this.capa.transition(id, dto)
     }
@@ -265,7 +266,7 @@ export class QualityController {
     }
 
     @Post('attachments')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances', 'inspection-queue', 'receiving-inspection'))
     uploadAttachment(@Body() dto: UploadQualityAttachmentDto) {
         const buffer = Buffer.from(dto.contentBase64, 'base64')
         return this.attachments.save({
@@ -280,7 +281,7 @@ export class QualityController {
     }
 
     @Delete('attachments/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances', 'inspection-queue', 'receiving-inspection'))
     removeAttachment(@Param('id') id: string) {
         return this.attachments.remove(id)
     }

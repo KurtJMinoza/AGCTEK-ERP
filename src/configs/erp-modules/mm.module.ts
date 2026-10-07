@@ -7,6 +7,8 @@ type ChildDef = {
     icon?: string
     /** Absolute module path override (cross-hub deep link) */
     path?: string
+    /** Permission resource of the linked feature when `path` points into another hub */
+    permissionCode?: string
 }
 
 function mmPage(
@@ -40,6 +42,7 @@ function mmHub(
                 child.description ?? `${title} — ${child.title}.`,
             path: child.path ?? `/modules/mm/${code}/${child.code}`,
             icon: child.icon ?? icon,
+            permissionCode: child.permissionCode ?? `mm.${code}.${child.code}`,
         })),
     }
 }
@@ -312,6 +315,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'Supplier Returns',
                         icon: 'truck',
                         path: '/modules/mm/returns-disposal/supplier-returns',
+                        permissionCode: 'mm.returns-disposal.supplier-returns',
                         description:
                             'Owned by Returns & Disposal — open supplier return documents from blocked QI stock.',
                     },

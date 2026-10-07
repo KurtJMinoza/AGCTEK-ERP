@@ -10,13 +10,8 @@ import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { Form, FormItem } from '@/components/ui/Form'
 import PasswordInput from '@/components/shared/PasswordInput'
-import {
-    ROLE_OPTIONS,
-    USER_ROLES,
-    USER_ROLE_VALUES,
-    type RoleOption,
-    type UserRole,
-} from '@/constants/roles.constant'
+import { USER_ROLES } from '@/constants/roles.constant'
+import { apiListRoles } from '@/services/PermissionService'
 import { HiOutlineUserAdd, HiOutlinePencil } from 'react-icons/hi'
 import CompanyMembershipPanel from './CompanyMembershipPanel'
 import { userManagementService } from '../services/userManagementService'
@@ -30,11 +25,12 @@ type FormValues = {
     lastName: string
     jobPosition: string
     password: string
-    role: UserRole
+    role: string
     companyId: string
 }
 
 type CompanySelectOption = { value: string; label: string }
+type RoleOption = { value: string; label: string }
 
 type UserFormDialogProps = {
     isOpen: boolean
@@ -58,7 +54,7 @@ const baseSchema = {
     firstName: z.string().trim().min(1, 'First name is required').max(100),
     lastName: z.string().trim().min(1, 'Last name is required').max(100),
     jobPosition: z.string().trim().max(100),
-    role: z.enum(USER_ROLE_VALUES, { message: 'Select a role' }),
+    role: z.string().min(1, 'Select a role'),
 }
 
 /** `companyRequired` mirrors the `require_default_company_on_user` system setting. */
@@ -74,7 +70,7 @@ const makeCreateSchema = (companyRequired: boolean) =>
                 !companyRequired || d.role === USER_ROLES.SUPER_ADMIN || Boolean(d.companyId),
             {
                 path: ['companyId'],
-                message: 'Company is required for Admin and Employee',
+                message: 'Company is required for roles other than Super Admin',
             },
         )
 
@@ -91,9 +87,7 @@ const toFormValues = (user?: ManagedUser | null): FormValues => ({
     lastName: user?.lastName ?? '',
     jobPosition: user?.jobPosition ?? '',
     password: '',
-    role: (USER_ROLE_VALUES as readonly string[]).includes(user?.role ?? '')
-        ? (user?.role as UserRole)
-        : (undefined as unknown as UserRole),
+    role: user?.role ?? '',
     companyId: '',
 })
 
@@ -108,6 +102,7 @@ const UserFormDialog = ({
     onMembershipChange,
 }: UserFormDialogProps) => {
     const [companies, setCompanies] = useState<CompanyOption[]>([])
+    const [roleOptions, setRoleOptions] = useState<RoleOption[]>([])
     const [companyRequired, setCompanyRequired] = useState(true)
     const schema = useMemo(
         () => (mode === 'create' ? makeCreateSchema(companyRequired) : editSchema),
@@ -133,6 +128,19 @@ const UserFormDialog = ({
     }, [isOpen, mode, user, reset])
 
     useEffect(() => {
+        if (!isOpen) return
+        apiListRoles()
+            .then((roles) =>
+                setRoleOptions(
+                    roles
+                        .filter((r) => r.isActive)
+                        .map((r) => ({ value: r.code, label: r.name })),
+                ),
+            )
+            .catch(() => setRoleOptions([]))
+    }, [isOpen])
+
+    useEffect(() => {
         if (!isOpen || mode !== 'create') return
         userManagementService
             .listCompanyOptions()
@@ -144,11 +152,8 @@ const UserFormDialog = ({
                 const byKey = new Map(settings.map((s) => [s.key, s.value]))
                 setCompanyRequired(byKey.get('require_default_company_on_user') !== false)
                 const defaultRole = byKey.get('default_user_role')
-                if (
-                    !getValues('role') &&
-                    (USER_ROLE_VALUES as readonly unknown[]).includes(defaultRole)
-                ) {
-                    setValue('role', defaultRole as UserRole)
+                if (!getValues('role') && typeof defaultRole === 'string') {
+                    setValue('role', defaultRole)
                 }
             })
             .catch(() => setCompanyRequired(true))
@@ -259,10 +264,10 @@ const UserFormDialog = ({
                             render={({ field }) => (
                                 <Select<RoleOption>
                                     placeholder="Select a role"
-                                    options={ROLE_OPTIONS}
+                                    options={roleOptions}
                                     isDisabled={lockRole}
                                     value={
-                                        ROLE_OPTIONS.find(
+                                        roleOptions.find(
                                             (option) => option.value === field.value,
                                         ) ?? null
                                     }

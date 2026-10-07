@@ -50,9 +50,9 @@ export default function LeadsPage() {
     } = useLeads(leadParamsFromUrl(useSearchParams()))
     const router = useRouter()
     const { can } = usePermissions()
-    const canCreate = can('crm', 'create')
-    const canUpdate = can('crm', 'update')
-    const canCreateSdCustomer = can('sd', 'create')
+    const canCreate = can('crm.leads', 'create')
+    const canUpdate = can('crm.leads', 'update')
+    const canCreateSdCustomer = can('sd.customer-master', 'create')
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editing, setEditing] = useState<Lead | null>(null)

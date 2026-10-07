@@ -46,8 +46,8 @@ export default function OpportunityDetailPage() {
     )
     const quotations = useOpportunityQuotations(id || null)
     const { can } = usePermissions()
-    const canCreate = can('crm', 'create')
-    const canUpdate = can('crm', 'update')
+    const canCreate = can('crm.opportunities', 'create')
+    const canUpdate = can('crm.opportunities', 'update')
     const [handoffMode, setHandoffMode] = useState<SalesOrderDialogMode | null>(null)
     const [handoffResult, setHandoffResult] = useState<CreateOpportunitySalesOrderResult | null>(
         null,
@@ -189,8 +189,8 @@ export default function OpportunityDetailPage() {
                         loading={quotations.loading}
                         error={quotations.error}
                         reload={quotations.reload}
-                        canCreate={canUpdate && can('sd', 'create')}
-                        canManage={can('sd', 'update')}
+                        canCreate={canUpdate && can('sd.quotations', 'create')}
+                        canManage={can('sd.quotations', 'update')}
                     />
                 </div>
                 <div className="flex flex-col gap-4 lg:col-span-2">
@@ -226,7 +226,7 @@ export default function OpportunityDetailPage() {
             <OpportunitySalesOrderDialog
                 opportunity={handoffMode ? opportunity : null}
                 mode={handoffMode ?? 'win'}
-                canCreateOrder={can('sd', 'create')}
+                canCreateOrder={can('sd.sales-orders', 'create')}
                 onClose={() => setHandoffMode(null)}
                 onOpenQuotation={openQuotations}
                 onSubmit={handoffMode === 'retry' ? apiCreateOpportunitySalesOrder : apiWinOpportunity}

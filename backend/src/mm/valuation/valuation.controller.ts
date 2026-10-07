@@ -17,6 +17,7 @@ import { LandedCostService } from './landed-cost.service'
 import { CostElementService } from './cost-element.service'
 import { PriceVarianceService } from './price-variance.service'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     UpsertMaterialValuationDto,
     UpdateMaterialValuationDto,
@@ -54,7 +55,7 @@ export class ValuationController {
         return this.materialValuations.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'inventory-valuation'))
     @Post('profiles')
     upsertProfile(@Body() dto: UpsertMaterialValuationDto) {
         return this.materialValuations.upsert(dto)
@@ -72,7 +73,7 @@ export class ValuationController {
         return this.materialValuations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'inventory-valuation'))
     @Post('material-valuations')
     upsertMaterialValuation(@Body() dto: UpsertMaterialValuationDto) {
         return this.materialValuations.upsert(dto)
@@ -86,7 +87,7 @@ export class ValuationController {
         return this.materialValuations.update(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'standard-cost'))
     @Post('material-valuations/:id/revise-standard')
     reviseStandard(
         @Param('id') id: string,
@@ -102,7 +103,7 @@ export class ValuationController {
         return this.costLayers.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'cost-layers'))
     @Post('cost-layers')
     createCostLayer(@Body() dto: CreateCostLayerDto) {
         return this.costLayers.createFromReceiptTxn(dto)
@@ -139,13 +140,13 @@ export class ValuationController {
         return this.costElements.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('cost-elements')
     upsertCostElement(@Body() dto: UpsertCostElementDto) {
         return this.costElements.upsert(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('cost-elements/ensure-defaults')
     ensureCostElementDefaults(@Body() dto: { companyId: string }) {
         return this.costElements.ensureDefaults(dto.companyId)
@@ -163,19 +164,19 @@ export class ValuationController {
         return this.landedCosts.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('landed-costs')
     createLandedCost(@Body() dto: CreateLandedCostDto) {
         return this.landedCosts.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('landed-cost')
     createLandedCostCanonical(@Body() dto: CreateLandedCostDto) {
         return this.landedCosts.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('landed-costs/:id/allocate-preview')
     allocatePreview(
         @Param('id') id: string,
@@ -184,7 +185,7 @@ export class ValuationController {
         return this.landedCosts.allocatePreview(id, dto ?? {})
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('landed-costs/:id/capitalize')
     capitalize(
         @Param('id') id: string,
@@ -193,7 +194,7 @@ export class ValuationController {
         return this.landedCosts.allocateAndCapitalize(id, dto ?? {})
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('valuation', 'landed-cost'))
     @Post('landed-cost/:id/allocate')
     allocateCanonical(
         @Param('id') id: string,

@@ -7,15 +7,13 @@ import {
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { PrismaService } from '../../prisma/prisma.service'
+import { PermissionsService } from '../../permissions/permissions.service'
+import type { PermissionAction } from '../../permissions/permissions.constants'
 import {
-    isUserRole,
-    USER_ROLES,
-    type UserRole,
-} from '../../auth/auth.constants'
-import {
-    MM_ROLES_KEY,
+    MM_PERMISSION_KEY,
     MM_USER_KEY,
     type MmRequestUser,
+    type MmRequiredPermission,
 } from './mm-auth.decorator'
 
 @Injectable()
@@ -23,6 +21,7 @@ export class MmAuthGuard implements CanActivate {
     constructor(
         private prisma: PrismaService,
         private reflector: Reflector,
+        private permissions: PermissionsService,
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -37,7 +36,13 @@ export class MmAuthGuard implements CanActivate {
 
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, userName: true, role: true, isActive: true },
+            select: {
+                id: true,
+                userName: true,
+                role: true,
+                isActive: true,
+                roleRef: { select: { isActive: true } },
+            },
         })
         if (!user) {
             throw new UnauthorizedException('User not found')
@@ -45,26 +50,42 @@ export class MmAuthGuard implements CanActivate {
         if (!user.isActive) {
             throw new UnauthorizedException('User is deactivated')
         }
+        if (!user.roleRef.isActive) {
+            throw new ForbiddenException('Assigned role is inactive')
+        }
 
-        const role: UserRole = isUserRole(user.role) ? user.role : USER_ROLES.EMPLOYEE
         const mmUser: MmRequestUser = {
             id: user.id,
             userName: user.userName,
-            role,
+            role: user.role,
         }
         request[MM_USER_KEY] = mmUser
 
-        const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
-            MM_ROLES_KEY,
+        const required = this.reflector.getAllAndOverride<MmRequiredPermission | undefined>(
+            MM_PERMISSION_KEY,
             [context.getHandler(), context.getClass()],
         )
-        if (requiredRoles?.length) {
-            const allowed = requiredRoles.includes(role)
-            if (!allowed) {
-                throw new ForbiddenException('Insufficient role for this operation')
-            }
+        if (required) {
+            await this.permissions.assertPermission(
+                user.role,
+                required.resource,
+                required.action ?? inferAction(request),
+            )
         }
 
         return true
     }
+}
+
+function inferAction(request: {
+    method?: string
+    url?: string
+    routeOptions?: { url?: string }
+    routerPath?: string
+}): PermissionAction {
+    const method = request.method?.toUpperCase()
+    if (method === 'DELETE') return 'delete'
+    const route = request.routeOptions?.url ?? request.routerPath ?? ''
+    if (method === 'POST' && route && !route.includes(':')) return 'create'
+    return 'update'
 }

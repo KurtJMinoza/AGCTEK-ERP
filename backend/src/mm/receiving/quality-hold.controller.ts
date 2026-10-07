@@ -15,6 +15,7 @@ import {
     ReceivingQueryDto,
 } from './dto/receiving.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 @Controller('mm/quality-holds')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -22,7 +23,7 @@ export class QualityHoldController {
     constructor(private holds: QualityHoldService) {}
 
     @Post()
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     create(@Body() dto: CreateQualityHoldDto) {
         return this.holds.create(dto)
     }
@@ -33,7 +34,7 @@ export class QualityHoldController {
     }
 
     @Post(':id/release')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     release(@Param('id') id: string, @Body() dto: ReleaseQualityHoldDto) {
         return this.holds.release(id, dto)
     }

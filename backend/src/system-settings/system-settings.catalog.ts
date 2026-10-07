@@ -36,6 +36,10 @@ export type SettingDefinition = {
     sortOrder: number
     /** Allowed values for string settings. */
     options?: readonly string[]
+    /** Allowed values loaded at runtime instead of `options`; `assignable_roles` = active roles in the Role table. */
+    optionSource?: 'assignable_roles'
+    /** Values that are never accepted, even when the runtime source contains them. */
+    excludedValues?: readonly string[]
     /** Exposed without authentication via GET /system-settings/public. Never mark sensitive keys public. */
     public?: boolean
 }
@@ -89,9 +93,9 @@ export const SETTINGS_CATALOG: readonly SettingDefinition[] = [
         key: SETTING_KEYS.REQUIRE_DEFAULT_COMPANY_ON_USER,
         valueType: 'boolean',
         defaultValue: true,
-        label: 'Require a company for Admin and Employee users',
+        label: 'Require a company for users other than Super Admin',
         description:
-            'Admin and Employee users must belong to at least one company (with a default) when created or edited in User Management.',
+            'Users with any role other than Super Admin must belong to at least one company (with a default) when created or edited in User Management.',
         group: 'access',
         sortOrder: 20,
     },
@@ -104,7 +108,8 @@ export const SETTINGS_CATALOG: readonly SettingDefinition[] = [
             'Role given to accounts created through public sign-up, and preselected when creating a user.',
         group: 'access',
         sortOrder: 30,
-        options: [USER_ROLES.EMPLOYEE, USER_ROLES.ADMIN],
+        optionSource: 'assignable_roles',
+        excludedValues: [USER_ROLES.SUPER_ADMIN],
         public: true,
     },
     moduleToggle(SETTING_KEYS.FEATURE_SD_ENABLED, 'Sales & Distribution', 10),
@@ -148,6 +153,7 @@ export function parseStoredValue(def: SettingDefinition, raw: string | undefined
             return Number.isFinite(n) ? n : def.defaultValue
         }
         default:
+            if (def.excludedValues?.includes(raw)) return def.defaultValue
             return def.options && !def.options.includes(raw) ? def.defaultValue : raw
     }
 }
@@ -164,6 +170,9 @@ export function validateValue(def: SettingDefinition, value: unknown): string | 
         default:
             if (typeof value !== 'string' || !value.trim()) {
                 return `"${def.key}" must be a non-empty string.`
+            }
+            if (def.excludedValues?.includes(value)) {
+                return `"${def.key}" cannot be "${value}".`
             }
             if (def.options && !def.options.includes(value)) {
                 return `"${def.key}" must be one of: ${def.options.join(', ')}.`

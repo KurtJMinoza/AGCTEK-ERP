@@ -89,8 +89,8 @@ export default function OpportunitiesPage() {
         void reloadPipeline()
         return updated
     }
-    const canCreate = can('crm', 'create')
-    const canUpdate = can('crm', 'update')
+    const canCreate = can('crm.opportunities', 'create')
+    const canUpdate = can('crm.opportunities', 'update')
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [activitiesFor, setActivitiesFor] = useState<Opportunity | null>(null)
@@ -385,7 +385,7 @@ export default function OpportunitiesPage() {
             <OpportunitySalesOrderDialog
                 opportunity={salesOrderFor}
                 mode="retry"
-                canCreateOrder={can('sd', 'create')}
+                canCreateOrder={can('sd.sales-orders', 'create')}
                 onClose={() => setSalesOrderFor(null)}
                 onSubmit={apiCreateOpportunitySalesOrder}
                 onCreated={(result) => {

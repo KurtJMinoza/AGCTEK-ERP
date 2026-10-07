@@ -1,6 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { MODULE_CODES } from '../../permissions/permissions.constants'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { QuotationService } from '../../sd/quotation.service'
 import { CreateOpportunityQuotationDto } from './dto/opportunity.dto'
@@ -27,7 +26,7 @@ export class CrmOpportunityQuotationsService {
     }
 
     async create(id: string, dto: CreateOpportunityQuotationDto, user: { id: string; role: string }) {
-        await this.permissions.assertPermission({ role: user.role }, MODULE_CODES.SD, 'create')
+        await this.permissions.assertPermission({ role: user.role }, 'sd.quotations', 'create')
         return this.prisma.$transaction(async (tx) => {
             await lockOpportunity(tx, id)
             const opp = await tx.crmOpportunity.findUniqueOrThrow({ where: { id } })

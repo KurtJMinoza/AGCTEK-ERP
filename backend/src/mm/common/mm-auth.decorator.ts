@@ -1,14 +1,18 @@
 import { createParamDecorator, ExecutionContext, SetMetadata } from '@nestjs/common'
-import { USER_ROLES, type UserRole } from '../../auth/auth.constants'
+import type { PermissionAction } from '../../permissions/permissions.constants'
 
 export const MM_USER_KEY = 'mmUser'
-export const MM_ROLES_KEY = 'mmRoles'
+export const MM_PERMISSION_KEY = 'mmPermission'
 
 export type MmRequestUser = {
     id: string
     userName: string
-    role: UserRole
+    /** Role code from the `roles` table. */
+    role: string
 }
+
+/** Allowed when any listed resource allows the action. */
+export type MmRequiredPermission = { resource: string | readonly string[]; action?: PermissionAction }
 
 export const MmUser = createParamDecorator(
     (_data: unknown, ctx: ExecutionContext): MmRequestUser | undefined => {
@@ -17,10 +21,6 @@ export const MmUser = createParamDecorator(
     },
 )
 
-export const RequireMmRole = (...roles: UserRole[]) =>
-    SetMetadata(MM_ROLES_KEY, roles)
-
-export const MM_MUTATION_ROLES: UserRole[] = [
-    USER_ROLES.SUPER_ADMIN,
-    USER_ROLES.ADMIN,
-]
+/** MM resource permission (e.g. `mm.procurement.rfqs`, or several) checked by `MmAuthGuard`. */
+export const RequireMmPermission = (resource: string | readonly string[], action?: PermissionAction) =>
+    SetMetadata(MM_PERMISSION_KEY, { resource, action } satisfies MmRequiredPermission)

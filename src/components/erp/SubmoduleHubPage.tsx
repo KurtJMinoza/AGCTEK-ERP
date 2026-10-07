@@ -8,12 +8,15 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import IconText from '@/components/shared/IconText'
 import Tag from '@/components/ui/Tag'
 import ErpIcon from '@/components/erp/ErpIcon'
+import Spinner from '@/components/ui/Spinner'
 import {
     erpSubmoduleRoutePath,
+    featurePermissionCode,
     findSubmoduleByRoute,
     getResolvedErpModules,
 } from '@/configs/erp-modules'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import usePermissions from '@/utils/hooks/usePermissions'
 import type { ErpSubmodule } from '@/types/erp-modules'
 
 type SubmoduleHubPageProps = {
@@ -27,6 +30,7 @@ export default function SubmoduleHubPage({
 }: SubmoduleHubPageProps) {
     const pathname = erpSubmoduleRoutePath(moduleCode, submoduleCode)
     const match = findSubmoduleByRoute(moduleCode, submoduleCode)
+    const { can, loading } = usePermissions()
 
     if (!match || !match.submodule.children?.length) {
         return null
@@ -42,7 +46,11 @@ export default function SubmoduleHubPage({
     const resolvedSubmodule =
         resolvedCategory.submodules.find((item) => item.code === submodule.code) ??
         submodule
-    const children = resolvedSubmodule.children ?? []
+    const children = loading
+        ? []
+        : (resolvedSubmodule.children ?? []).filter((child) =>
+              can(featurePermissionCode(module.code, resolvedSubmodule, child)),
+          )
     const groups = children.reduce<{ title?: string; items: ErpSubmodule[] }[]>(
         (acc, child) => {
             const existing = acc.find((group) => group.title === child.group)
@@ -99,6 +107,11 @@ export default function SubmoduleHubPage({
                 />
 
                 <div className="space-y-8">
+                    {loading && (
+                        <div className="flex justify-center py-10">
+                            <Spinner size={32} />
+                        </div>
+                    )}
                     {groups.map((group, index) => {
                         const headingId = `feature-group-${index}`
                         return (

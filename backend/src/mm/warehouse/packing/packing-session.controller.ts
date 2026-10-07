@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { PackingService } from './packing.service'
 import { OpenPackingSessionDto, PackingSessionQueryDto } from './dto/packing-session.dto'
 import { MmMutation } from '../../common/mm-mutation.decorator'
+import { mmFeatures } from '../../../permissions/permissions.constants'
 
 @Controller('mm/packing-sessions')
 export class PackingSessionController {
@@ -18,19 +19,19 @@ export class PackingSessionController {
     }
 
     @Post()
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'packing'))
     open(@Body() dto: OpenPackingSessionDto) {
         return this.service.openSession(dto)
     }
 
     @Post('from-picking/:pickingTaskId')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'packing'))
     fromPicking(@Param('pickingTaskId') pickingTaskId: string) {
         return this.service.openSessionFromPicking(pickingTaskId)
     }
 
     @Post(':id/complete')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'packing'))
     complete(@Param('id') id: string) {
         return this.service.completeSession(id)
     }
