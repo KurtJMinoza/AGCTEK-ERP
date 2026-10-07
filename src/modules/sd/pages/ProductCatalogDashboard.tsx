@@ -12,7 +12,8 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ProductFormDialog from '../components/ProductFormDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
-import { PRODUCT_DIVISIONS, productDivisionLabel } from '../catalogs/productDivisions'
+import { productDivisionLabel } from '../catalogs/productDivisions'
+import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import {
     createProduct,
     deleteProduct,
@@ -196,11 +197,7 @@ const ProductCatalogDashboard = () => {
                 isOpen={dialog !== null}
                 mode={dialog?.mode ?? 'create'}
                 product={dialog?.mode === 'edit' ? dialog.product : null}
-                defaultDivisionId={
-                    divisionFilter === 'all'
-                        ? PRODUCT_DIVISIONS[0]?.id ?? ''
-                        : divisionFilter
-                }
+                defaultDivisionId={RETAIL_DIVISION_ID}
                 saving={saving}
                 onClose={() => setDialog(null)}
                 onSubmit={handleSubmit}

@@ -15,7 +15,7 @@ import Switcher from '@/components/ui/Switcher'
 import { Form, FormItem } from '@/components/ui/Form'
 import { isRenderableImageSrc } from '@/utils/productImage'
 import ProductCatalogImageGallery from './ProductCatalogImageGallery'
-import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
+import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
@@ -123,16 +123,11 @@ const CREATE_WIZARD_STEPS = [
 ] as const
 
 const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}`)[][] = [
-    ['divisionId', 'sku', 'name'],
+    ['sku', 'name'],
     ['companyId', 'materialIds', 'materialLinkMode'],
     ['price', 'originalPrice', 'badge', 'imageUrl'],
     ['description', 'sortOrder', 'isActive'],
 ]
-
-const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
-    value: d.id,
-    label: d.label,
-}))
 
 const BADGE_PRESETS = ['Best Seller', 'New', 'Sale', 'Hot Deal', 'Limited']
 
@@ -167,7 +162,7 @@ const toFormValues = (
               measurements: productMeasurements(product),
           }
         : {
-              divisionId: defaultDivisionId,
+              divisionId: defaultDivisionId || RETAIL_DIVISION_ID,
               autoGenerateSku: true,
               sku: '',
               name: '',
@@ -218,7 +213,7 @@ const ProductFormDialog = ({
     isOpen,
     mode,
     product,
-    defaultDivisionId = '',
+    defaultDivisionId = RETAIL_DIVISION_ID,
     saving,
     onClose,
     onSubmit,
@@ -242,12 +237,17 @@ const ProductFormDialog = ({
 
     /** Category of the primary linked material, owned by Materials Management. */
     const [mmCategory, setMmCategory] = useState<string | null>(null)
+    /** Valuation currency from the primary linked MM material (pricing labels). */
+    const [valuationCurrency, setValuationCurrency] = useState<string | null>(
+        null,
+    )
 
     useEffect(() => {
         if (!isOpen) return
         reset(toFormValues(product, defaultDivisionId))
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
+        setValuationCurrency(null)
         setWizardStep(0)
     }, [isOpen, product, defaultDivisionId, reset])
 
@@ -326,6 +326,7 @@ const ProductFormDialog = ({
     ) => {
         const primary = materials[0]
         setMmCategory(primary?.general.materialCategory ?? null)
+        setValuationCurrency(primary?.valuation.currencyCode ?? null)
         if (!primary || measuredMaterialRef.current === primary.materialId)
             return
         // Editing: the first load only fills blanks so saved shop specs survive.
@@ -552,33 +553,13 @@ const ProductFormDialog = ({
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                     {showStep(0) ? (
                     <>
-                    <FormItem
-                        label="Division"
-                        asterisk
-                        invalid={Boolean(errors.divisionId)}
-                        errorMessage={errors.divisionId?.message}
-                    >
-                        <Controller
-                            name="divisionId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<Option>
-                                    isSearchable={false}
-                                    isDisabled={editing}
-                                    placeholder="Select storefront"
-                                    options={DIVISION_OPTIONS}
-                                    value={
-                                        DIVISION_OPTIONS.find(
-                                            (o) => o.value === field.value,
-                                        ) ?? null
-                                    }
-                                    onChange={(option) =>
-                                        field.onChange(option?.value ?? '')
-                                    }
-                                />
-                            )}
-                        />
-                    </FormItem>
+                    <Controller
+                        name="divisionId"
+                        control={control}
+                        render={({ field }) => (
+                            <input type="hidden" {...field} />
+                        )}
+                    />
                     {!editing ? (
                         <FormItem label="SKU source">
                             <Controller
@@ -698,6 +679,19 @@ const ProductFormDialog = ({
                             placeholder="Set by the linked MM material"
                         />
                     </FormItem>
+                    {valuationCurrency ? (
+                        <FormItem
+                            label="Valuation currency"
+                            extra={
+                                <span className="text-xs text-gray-500">
+                                    From MM material valuation — use for
+                                    storefront prices
+                                </span>
+                            }
+                        >
+                            <Input readOnly disabled value={valuationCurrency} />
+                        </FormItem>
+                    ) : null}
                     {divisionId === LPG_DIVISION_ID ? (
                         <FormItem label="LPG add-on">
                             <Controller
@@ -775,7 +769,11 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Selling price (PHP)"
+                        label={
+                            valuationCurrency
+                                ? `Selling price (${valuationCurrency})`
+                                : 'Selling price'
+                        }
                         asterisk
                         invalid={Boolean(errors.price)}
                         errorMessage={errors.price?.message}
@@ -799,8 +797,25 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Original price (PHP)"
+                        label={
+                            valuationCurrency
+                                ? `Original price (${valuationCurrency})`
+                                : 'Original price'
+                        }
                         asterisk
+                        extra={
+                            valuationCurrency ? (
+                                <span className="text-xs text-gray-500">
+                                    Matches MM valuation currency on the linked
+                                    material
+                                </span>
+                            ) : (
+                                <span className="text-xs text-gray-500">
+                                    Link an MM material to use its valuation
+                                    currency (e.g. PHP)
+                                </span>
+                            )
+                        }
                         invalid={Boolean(errors.originalPrice)}
                         errorMessage={errors.originalPrice?.message}
                     >

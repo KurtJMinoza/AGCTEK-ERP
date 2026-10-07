@@ -34,12 +34,12 @@ export class CommercialAvailabilityService {
         private prisma: PrismaService,
     ) {}
 
-    /** Live MM inventory balances (company-wide) — product catalog & storefront ATP. */
+    /** Commercial stock (material master on hand − reserved) — catalog & storefront ATP. */
     async getCompanyMaterialLedger(
         materialId: string,
         companyId: string,
     ): Promise<CompanyMaterialLedger> {
-        const totals = await this.inventoryAtp.getCompanyMaterialTotals(
+        const totals = await this.inventoryAtp.getCommercialMaterialTotals(
             companyId,
             materialId,
         )

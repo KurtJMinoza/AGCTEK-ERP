@@ -13,7 +13,7 @@ export class MaterialInventorySyncListener {
         try {
             await this.availability.syncMaterialMasterFromLedger(materialId)
         } catch {
-            // Non-blocking; ledger remains source of truth on read paths.
+            // Non-blocking; after GR/issue, commercial thresholds on the material follow WM ledger.
         }
     }
 }
