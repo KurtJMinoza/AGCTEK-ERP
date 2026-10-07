@@ -11,6 +11,7 @@ import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 
 const DECIMAL_UPDATE_KEYS = new Set([
     'onHandQty',
@@ -63,7 +64,63 @@ function serializeMaterial<T extends Record<string, unknown>>(row: T): T {
 
 @Injectable()
 export class MaterialsService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private inventoryAvailability: InventoryAvailabilityService,
+    ) {}
+
+    private async overlayLedgerStock<T extends Record<string, unknown>>(
+        row: T,
+    ): Promise<T & { availableQty?: number }> {
+        const companyId = row.companyId as string | undefined
+        const id = row.id as string | undefined
+        if (!companyId || !id) return row
+        const totals = await this.inventoryAvailability.getCompanyMaterialTotals(
+            companyId,
+            id,
+        )
+        return {
+            ...row,
+            onHandQty: totals.onHandQty,
+            reservedQty: totals.reservedQty,
+            availableQty: totals.availableQty,
+        }
+    }
+
+    private async overlayLedgerStockBatch(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<Array<Record<string, unknown> & { availableQty?: number }>> {
+        const byCompany = new Map<string, string[]>()
+        for (const row of rows) {
+            const companyId = row.companyId as string | undefined
+            const id = row.id as string | undefined
+            if (!companyId || !id) continue
+            const list = byCompany.get(companyId) ?? []
+            list.push(id)
+            byCompany.set(companyId, list)
+        }
+        const totalsByMaterial = new Map<string, { onHandQty: number; reservedQty: number; availableQty: number }>()
+        for (const [companyId, materialIds] of byCompany) {
+            const batch = await this.inventoryAvailability.getCompanyMaterialTotalsBatch(
+                companyId,
+                materialIds,
+            )
+            for (const [materialId, totals] of batch) {
+                totalsByMaterial.set(materialId, totals)
+            }
+        }
+        return rows.map((row) => {
+            const id = row.id as string | undefined
+            const totals = id ? totalsByMaterial.get(id) : undefined
+            if (!totals) return row
+            return {
+                ...row,
+                onHandQty: totals.onHandQty,
+                reservedQty: totals.reservedQty,
+                availableQty: totals.availableQty,
+            }
+        })
+    }
 
     private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUpdateInput {
         const data: Prisma.MmMaterialUpdateInput = {}
@@ -142,8 +199,11 @@ export class MaterialsService {
             this.prisma.mmMaterial.count({ where }),
         ])
 
+        const enriched = await this.overlayLedgerStockBatch(
+            data.map((row) => row as Record<string, unknown>),
+        )
         return {
-            data: data.map((row) => serializeMaterial(row as Record<string, unknown>)),
+            data: enriched.map((row) => serializeMaterial(row)),
             meta: {
                 total,
                 page,
@@ -166,7 +226,10 @@ export class MaterialsService {
             },
         })
         if (!material) throw new NotFoundException('Material not found')
-        return serializeMaterial(material as Record<string, unknown>)
+        const enriched = await this.overlayLedgerStock(
+            material as Record<string, unknown>,
+        )
+        return serializeMaterial(enriched)
     }
 
     async listBalances(materialId: string) {

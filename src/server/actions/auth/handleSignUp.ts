@@ -11,7 +11,6 @@ export const onSignUpWithCredentials = async ({
     lastName,
     jobPosition,
     password,
-    role,
 }: SignUpCredential) => {
     try {
         await ErpAxiosBase.post('/auth/sign-up', {
@@ -21,7 +20,6 @@ export const onSignUpWithCredentials = async ({
             lastName,
             jobPosition,
             password,
-            role,
         })
 
         return { status: 'success' as const }

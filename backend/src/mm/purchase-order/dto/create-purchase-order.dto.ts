@@ -93,9 +93,9 @@ export class CreatePurchaseOrderDto {
     @IsNotEmpty()
     companyId!: string
 
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    supplierId!: string
+    supplierId?: string
 
     @IsString()
     @IsNotEmpty()
@@ -140,10 +140,6 @@ export class CreatePurchaseOrderDto {
     @IsOptional()
     @IsString()
     quotationId?: string
-
-    @IsOptional()
-    @IsString()
-    awardId?: string
 
     @IsOptional()
     @IsNumber()

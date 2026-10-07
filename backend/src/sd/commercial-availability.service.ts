@@ -34,22 +34,20 @@ export class CommercialAvailabilityService {
         private prisma: PrismaService,
     ) {}
 
-    /** MM stock thresholds on material master (catalog / ecommerce source). */
+    /** Live MM inventory balances (company-wide) — product catalog & storefront ATP. */
     async getCompanyMaterialLedger(
         materialId: string,
-        _companyId: string,
+        companyId: string,
     ): Promise<CompanyMaterialLedger> {
-        const material = await this.prisma.mmMaterial.findFirst({
-            where: { id: materialId, deletedAt: null },
-            select: { onHandQty: true, reservedQty: true },
-        })
-        if (!material) {
-            return { onHandQty: 0, availableQty: 0, reservedQty: 0 }
+        const totals = await this.inventoryAtp.getCompanyMaterialTotals(
+            companyId,
+            materialId,
+        )
+        return {
+            onHandQty: totals.onHandQty,
+            availableQty: totals.availableQty,
+            reservedQty: totals.reservedQty,
         }
-        const onHandQty = Number(material.onHandQty ?? 0)
-        const reservedQty = Number(material.reservedQty ?? 0)
-        const availableQty = Math.max(0, onHandQty - reservedQty)
-        return { onHandQty, availableQty, reservedQty }
     }
 
     /**

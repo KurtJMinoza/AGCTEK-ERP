@@ -5,10 +5,11 @@ import authConfig from '@/configs/auth.config'
 import {
     authRoutes as _authRoutes,
     publicRoutes as _publicRoutes,
-    // protectedRoutes
+    protectedRoutes,
 } from '@/configs/routes.config'
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
-import appConfig from '@/configs/app.config'
+import { ACCESS_DENIED_PATH, MAINTENANCE_PATH } from '@/constants/route.constant'
+import appConfig, { resolveErpApiBaseUrl } from '@/configs/app.config'
 import {
     MARKETPLACE_PATH,
     MARKETPLACE_PRODUCTS_PATH,
@@ -38,7 +39,31 @@ function isSessionActive(
     return true
 }
 
-export default auth((req) => {
+const MAINTENANCE_CACHE_MS = 5000
+let maintenanceCache: { enabled: boolean; at: number } | null = null
+
+/** Live `maintenance_mode` flag; an unreachable backend is treated as "off" so outages don't lock users out. */
+async function isMaintenanceModeEnabled(): Promise<boolean> {
+    if (maintenanceCache && Date.now() - maintenanceCache.at < MAINTENANCE_CACHE_MS) {
+        return maintenanceCache.enabled
+    }
+    let enabled = false
+    try {
+        const response = await fetch(`${resolveErpApiBaseUrl()}/system-settings/public`, {
+            cache: 'no-store',
+        })
+        if (response.ok) {
+            const body = (await response.json()) as { maintenance_mode?: boolean }
+            enabled = body.maintenance_mode === true
+        }
+    } catch {
+        enabled = false
+    }
+    maintenanceCache = { enabled, at: Date.now() }
+    return enabled
+}
+
+export default auth(async (req) => {
     const { nextUrl } = req
     const repairedPath = repairErpModulePath(nextUrl.pathname)
     if (repairedPath && repairedPath !== nextUrl.pathname) {
@@ -147,6 +172,34 @@ export default auth((req) => {
     /** NextAuth handlers, Nest rewrite (`/api/v1`), and Socket.IO proxy skip page auth. */
     if (isApiAuthRoute || isNestApiRoute || isSocketRoute) return
 
+    const isMaintenancePath = nextUrl.pathname === MAINTENANCE_PATH
+    const isSuperAdmin = (req.auth?.user?.authority ?? []).includes('super_admin')
+
+    if (isMaintenancePath) {
+        if (!(await isMaintenanceModeEnabled())) {
+            return Response.redirect(
+                new URL(
+                    isSignedIn
+                        ? appConfig.authenticatedEntryPath
+                        : appConfig.unAuthenticatedEntryPath,
+                    nextUrl,
+                ),
+            )
+        }
+        return
+    }
+
+    if (
+        isSignedIn &&
+        !isSuperAdmin &&
+        !isAuthRoute &&
+        !isPublicRoute &&
+        !nextUrl.pathname.startsWith(appConfig.apiPrefix) &&
+        (await isMaintenanceModeEnabled())
+    ) {
+        return Response.redirect(new URL(MAINTENANCE_PATH, nextUrl))
+    }
+
     if (isAuthRoute) {
         if (isSignedIn) {
             return Response.redirect(
@@ -168,6 +221,24 @@ export default auth((req) => {
                 nextUrl,
             ),
         )
+    }
+
+    /** Role-based route access: routes with an empty `authority` list are open to any signed-in user. */
+    if (
+        isSignedIn &&
+        nextUrl.pathname !== ACCESS_DENIED_PATH &&
+        !nextUrl.pathname.startsWith(appConfig.apiPrefix)
+    ) {
+        const requiredAuthority =
+            protectedRoutes[nextUrl.pathname]?.authority ?? []
+        const userAuthority = req.auth?.user?.authority ?? []
+        const allowed =
+            requiredAuthority.length === 0 ||
+            requiredAuthority.some((role) => userAuthority.includes(role))
+
+        if (!allowed) {
+            return Response.redirect(new URL(ACCESS_DENIED_PATH, nextUrl))
+        }
     }
 })
 

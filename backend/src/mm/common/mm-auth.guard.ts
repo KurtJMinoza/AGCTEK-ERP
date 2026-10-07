@@ -37,13 +37,16 @@ export class MmAuthGuard implements CanActivate {
 
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, userName: true, role: true },
+            select: { id: true, userName: true, role: true, isActive: true },
         })
         if (!user) {
             throw new UnauthorizedException('User not found')
         }
+        if (!user.isActive) {
+            throw new UnauthorizedException('User is deactivated')
+        }
 
-        const role: UserRole = isUserRole(user.role) ? user.role : USER_ROLES.ADMIN
+        const role: UserRole = isUserRole(user.role) ? user.role : USER_ROLES.EMPLOYEE
         const mmUser: MmRequestUser = {
             id: user.id,
             userName: user.userName,

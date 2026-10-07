@@ -37,6 +37,11 @@ export class WarehouseController {
         return this.service.update(id, dto)
     }
 
+    @Post(':id/geocode/confirm')
+    confirmGeocode(@Param('id') id: string, @Body() body: { lat?: unknown; lng?: unknown }) {
+        return this.service.confirmGeocode(id, body)
+    }
+
     @Post(':id/activate')
     activate(@Param('id') id: string) {
         return this.service.activate(id)

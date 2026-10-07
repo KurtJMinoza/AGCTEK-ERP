@@ -18,7 +18,6 @@ export class BatchesController {
     @Post()
     create(@Body() body: {
         materialId: string
-        batchNumber: string
         manufacturingDate?: string
         expiryDate?: string
         supplierId?: string

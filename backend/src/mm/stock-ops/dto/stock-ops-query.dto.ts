@@ -12,6 +12,10 @@ export class StockOpsQueryDto {
 
     @IsOptional()
     @IsString()
+    purchaseOrderId?: string
+
+    @IsOptional()
+    @IsString()
     search?: string
 
     @IsOptional()

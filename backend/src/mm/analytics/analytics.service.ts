@@ -130,8 +130,8 @@ export class AnalyticsService {
                 performance: warehousePerf,
                 pickingAccuracy,
                 drillDown: {
-                    putaway: '/modules/mm/warehouse-management/putaway',
                     picking: '/modules/mm/warehouse-management/picking',
+                    packing: '/modules/mm/warehouse-management/packing',
                 },
             }
         })

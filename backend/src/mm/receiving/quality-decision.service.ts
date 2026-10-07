@@ -245,22 +245,6 @@ export class QualityDecisionService {
 
         if (['ACCEPT', 'ACCEPT_WITH_DEVIATION'].includes(code)) {
             void this.domainEvents.emit({
-                eventType: MM_DOMAIN_EVENTS.PUTAWAY_REQUESTED,
-                companyId: gr.companyId,
-                sourceModule: 'QUALITY',
-                documentType: 'INSPECTION_LOT',
-                documentId: lot.id,
-                occurredAt: new Date().toISOString(),
-                payload: {
-                    warehouseId: gr.warehouseId,
-                    materialId: grLine.materialId,
-                    quantity: Number(qty),
-                    storageBinId: grLine.storageBinId,
-                    goodsReceiptLineId: grLine.id,
-                    stockStatus: 'UNRESTRICTED',
-                },
-            })
-            void this.domainEvents.emit({
                 eventType: MM_DOMAIN_EVENTS.QUALITY_ACCEPTED,
                 companyId: gr.companyId,
                 sourceModule: 'QUALITY',

@@ -199,6 +199,10 @@ export class ExpectedReceiptService {
             throw new BadRequestException('PO has no open quantity to receive')
         }
 
+        if (!po.supplierId) {
+            throw new BadRequestException('Purchase order must have a supplier before creating an expected receipt')
+        }
+
         const documentNumber = await this.nextNumber('ER', 'mmExpectedReceipt', 'documentNumber')
         return this.prisma.mmExpectedReceipt.create({
             data: {

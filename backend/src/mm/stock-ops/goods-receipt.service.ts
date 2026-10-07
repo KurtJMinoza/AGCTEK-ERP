@@ -15,7 +15,6 @@ import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { InspectionLotService } from '../receiving/inspection-lot.service'
 import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
 import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
-import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -33,8 +32,6 @@ export class GoodsReceiptService {
         private inspectionLotService: InspectionLotService,
         private lotLifecycle: InspectionLotLifecycleService,
         private inspectionRequirement: InspectionRequirementService,
-        @Inject(forwardRef(() => PutawayService))
-        private putawayService: PutawayService,
         private periodGuard: MmPostingPeriodGuard,
     ) {}
 
@@ -132,16 +129,6 @@ export class GoodsReceiptService {
             quantity: number
             samplingOverride?: 'FULL' | 'FIXED' | 'PERCENTAGE'
         }> = []
-        const putawayLines: Array<{
-            goodsReceiptLineId: string
-            materialId: string
-            quantity: number
-            uomId: string
-            batchId?: string
-            serialId?: string
-            sourceBinId?: string
-        }> = []
-
         for (const line of doc.lines) {
             const inspection = await this.inspectionRequirement.resolveInspectionRequirement({
                 companyId: doc.companyId,
@@ -198,16 +185,6 @@ export class GoodsReceiptService {
                         quantity: goodQty,
                         samplingOverride,
                     })
-                } else if (lineStatus === 'UNRESTRICTED') {
-                    putawayLines.push({
-                        goodsReceiptLineId: line.id,
-                        materialId: line.materialId,
-                        quantity: goodQty,
-                        uomId: line.uomId,
-                        batchId: line.batchId ?? undefined,
-                        serialId: line.serialNumberId ?? undefined,
-                        sourceBinId: line.storageBinId ?? undefined,
-                    })
                 }
             }
 
@@ -259,23 +236,6 @@ export class GoodsReceiptService {
         if (qiLines.length) {
             await this.inspectionLotService.createFromGoodsReceipt(doc.id, qiLines)
         }
-        for (const pl of putawayLines) {
-            await this.putawayService.createFromGoodsReceiptLine({
-                companyId: doc.companyId,
-                warehouseId: doc.warehouseId,
-                goodsReceiptId: doc.id,
-                goodsReceiptLineId: pl.goodsReceiptLineId,
-                materialId: pl.materialId,
-                quantity: pl.quantity,
-                uomId: pl.uomId,
-                batchId: pl.batchId,
-                serialId: pl.serialId,
-                stockStatus: 'UNRESTRICTED',
-                sourceBinId: pl.sourceBinId,
-                sourceDocument: doc.documentNumber,
-            })
-        }
-
         const productionOrderId =
             opts?.productionOrderId ??
             (doc.sourceDocumentType === 'PRODUCTION_ORDER'
@@ -500,6 +460,7 @@ export class GoodsReceiptService {
         const where: any = {}
         if (query.status) where.status = query.status
         if (query.warehouseId) where.warehouseId = query.warehouseId
+        if (query.purchaseOrderId) where.purchaseOrderId = query.purchaseOrderId
         if (query.search) {
             where.documentNumber = { contains: query.search, mode: 'insensitive' }
         }

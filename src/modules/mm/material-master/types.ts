@@ -71,6 +71,9 @@ export interface MmCompany {
     id: string
     code: string
     name: string
+    logoUrl?: string | null
+    address?: string
+    tin?: string
     createdAt?: string
     updatedAt?: string
 }
@@ -196,6 +199,8 @@ export interface Material {
 
     onHandQty: number
     reservedQty: number
+    /** Live sellable qty (ledger); present on API list/detail reads. */
+    availableQty?: number
     minimumStock: number
     maximumStock: number
     safetyStock: number

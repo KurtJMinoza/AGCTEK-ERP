@@ -10,6 +10,8 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
+import { formatTrackingNumber } from '@/modules/mm/shared/trackingNumberFormat'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -197,8 +199,12 @@ const AsnListPage = () => {
                     materialId: l.materialId,
                     quantity: Number(l.quantity),
                     uomId: l.uomId,
-                    batchNumber: l.batchNumber.trim() || undefined,
-                    serialNumber: l.serialNumber.trim() || undefined,
+                    batchNumber: l.batchNumber.trim()
+                        ? formatTrackingNumber(l.batchNumber)
+                        : undefined,
+                    serialNumber: l.serialNumber.trim()
+                        ? formatTrackingNumber(l.serialNumber)
+                        : undefined,
                 })),
             })
             pushToast('success', 'Created', `ASN ${asn.asnNumber} saved as DRAFT.`)
@@ -526,24 +532,24 @@ const AsnListPage = () => {
                             />
                         </FormItem>
                         <FormItem label="Batch (optional)" className="w-36">
-                            <Input
+                            <TrackingNumberInput
                                 value={line.batchNumber}
-                                onChange={(e) =>
+                                onChange={(v) =>
                                     setLines((prev) =>
                                         prev.map((l, i) =>
-                                            i === idx ? { ...l, batchNumber: e.target.value } : l,
+                                            i === idx ? { ...l, batchNumber: v } : l,
                                         ),
                                     )
                                 }
                             />
                         </FormItem>
                         <FormItem label="Serial (optional)" className="w-36">
-                            <Input
+                            <TrackingNumberInput
                                 value={line.serialNumber}
-                                onChange={(e) =>
+                                onChange={(v) =>
                                     setLines((prev) =>
                                         prev.map((l, i) =>
-                                            i === idx ? { ...l, serialNumber: e.target.value } : l,
+                                            i === idx ? { ...l, serialNumber: v } : l,
                                         ),
                                     )
                                 }

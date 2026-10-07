@@ -31,8 +31,6 @@ import { StorageBinsController } from './warehouse/storage-bins.controller'
 import { StorageBinsService } from './warehouse/storage-bins.service'
 import { InventoryBalanceController } from './warehouse/inventory-balance/inventory-balance.controller'
 import { InventoryBalanceService } from './warehouse/inventory-balance/inventory-balance.service'
-import { PutawayController } from './warehouse/putaway/putaway.controller'
-import { PutawayService } from './warehouse/putaway/putaway.service'
 import { PickingController } from './warehouse/picking/picking.controller'
 import { PickingService } from './warehouse/picking/picking.service'
 import { PickWaveController } from './warehouse/picking/pick-wave.controller'
@@ -47,6 +45,7 @@ import { InventoryPostingService } from './inventory/inventory-posting.service'
 import { InventoryBalanceQueryService } from './inventory/inventory-balance-query.service'
 import { MmInventoryBalanceService } from './inventory/inventory-balance.service'
 import { InventoryAvailabilityService } from './inventory/inventory-availability.service'
+import { MaterialInventorySyncListener } from './inventory/material-inventory-sync.listener'
 import { InventoryOperationService } from './inventory/inventory-operation.service'
 import { InventoryReversalService } from './inventory/inventory-reversal.service'
 import { InventoryTraceabilityService } from './inventory/inventory-traceability.service'
@@ -203,14 +202,11 @@ import { WarehouseTaskController } from './warehouse/tasks/warehouse-task.contro
 import { WarehouseTaskService } from './warehouse/tasks/warehouse-task.service'
 import { TaskAssignmentService } from './warehouse/tasks/task-assignment.service'
 import { WarehouseExceptionService } from './warehouse/tasks/warehouse-exception.service'
-import { PutawayStrategyRegistry } from './warehouse/tasks/strategies/putaway-strategy.registry'
-import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capacity-based-putaway.strategy'
 import { PickingStrategyRegistry, FifoPickingStrategy } from './warehouse/tasks/strategies/picking-strategy.registry'
 import { PutawayCompletionHandler } from './warehouse/tasks/task-completion/putaway-completion.handler'
 import { PickCompletionHandler } from './warehouse/tasks/task-completion/pick-completion.handler'
 import { RelocationCompletionHandler } from './warehouse/tasks/task-completion/relocation-completion.handler'
 import { TransferCompletionHandler } from './warehouse/tasks/task-completion/transfer-completion.handler'
-import { PutawayRequestedListener } from './warehouse/tasks/putaway-requested.listener'
 import { ReservationAllocationController } from './inventory/reservation-allocation/reservation-allocation.controller'
 import { ReservationEngineService } from './inventory/reservation-allocation/reservation-engine.service'
 import { AllocationEngineService } from './inventory/reservation-allocation/allocation-engine.service'
@@ -266,7 +262,6 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StorageSectionsController,
         StorageBinsController,
         InventoryBalanceController,
-        PutawayController,
         PickingController,
         PickWaveController,
         PackingController,
@@ -333,22 +328,18 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StorageSectionsService,
         StorageBinsService,
         InventoryBalanceService,
-        PutawayService,
         PickingService,
         PickWaveService,
         PackingService,
         WarehouseTaskService,
         TaskAssignmentService,
         WarehouseExceptionService,
-        PutawayStrategyRegistry,
-        CapacityBasedPutawayStrategy,
         PickingStrategyRegistry,
         FifoPickingStrategy,
         PutawayCompletionHandler,
         PickCompletionHandler,
         RelocationCompletionHandler,
         TransferCompletionHandler,
-        PutawayRequestedListener,
         TransfersService,
         StockTransferOrderService,
         StockTransferValidationService,
@@ -360,6 +351,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         InventoryBalanceQueryService,
         MmInventoryBalanceService,
         InventoryAvailabilityService,
+        MaterialInventorySyncListener,
         InventoryOperationService,
         InventoryReversalService,
         InventoryTraceabilityService,

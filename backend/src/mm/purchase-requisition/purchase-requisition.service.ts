@@ -13,6 +13,12 @@ import { ConvertPurchaseRequisitionDto } from './dto/convert-pr-line.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { ProcurementBudgetService } from '../procurement/procurement-budget.service'
 
+function optionalRelationId(value?: string | null): string | null {
+    if (value == null) return null
+    const trimmed = String(value).trim()
+    return trimmed.length > 0 ? trimmed : null
+}
+
 const PR_INCLUDES = {
     lines: {
         include: {
@@ -37,6 +43,29 @@ export class PurchaseRequisitionService {
         private budgetService: ProcurementBudgetService,
     ) {}
 
+    private async assertOptionalLineReferences(
+        lines: Array<{ warehouseId?: string | null; preferredSupplierId?: string | null }>,
+    ) {
+        for (const line of lines) {
+            const warehouseId = optionalRelationId(line.warehouseId)
+            if (warehouseId) {
+                const wh = await this.prisma.warehouse.findFirst({
+                    where: { id: warehouseId, deletedAt: null },
+                    select: { id: true },
+                })
+                if (!wh) throw new BadRequestException('Warehouse not found')
+            }
+            const preferredSupplierId = optionalRelationId(line.preferredSupplierId)
+            if (preferredSupplierId) {
+                const supplier = await this.prisma.mmSupplier.findFirst({
+                    where: { id: preferredSupplierId, deletedAt: null },
+                    select: { id: true },
+                })
+                if (!supplier) throw new BadRequestException('Preferred supplier not found')
+            }
+        }
+    }
+
     async create(dto: CreatePurchaseRequisitionDto) {
         if (!dto.lines || dto.lines.length === 0) {
             throw new BadRequestException('At least one line is required')
@@ -46,6 +75,7 @@ export class PurchaseRequisitionService {
             this.prisma,
             dto.lines.map((l) => l.materialId),
         )
+        await this.assertOptionalLineReferences(dto.lines)
 
         const requisitionNumber = await this.generateRequisitionNumber()
 
@@ -60,10 +90,10 @@ export class PurchaseRequisitionService {
                 estimatedUnitPrice: unitPrice,
                 estimatedTotal: qty.mul(unitPrice),
                 requiredDate: l.requiredDate ? new Date(l.requiredDate) : new Date(dto.requiredDate),
-                warehouseId: l.warehouseId ?? null,
-                preferredSupplierId: l.preferredSupplierId ?? null,
+                warehouseId: optionalRelationId(l.warehouseId),
+                preferredSupplierId: optionalRelationId(l.preferredSupplierId),
                 convertedQty: new Decimal(0),
-                remarks: l.remarks ?? null,
+                remarks: l.remarks?.trim() ? l.remarks.trim() : null,
             }
         })
 
@@ -107,6 +137,7 @@ export class PurchaseRequisitionService {
         if (dto.requiredDate) data.requiredDate = new Date(dto.requiredDate)
 
         if (dto.lines && dto.lines.length > 0) {
+            await this.assertOptionalLineReferences(dto.lines)
             await this.prisma.mmPurchaseRequisitionLine.deleteMany({ where: { requisitionId: id } })
             const lines = dto.lines.map((l) => {
                 const qty = new Decimal(l.requestedQuantity ?? 0)
@@ -119,9 +150,9 @@ export class PurchaseRequisitionService {
                     estimatedUnitPrice: unitPrice,
                     estimatedTotal: qty.mul(unitPrice),
                     requiredDate: l.requiredDate ? new Date(l.requiredDate) : pr.requiredDate,
-                    warehouseId: l.warehouseId ?? null,
-                    preferredSupplierId: l.preferredSupplierId ?? null,
-                    remarks: l.remarks ?? null,
+                    warehouseId: optionalRelationId(l.warehouseId),
+                    preferredSupplierId: optionalRelationId(l.preferredSupplierId),
+                    remarks: l.remarks?.trim() ? l.remarks.trim() : null,
                 }
             })
             data.lines = { create: lines }

@@ -52,6 +52,8 @@ export type ShipmentStatus =
     | 'IN_TRANSIT'
     | 'DELIVERED'
     | 'CANCELLED'
+    /** Linked trip stop failed — awaiting dispatcher decision */
+    | 'EXCEPTION_HOLD'
 
 /** Outbound shipping vs collect-from customer/supplier. */
 export type ShipmentMovementType = 'DELIVERY' | 'PICKUP'
@@ -257,6 +259,113 @@ export type GpsLog = {
     /** Sparse optional device metrics (fuelPct, rpm, …) — not a full OBD dump */
     rawPayload: Record<string, unknown> | null
     recordedAt: string
+}
+
+/** Route preview for a READY load plan (stateless; nothing persisted). */
+export type RouteStopKind = 'PICKUP' | 'SHIP_TO' | 'RETURN_TO'
+export type RouteWindowStatus = 'NO_WINDOW' | 'EARLY' | 'OK' | 'LATE'
+
+export type RoutePreviewStop = {
+    /** Stable key `${stopType}|${locationKey}` used for stopOrder */
+    key: string
+    sequence: number
+    type: RouteStopKind
+    stopType: TripStopType
+    label: string
+    address: string
+    warehouseId: string | null
+    lat: number | null
+    lng: number | null
+    /** warehouse = MM master pin; shipment = ship-to / customer address. Never geocoded here. */
+    coordSource: 'warehouse' | 'shipment' | null
+    missingCoords: boolean
+    locationKind: 'WAREHOUSE' | 'ADDRESS'
+    locationIssue: { code: StopLocationIssueCode; message: string } | null
+    shipmentIds: string[]
+    lineCount: number
+    windowStart: string | null
+    windowEnd: string | null
+    serviceTimeSec: number
+    legDistanceM: number | null
+    legDurationSec: number | null
+    etaAt: string | null
+    waitingTimeSec: number
+    serviceStartAt: string | null
+    departureAt: string | null
+    windowStatus: RouteWindowStatus | null
+    lateBySec: number
+}
+
+export type StopLocationIssueCode =
+    | 'WAREHOUSE_REQUIRED'
+    | 'WAREHOUSE_MISSING'
+    | 'WAREHOUSE_DELETED'
+    | 'WAREHOUSE_INACTIVE'
+    | 'WAREHOUSE_UNCONFIRMED'
+    | 'INVALID_COORDS'
+    | 'MISSING_COORDS'
+
+export type RoutePreviewViolation = {
+    code: 'LATE' | 'WINDOW_CONFLICT' | 'MISSING_COORDS' | 'DEPARTURE_IN_PAST'
+    issueCode?: StopLocationIssueCode
+    message: string
+    stopKey?: string
+    sequence?: number
+    lateBySec?: number
+}
+
+/** ON_TIME = latest departure meeting every window; EARLY = arrive as the first window opens. */
+export type DepartureMode = 'ON_TIME' | 'EARLY'
+
+export type RoutePreview = {
+    loadPlanId: string
+    loadPlanCode: string
+    vehicle: { id: string; code: string; plateNumber: string }
+    pickupCount: number
+    serviceTimeMin: number
+    departureMode: DepartureMode
+    generatedAt: string
+    routable: boolean
+    router: 'osrm' | 'haversine' | null
+    routerFallbackReason: string | null
+    origin: {
+        key: string
+        label: string
+        address: string
+        lat: number | null
+        lng: number | null
+        departAtRecommended: string | null
+    }
+    recommendedDeparture: {
+        at: string
+        feasible: boolean
+        basis:
+            | 'LATEST_MEETING_WINDOWS'
+            | 'EARLIEST_MEETING_WINDOWS'
+            | 'NO_DEADLINES'
+            | 'EARLIEST_PRACTICAL'
+        reason: string | null
+    } | null
+    departAt: string | null
+    arrivalAt: string | null
+    stops: RoutePreviewStop[]
+    /** [lat, lng] pairs */
+    polyline: Array<[number, number]>
+    /** Per-leg values from the same router as `polyline`; length = stops - 1. */
+    legDurationsSec: number[]
+    legDistancesM: number[]
+    totalDistanceM: number | null
+    totalDurationSec: number | null
+    tripDurationSec: number | null
+    feasible: boolean
+    violations: RoutePreviewViolation[]
+}
+
+export type RoutePreviewRequest = {
+    stopOrder?: string[]
+    departAt?: string
+    serviceTimeMin?: number
+    departureMode?: DepartureMode
 }
 
 /** One stored GpsLog row as shown in the read-only telematics history. */
@@ -848,4 +957,6 @@ export type TripCandidate = {
     lineCount: number
     shipmentCount: number
     stopPreview: { ship: number; to: number; ret: number }
+    /** Server-side location problems; Confirm is blocked until fixed */
+    locationErrors: string[]
 }

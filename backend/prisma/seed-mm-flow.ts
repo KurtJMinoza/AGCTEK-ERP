@@ -2,7 +2,6 @@ import type { PrismaClient } from '@prisma/client'
 
 export type SeedFlowCtx = {
     company: { id: string }
-    plant: { id: string }
     branch: { id: string }
     mainWarehouse: { id: string }
     secondaryWarehouse: { id: string }
@@ -39,7 +38,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
     const taskSpecs = [
         {
             taskNumber: 'WT-FLOW-001',
-            taskType: 'PUTAWAY',
+            taskType: 'RELOCATION',
             status: 'PENDING',
             materialId: ctx.matA.id,
             quantity: 30,
@@ -102,7 +101,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
             data: {
                 taskNumber: spec.taskNumber,
                 companyId: ctx.company.id,
-                plantId: ctx.plant.id,
+                plantId: null,
                 warehouseId: ctx.mainWarehouse.id,
                 taskType: spec.taskType,
                 status: spec.status,
@@ -366,7 +365,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
                     goodsReceiptLineId: grLine.id,
                     materialId: matGloves.id,
                     warehouseId: ctx.mainWarehouse.id,
-                    plantId: ctx.plant.id,
+                    plantId: null,
                     supplierId: supAcme.id,
                     purchaseOrderId: poInbound.id,
                     receivingDocumentId: rcv.id,
@@ -571,7 +570,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
             data: {
                 runNumber: 'MRP-FLOW-00001',
                 companyId: ctx.company.id,
-                plantId: ctx.plant.id,
+                plantId: null,
                 warehouseId: ctx.mainWarehouse.id,
                 status: 'COMPLETED',
                 startedAt: started,
@@ -592,7 +591,7 @@ export async function seedMmEndToEndFlow(prisma: PrismaClient, ctx: SeedFlowCtx)
                 status: 'COMPLETED',
                 completedAt,
                 warehouseId: ctx.mainWarehouse.id,
-                plantId: ctx.plant.id,
+                plantId: null,
                 resultsCount: safetyChartRows.length,
                 parametersJson: {
                     demo: DEMO,

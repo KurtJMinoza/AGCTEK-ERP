@@ -18,7 +18,6 @@ export class SerialNumbersController {
     @Post()
     create(@Body() body: {
         materialId: string
-        serialNumber: string
         batchId?: string
         currentWarehouseId?: string
         currentBinId?: string

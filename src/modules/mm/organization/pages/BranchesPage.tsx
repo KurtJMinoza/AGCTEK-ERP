@@ -6,7 +6,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import RefCrudPage from '@/modules/mm/material-master/components/RefCrudPage'
 import type { RefCrudField } from '@/modules/mm/material-master/components/RefCrudPage'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
-import { useLazyMmRefs, useLazyOrgRefs } from '@/modules/mm/shared/useLazyMmRefs'
+import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmBranch } from '@/modules/mm/material-master/types'
 
 const ROUTE_PATH = '/modules/mm/organization/branches'
@@ -17,7 +17,6 @@ const STATUS_OPTIONS = [
 ]
 
 const BranchesPage = () => {
-    const { ensure: ensureOrgRefs, plants } = useLazyOrgRefs()
     const { ensure: ensureCompanies, companies } = useLazyMmRefs()
 
     const companyOptions = useMemo(
@@ -25,17 +24,9 @@ const BranchesPage = () => {
         [companies],
     )
 
-    const plantOptions = useMemo(
-        () => plants.map((p) => ({ value: p.value, label: p.label })),
-        [plants],
-    )
-
     const prepareFormOpen = useCallback(async () => {
-        await Promise.all([
-            ensureCompanies('companies'),
-            ensureOrgRefs('plants'),
-        ])
-    }, [ensureCompanies, ensureOrgRefs])
+        await ensureCompanies('companies')
+    }, [ensureCompanies])
 
     const fields = useMemo<RefCrudField[]>(
         () => [
@@ -50,15 +41,6 @@ const BranchesPage = () => {
                 placeholder: 'Select company',
             },
             {
-                key: 'plantId',
-                label: 'Plant',
-                type: 'select',
-                isClearable: true,
-                options: plantOptions,
-                placeholder: 'Optional plant link',
-                helpText: 'Optionally tie this branch to a plant for warehouse assignment.',
-            },
-            {
                 key: 'status',
                 label: 'Status',
                 type: 'select',
@@ -66,7 +48,7 @@ const BranchesPage = () => {
                 placeholder: 'Active',
             },
         ],
-        [companyOptions, plantOptions],
+        [companyOptions],
     )
 
     const columns = useMemo<ColumnDef<MmBranch>[]>(
@@ -74,7 +56,6 @@ const BranchesPage = () => {
             { header: 'Code', accessorKey: 'code', size: 120, cell: ({ row }) => <span className="font-mono text-xs font-semibold">{row.original.code}</span> },
             { header: 'Name', accessorKey: 'name', size: 180 },
             { header: 'Company', id: 'company', size: 180, cell: ({ row }) => row.original.company?.name ?? '—' },
-            { header: 'Plant', id: 'plant', size: 160, cell: ({ row }) => row.original.plant?.name ?? '—' },
             {
                 header: 'Status',
                 accessorKey: 'status',
@@ -93,19 +74,15 @@ const BranchesPage = () => {
         <RefCrudPage<MmBranch>
             routePath={ROUTE_PATH}
             title="Branches"
-            description="Operating branches under a company. Optional plant link helps route warehouse setup."
+            description="Operating branches under a company. Warehouses link to a branch."
             fields={fields}
             columns={columns}
             fetchAll={() => orgService.branches()}
             createItem={(data) => orgService.createBranch({
                 ...data,
-                plantId: data.plantId || undefined,
                 status: data.status || 'ACTIVE',
             })}
-            updateItem={(id, data) => orgService.updateBranch(id, {
-                ...data,
-                plantId: data.plantId === '' ? null : data.plantId,
-            })}
+            updateItem={orgService.updateBranch}
             deleteItem={orgService.deleteBranch}
             getItemLabel={(item) => `${item.code} — ${item.name}`}
             prepareFormOpen={prepareFormOpen}

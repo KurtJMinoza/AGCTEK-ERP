@@ -64,7 +64,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
             mmHub(
                 'organization',
                 'Organization',
-                'Companies, plants, and branches that scope warehouses and MM transactions.',
+                'Companies and branches that scope warehouses and MM transactions.',
                 'building',
                 'Organization',
                 [
@@ -72,11 +72,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'companies',
                         title: 'Companies',
                         icon: 'building',
-                    },
-                    {
-                        code: 'plants',
-                        title: 'Plants',
-                        icon: 'warehouse',
                     },
                     {
                         code: 'branches',
@@ -391,7 +386,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
             mmHub(
                 'warehouse-management',
                 'Warehouse Management',
-                'Warehouses, storage structure, putaway, picking, and transfers.',
+                'Warehouses, storage structure, picking, packing, and transfers.',
                 'building',
                 'Warehouse Management',
                 [
@@ -440,7 +435,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'Bin Capacity',
                         icon: 'calculator',
                     },
-                    { code: 'putaway', title: 'Putaway', icon: 'warehouse' },
                     { code: 'picking', title: 'Picking', icon: 'clipboard' },
                     { code: 'packing', title: 'Packing', icon: 'package' },
                     {

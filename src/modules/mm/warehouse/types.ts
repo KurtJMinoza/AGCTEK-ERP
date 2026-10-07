@@ -10,6 +10,11 @@ export interface Warehouse {
     branch?: { id: string; code: string; name: string }
     managerId?: string
     address?: string
+    lat?: number | null
+    lng?: number | null
+    /** Routing pin confirmed by a user; cleared when the address text changes */
+    geocodeConfirmed?: boolean
+    geocodeConfirmedAt?: string | null
     timezone: string
     warehouseType?: string
     status: string
@@ -501,7 +506,6 @@ export interface CreateTransferPayload {
 
 // Unified warehouse task engine
 export type WarehouseTaskType =
-    | 'PUTAWAY'
     | 'PICK'
     | 'TRANSFER'
     | 'REPLENISHMENT'

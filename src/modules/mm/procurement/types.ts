@@ -399,6 +399,8 @@ export interface MmPurchaseOrderLine {
         materialCode: string
         materialName: string
         materialCategoryId?: string | null
+        batchManaged?: boolean
+        serialManaged?: boolean
     } | null
     description: string
     quantity: number | string
@@ -441,7 +443,7 @@ export interface MmPurchaseOrder {
     companyId: string
     company?: { id: string; name: string } | null
     branchId?: string | null
-    supplierId: string
+    supplierId?: string | null
     supplier?: { id: string; supplierCode: string; supplierName: string } | null
     buyerId: string
     currencyId?: string | null
@@ -487,6 +489,16 @@ export interface MmPurchaseOrder {
         documentNumber: string
         status: string
         postingDate?: string
+    }>
+    supplierInvoices?: Array<{
+        id: string
+        invoiceNumber: string
+        status: string
+        matchStatus?: string | null
+        paymentEligible: boolean
+        totalAmount: number | string
+        invoiceDate: string
+        createdAt?: string
     }>
 }
 
@@ -544,4 +556,12 @@ export interface PoQueryParams {
 
 export function poOpenQty(line: MmPurchaseOrderLine): number {
     return Math.max(0, Number(line.quantity) - Number(line.receivedQuantity || 0))
+}
+
+/** Quantity received but not yet invoiced on the PO line (3-way match). */
+export function poInvoiceOpenQty(line: MmPurchaseOrderLine): number {
+    return Math.max(
+        0,
+        Number(line.receivedQuantity || 0) - Number(line.invoicedQuantity || 0),
+    )
 }

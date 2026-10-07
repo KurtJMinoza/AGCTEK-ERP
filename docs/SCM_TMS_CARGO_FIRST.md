@@ -71,9 +71,10 @@ DELIVERED via the existing trip start / delivery flow.
 | POST | `/load-plans/:id/ready` | VALIDATED → READY |
 | POST | `/load-plans/:id/reopen` | VALIDATED/READY → DRAFT |
 | POST | `/load-plans/:id/cancel` | Releases lines |
+| POST | `/load-plans/:id/route-preview` `{ stopOrder?, departAt?, serviceTimeMin? }` | Stateless route / ETA preview; 400 unless READY (see below) |
 | GET | `/trip-candidates` | READY plans with ≥ 1 line, no active trip; vehicle summary + stop preview |
 | GET | `/trips?status=PLANNED,READY,DISPATCHED` | Cargo-first trips only |
-| POST | `/trips` `{ loadPlanId, driverId?, plannedStartAt?, plannedEndAt?, notes? }` | 409 unless plan READY |
+| POST | `/trips` `{ loadPlanId, driverId?, plannedStartAt?, plannedEndAt?, notes?, stopOrder? }` | 409 unless plan READY; `stopOrder` = preview stop keys |
 | GET | `/trips/:id` | Stops include `lines` (cargo refs) |
 | PATCH | `/trips/:id` `{ driverId?, plannedStartAt?, plannedEndAt?, notes? }` | PLANNED/READY only |
 | PATCH | `/trips/:id/stops/sequence` `{ stopIds: [...] }` | Full ordered list |
@@ -87,11 +88,120 @@ issue), stop arrive / POD / deliver, `PATCH /:id/status` COMPLETED (load plan �
 **Deprecated** (kept for API compatibility, removed from UI, log a warning):
 `POST /scm/trips/assign-load`, `POST /scm/trips` with shipment stops.
 
+## Location integrity
+
+MM Warehouse is the single source of pickup / return coordinates; SCM keeps no address book.
+
+- **Warehouse master** (`warehouses.lat/lng/geocodeConfirmed/geocodeConfirmedAt`): set only by
+  `POST /mm/warehouses/:id/geocode/confirm { lat, lng }` (explicit user pin confirmation in
+  MM › Warehouses › Set location; audited `GEOCODE_CONFIRM`). Create / update cannot assign
+  these fields; an address text change (ignoring case / whitespace) clears the confirmation.
+  A geocoder hit alone never confirms; `(0,0)` and out-of-range values are rejected.
+- **Resolver** (`tms/stop-location.rules.ts`, one path for candidates, preview, confirm):
+  - SHIP for DELIVERY and every RETURN with a warehouse → MM warehouse master address + lat/lng
+    (line copies such as `shipFromLat` are ignored). DELIVERY without a ship-from warehouse, or
+    a free-text return on DELIVERY, is a structural error.
+  - SHIP for customer PICKUP without a warehouse → shipment ship-from address + coords.
+  - TO → shipment ship-to address + coords.
+- **`validateStopCoordinates`**: WAREHOUSE stops need the warehouse to exist, not be deleted,
+  be ACTIVE and geocode-confirmed, with valid coords; ADDRESS stops need valid coords
+  (lat ∈ [-90, 90], lng ∈ [-180, 180], numeric, not 0,0). Nothing is ever invented.
+- **Confirm** (`POST /scm/tms/trips`): resolve + validate + snapshot + load plan claim + trip
+  create in one transaction (the plan and warehouses are re-read inside it); any invalid stop
+  rolls back. TripStop snapshots `address/lat/lng`, `locationKind` and `locationSnapshotAt`;
+  later master edits never move a trip.
+- **Validate / Dispatch**: revalidate the snapshotted coords plus the current warehouse state.
+  Legacy stops without `locationKind` are inferred (`warehouseId` or a `WH:` key, or a SHIP
+  serving DELIVERY shipments ⇒ WAREHOUSE). A missing `warehouseId` blocks with a clear error.
+
+## Route preview (Trip Planning)
+
+`POST /load-plans/:id/route-preview` — creates nothing (no Trip, TripStop, GPS session or
+assignment). Confirm trip (`POST /trips`) stays the only persistence path.
+
+1. Load plan must exist (404) and be READY (400).
+2. Stops = `buildTripStops` on that plan's lines only (same as trip creation): PICKUP (SHIP,
+   deduped by location; several distinct pickups are visited in order, `pickupCount > 1`) →
+   SHIP TO (TO) → RETURN TO for line return locations → a final RETURN TO the first pickup
+   warehouse (always added; carries any line returns to that warehouse, otherwise no lines —
+   the last leg of the trip is the drive back). Stop `key` =
+   `${stopType}|${locationKey}`; optional `stopOrder` reorders TO stops (`applyStopOrder`, same
+   rules as persisted reorder).
+3. Coordinates: resolved by the central stop resolver only (see **Location integrity**);
+   preview never geocodes. Any stop with a location issue → `routable: false`, no polyline,
+   OSRM / haversine not called, `MISSING_COORDS` violations carrying `issueCode` and a fix
+   message. Each stop exposes `locationKind`, `coordSource` (`warehouse` | `shipment`) and
+   `locationIssue`.
+4. Routing: `routing/osrm.service.ts` (`OsrmService.getRoute`) calls OSRM `route/v1/driving`
+   at `OSRM_BASE_URL` (timeout `OSRM_TIMEOUT_MS`, default 5000; never throws, returns `null`
+   on unset URL / timeout / HTTP / routing error / leg-count mismatch). On `null`,
+   `routing/haversine-route.ts` (`computeHaversineLegs`) estimates at
+   `ROUTE_FALLBACK_SPEED_KMH` (default 40). The response carries `router` (`'osrm' | 'haversine'`;
+   `null` only when blocked by missing coords), `routerFallbackReason`, `polyline` ([lat,lng]),
+   totals, and `legDurationsSec` / `legDistancesM` (length = stops − 1). ETAs, windows and the
+   recommended departure always use the legs of the same router as the polyline. HTTP 200 either
+   way. The public `router.project-osrm.org` demo is for dev only — self-host OSRM in production.
+5. Schedule (`tms/route-schedule.ts`, pure): departure = leaving the first PICKUP; arrival =
+   departure + leg; EARLY waits until window start (`waitingTimeSec`); a window is met only
+   when service **finishes** by the window end — otherwise LATE, keeping the real ETA, with
+   `lateBySec` = service end − window end; service time `serviceTimeMin` (default `ROUTE_DEFAULT_SERVICE_MIN` or 30) at
+   every stop except RETURN. Windows come from shipment earliest/latest delivery (TO stops).
+6. Recommended departure: backward pass over latest service start `latest_i = min(windowEnd_i −
+   service_i, latest_{i+1} − leg_i − service_i)`; latest departure that meets every window if still in the future
+   (`LATEST_MEETING_WINDOWS`), otherwise now flagged `feasible: false` (`EARLIEST_PRACTICAL`);
+   `NO_DEADLINES` when no stop has a window end. Windows that open after a downstream
+   deadline allows → `WINDOW_CONFLICT`. `departureMode` (`ON_TIME` default | `EARLY`):
+   EARLY instead departs so the truck reaches the first stop with a window start exactly as
+   it opens (`EARLIEST_MEETING_WINDOWS`), capped by the ON_TIME latest departure and never
+   before now. Any other value → 400.
+7. ETAs are evaluated for `departAt` if given, else the recommended departure. `feasible` =
+   no violations (`LATE`, `WINDOW_CONFLICT`, `MISSING_COORDS`, `DEPARTURE_IN_PAST`).
+
+UI: `components/trips/TripRoutePreviewMap.tsx` (+ client-only `TripRoutePreviewLeaflet.tsx`),
+hook `useTripRoutePreview` (no request without a load; 400 ms debounce). No WebSocket / GPS /
+FleetMap coupling. OSRM → solid line; haversine → dashed line + "Estimated (no router)".
+
 ## Compatibility
 
 Generated stops also write `TripStopShipment` rows (SHIP → `PICKUP`, TO → `DROPOFF`,
 RETURN → `RETURN`), so the driver app, manifest, POD, goods issue and vehicle cargo views work
 unchanged. Driver `deliverStop` settles `DROPOFF` links only.
+
+## Trip execution (driver)
+
+Existing routes under `/api/v1/scm/trips/:id` — `PATCH start`, `PATCH stops/:stopId/arrive`,
+`PATCH stops/:stopId/pod`, `PATCH stops/:stopId/deliver`. Rules live in
+`backend/src/scm/trips/trip-execution.rules.ts` (`validateStopExecution`), enforced in `TripsService`:
+
+```text
+Trip IN_TRANSIT (after start)
+  stop PENDING --arrive--> ARRIVED --deliver (outcome DELIVERED)--> COMPLETED
+                                   --deliver (outcome FAILED)----> FAILED
+```
+
+- Guard order on every arrive / pod / deliver: `x-driver-id` header = `trip.driverId` (403) →
+  trip `IN_TRANSIT` (409 "Start the trip to begin execution") → stop on trip (404) → valid
+  transition (409) → sequence (409 "Finish stop #n first") unless `Trip.allowOutOfOrder`.
+  `start` also requires the assigned driver.
+- COMPLETED / FAILED / SKIPPED are terminal — no driver reopen. POD drafts only while ARRIVED.
+- FAILED requires `reasonCode` (`DeliveryFailureReason`: CUSTOMER_UNAVAILABLE, CUSTOMER_REFUSED,
+  WRONG_ADDRESS, DAMAGED_GOODS, VEHICLE_ISSUE, PAYMENT_ISSUE, OTHER); `failureReason` note is
+  required for OTHER. Stored on `TripStop.failureCode / failureReason / failedAt`.
+- A failed stop does not end the trip; the trip still auto-completes once every stop is terminal.
+- Shipment side effect on FAIL: linked PICKUP / DROPOFF shipments → `ShipmentStatus.EXCEPTION_HOLD`
+  with `exceptionCode / exceptionNote / exceptionAt` (awaiting dispatcher re-attempt / return
+  decision). No inventory posting. Trip completion never flips held shipments to DELIVERED.
+- Audit: append-only `TripStopEvent` (ARRIVED / COMPLETED / FAILED) written in the same
+  transaction as the stop change, with optional `latitude`, `longitude`, `accuracy`, `deviceId`,
+  `clientOccurredAt` (stored as `occurredAt`; server `recordedAt`) and `reasonCode` / notes.
+  Status writes are conditional on the expected stop status (concurrent requests → 409).
+- Idempotency: optional `clientActionId` (unique). Replay of the same stop + action is a no-op;
+  reuse for a different action → 409.
+- `allowOutOfOrder` is set by the ERP via `PATCH /scm/trips/:id` only. The generic stop PATCH
+  cannot set ARRIVED / COMPLETED / FAILED or edit terminal stops.
+- `x-driver-id` is a client-asserted identity (repo-wide auth gap), not a token.
+- Follow-ups: offline action queue + sync using `clientActionId`; SCM domain event (outbox) for
+  `DeliveryFailed` once SCM adopts the outbox; dispatcher UI to resolve EXCEPTION_HOLD.
 
 Tracking: `/scm/tracking/fleet` prefers IN_TRANSIT > DISPATCHED > ASSIGNED > READY > PLANNED;
 the driver app active trip is IN_TRANSIT > DISPATCHED > ASSIGNED > PLANNED (legacy only).
@@ -102,13 +212,17 @@ the driver app active trip is IN_TRANSIT > DISPATCHED > ASSIGNED > PLANNED (lega
 dispatchedAt`; `TripStop.stopType / locationKey / warehouseId`; `TripStatus` += READY,
 DISPATCHED. Migration `20261006120000_scm_tms_cargo_first` backfills one line per existing
 shipment. MM package release creates one line per package item (weight split by qty).
+Migration `20261008120000_scm_trip_stop_execution`: `Trip.allowOutOfOrder`,
+`TripStop.failureCode / failedAt`, `Shipment.exception*`, `ShipmentStatus.EXCEPTION_HOLD`,
+`TripStopEvent`.
 
 ## UI
 
 - **Load Building** `/scm/load-building` — vehicle → capacity (capacity / used / remaining),
   available lines, assigned cargo, Validate → Mark ready. No routing.
-- **Trip Planning** `/scm/trip-planning` — READY loads only → Create trip → generated stops,
-  reorder deliveries, driver, Validate, Dispatch, Cancel.
+- **Trip Planning** `/scm/trip-planning` — READY loads only → Plan route (route preview map,
+  recommended departure, ETAs / windows, reorder deliveries) → Confirm trip (planned start and
+  delivery order from the preview) → driver, Validate, Dispatch, Cancel.
 - **Trips** `/scm/trips` — execution / history; cargo-first trips link back to Trip Planning.
 - **Tracking** — unchanged; dispatched / in-transit trips show as the vehicle's active trip.
 

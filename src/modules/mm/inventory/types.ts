@@ -208,6 +208,7 @@ export interface StockOpsListResponse<T> {
 export interface StockOpsQueryParams {
     status?: string
     warehouseId?: string
+    purchaseOrderId?: string
     search?: string
     page?: number
     pageSize?: number

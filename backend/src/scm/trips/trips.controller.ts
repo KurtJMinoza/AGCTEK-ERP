@@ -3,6 +3,7 @@ import {
     Controller,
     Delete,
     Get,
+    Headers,
     Param,
     Patch,
     Post,
@@ -59,10 +60,10 @@ export class TripsController {
         return this.tripsService.updateStatus(id, body.status as TripStatus)
     }
 
-    /** Driver 5.1 — start route. */
+    /** Driver 5.1 — start route. Driver endpoints require `x-driver-id` = trip's assigned driver. */
     @Patch(':id/start')
-    start(@Param('id') id: string) {
-        return this.tripsService.startTrip(id)
+    start(@Param('id') id: string, @Headers('x-driver-id') driverId?: string) {
+        return this.tripsService.startTrip(id, driverId)
     }
 
     @Post(':id/stops')
@@ -80,8 +81,13 @@ export class TripsController {
     }
 
     @Patch(':id/stops/:stopId/arrive')
-    arriveStop(@Param('id') id: string, @Param('stopId') stopId: string) {
-        return this.tripsService.arriveStop(id, stopId)
+    arriveStop(
+        @Param('id') id: string,
+        @Param('stopId') stopId: string,
+        @Body() body: Record<string, unknown>,
+        @Headers('x-driver-id') driverId?: string,
+    ) {
+        return this.tripsService.arriveStop(id, stopId, driverId, body as never)
     }
 
     @Patch(':id/stops/:stopId/pod')
@@ -89,17 +95,20 @@ export class TripsController {
         @Param('id') id: string,
         @Param('stopId') stopId: string,
         @Body() body: Record<string, unknown>,
+        @Headers('x-driver-id') driverId?: string,
     ) {
-        return this.tripsService.saveStopPod(id, stopId, body as never)
+        return this.tripsService.saveStopPod(id, stopId, body as never, driverId)
     }
 
+    /** outcome DELIVERED → stop COMPLETED; outcome FAILED requires reasonCode. */
     @Patch(':id/stops/:stopId/deliver')
     deliverStop(
         @Param('id') id: string,
         @Param('stopId') stopId: string,
         @Body() body: Record<string, unknown>,
+        @Headers('x-driver-id') driverId?: string,
     ) {
-        return this.tripsService.deliverStop(id, stopId, body as never)
+        return this.tripsService.deliverStop(id, stopId, body as never, driverId)
     }
 
     @Delete(':id/stops/:stopId')

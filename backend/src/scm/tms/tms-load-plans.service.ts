@@ -24,8 +24,21 @@ import {
     EDITABLE_LOAD_PLAN_STATES,
     buildTripStops,
     checkLoadCapacity,
-    type StopSourceLine,
 } from './tms.rules'
+import { resolveStopSources } from './stop-location.rules'
+
+/** MM Warehouse fields SCM reads for stop resolution (master is the source of truth). */
+export const warehouseGeoSelect = {
+    id: true,
+    code: true,
+    name: true,
+    address: true,
+    status: true,
+    deletedAt: true,
+    lat: true,
+    lng: true,
+    geocodeConfirmed: true,
+} satisfies Prisma.WarehouseSelect
 
 export const shipmentLineInclude = {
     shipment: {
@@ -41,8 +54,8 @@ export const shipmentLineInclude = {
             requiresColdChain: true,
         },
     },
-    shipFromWarehouse: { select: { id: true, code: true, name: true, address: true } },
-    returnWarehouse: { select: { id: true, code: true, name: true, address: true } },
+    shipFromWarehouse: { select: warehouseGeoSelect },
+    returnWarehouse: { select: warehouseGeoSelect },
 } satisfies Prisma.ShipmentLineInclude
 
 export const loadPlanInclude = {
@@ -58,53 +71,6 @@ export const loadPlanInclude = {
 } satisfies Prisma.LoadPlanInclude
 
 type LoadPlanWithLines = Prisma.LoadPlanGetPayload<{ include: typeof loadPlanInclude }>
-type ShipmentLineWithRefs = Prisma.ShipmentLineGetPayload<{
-    include: typeof shipmentLineInclude
-}>
-
-/** ShipmentLine (+ load plan line id) → stop builder input. */
-export function toStopSource(
-    loadPlanLineId: string,
-    line: ShipmentLineWithRefs,
-): StopSourceLine {
-    return {
-        loadPlanLineId,
-        shipmentLineId: line.id,
-        shipmentId: line.shipmentId,
-        customerName: line.shipment.customerName,
-        ship:
-            line.shipFromWarehouseId || line.shipFromAddress
-                ? {
-                      warehouseId: line.shipFromWarehouseId,
-                      warehouseName: line.shipFromWarehouse?.name ?? null,
-                      address:
-                          line.shipFromAddress ??
-                          line.shipFromWarehouse?.address ??
-                          line.shipFromWarehouse?.name ??
-                          null,
-                      lat: line.shipFromLat,
-                      lng: line.shipFromLng,
-                  }
-                : null,
-        to: { address: line.shipToAddress, lat: line.shipToLat, lng: line.shipToLng },
-        ret:
-            line.returnWarehouseId || line.returnAddress
-                ? {
-                      warehouseId: line.returnWarehouseId,
-                      warehouseName: line.returnWarehouse?.name ?? null,
-                      address:
-                          line.returnAddress ??
-                          line.returnWarehouse?.address ??
-                          line.returnWarehouse?.name ??
-                          null,
-                      lat: line.returnLat,
-                      lng: line.returnLng,
-                  }
-                : null,
-        earliestDeliveryAt: line.shipment.earliestDeliveryAt,
-        latestDeliveryAt: line.shipment.latestDeliveryAt,
-    }
-}
 
 function isUniqueViolation(err: unknown): boolean {
     return (
@@ -455,11 +421,11 @@ export class TmsLoadPlansService {
                     .join(', ')}`,
             )
         }
-        const { errors } = buildTripStops(
-            plan.lines.map((l) => toStopSource(l.id, l.shipmentLine)),
-        )
-        if (errors.length > 0) {
-            throw new BadRequestException(errors.join('; '))
+        const resolved = resolveStopSources(plan.lines)
+        const { errors } = buildTripStops(resolved.lines)
+        const all = [...resolved.errors, ...errors]
+        if (all.length > 0) {
+            throw new BadRequestException(all.join('; '))
         }
     }
 

@@ -17,6 +17,7 @@ import ProfilePictureField from '@/modules/account/components/ProfilePictureFiel
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import useUserAvatar from '@/modules/account/hooks/useUserAvatar'
 import { apiGetProfile, apiUpdateProfile } from '@/services/AuthService'
+import { getRoleLabel } from '@/constants/roles.constant'
 import axios from 'axios'
 
 type ProfileFormSchema = {
@@ -252,7 +253,7 @@ const Profile = () => {
                 {role ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <Tag className="border-0 bg-primary-subtle text-primary">
-                            {role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                            {getRoleLabel(role) || role}
                         </Tag>
                     </div>
                 ) : null}

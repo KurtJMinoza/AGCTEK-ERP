@@ -28,12 +28,16 @@ import {
     HiOutlineSearch,
     HiOutlineTrash,
     HiOutlineEye,
+    HiOutlineLocationMarker,
 } from 'react-icons/hi'
+import LocationPickerDialog, {
+    type PickedLocation,
+} from '@/modules/scm/components/trips/LocationPickerDialog'
 import { warehouseService } from '../services/warehouseService'
 import { useWarehouses } from '../hooks/useWarehouses'
 import { orgService } from '../../material-master/services/referenceService'
 import type { Warehouse, CreateWarehousePayload } from '../types'
-import type { MmBranch, MmCompany, MmPlant } from '../../material-master/types'
+import type { MmBranch, MmCompany } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
@@ -71,7 +75,7 @@ const WAREHOUSE_TYPE_OPTIONS: FilterOption[] = [
     { value: 'FINISHED_GOODS', label: 'Finished Goods' },
 ]
 
-function pushToast(type: 'success' | 'danger', title: string, msg: string) {
+function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 
@@ -102,13 +106,14 @@ const WarehousesPage = () => {
     const [editing, setEditing] = useState<Warehouse | null>(null)
     const [viewing, setViewing] = useState<Warehouse | null>(null)
     const [deleting, setDeleting] = useState<Warehouse | null>(null)
+    const [locating, setLocating] = useState<Warehouse | null>(null)
+    const [savingPin, setSavingPin] = useState(false)
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
     const [bulkDeleting, setBulkDeleting] = useState(false)
 
     const [formData, setFormData] = useState<Partial<CreateWarehousePayload>>({})
     const [companies, setCompanies] = useState<MmCompany[]>([])
-    const [plants, setPlants] = useState<MmPlant[]>([])
     const [branches, setBranches] = useState<MmBranch[]>([])
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
@@ -118,24 +123,12 @@ const WarehousesPage = () => {
         [companies],
     )
 
-    const plantOptions = useMemo<FilterOption[]>(
-        () =>
-            plants
-                .filter((p) => !formData.companyId || p.companyId === formData.companyId)
-                .map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })),
-        [plants, formData.companyId],
-    )
-
     const branchOptions = useMemo<FilterOption[]>(
         () =>
             branches
-                .filter((b) => {
-                    if (formData.companyId && b.companyId !== formData.companyId) return false
-                    if (formData.plantId && b.plantId && b.plantId !== formData.plantId) return false
-                    return true
-                })
+                .filter((b) => !formData.companyId || b.companyId === formData.companyId)
                 .map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
-        [branches, formData.companyId, formData.plantId],
+        [branches, formData.companyId],
     )
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
@@ -151,7 +144,7 @@ const WarehousesPage = () => {
     }
 
     useEffect(() => {
-        // Companies only on mount — plants/branches load when form opens
+        // Companies only on mount — branches load when form opens
         orgService
             .companies()
             .then((list) => setCompanies(Array.isArray(list) ? list : []))
@@ -159,14 +152,10 @@ const WarehousesPage = () => {
     }, [])
 
     const ensureFormRefs = useCallback(async () => {
-        if (plants.length && branches.length) return
-        const [p, b] = await Promise.all([
-            orgService.plants({ activeOnly: true }),
-            orgService.branches({ activeOnly: true }),
-        ])
-        setPlants(Array.isArray(p) ? p : [])
+        if (branches.length) return
+        const b = await orgService.branches({ activeOnly: true })
         setBranches(Array.isArray(b) ? b : [])
-    }, [plants.length, branches.length])
+    }, [branches.length])
 
     const stats = useMemo(() => {
         const total = meta.total
@@ -197,7 +186,6 @@ const WarehousesPage = () => {
         setFormData({
             name: wh.name,
             companyId: wh.companyId,
-            plantId: wh.plantId || '',
             branchId: wh.branchId || '',
             managerId: wh.managerId || '',
             warehouseType: wh.warehouseType || 'GENERAL',
@@ -245,6 +233,31 @@ const WarehousesPage = () => {
         }
     }, [deleting, refresh])
 
+    const openLocate = useCallback((wh: Warehouse) => {
+        if (!wh.address?.trim()) {
+            pushToast('warning', 'Address required', 'Set the warehouse address before confirming its location.')
+            return
+        }
+        setLocating(wh)
+    }, [])
+
+    const handleConfirmLocation = useCallback(async (picked: PickedLocation) => {
+        if (!locating) return
+        setSavingPin(true)
+        try {
+            const updated = await warehouseService.confirmGeocode(locating.id, { lat: picked.lat, lng: picked.lng })
+            pushToast('success', 'Location confirmed', `${updated.code} is now routable for SCM trips.`)
+            setLocating(null)
+            if (viewing?.id === updated.id) setViewing({ ...viewing, ...updated })
+            refresh()
+        } catch (e: any) {
+            const msg = e?.response?.data?.message || 'Could not confirm location'
+            pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
+        } finally {
+            setSavingPin(false)
+        }
+    }, [locating, viewing, refresh])
+
     const handleCheckBoxChange = useCallback((checked: boolean, row: Warehouse) => {
         setSelectedRows((prev) => { const next = new Set(prev); checked ? next.add(row.id) : next.delete(row.id); return next })
     }, [])
@@ -291,12 +304,6 @@ const WarehousesPage = () => {
                 cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.company?.name ?? '—'}</span>,
             },
             {
-                header: 'Plant',
-                id: 'plant',
-                size: 120,
-                cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.plant?.code ?? '—'}</span>,
-            },
-            {
                 header: 'Branch',
                 id: 'branch',
                 size: 120,
@@ -317,6 +324,13 @@ const WarehousesPage = () => {
                 cell: ({ row }) => <span className="whitespace-nowrap text-xs text-gray-500">{row.original.timezone || 'UTC'}</span>,
             },
             {
+                header: 'Location',
+                id: 'geocode',
+                size: 130,
+                minSize: 110,
+                cell: ({ row }) => <GeocodeBadge warehouse={row.original} />,
+            },
+            {
                 header: 'Status',
                 accessorKey: 'status',
                 size: 110,
@@ -332,12 +346,13 @@ const WarehousesPage = () => {
                     <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
                         <Dropdown.Item eventKey="view" onClick={() => setViewing(row.original)}><HiOutlineEye className="text-base" /><span>View</span></Dropdown.Item>
                         <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>
+                        <Dropdown.Item eventKey="locate" onClick={() => openLocate(row.original)}><HiOutlineLocationMarker className="text-base" /><span>Set location</span></Dropdown.Item>
                         <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
                     </Dropdown>
                 ),
             },
         ],
-        [openEdit],
+        [openEdit, openLocate],
     )
 
     return (
@@ -432,7 +447,6 @@ const WarehousesPage = () => {
                                 setFormData((prev) => ({
                                     ...prev,
                                     companyId: opt?.value ?? '',
-                                    plantId: '',
                                     branchId: '',
                                 }))
                                 setTouched((t) => ({ ...t, companyId: true }))
@@ -443,26 +457,7 @@ const WarehousesPage = () => {
                         />
                     )}
                 </FormItem>
-                <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-                    <FormItem label="Plant">
-                        <Select<FilterOption>
-                            placeholder="Select plant"
-                            isClearable
-                            options={plantOptions}
-                            value={plantOptions.find((o) => o.value === formData.plantId) ?? null}
-                            onChange={(opt) => {
-                                setFormData((prev) => ({
-                                    ...prev,
-                                    plantId: opt?.value ?? '',
-                                    branchId: '',
-                                }))
-                            }}
-                            menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
-                            menuPosition="fixed"
-                            styles={{ menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 9999 }) }}
-                        />
-                    </FormItem>
-                    <FormItem label="Branch">
+                <FormItem label="Branch">
                         <Select<FilterOption>
                             placeholder="Select branch"
                             isClearable
@@ -473,8 +468,7 @@ const WarehousesPage = () => {
                             menuPosition="fixed"
                             styles={{ menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 9999 }) }}
                         />
-                    </FormItem>
-                </div>
+                </FormItem>
                 <FormItem label="Manager ID">
                     <Input value={formData.managerId ?? ''} onChange={(e) => setField('managerId', e.target.value)} placeholder="Optional manager identifier" />
                 </FormItem>
@@ -493,7 +487,10 @@ const WarehousesPage = () => {
                         <Input value={formData.timezone ?? 'UTC'} onChange={(e) => setField('timezone', e.target.value)} placeholder="UTC" />
                     </FormItem>
                 </div>
-                <FormItem label="Address">
+                <FormItem
+                    label="Address"
+                    extra={editing?.geocodeConfirmed ? <span className="text-xs text-amber-600">Changing the address clears the confirmed routing location.</span> : undefined}
+                >
                     <Input value={formData.address ?? ''} onChange={(e) => setField('address', e.target.value)} placeholder="Address" />
                 </FormItem>
                 <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
@@ -517,6 +514,7 @@ const WarehousesPage = () => {
                 footer={
                     viewing ? (
                         <>
+                            <Button size="sm" icon={<HiOutlineLocationMarker />} onClick={() => openLocate(viewing)}>Set location</Button>
                             <Button size="sm" onClick={() => { setViewing(null); openEdit(viewing) }}>Edit</Button>
                             <Button size="sm" onClick={() => setViewing(null)}>Close</Button>
                         </>
@@ -527,16 +525,40 @@ const WarehousesPage = () => {
                     <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                         <div><span className="text-gray-500">Status</span><p className="mt-0.5"><StatusBadge tone={STATUS_TONE[viewing.status] ?? 'default'}>{viewing.status}</StatusBadge></p></div>
                         <div><span className="text-gray-500">Type</span><p className="mt-0.5 font-medium">{(viewing.warehouseType || 'GENERAL').replace(/_/g, ' ')}</p></div>
-                        <div><span className="text-gray-500">Plant</span><p className="mt-0.5 font-medium">{viewing.plant?.name ?? viewing.plantId ?? '—'}</p></div>
                         <div><span className="text-gray-500">Branch</span><p className="mt-0.5 font-medium">{viewing.branch?.name ?? viewing.branchId ?? '—'}</p></div>
                         <div><span className="text-gray-500">Manager</span><p className="mt-0.5 font-medium">{viewing.managerId || '—'}</p></div>
                         <div><span className="text-gray-500">Timezone</span><p className="mt-0.5 font-medium">{viewing.timezone || 'UTC'}</p></div>
                         <div><span className="text-gray-500">Address</span><p className="mt-0.5 font-medium">{viewing.address || '—'}</p></div>
+                        <div>
+                            <span className="text-gray-500">Routing location</span>
+                            <p className="mt-0.5 flex items-center gap-2">
+                                <GeocodeBadge warehouse={viewing} />
+                                {viewing.lat != null && viewing.lng != null ? (
+                                    <span className="font-mono text-xs text-gray-500">{viewing.lat.toFixed(5)}, {viewing.lng.toFixed(5)}</span>
+                                ) : null}
+                            </p>
+                        </div>
                         <div><span className="text-gray-500">Receiving area</span><p className="mt-0.5 font-medium">{viewing.defaultReceivingArea || '—'}</p></div>
                         <div><span className="text-gray-500">Shipping area</span><p className="mt-0.5 font-medium">{viewing.defaultShippingArea || '—'}</p></div>
                     </div>
                 )}
             </FormDialog>
+
+            <LocationPickerDialog
+                isOpen={Boolean(locating)}
+                initialAddress={locating?.address ?? ''}
+                initialLat={locating?.lat}
+                initialLng={locating?.lng}
+                title={locating ? `Confirm location — ${locating.code}` : 'Confirm location'}
+                description="Search the address, then check and drag the pin to the exact gate. SCM trips use only this confirmed pin for pickup and return stops."
+                confirmText="Confirm location"
+                width={1000}
+                mapHeight="min(520px, 60vh)"
+                confirmLoading={savingPin}
+                closeOnConfirm={false}
+                onClose={() => setLocating(null)}
+                onConfirm={(picked) => void handleConfirmLocation(picked)}
+            />
 
             <ConfirmDialog isOpen={Boolean(deleting)} type="danger" title="Delete warehouse?" confirmText="Delete" onRequestClose={() => setDeleting(null)} onCancel={() => setDeleting(null)} onConfirm={handleDelete}>
                 <p>Are you sure you want to delete <span className="font-semibold">{deleting?.code} — {deleting?.name}</span>?</p>
@@ -547,6 +569,13 @@ const WarehousesPage = () => {
         </PageContainer>
     )
 }
+
+const GeocodeBadge = ({ warehouse }: { warehouse: Warehouse }) =>
+    warehouse.geocodeConfirmed ? (
+        <StatusBadge tone="success">Confirmed</StatusBadge>
+    ) : (
+        <StatusBadge tone="warning">{warehouse.lat != null ? 'Re-confirm' : 'Not set'}</StatusBadge>
+    )
 
 type StatCardProps = { label: string; value: number; icon: React.ReactNode; tone?: 'default' | 'success' | 'warning' }
 const toneClasses: Record<string, { icon: string; text: string }> = {

@@ -54,11 +54,6 @@ export class MobileExecutionService {
         return this.execute('RECEIVING', input)
     }
 
-    async putawayScan(input: MobileScanInput) {
-        await this.assertTaskFresh('PUTAWAY', input)
-        return this.execute('PUTAWAY', input)
-    }
-
     async pickingScan(input: MobileScanInput) {
         await this.assertTaskFresh('PICKING', input)
         return this.execute('PICKING', input)
@@ -301,44 +296,9 @@ export class MobileExecutionService {
     }
 
     private async assertTaskFresh(
-        operation: 'PUTAWAY' | 'PICKING' | 'COUNTING',
+        operation: 'PICKING' | 'COUNTING',
         input: MobileScanInput,
     ) {
-        if (operation === 'PUTAWAY' && input.putawayTaskId) {
-            const task = await this.prisma.wmPutawayTask.findUnique({
-                where: { id: input.putawayTaskId },
-            })
-            if (!task) throw new BadRequestException('Putaway task not found')
-            if (task.status === 'COMPLETED') {
-                conflict('ALREADY_POSTED', 'Putaway task already completed')
-            }
-            if (task.status === 'CANCELLED') {
-                conflict('STALE_TASK', 'Putaway task was cancelled')
-            }
-            if (
-                input.expectedTaskUpdatedAt &&
-                task.updatedAt.getTime() >
-                    new Date(input.expectedTaskUpdatedAt).getTime()
-            ) {
-                conflict('STALE_TASK', 'Putaway task changed since download')
-            }
-            if (
-                input.expectedSourceBinId &&
-                task.recommendedBinId &&
-                input.bin
-            ) {
-                const bin = await this.resolve.resolveBin(input.bin).catch(() => null)
-                if (
-                    bin &&
-                    task.recommendedBinId &&
-                    bin.id !== task.recommendedBinId &&
-                    input.destinationBin == null
-                ) {
-                    // destination can differ; warn via BIN_CHANGED only when confirming wrong expected
-                }
-            }
-        }
-
         if (operation === 'PICKING' && input.pickingTaskId) {
             const task = await this.prisma.wmPickingTask.findUnique({
                 where: { id: input.pickingTaskId },

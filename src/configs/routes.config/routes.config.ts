@@ -1,5 +1,6 @@
 import authRoute from './authRoute'
 import type { Routes } from '@/@types/routes'
+import { SUPER_ADMIN_AUTHORITY } from '@/constants/roles.constant'
 
 export const protectedRoutes: Routes = {
     '/home': {
@@ -28,6 +29,38 @@ export const protectedRoutes: Routes = {
     },
     '/account/settings': {
         key: 'accountSettings',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/settings': {
+        key: 'superAdminSettings',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/users': {
+        key: 'superAdminUsers',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/super-admin/system-settings': {
+        key: 'superAdminSystemSettings',
+        authority: SUPER_ADMIN_AUTHORITY,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/access-denied': {
+        key: 'accessDenied',
         authority: [],
         meta: {
             pageBackgroundType: 'plain',
@@ -156,6 +189,64 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'gutterless',
         },
     },
+    '/crm': {
+        key: 'crmDashboard',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/leads': {
+        key: 'crmLeads',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/opportunities': {
+        key: 'crmOpportunities',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/opportunities/[id]': {
+        key: 'crmOpportunityDetail',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/tickets': {
+        key: 'crmTickets',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/customers': {
+        key: 'crmCustomers',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/customers/[id]': {
+        key: 'crmCustomerDetail',
+        authority: [],
+        dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/modules/[moduleCode]': {
         key: 'erpModule',
         authority: [],
@@ -186,6 +277,14 @@ export const protectedRoutes: Routes = {
 }
 
 export const publicRoutes: Routes = {
+    '/maintenance': {
+        key: 'maintenance',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/shop': {
         key: 'marketplace',
         authority: [],

@@ -18,7 +18,6 @@ import { PutawayCompletionHandler } from './task-completion/putaway-completion.h
 import { PickCompletionHandler } from './task-completion/pick-completion.handler'
 import { RelocationCompletionHandler } from './task-completion/relocation-completion.handler'
 import { TransferCompletionHandler } from './task-completion/transfer-completion.handler'
-import { PutawayStrategyRegistry } from './strategies/putaway-strategy.registry'
 import { Decimal } from '@prisma/client/runtime/library'
 import { Prisma } from '@prisma/client'
 
@@ -35,7 +34,6 @@ export class WarehouseTaskService {
     constructor(
         private prisma: PrismaService,
         private assignment: TaskAssignmentService,
-        private putawayStrategy: PutawayStrategyRegistry,
         private putawayCompletion: PutawayCompletionHandler,
         private pickCompletion: PickCompletionHandler,
         private relocationCompletion: RelocationCompletionHandler,
@@ -52,17 +50,10 @@ export class WarehouseTaskService {
         let destinationBinId = dto.destinationBinId ?? null
         const metadata = (dto.metadata ?? {}) as Record<string, unknown>
 
-        if (dto.taskType === 'PUTAWAY' && dto.materialId && !destinationBinId) {
-            const strategyCode = (metadata.putawayStrategy as string) ?? 'CAPACITY_BASED'
-            destinationBinId = await this.putawayStrategy.recommend(strategyCode, {
-                warehouseId: dto.warehouseId,
-                materialId: dto.materialId,
-                quantity: dto.quantity,
-                batchId: dto.batchId,
-                serialId: dto.serialId,
-                stockStatus: dto.stockStatus,
-            })
-            metadata.recommendedBinId = destinationBinId
+        if (dto.taskType === 'PUTAWAY') {
+            throw new BadRequestException(
+                'Putaway is disabled; stock is available in the receipt bin after goods receipt.',
+            )
         }
 
         return this.prisma.wmWarehouseTask.create({
@@ -180,7 +171,6 @@ export class WarehouseTaskService {
         const fresh = await this.findOne(id)
 
         switch (fresh.taskType) {
-            case 'PUTAWAY':
             case 'REPLENISHMENT':
                 return this.putawayCompletion.complete(fresh, dto)
             case 'PICK':

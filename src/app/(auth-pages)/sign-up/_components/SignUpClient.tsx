@@ -22,7 +22,6 @@ const SignUpClient = () => {
             jobPosition: values.jobPosition,
             email: values.email,
             password: values.password,
-            role: values.role,
         })
             .then((data) => {
                 if (data?.error) {

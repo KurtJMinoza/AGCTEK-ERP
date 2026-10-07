@@ -282,111 +282,65 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'CRM',
         title: 'Customer Relationship Management',
         description:
-            'Manage leads, accounts, opportunities, and customer engagement across the sales cycle.',
+            'Leads, sales pipeline, customer service tickets and a 360° view of SD customers.',
         path: '/modules/crm',
         icon: 'crm',
         categories: [
             {
-                code: 'master-data',
-                title: 'Master Data',
+                code: 'overview',
+                title: 'Overview',
                 submodules: [
                     {
-                        code: 'accounts',
-                        title: 'Accounts',
+                        code: 'dashboard',
+                        title: 'CRM Dashboard',
                         description:
-                            'Maintain customer and prospect account records.',
-                        path: '/modules/crm/accounts',
-                        icon: 'building',
+                            'New leads, pipeline by stage and open tickets at a glance.',
+                        path: '/crm',
+                        icon: 'barChart',
                     },
                     {
-                        code: 'contacts',
-                        title: 'Contacts',
+                        code: 'customers',
+                        title: 'Customers',
                         description:
-                            'Manage contact persons, roles, and communication details.',
-                        path: '/modules/crm/contacts',
+                            'SD customers with their CRM 360° view — opportunities, tickets and loyalty.',
+                        path: '/crm/customers',
                         icon: 'users',
                     },
+                ],
+            },
+            {
+                code: 'sales',
+                title: 'Sales',
+                submodules: [
                     {
                         code: 'leads',
                         title: 'Leads',
                         description:
-                            'Capture and qualify inbound and outbound sales leads.',
-                        path: '/modules/crm/leads',
+                            'Capture and qualify prospects; convert them by linking an SD customer.',
+                        path: '/crm/leads',
                         icon: 'userCircle',
                     },
-                ],
-            },
-            {
-                code: 'transactional',
-                title: 'Transactional',
-                submodules: [
                     {
                         code: 'opportunities',
                         title: 'Opportunities',
                         description:
-                            'Track deals, pipeline stages, and expected revenue.',
-                        path: '/modules/crm/opportunities',
+                            'Track deals through pipeline stages in a table or board view.',
+                        path: '/crm/opportunities',
                         icon: 'lineChart',
                     },
+                ],
+            },
+            {
+                code: 'service',
+                title: 'Service',
+                submodules: [
                     {
-                        code: 'activities',
-                        title: 'Activities',
+                        code: 'tickets',
+                        title: 'Tickets',
                         description:
-                            'Log calls, meetings, tasks, and follow-ups.',
-                        path: '/modules/crm/activities',
+                            'Customer service cases with priorities, status and comments.',
+                        path: '/crm/tickets',
                         icon: 'clipboard',
-                    },
-                    {
-                        code: 'campaigns',
-                        title: 'Campaigns',
-                        description:
-                            'Plan and monitor marketing and outreach campaigns.',
-                        path: '/modules/crm/campaigns',
-                        icon: 'activity',
-                    },
-                ],
-            },
-            {
-                code: 'reports',
-                title: 'Reports & Analytics',
-                submodules: [
-                    {
-                        code: 'pipeline-analytics',
-                        title: 'Pipeline Analytics',
-                        description:
-                            'Analyze win rates, forecast accuracy, and deal velocity.',
-                        path: '/modules/crm/pipeline-analytics',
-                        icon: 'barChart',
-                    },
-                    {
-                        code: 'customer-insights',
-                        title: 'Customer Insights',
-                        description:
-                            'Review engagement trends and account health scores.',
-                        path: '/modules/crm/customer-insights',
-                        icon: 'fileSpreadsheet',
-                    },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'sales-stages',
-                        title: 'Sales Stages',
-                        description:
-                            'Define pipeline stages and transition rules.',
-                        path: '/modules/crm/sales-stages',
-                        icon: 'settings',
-                    },
-                    {
-                        code: 'lead-sources',
-                        title: 'Lead Sources',
-                        description:
-                            'Configure lead source types and attribution.',
-                        path: '/modules/crm/lead-sources',
-                        icon: 'cog',
                     },
                 ],
             },
@@ -403,7 +357,7 @@ export const ERP_MODULES: ErpModule[] = [
         categories: [
             {
                 code: 'planning',
-                title: 'Planning',
+                title: 'Planning & Analytics',
                 submodules: [
                     {
                         code: 'demand-planning',
@@ -413,101 +367,6 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/scm/demand-planning',
                         icon: 'lineChart',
                     },
-                ],
-            },
-            {
-                code: 'execute',
-                title: 'Execute',
-                submodules: [
-                    {
-                        code: 'transportation',
-                        title: 'Transportation Management',
-                        description:
-                            'Plan deliveries, load trucks, send them out, and keep track of your fleet.',
-                        path: '/scm',
-                        icon: 'truck',
-                        childGroupTitle: 'Features',
-                        children: [
-                            {
-                                code: 'shipments',
-                                title: 'Shipments',
-                                description:
-                                    'See all orders waiting to be delivered.',
-                                path: '/scm/shipments',
-                                icon: 'package',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'load-building',
-                                title: 'Load Building',
-                                description:
-                                    'Choose what goes on each truck without overloading it.',
-                                path: '/scm/load-building',
-                                icon: 'layers',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'trip-planning',
-                                title: 'Trip Planning',
-                                description:
-                                    'Turn a loaded truck into a trip, pick a driver, and send it out.',
-                                path: '/scm/trip-planning',
-                                icon: 'gitBranch',
-                                group: 'Planning',
-                            },
-                            {
-                                code: 'trips',
-                                title: 'Trips',
-                                description:
-                                    'See every trip and where it stands.',
-                                path: '/scm/trips',
-                                icon: 'activity',
-                                group: 'Execution',
-                            },
-                            {
-                                code: 'tracking',
-                                title: 'Tracking',
-                                description:
-                                    'See where your trucks are right now on a map.',
-                                path: '/scm/tracking',
-                                icon: 'activity',
-                                group: 'Execution',
-                            },
-                            {
-                                code: 'vehicles',
-                                title: 'Vehicles',
-                                description:
-                                    'Add and manage your company trucks.',
-                                path: '/scm/vehicles',
-                                icon: 'truck',
-                                group: 'Fleet & Resources',
-                            },
-                            {
-                                code: 'drivers',
-                                title: 'Drivers',
-                                description:
-                                    'Add drivers and see who is available.',
-                                path: '/scm/drivers',
-                                icon: 'users',
-                                group: 'Fleet & Resources',
-                            },
-                            {
-                                code: 'maintenance',
-                                title: 'Maintenance',
-                                description:
-                                    'Schedule and record truck repairs and servicing.',
-                                path: '/scm/maintenance',
-                                icon: 'settings',
-                                group: 'Fleet & Resources',
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                code: 'reports',
-                title: 'Reports & Analytics',
-                submodules: [
                     {
                         code: 'supply-chain-dashboard',
                         title: 'Supply Chain Dashboard',
@@ -515,6 +374,72 @@ export const ERP_MODULES: ErpModule[] = [
                             'Ops KPIs — fleet utilization, shipments, trips; OTIF later.',
                         path: '/scm/supply-chain-dashboard',
                         icon: 'barChart',
+                    },
+                ],
+            },
+            {
+                code: 'transportation',
+                title: 'Transportation Management',
+                submodules: [
+                    {
+                        code: 'shipments',
+                        title: 'Shipments',
+                        description: 'See all orders waiting to be delivered.',
+                        path: '/scm/shipments',
+                        icon: 'package',
+                    },
+                    {
+                        code: 'load-building',
+                        title: 'Load Building',
+                        description:
+                            'Choose what goes on each truck without overloading it.',
+                        path: '/scm/load-building',
+                        icon: 'layers',
+                    },
+                    {
+                        code: 'trip-planning',
+                        title: 'Trip Planning',
+                        description:
+                            'Turn a loaded truck into a trip, pick a driver, and send it out.',
+                        path: '/scm/trip-planning',
+                        icon: 'gitBranch',
+                    },
+                    {
+                        code: 'trips',
+                        title: 'Trips',
+                        description: 'See every trip and where it stands.',
+                        path: '/scm/trips',
+                        icon: 'activity',
+                    },
+                    {
+                        code: 'tracking',
+                        title: 'Tracking',
+                        description:
+                            'See where your trucks are right now on a map.',
+                        path: '/scm/tracking',
+                        icon: 'activity',
+                    },
+                    {
+                        code: 'vehicles',
+                        title: 'Vehicles',
+                        description: 'Add and manage your company trucks.',
+                        path: '/scm/vehicles',
+                        icon: 'truck',
+                    },
+                    {
+                        code: 'drivers',
+                        title: 'Drivers',
+                        description: 'Add drivers and see who is available.',
+                        path: '/scm/drivers',
+                        icon: 'users',
+                    },
+                    {
+                        code: 'maintenance',
+                        title: 'Maintenance',
+                        description:
+                            'Schedule and record truck repairs and servicing.',
+                        path: '/scm/maintenance',
+                        icon: 'settings',
                     },
                 ],
             },

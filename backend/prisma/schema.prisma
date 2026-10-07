@@ -19,12 +19,83 @@ model User {
   bio           String         @default("")
   passwordHash  String
   role          String
+  isActive      Boolean        @default(true)
   avatar        String         @default("")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   notifications Notification[]
   driver        Driver?
   mobileDevices MmMobileDevice[]
+  companies     UserCompany[]
+  updatedSystemSettings SystemSetting[]
+}
+
+/// User ↔ Company membership. Service logic keeps exactly one `isDefault` row per user with memberships.
+model UserCompany {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@map("user_companies")
+}
+
+/// Permission catalog. `code` is stable and referenced by `checkPermission(moduleCode, action)`.
+model Module {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String           @default("")
+  isActive    Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+
+  @@map("modules")
+}
+
+/// CRUD grants per role and module. `role` is a system role string until a Roles table exists.
+model RolePermission {
+  id        String   @id @default(cuid())
+  role      String
+  moduleId  String
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canRead   Boolean  @default(false)
+  canUpdate Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([role, moduleId])
+  @@index([moduleId])
+  @@map("role_permissions")
+}
+
+/// Global key/value configuration. Keys and types are defined in system-settings.catalog.ts.
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  valueType   String
+  label       String
+  description String   @default("")
+  group       String
+  sortOrder   Int      @default(0)
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([group])
+  @@map("system_settings")
 }
 
 model Notification {
@@ -51,6 +122,10 @@ model Company {
   id         String       @id @default(cuid())
   code       String       @unique
   name       String
+  /// Public URL under `/uploads/companies/` (Next.js `public/`).
+  logoUrl    String?
+  address    String       @default("")
+  tin        String       @default("")
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
   warehouses Warehouse[]
@@ -137,6 +212,7 @@ model Company {
   supplyProposals          MmSupplyProposal[]
   projectedStocks          MmProjectedStock[]
   bomExplosionTraces       MmBomExplosionTrace[]
+  userCompanies            UserCompany[]
 
   @@map("companies")
 }
@@ -200,6 +276,12 @@ model Warehouse {
   managerId            String?
   warehouseType        String?  @default("GENERAL")
   address              String?
+  /// Routing coordinates — only set via the explicit geocode-confirm action
+  lat                  Float?
+  lng                  Float?
+  /// True only after a user confirmed the pin; any address edit resets it
+  geocodeConfirmed     Boolean  @default(false)
+  geocodeConfirmedAt   DateTime?
   timezone             String?  @default("UTC")
   status               String   @default("ACTIVE")
   qualityInspectionRequired Boolean @default(false)
@@ -2416,8 +2498,8 @@ model MmPurchaseOrder {
   company                 Company   @relation(fields: [companyId], references: [id])
   branchId                String?
   departmentId            String?
-  supplierId              String
-  supplier                MmSupplier @relation(fields: [supplierId], references: [id])
+  supplierId              String?
+  supplier                MmSupplier? @relation(fields: [supplierId], references: [id])
   buyerId                 String
   currencyId              String?
   currency                MmCurrency? @relation("PoCurrency", fields: [currencyId], references: [id])
@@ -3490,6 +3572,14 @@ model SdCustomer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  /// CRM extensions (CRM references SdCustomer; SD remains the customer master).
+  crmProfile        CrmProfile?
+  crmLeads          CrmLead[]
+  crmOpportunities  CrmOpportunity[]
+  crmTickets        CrmTicket[]
+  crmLoyaltyAccount CrmLoyaltyAccount?
+  sdQuotations      SdQuotation[]
+
   @@index([status])
   @@index([companyName])
   @@map("sd_customers")
@@ -3587,6 +3677,13 @@ model SdSalesOrder {
   customerId      String
   /// STANDARD | POS | ECOMMERCE
   channel         String   @default("STANDARD")
+  /// Originating system: POS | WEBSITE | CRM | ERP (back-office / API).
+  source          String   @default("ERP")
+  /// CRM opportunity that produced this order (Closed Won handoff); at most one order per opportunity.
+  crmOpportunityId String? @unique
+  /// Quotation converted into this order; null for orders created without a quotation.
+  quotationId     String?  @unique
+  quotation       SdQuotation? @relation(fields: [quotationId], references: [id], onDelete: Restrict)
   /// Sales division, e.g. DIV_RETAIL
   divisionId      String?
   /// Selling branch / store location code, e.g. BR_AWIC_DAVAO_MAIN (POS required).
@@ -3614,6 +3711,10 @@ model SdSalesOrder {
   status          String   @default("DRAFT")
   correlationId   String
   idempotencyKey  String?  @unique
+  /// Free-text commercial notes (e.g. handoff context from a CRM opportunity).
+  notes           String?
+  /// Sales owner (User id) responsible for the order; may differ from createdBy.
+  salesOwnerId    String?
   createdBy       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -3624,6 +3725,7 @@ model SdSalesOrder {
   @@index([companyId, status])
   @@index([correlationId])
   @@index([channel, createdAt])
+  @@index([source, createdAt])
   @@index([branchId, createdAt])
   @@index([createdAt])
   @@map("sd_sales_orders")
@@ -3667,6 +3769,79 @@ model SdSalesOrderLine {
   @@index([productId])
   @@index([divisionId])
   @@map("sd_sales_order_lines")
+}
+
+/// SD quotation for a CRM opportunity. Revisions share `quotationNumber`; each revision is its own row.
+/// At most one active (DRAFT | SENT | ACCEPTED) quotation per opportunity: partial unique index
+/// "sd_quotations_one_active_per_opportunity" is raw SQL (migration 20261016120000) that Prisma cannot model.
+model SdQuotation {
+  id                 String    @id @default(cuid())
+  /// Q-000012; revision 1 takes the next value of sequence sd_quotation_number_seq, later revisions reuse it.
+  quotationNumber    String
+  revision           Int       @default(1)
+  /// Revision this one was created from (null for revision 1).
+  previousRevisionId String?   @unique
+  previousRevision   SdQuotation?  @relation("SdQuotationRevision", fields: [previousRevisionId], references: [id], onDelete: Restrict)
+  nextRevision       SdQuotation?  @relation("SdQuotationRevision")
+  /// CUSTOMER_REQUEST | ERROR_CORRECTION | OTHER (revisions only)
+  revisionReason     String?
+  revisionNotes      String?
+  crmOpportunityId   String
+  customerId         String
+  customer           SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  divisionId         String?
+  currency           String    @default("PHP")
+  /// DRAFT | SENT | ACCEPTED | REJECTED | EXPIRED | CANCELLED | SUPERSEDED | CONVERTED
+  status             String    @default("DRAFT")
+  /// End of the validity day (Asia/Manila); set when sent.
+  validUntil         DateTime?
+  subtotal           Decimal   @default(0) @db.Decimal(18, 2)
+  totalAmount        Decimal   @default(0) @db.Decimal(18, 2)
+  notes              String?
+  sentBy             String?
+  sentAt             DateTime?
+  /// Accept / reject actor; `decisionReason` is required for REJECTED.
+  decidedBy          String?
+  decidedAt          DateTime?
+  decisionReason     String?
+  cancelledBy        String?
+  cancelledAt        DateTime?
+  cancelReason       String?
+  convertedBy        String?
+  convertedAt        DateTime?
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  lines              SdQuotationLine[]
+  salesOrder         SdSalesOrder?
+
+  @@unique([quotationNumber, revision])
+  @@index([crmOpportunityId, createdAt])
+  @@index([customerId])
+  @@index([status, validUntil])
+  @@map("sd_quotations")
+}
+
+/// Quotation line. Prices follow the SD catalog while DRAFT and are frozen when the quotation is sent;
+/// sku / description are snapshots (products may be deleted later), like sales order lines.
+model SdQuotationLine {
+  id          String      @id @default(cuid())
+  quotationId String
+  quotation   SdQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  lineNumber  Int
+  productId   String
+  sku         String
+  description String
+  quantity    Decimal     @db.Decimal(18, 3)
+  unitPrice   Decimal     @db.Decimal(18, 2)
+  lineTotal   Decimal     @db.Decimal(18, 2)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([quotationId, lineNumber])
+  @@index([productId])
+  @@map("sd_quotation_lines")
 }
 
 model SdFulfillment {
@@ -5648,6 +5823,24 @@ enum StopStatus {
   FAILED
 }
 
+/// Structured driver reason when a stop is marked FAILED.
+enum DeliveryFailureReason {
+  CUSTOMER_UNAVAILABLE
+  CUSTOMER_REFUSED
+  WRONG_ADDRESS
+  DAMAGED_GOODS
+  VEHICLE_ISSUE
+  PAYMENT_ISSUE
+  OTHER
+}
+
+/// Append-only trip execution audit (TripStopEvent).
+enum TripStopEventType {
+  ARRIVED
+  COMPLETED
+  FAILED
+}
+
 enum ShipmentStatus {
   DRAFT
   READY
@@ -5655,6 +5848,8 @@ enum ShipmentStatus {
   IN_TRANSIT
   DELIVERED
   CANCELLED
+  /// Delivery failed at the stop — awaiting dispatcher decision (re-attempt / return). Not delivered.
+  EXCEPTION_HOLD
 }
 
 /// Outbound shipping vs customer/supplier pickup (return to hub).
@@ -5810,6 +6005,10 @@ model Shipment {
   podSignatureUrl     String?
   podPhotoUrl         String?
   deliveredAt         DateTime?
+  /// Set with status EXCEPTION_HOLD when a linked trip stop fails
+  exceptionCode       DeliveryFailureReason?
+  exceptionNote       String?
+  exceptionAt         DateTime?
   notes               String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -5929,11 +6128,14 @@ model Trip {
   totalWeightKg  Float?
   totalVolumeM3  Float?
   totalQty       Int?
+  /// Dispatcher override: driver may execute stops out of sequence (driver app cannot set)
+  allowOutOfOrder Boolean   @default(false)
   notes          String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   stops          TripStop[]
   gpsLogs        GpsLog[]
+  stopEvents     TripStopEvent[]
 
   @@index([status])
   @@index([vehicleId])
@@ -5962,21 +6164,55 @@ model TripStop {
   podPhotoUrl     String?
   /// Driver POD notes
   podNotes        String?
-  /// Set when status = FAILED
+  /// Set when status = FAILED — free-text driver note
   failureReason   String?
+  failureCode     DeliveryFailureReason?
+  failedAt        DateTime?
   /// Optional map pin color for intermediate stops (hex, e.g. #f59e0b). Destination always uses red.
   pinColor   String?
   /// Cargo-first TMS stop role (null = legacy stop)
   stopType        TripStopType?
   /// Dedupe key: WH:<warehouseId> or ADDR:<normalised address>
   locationKey     String?
+  /// WAREHOUSE (MM master) | ADDRESS (shipment address) — snapshotted at trip create
+  locationKind    String?
+  /// When address/lat/lng were copied from the source; later master edits do not move the stop
+  locationSnapshotAt DateTime?
   warehouseId     String?
   warehouse       Warehouse?         @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
   shipments  TripStopShipment[]
   lines           TripStopLine[]
+  events          TripStopEvent[]
 
   @@unique([tripId, sequence])
   @@index([tripId])
+}
+
+/// Immutable per-stop execution audit. Written in the same transaction as the stop status change.
+model TripStopEvent {
+  id             String                 @id @default(cuid())
+  tripId         String
+  trip           Trip                   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  stopId         String
+  stop           TripStop               @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  eventType      TripStopEventType
+  /// Client-reported time of the action (defaults to recordedAt)
+  occurredAt     DateTime
+  /// Server receive time
+  recordedAt     DateTime               @default(now())
+  driverId       String?
+  latitude       Float?
+  longitude      Float?
+  accuracyM      Float?
+  deviceId       String?
+  reasonCode     DeliveryFailureReason?
+  notes          String?
+  /// Client-generated id — replays with the same id are no-ops
+  clientActionId String?                @unique
+
+  @@index([tripId])
+  @@index([stopId])
+  @@index([occurredAt])
 }
 
 model TripStopShipment {
@@ -6250,4 +6486,198 @@ model RetailCartItem {
 
   @@unique([clientId, sku])
   @@index([clientId])
+}
+
+// ─── CRM ─────────────────────────────────────────────────────────────────────
+// CRM extends SdCustomer (SD-owned customer master); it never duplicates customer
+// identity, credit, or commercial fields and does not own SO / invoice / shipment data.
+
+/// CRM relationship profile for an SD customer (SdCustomer 1 ─── 0..1 CrmProfile).
+model CrmProfile {
+  id          String     @id @default(cuid())
+  customerId  String     @unique
+  customer    SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// BRONZE | SILVER | GOLD | PLATINUM
+  tier        String     @default("BRONZE")
+  churnScore  Float      @default(0)
+  notes       String?
+  ownerUserId String?
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([tier])
+  @@index([ownerUserId])
+  @@map("crm_profiles")
+}
+
+/// Sales lead; may exist before an SdCustomer is created.
+model CrmLead {
+  id            String           @id @default(cuid())
+  customerId    String?
+  customer      SdCustomer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  phone         String?
+  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OTHER
+  source        String           @default("OTHER")
+  /// NEW | CONTACTED | QUALIFIED | UNQUALIFIED | CONVERTED | LOST
+  status        String           @default("NEW")
+  assignedTo    String?
+  score         Int?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  opportunities CrmOpportunity[]
+  activities    CrmActivity[]
+
+  @@index([status])
+  @@index([customerId])
+  @@index([assignedTo])
+  @@index([email])
+  @@map("crm_leads")
+}
+
+/// Sales pipeline opportunity for an SD customer.
+model CrmOpportunity {
+  id                String     @id @default(cuid())
+  customerId        String
+  customer          SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  leadId            String?
+  lead              CrmLead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  name              String
+  description       String?
+  amount            Decimal?   @db.Decimal(18, 2)
+  currency          String     @default("PHP")
+  /// PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
+  stage             String     @default("PROSPECTING")
+  /// 0–100
+  probability       Int?
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  /// PRICE | COMPETITOR | NO_BUDGET | NO_DECISION | TIMING | REQUIREMENTS_MISMATCH | UNRESPONSIVE | OTHER — required when moving to CLOSED_LOST
+  lostReason        String?
+  lostNotes         String?
+  assignedTo        String?
+  /// SD Sales Order created by the Closed Won handoff; SD owns the order. Set once, never cleared or replaced.
+  sdSalesOrderId    String?
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  activities        CrmActivity[]
+
+  @@index([customerId])
+  @@index([stage])
+  @@index([assignedTo])
+  @@index([leadId])
+  @@map("crm_opportunities")
+}
+
+/// Customer support ticket.
+model CrmTicket {
+  id           String             @id @default(cuid())
+  customerId   String
+  customer     SdCustomer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  subject      String
+  description  String?
+  /// OPEN | IN_PROGRESS | WAITING_CUSTOMER | RESOLVED | CLOSED | CANCELLED
+  status       String             @default("OPEN")
+  /// LOW | MEDIUM | HIGH | URGENT
+  priority     String             @default("MEDIUM")
+  /// GENERAL | PRODUCT | DELIVERY | BILLING | RETURN | COMPLAINT | TECHNICAL | OTHER
+  category     String             @default("GENERAL")
+  assignedTo   String?
+  /// External RMA reference only; RMA execution is owned by SD / MM.
+  rmaReference String?
+  createdBy    String?
+  updatedBy    String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  comments     CrmTicketComment[]
+  activities   CrmActivity[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedTo])
+  @@map("crm_tickets")
+}
+
+/// Scheduled next action on an opportunity, lead or ticket (at least one parent; DB check constraint).
+/// Open while `doneAt` is null. Converting a lead relinks its activities to the opportunity and keeps `leadId`.
+model CrmActivity {
+  id            String          @id @default(cuid())
+  opportunityId String?
+  opportunity   CrmOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  leadId        String?
+  lead          CrmLead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ticketId      String?
+  ticket        CrmTicket?      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// CALL | EMAIL | MEETING | TODO
+  type          String
+  summary       String
+  dueAt         DateTime
+  assignedTo    String
+  doneAt        DateTime?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([opportunityId, dueAt])
+  @@index([leadId, dueAt])
+  @@index([ticketId, dueAt])
+  @@index([assignedTo, dueAt])
+  @@map("crm_activities")
+}
+
+model CrmTicketComment {
+  id        String    @id @default(cuid())
+  ticketId  String
+  ticket    CrmTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  body      String
+  authorId  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([ticketId, createdAt])
+  @@map("crm_ticket_comments")
+}
+
+/// Loyalty account per SD customer; `pointsBalance` is maintained from CrmLoyaltyTransaction.
+model CrmLoyaltyAccount {
+  id            String                  @id @default(cuid())
+  customerId    String                  @unique
+  customer      SdCustomer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  pointsBalance Int                     @default(0)
+  /// BRONZE | SILVER | GOLD | PLATINUM
+  tier          String                  @default("BRONZE")
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  transactions  CrmLoyaltyTransaction[]
+
+  @@map("crm_loyalty_accounts")
+}
+
+/// Append-only loyalty ledger; corrections are REVERSAL / ADJUSTMENT rows, never updates.
+model CrmLoyaltyTransaction {
+  id               String            @id @default(cuid())
+  loyaltyAccountId String
+  loyaltyAccount   CrmLoyaltyAccount @relation(fields: [loyaltyAccountId], references: [id], onDelete: Restrict)
+  /// EARN | REDEEM | EXPIRE | ADJUSTMENT | REVERSAL
+  type             String
+  /// Signed: positive adds to the balance, negative deducts.
+  points           Int
+  referenceType    String?
+  referenceId      String?
+  note             String?
+  createdBy        String?
+  createdAt        DateTime          @default(now())
+
+  @@index([loyaltyAccountId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("crm_loyalty_transactions")
 }

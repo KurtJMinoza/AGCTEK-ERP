@@ -20,12 +20,15 @@ import {
     requireString,
     type ListQuery,
 } from '../scm.utils'
+import { checkLoadCapacity, validateStopReorder } from './tms.rules'
+import { loadPlanInclude, warehouseGeoSelect } from './tms-load-plans.service'
 import {
-    buildTripStops,
-    checkLoadCapacity,
-    validateStopReorder,
-} from './tms.rules'
-import { loadPlanInclude, toStopSource } from './tms-load-plans.service'
+    formatStopIssues,
+    inferLocationKind,
+    planTripStops,
+    validateStopCoordinates,
+    type StopCoordIssue,
+} from './stop-location.rules'
 
 /** Trip statuses that hold a vehicle / driver (1 vehicle ↔ 1 active trip). */
 const ACTIVE_TRIP_STATUSES: TripStatus[] = [
@@ -109,9 +112,7 @@ export class TmsTripsService {
         })
         return {
             data: plans.map((plan) => {
-                const { stops } = buildTripStops(
-                    plan.lines.map((l) => toStopSource(l.id, l.shipmentLine)),
-                )
+                const { stops, errors, issues } = planTripStops(plan.lines)
                 return {
                     loadPlanId: plan.id,
                     code: plan.code,
@@ -136,6 +137,8 @@ export class TmsTripsService {
                         to: stops.filter((s) => s.stopType === 'TO').length,
                         ret: stops.filter((s) => s.stopType === 'RETURN').length,
                     },
+                    /** Confirm will be blocked until these are fixed */
+                    locationErrors: [...errors, ...issues.map((i) => i.message)],
                 }
             }),
         }
@@ -187,6 +190,8 @@ export class TmsTripsService {
         plannedStartAt?: unknown
         plannedEndAt?: unknown
         notes?: unknown
+        /** Planner order from route preview (stop keys); only TO stops may move */
+        stopOrder?: unknown
     }) {
         const loadPlanId = requireString(body.loadPlanId, 'loadPlanId')
         const driverId = optionalString(body.driverId) ?? null
@@ -210,14 +215,35 @@ export class TmsTripsService {
         }
         await this.assertVehicleFree(plan.vehicleId)
         if (driverId) await this.assertDriverUsable(driverId)
-
-        const { stops, errors } = buildTripStops(
-            plan.lines.map((l) => toStopSource(l.id, l.shipmentLine)),
-        )
-        if (errors.length > 0) throw new BadRequestException(errors.join('; '))
+        if (
+            body.stopOrder != null &&
+            (!Array.isArray(body.stopOrder) || body.stopOrder.some((k) => typeof k !== 'string'))
+        ) {
+            throw new BadRequestException('stopOrder must be an array of stop keys')
+        }
+        const stopOrder = body.stopOrder as string[] | undefined
 
         try {
+            // Resolve + validate + snapshot + status in one transaction: warehouse
+            // master is re-read here, and any invalid stop rolls everything back.
             const tripId = await this.prisma.$transaction(async (tx) => {
+                const fresh = assertFound(
+                    await tx.loadPlan.findUnique({
+                        where: { id: plan.id },
+                        include: loadPlanInclude,
+                    }),
+                    'Load plan not found',
+                )
+                const planned = planTripStops(fresh.lines, stopOrder)
+                if (planned.errors.length > 0) {
+                    throw new BadRequestException(planned.errors.join('; '))
+                }
+                if (planned.issues.length > 0) {
+                    throw new BadRequestException(formatStopIssues(planned.issues))
+                }
+                const stops = planned.stops
+                const snapshotAt = new Date()
+
                 const claimed = await tx.loadPlan.updateMany({
                     where: { id: plan.id, status: LoadPlanStatus.READY },
                     data: { status: LoadPlanStatus.ASSIGNED },
@@ -245,6 +271,8 @@ export class TmsTripsService {
                                 sequence: stop.sequence,
                                 stopType: stop.stopType,
                                 locationKey: stop.locationKey,
+                                locationKind: stop.locationKind,
+                                locationSnapshotAt: snapshotAt,
                                 warehouseId: stop.warehouseId,
                                 name: stop.name,
                                 address: stop.address,
@@ -539,6 +567,39 @@ export class TmsTripsService {
                 )
             }
         }
+        const issues = await this.stopLocationIssues(trip.stops)
+        if (issues.length > 0) throw new BadRequestException(formatStopIssues(issues))
+    }
+
+    /**
+     * Revalidate snapshotted stop coordinates and the CURRENT warehouse master
+     * state (exists, active, geocode confirmed). Snapshots are never rewritten.
+     */
+    async stopLocationIssues(
+        stops: Prisma.TripGetPayload<{ include: typeof tmsTripInclude }>['stops'],
+    ): Promise<StopCoordIssue[]> {
+        const ids = [...new Set(stops.map((s) => s.warehouseId).filter((id): id is string => !!id))]
+        const warehouses = ids.length
+            ? await this.prisma.warehouse.findMany({
+                  where: { id: { in: ids } },
+                  select: warehouseGeoSelect,
+              })
+            : []
+        const byId = new Map(warehouses.map((w) => [w.id, w]))
+        return stops
+            .map((s) =>
+                validateStopCoordinates(
+                    {
+                        ...s,
+                        locationKind: inferLocationKind({
+                            ...s,
+                            shipmentMovementTypes: s.shipments.map((l) => l.shipment.movementType),
+                        }),
+                    },
+                    s.warehouseId ? byId.get(s.warehouseId) : null,
+                ),
+            )
+            .filter((i): i is StopCoordIssue => i != null)
     }
 }
 

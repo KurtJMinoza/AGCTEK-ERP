@@ -98,16 +98,22 @@ export default function TripDetailScreen() {
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             {canStart ? (
-                <PrimaryButton
-                    title="Start route"
-                    loading={busy}
-                    onPress={() => void onStart()}
-                    style={{ marginVertical: 16 }}
-                />
+                <>
+                    <Text style={styles.started}>
+                        Start trip to begin execution — stops unlock once the
+                        route is in progress.
+                    </Text>
+                    <PrimaryButton
+                        title="Start route"
+                        loading={busy}
+                        onPress={() => void onStart()}
+                        style={{ marginBottom: 16 }}
+                    />
+                </>
             ) : (
                 <Text style={styles.started}>
                     {trip.status === 'IN_TRANSIT'
-                        ? 'Route in progress — tap a stop to arrive / POD'
+                        ? `Route in progress — work the stops ${trip.allowOutOfOrder ? 'in any order' : 'in order'}`
                         : `Status: ${trip.status}`}
                 </Text>
             )}

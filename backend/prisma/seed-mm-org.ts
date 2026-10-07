@@ -8,28 +8,23 @@ export async function seedMmOrg(prisma: PrismaClient) {
     const company = await prisma.company.upsert({
         where: { code: 'AGCTEK' },
         update: {},
-        create: { code: 'AGCTEK', name: 'AGCTEK Corporation' },
-    })
-
-    // ── Plant / Branch ──────────────────────────────────────────────
-    const plant = await prisma.plant.upsert({
-        where: { companyId_code: { companyId: company.id, code: 'PLT-MAIN' } },
-        update: {},
         create: {
-            code: 'PLT-MAIN',
-            name: 'Main Plant',
-            companyId: company.id,
-            status: 'ACTIVE',
+            code: 'AGCTEK',
+            name: 'AGCTEK Corporation',
+            address: '123 Industrial Blvd, Makati City, Philippines',
+            tin: '000-000-000-000',
+            logoUrl: '/img/logo/AGC_DARK.png',
         },
     })
+
+    // ── Branch ──────────────────────────────────────────────────────
     const branch = await prisma.branch.upsert({
         where: { companyId_code: { companyId: company.id, code: 'BR-HQ' } },
-        update: {},
+        update: { plantId: null },
         create: {
             code: 'BR-HQ',
             name: 'HQ Branch',
             companyId: company.id,
-            plantId: plant.id,
             status: 'ACTIVE',
         },
     })
@@ -41,14 +36,14 @@ export async function seedMmOrg(prisma: PrismaClient) {
             status: 'ACTIVE',
             timezone: 'Asia/Manila',
             address: '123 Industrial Blvd, Makati City',
-            plantId: plant.id,
+            plantId: null,
             branchId: branch.id,
         },
         create: {
             code: 'MAIN',
             name: 'Main Warehouse',
             companyId: company.id,
-            plantId: plant.id,
+            plantId: null,
             branchId: branch.id,
             status: 'ACTIVE',
             timezone: 'Asia/Manila',
@@ -58,12 +53,12 @@ export async function seedMmOrg(prisma: PrismaClient) {
 
     const secondaryWarehouse = await prisma.warehouse.upsert({
         where: { code: 'SECONDARY' },
-        update: { plantId: plant.id },
+        update: { plantId: null },
         create: {
             code: 'SECONDARY',
             name: 'Secondary Warehouse',
             companyId: company.id,
-            plantId: plant.id,
+            plantId: null,
             status: 'ACTIVE',
             timezone: 'Asia/Manila',
             address: '456 Logistics Ave, Taguig City',
@@ -726,7 +721,6 @@ export async function seedMmOrg(prisma: PrismaClient) {
 
     await seedMmFull(prisma, {
         company,
-        plant,
         branch,
         mainWarehouse,
         secondaryWarehouse,
