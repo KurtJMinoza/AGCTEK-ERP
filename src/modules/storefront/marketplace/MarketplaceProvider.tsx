@@ -534,32 +534,35 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                             aria-hidden
                         />
                         <h4 className="text-xl font-semibold tracking-tight text-gray-900">
-                            {placedOrder.orders.length === 1
-                                ? 'Order placed'
-                                : 'Orders placed'}
+                            Order placed
                         </h4>
                         <p className="text-sm text-gray-500">
-                            {placedOrder.orders.length === 1
-                                ? 'Your order is pending delivery.'
-                                : 'Each store delivers its own order.'}
+                            Order{' '}
+                            <span className="font-mono font-medium text-gray-900">
+                                {placedOrder.salesOrderId}
+                            </span>{' '}
+                            is pending delivery.
                         </p>
                         <ul className="flex w-full flex-col gap-2 text-sm">
-                            {placedOrder.orders.map((order) => (
+                            {placedOrder.divisions.map((division) => (
                                 <li
-                                    key={order.salesOrderId}
+                                    key={division.divisionId}
                                     className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
                                 >
                                     <span className="flex items-center gap-2">
-                                        <span className="font-mono font-medium text-gray-900">
-                                            {order.salesOrderId}
-                                        </span>
                                         <SellerTag
-                                            divisionId={order.divisionId}
+                                            divisionId={division.divisionId}
                                             short
                                         />
+                                        <span className="text-gray-500">
+                                            {division.lines.length}{' '}
+                                            {division.lines.length === 1
+                                                ? 'item'
+                                                : 'items'}
+                                        </span>
                                     </span>
                                     <span className="font-semibold">
-                                        {formatPrice(order.grandTotal)}
+                                        {formatPrice(division.grandTotal)}
                                     </span>
                                 </li>
                             ))}
@@ -635,7 +638,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 isMobile={isMobile}
                 accentTextClass="text-emerald-700"
                 renderOrderTag={(order) => (
-                    <SellerTag divisionId={order.divisionId} />
+                    <span className="flex flex-wrap gap-1">
+                        {order.divisionIds.map((divisionId) => (
+                            <SellerTag key={divisionId} divisionId={divisionId} />
+                        ))}
+                    </span>
                 )}
                 onClose={() => setOrdersOpen(false)}
             />

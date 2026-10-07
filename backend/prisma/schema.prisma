@@ -3736,6 +3736,9 @@ model SdSalesOrderLine {
   salesOrderId          String
   salesOrder            SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   lineNumber            Int
+  /// Selling division of this line (DIV_RETAIL · DIV_LPG · DIV_APPLIANCES); marketplace
+  /// orders span divisions, so the header divisionId stays null and MM splits on this.
+  divisionId            String?
   productId             String?
   /// Required for MM-integrated orders; retail lines carry sku until mapped to MM-01.
   materialId            String?
@@ -3764,6 +3767,7 @@ model SdSalesOrderLine {
   @@unique([salesOrderId, lineNumber])
   @@index([materialId])
   @@index([productId])
+  @@index([divisionId])
   @@map("sd_sales_order_lines")
 }
 
