@@ -170,12 +170,12 @@ export class PurchaseOrderService {
             where: { id: dto.purchaseRequisitionId },
             include: { lines: true },
         })
-        if (!pr) throw new NotFoundException('Purchase requisition not found')
+        if (!pr) throw new NotFoundException('Purchase request not found')
         if (!['APPROVED', 'PARTIALLY_CONVERTED'].includes(pr.status)) {
-            throw new BadRequestException(`Cannot create PO from PR in status ${pr.status}`)
+            throw new BadRequestException(`Cannot create PO from purchase request in status ${pr.status}`)
         }
         if (!dto.lineIds?.length) {
-            throw new BadRequestException('At least one PR line is required')
+            throw new BadRequestException('At least one purchase request line is required')
         }
 
         const lineMap = new Map(pr.lines.map((l) => [l.id, l]))
@@ -183,15 +183,15 @@ export class PurchaseOrderService {
 
         for (const sel of dto.lineIds) {
             const prLine = lineMap.get(sel.lineId)
-            if (!prLine) throw new BadRequestException(`PR line ${sel.lineId} not found`)
+            if (!prLine) throw new BadRequestException(`Purchase request line ${sel.lineId} not found`)
             const remaining = new Decimal(prLine.requestedQuantity).minus(prLine.convertedQty)
             const qty = sel.quantity != null ? new Decimal(sel.quantity) : remaining
             if (qty.lte(0)) {
-                throw new BadRequestException(`PR line ${sel.lineId} has no remaining quantity`)
+                throw new BadRequestException(`Purchase request line ${sel.lineId} has no remaining quantity`)
             }
             if (qty.gt(remaining)) {
                 throw new BadRequestException(
-                    `PR line ${sel.lineId}: qty ${qty} exceeds remaining ${remaining}`,
+                    `Purchase request line ${sel.lineId}: qty ${qty} exceeds remaining ${remaining}`,
                 )
             }
             lines.push({

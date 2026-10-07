@@ -54,6 +54,7 @@ import MaterialFormDialog from '../components/MaterialFormDialog'
 import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload } from '../types'
 import type { SupplierMaterial } from '@/modules/mm/supplier-management/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     ACTIVE: 'success', DRAFT: 'default', INACTIVE: 'warning', BLOCKED: 'danger',
@@ -152,8 +153,6 @@ const MaterialDetailPage = () => {
         )
     }
 
-    const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: material.currency?.code || 'USD', maximumFractionDigits: 2 })
-
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
@@ -203,7 +202,7 @@ const MaterialDetailPage = () => {
                         <TabPanel active={tab === 'suppliers'}><SuppliersTab materialId={material.id} /></TabPanel>
                         <TabPanel active={tab === 'purchasing'}><PurchasingTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'planning'}><PlanningTab material={material} /></TabPanel>
-                        <TabPanel active={tab === 'valuation'}><ValuationTab material={material} fmt={fmt} /></TabPanel>
+                        <TabPanel active={tab === 'valuation'}><ValuationTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'barcodes'}><BarcodesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'batches'}><BatchesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'serials'}><SerialsTab material={material} onRefresh={refresh} /></TabPanel>
@@ -417,10 +416,9 @@ const SuppliersTab = ({ materialId }: { materialId: string }) => {
             id: 'unitPrice',
             size: 120,
             cell: ({ row }) => {
-                const code = row.original.currency?.code
                 const price = Number(row.original.unitPrice)
                 if (!Number.isFinite(price)) return '—'
-                return code ? `${code} ${price.toLocaleString()}` : price.toLocaleString()
+                return formatMaterialMoney(price, row.original.currency?.code)
             },
         },
         {
@@ -499,11 +497,14 @@ const PlanningTab = ({ material }: { material: Material }) => (
     </div>
 )
 
-const ValuationTab = ({ material, fmt }: { material: Material; fmt: Intl.NumberFormat }) => (
+const ValuationTab = ({ material }: { material: Material }) => (
     <div className="grid gap-6 md:grid-cols-2">
         <div>
             <InfoRow label="Valuation method" value={material.valuationMethod ?? '—'} />
-            <InfoRow label="Standard cost" value={fmt.format(Number(material.standardCost))} />
+            <InfoRow
+                label="Standard cost"
+                value={formatMaterialMoney(Number(material.standardCost), material.currency?.code)}
+            />
             <InfoRow label="Currency" value={material.currency ? `${material.currency.code} — ${material.currency.name}` : '—'} />
             <InfoRow label="Valuation class" value={material.valuationClass?.name ?? '—'} />
             <InfoRow label="Company" value={material.company?.name ?? '—'} />

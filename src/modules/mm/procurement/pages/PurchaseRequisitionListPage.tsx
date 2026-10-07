@@ -302,7 +302,7 @@ const PurchaseRequisitionListPage = () => {
 
     const columns = useMemo<ColumnDef<PurchaseRequisition>[]>(() => [
         {
-            header: 'PR Number',
+            header: 'Request number',
             accessorKey: 'requisitionNumber',
             size: 150,
             cell: ({ row }) => (
@@ -415,11 +415,11 @@ const PurchaseRequisitionListPage = () => {
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
-                title="Purchase Requisitions"
+                title="Purchase Requests"
                 description="Internal demand documents for materials and services — not a supplier commitment."
                 actions={
                     <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
-                        New Requisition
+                        New request
                     </Button>
                 }
             />
@@ -428,7 +428,7 @@ const PurchaseRequisitionListPage = () => {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <Input
                         prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search PR number, purpose, requester..."
+                        placeholder="Search request number, purpose, requester..."
                         value={search}
                         onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                     />
@@ -460,7 +460,7 @@ const PurchaseRequisitionListPage = () => {
                 isOpen={formOpen}
                 onClose={() => setFormOpen(false)}
                 width={780}
-                title="New Purchase Requisition"
+                title="New purchase request"
                 description="Capture demand details step by step before submitting for approval."
                 icon={<HiOutlinePlus />}
                 headerExtra={
@@ -486,7 +486,7 @@ const PurchaseRequisitionListPage = () => {
                                 </Button>
                             ) : (
                                 <Button size="sm" variant="solid" loading={submitting} onClick={handleCreate}>
-                                    Create Requisition
+                                    Create request
                                 </Button>
                             )}
                         </div>
@@ -495,7 +495,7 @@ const PurchaseRequisitionListPage = () => {
             >
                     {wizardStep === 0 && (
                         <div className="space-y-4">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Requisition Header</p>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Request header</p>
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <FormItem label="Company" asterisk invalid={Boolean(hdrErr('companyId'))} errorMessage={hdrErr('companyId')}>
                                     <Select<FilterOption>
@@ -672,7 +672,7 @@ const PurchaseRequisitionListPage = () => {
                 onConfirm={runConfirm}
                 confirmButtonProps={{ loading: confirming }}
             >
-                <p>Are you sure you want to {confirmAction?.action?.toLowerCase()} this purchase requisition?</p>
+                <p>Are you sure you want to {confirmAction?.action?.toLowerCase()} this purchase request?</p>
             </ConfirmDialog>
         </PageContainer>
     )

@@ -209,7 +209,7 @@ export class DocumentFlowService {
                 },
             },
         })
-        if (!pr) throw new NotFoundException('Purchase requisition not found')
+        if (!pr) throw new NotFoundException('Purchase request not found')
 
         const current = toFlowNode({
             documentType: 'PURCHASE_REQUISITION',

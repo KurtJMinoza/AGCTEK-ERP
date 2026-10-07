@@ -6,12 +6,19 @@ import { Star } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import StatusBadge from '@/components/shared/StatusBadge'
 import classNames from '@/utils/classNames'
-import { isUnoptimizedImage, productImageSrc } from '@/utils/productImage'
+import {
+    isRenderableImageSrc,
+    isUnoptimizedImage,
+    productImageSrc,
+} from '@/utils/productImage'
 import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
+import type {
+    SdProductCompany,
+    SdProductRecord,
+} from '@/modules/sd/services/productCatalogService'
 import { LPG_DIVISION_ID } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
-import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 
 export const MARKETPLACE_NAME = 'AGC Marketplace'
 
@@ -87,34 +94,101 @@ export const productKey = (
     product: Pick<SdProductRecord, 'divisionId' | 'sku'>,
 ) => `${product.divisionId}:${product.sku}`
 
+/** Cart / filter key: MM company when linked, else sales division. */
+export const productStoreKey = (
+    product: Pick<SdProductRecord, 'divisionId' | 'company'>,
+) => product.company?.id ?? product.divisionId
+
+export const productCompany = (
+    product: Pick<SdProductRecord, 'company'>,
+): SdProductCompany | null => product.company ?? null
+
 export const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
         style: 'currency',
         currency: 'PHP',
     }).format(value)
 
-/** "Sold by AWIC" badge so shoppers know which division fulfils the item. */
+export const CompanyLogo = ({
+    company,
+    size = 20,
+    className,
+}: {
+    company: Pick<SdProductCompany, 'name' | 'logoUrl'>
+    size?: number
+    className?: string
+}) => {
+    const src = company.logoUrl?.trim() ?? ''
+    if (!isRenderableImageSrc(src)) {
+        return (
+            <span
+                className={classNames(
+                    'inline-flex shrink-0 items-center justify-center rounded-md bg-gray-100 text-[10px] font-bold uppercase text-gray-500',
+                    className,
+                )}
+                style={{ width: size, height: size }}
+                aria-hidden
+            >
+                {(company.name ?? '').slice(0, 2) || '?'}
+            </span>
+        )
+    }
+    return (
+        <span
+            className={classNames(
+                'relative inline-block shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-inset ring-gray-200',
+                className,
+            )}
+            style={{ width: size, height: size }}
+        >
+            <Image
+                src={src}
+                alt=""
+                fill
+                sizes={`${size}px`}
+                unoptimized={isUnoptimizedImage(src)}
+                className="object-contain p-0.5"
+            />
+        </span>
+    )
+}
+
+/** "Sold by …" badge — MM company (logo + name) when linked, else division. */
 export const SellerTag = ({
+    product,
     divisionId,
+    company,
     className,
     short,
 }: {
-    divisionId: string | null
+    product?: Pick<SdProductRecord, 'divisionId' | 'company'>
+    divisionId?: string | null
+    company?: SdProductCompany | null
     className?: string
     /** Store name only, e.g. in compact cart group headers. */
     short?: boolean
-}) => (
-    <StatusBadge
-        className={classNames(
-            'whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium',
-            divisionTheme(divisionId).tile,
-            className,
-        )}
-    >
-        {short ? '' : 'Sold by '}
-        {divisionId ? productDivisionLabel(divisionId) : 'Store'}
-    </StatusBadge>
-)
+}) => {
+    const co =
+        company ??
+        (product ? productCompany(product) : null)
+    const div = divisionId ?? product?.divisionId ?? null
+    const theme = divisionTheme(div)
+    const label = co?.name?.trim() || (div ? productDivisionLabel(div) : 'Store')
+    return (
+        <StatusBadge
+            className={classNames(
+                'inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium',
+                theme.tile,
+                className,
+            )}
+        >
+            {co ? <CompanyLogo company={co} size={18} /> : null}
+            <span className="truncate">
+                {short ? label : `Sold by ${label}`}
+            </span>
+        </StatusBadge>
+    )
+}
 
 export const ProductImage = ({
     product,

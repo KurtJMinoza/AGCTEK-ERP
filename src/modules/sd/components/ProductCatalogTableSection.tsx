@@ -22,10 +22,6 @@ import Tag from '@/components/ui/Tag'
 import Progress from '@/components/ui/Progress'
 import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import {
-    PRODUCT_DIVISIONS,
-    productDivisionLabel,
-} from '../catalogs/productDivisions'
-import {
     fetchProductCatalogStock,
     type SdProductRecord,
 } from '../services/productCatalogService'
@@ -34,7 +30,6 @@ import { downloadProductCatalogCsv } from '../utils/productCatalogExport'
 import {
     badgeTextClass,
     categoryTextClass,
-    divisionTextClass,
     priceTextClass,
     stockBarClass,
     stockLabel,
@@ -45,10 +40,31 @@ import {
 
 type FilterOption = { value: string; label: string }
 
-const DIVISION_FILTER_OPTIONS: FilterOption[] = [
-    { value: 'all', label: 'All divisions' },
-    ...PRODUCT_DIVISIONS.map((d) => ({ value: d.id, label: d.label })),
-]
+const CompanyLogoCell = ({
+    company,
+}: {
+    company: { name: string; logoUrl: string | null }
+}) => {
+    const src = company.logoUrl?.trim() ?? ''
+    return (
+        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-700">
+            {isRenderableImageSrc(src) ? (
+                <Image
+                    src={src}
+                    alt=""
+                    fill
+                    sizes="32px"
+                    unoptimized={isUnoptimizedImage(src)}
+                    className="object-contain p-0.5"
+                />
+            ) : (
+                <span className="flex h-full w-full items-center justify-center text-[10px] font-bold uppercase text-gray-400">
+                    {(company.name ?? '').slice(0, 2) || '?'}
+                </span>
+            )}
+        </div>
+    )
+}
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
@@ -124,8 +140,9 @@ export type ProductCatalogTableSectionProps = {
     loading: boolean
     searchInput: string
     onSearchInputChange: (value: string) => void
-    divisionFilter: string
-    onDivisionFilterChange: (value: string) => void
+    companyFilter: string
+    onCompanyFilterChange: (value: string) => void
+    companyFilterOptions: FilterOption[]
     togglingId: string | null
     onToggleActive: (product: SdProductRecord, isActive: boolean) => void
     onEdit: (product: SdProductRecord) => void
@@ -140,8 +157,9 @@ const ProductCatalogTableSection = ({
     loading,
     searchInput,
     onSearchInputChange,
-    divisionFilter,
-    onDivisionFilterChange,
+    companyFilter,
+    onCompanyFilterChange,
+    companyFilterOptions,
     togglingId,
     onToggleActive,
     onEdit,
@@ -192,10 +210,10 @@ const ProductCatalogTableSection = ({
             switch (sort.key) {
                 case 'product':
                     return compareString(a.name, b.name)
-                case 'division':
+                case 'company':
                     return compareString(
-                        productDivisionLabel(a.divisionId),
-                        productDivisionLabel(b.divisionId),
+                        a.company?.name ?? '',
+                        b.company?.name ?? '',
                     )
                 case 'category':
                     return compareString(a.category, b.category)
@@ -275,17 +293,33 @@ const ProductCatalogTableSection = ({
                 ),
             },
             {
-                id: 'division',
-                header: () => <HeaderLabel>Division</HeaderLabel>,
+                id: 'company',
+                header: () => <HeaderLabel>Company</HeaderLabel>,
                 enableSorting: true,
-                size: 140,
-                cell: ({ row }) => (
-                    <span
-                        className={`whitespace-nowrap text-sm font-medium ${divisionTextClass(row.original.divisionId)}`}
-                    >
-                        {productDivisionLabel(row.original.divisionId)}
-                    </span>
-                ),
+                size: 180,
+                cell: ({ row }) => {
+                    const company = row.original.company
+                    if (!company) {
+                        return (
+                            <span className="text-sm text-gray-400">
+                                Not linked to MM
+                            </span>
+                        )
+                    }
+                    return (
+                        <div className="flex min-w-0 items-center gap-2.5">
+                            <CompanyLogoCell company={company} />
+                            <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                                    {company.name}
+                                </div>
+                                <div className="truncate text-xs text-gray-500">
+                                    {company.code}
+                                </div>
+                            </div>
+                        </div>
+                    )
+                },
             },
             {
                 id: 'category',
@@ -456,16 +490,16 @@ const ProductCatalogTableSection = ({
             {filterOpen ? (
                 <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40 md:max-w-sm">
                     <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Division
+                        Company
                     </label>
                     <Select<FilterOption>
                         isSearchable={false}
-                        options={DIVISION_FILTER_OPTIONS}
-                        value={DIVISION_FILTER_OPTIONS.find(
-                            (option) => option.value === divisionFilter,
+                        options={companyFilterOptions}
+                        value={companyFilterOptions.find(
+                            (option) => option.value === companyFilter,
                         )}
                         onChange={(option) => {
-                            onDivisionFilterChange(option?.value ?? 'all')
+                            onCompanyFilterChange(option?.value ?? 'all')
                             setPage(1)
                         }}
                     />

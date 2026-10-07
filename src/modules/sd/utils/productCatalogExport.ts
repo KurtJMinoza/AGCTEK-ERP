@@ -1,6 +1,6 @@
 import type { SdProductRecord } from '../services/productCatalogService'
 import type { CatalogStockSnapshot } from './productCatalogTableColors'
-import { productDivisionLabel } from '../catalogs/productDivisions'
+import { productSellerLabel } from './productSellerLabel'
 
 const escapeCsv = (value: string) => {
     if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
@@ -14,7 +14,7 @@ export function downloadProductCatalogCsv(
     const header = [
         'SKU',
         'Name',
-        'Division',
+        'Company',
         'Category',
         'Price',
         'Original price',
@@ -28,7 +28,7 @@ export function downloadProductCatalogCsv(
         return [
             p.sku,
             p.name,
-            productDivisionLabel(p.divisionId),
+            productSellerLabel(p),
             p.category,
             String(p.price),
             p.originalPrice == null ? '' : String(p.originalPrice),

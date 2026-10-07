@@ -12,7 +12,9 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ProductFormDialog from '../components/ProductFormDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
-import { PRODUCT_DIVISIONS, productDivisionLabel } from '../catalogs/productDivisions'
+import { orgService } from '@/modules/mm/material-master/services/referenceService'
+import { productSellerLabel } from '../utils/productSellerLabel'
+import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import {
     createProduct,
     deleteProduct,
@@ -46,7 +48,10 @@ const ProductCatalogDashboard = () => {
     const [products, setProducts] = useState<SdProductRecord[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [divisionFilter, setDivisionFilter] = useState('all')
+    const [companyFilter, setCompanyFilter] = useState('all')
+    const [companies, setCompanies] = useState<
+        { id: string; name: string; code: string }[]
+    >([])
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
     const [dialog, setDialog] = useState<DialogState>(null)
@@ -61,7 +66,7 @@ const ProductCatalogDashboard = () => {
         try {
             setProducts(
                 await listProducts({
-                    divisionId: divisionFilter === 'all' ? undefined : divisionFilter,
+                    companyId: companyFilter === 'all' ? undefined : companyFilter,
                     search,
                 }),
             )
@@ -70,11 +75,33 @@ const ProductCatalogDashboard = () => {
         } finally {
             setLoading(false)
         }
-    }, [divisionFilter, search])
+    }, [companyFilter, search])
 
     useEffect(() => {
         void fetchProducts()
     }, [fetchProducts])
+
+    useEffect(() => {
+        orgService
+            .companies()
+            .then((rows) =>
+                setCompanies(
+                    rows.map((c) => ({ id: c.id, name: c.name, code: c.code })),
+                ),
+            )
+            .catch(() => setCompanies([]))
+    }, [])
+
+    const companyFilterOptions = useMemo(
+        () => [
+            { value: 'all', label: 'All companies' },
+            ...companies
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
+        ],
+        [companies],
+    )
 
     useEffect(() => {
         if (searchInput.trim() === search) return
@@ -99,7 +126,7 @@ const ProductCatalogDashboard = () => {
                 notify(
                     'success',
                     'Product added',
-                    `${created.name} is now listed on ${productDivisionLabel(created.divisionId)}.`,
+                    `${created.name} is now listed for ${productSellerLabel(created)}.`,
                 )
                 afterChange(created.divisionId)
             } else {
@@ -182,8 +209,9 @@ const ProductCatalogDashboard = () => {
                 refreshing={loading && products.length > 0}
                 searchInput={searchInput}
                 onSearchInputChange={setSearchInput}
-                divisionFilter={divisionFilter}
-                onDivisionFilterChange={setDivisionFilter}
+                companyFilter={companyFilter}
+                onCompanyFilterChange={setCompanyFilter}
+                companyFilterOptions={companyFilterOptions}
                 togglingId={togglingId}
                 onToggleActive={toggleActive}
                 onEdit={(product) => setDialog({ mode: 'edit', product })}
@@ -196,11 +224,7 @@ const ProductCatalogDashboard = () => {
                 isOpen={dialog !== null}
                 mode={dialog?.mode ?? 'create'}
                 product={dialog?.mode === 'edit' ? dialog.product : null}
-                defaultDivisionId={
-                    divisionFilter === 'all'
-                        ? PRODUCT_DIVISIONS[0]?.id ?? ''
-                        : divisionFilter
-                }
+                defaultDivisionId={RETAIL_DIVISION_ID}
                 saving={saving}
                 onClose={() => setDialog(null)}
                 onSubmit={handleSubmit}
@@ -220,7 +244,7 @@ const ProductCatalogDashboard = () => {
             >
                 <p>
                     {pendingDelete?.name} ({pendingDelete?.sku}) will be removed from{' '}
-                    {pendingDelete ? productDivisionLabel(pendingDelete.divisionId) : ''}{' '}
+                    {pendingDelete ? productSellerLabel(pendingDelete) : ''}{' '}
                     and can no longer be sold. To hide it temporarily, switch it off
                     under Visible instead.
                 </p>

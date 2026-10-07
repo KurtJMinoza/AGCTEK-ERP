@@ -16,6 +16,7 @@ import {
 } from 'react-icons/hi'
 import StockThresholdSummary from './StockThresholdSummary'
 import type { Material } from '../types'
+import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import type { ReactNode } from 'react'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
@@ -35,11 +36,8 @@ type MaterialViewDialogProps = {
 const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewDialogProps) => {
     if (!material) return null
 
-    const fmt = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: material.currency?.code || 'USD',
-        maximumFractionDigits: 2,
-    })
+    const fmtAmount = (amount: number) =>
+        formatMaterialMoney(amount, material.currency?.code)
 
     const description = [
         material.materialCode,
@@ -126,7 +124,7 @@ const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewD
             <ViewSection title="Valuation" icon={<HiOutlineCurrencyDollar />}>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                     <Metric label="Method" value={material.valuationMethod ?? '—'} />
-                    <Metric label="Standard cost" value={fmt.format(Number(material.standardCost))} />
+                    <Metric label="Standard cost" value={fmtAmount(Number(material.standardCost))} />
                     <Metric label="Currency" value={material.currency?.code ?? '—'} />
                     <Metric label="Valuation class" value={material.valuationClass?.name ?? '—'} />
                     <Metric label="Company" value={material.company?.name ?? '—'} />

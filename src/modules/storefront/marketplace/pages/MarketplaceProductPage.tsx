@@ -18,7 +18,7 @@ import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import Skeleton from '@/components/ui/Skeleton'
 import classNames from '@/utils/classNames'
-import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
+import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import {
     productAttribute,
     type SdProductRecord,
@@ -177,7 +177,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
     const inCart = quantityByKey.get(key) ?? 0
     const favorite = favorites.has(key)
     const discount = discountPercent(product)
-    const storeName = productDivisionLabel(product.divisionId)
+    const storeName = productSellerLabel(product)
     const store = OFFICIAL_STORES.find(
         (s) => s.divisionId === product.divisionId,
     )
@@ -336,7 +336,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
 
                 <div className="flex min-w-0 flex-col gap-5 lg:col-span-5">
                     <div className="flex flex-wrap items-center gap-2">
-                        <SellerTag divisionId={product.divisionId} />
+                        <SellerTag product={product} />
                         <span className="flex items-center gap-1 text-xs font-medium text-emerald-700">
                             <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
                             Official store

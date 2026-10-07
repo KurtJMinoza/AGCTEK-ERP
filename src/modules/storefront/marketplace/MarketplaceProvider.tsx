@@ -436,7 +436,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 {requestedAdd ? (
                     <div className="flex flex-col gap-2 text-sm">
                         <SellerTag
-                            divisionId={requestedAdd.product.divisionId}
+                            product={requestedAdd.product}
                         />
                         <p className="font-semibold text-gray-900">
                             {requestedAdd.product.name}

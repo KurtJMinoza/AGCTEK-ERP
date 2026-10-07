@@ -42,6 +42,12 @@ export class ListProductsQueryDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId?: string
 
+    /** Filter by MM company on the product's active material assignment. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    companyId?: string
+
     /** `true` (storefronts) hides inactive products. Plain string: implicit conversion turns "false" into true. */
     @IsOptional()
     @IsIn(['true', 'false'])
