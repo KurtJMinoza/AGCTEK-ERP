@@ -117,14 +117,14 @@ export class PurchaseRequisitionService {
             include: PR_INCLUDES,
         })
 
-        await this.audit(pr.id, 'CREATED', null, null, `Created PR ${requisitionNumber}`, dto.createdBy)
+        await this.audit(pr.id, 'CREATED', null, null, `Created purchase request ${requisitionNumber}`, dto.createdBy)
         return pr
     }
 
     async update(id: string, dto: UpdatePurchaseRequisitionDto, performedBy?: string) {
         const pr = await this.findOneOrFail(id)
         if (pr.status !== 'DRAFT') {
-            throw new BadRequestException(`Cannot update: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot update: purchase request is ${pr.status}`)
         }
 
         const data: any = {}
@@ -164,7 +164,7 @@ export class PurchaseRequisitionService {
             include: PR_INCLUDES,
         })
 
-        await this.audit(id, 'UPDATED', null, null, 'PR updated', performedBy)
+        await this.audit(id, 'UPDATED', null, null, 'Purchase request updated', performedBy)
         return updated
     }
 
@@ -205,13 +205,13 @@ export class PurchaseRequisitionService {
     async submit(id: string, performedBy?: string) {
         const pr = await this.findOneOrFail(id)
         if (pr.status !== 'DRAFT') {
-            throw new BadRequestException(`Cannot submit: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot submit: purchase request is ${pr.status}`)
         }
         if (pr.lines.length === 0) {
-            throw new BadRequestException('Cannot submit PR with no lines')
+            throw new BadRequestException('Cannot submit purchase request with no lines')
         }
         if (performedBy && pr.requesterId !== performedBy) {
-            throw new BadRequestException('Only the requester can submit this PR')
+            throw new BadRequestException('Only the requester can submit this purchase request')
         }
 
         const total = pr.lines.reduce(
@@ -314,7 +314,7 @@ export class PurchaseRequisitionService {
         const pr = await this.findOneOrFail(id)
         const cancellable = ['DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'REJECTED', 'RETURNED']
         if (!cancellable.includes(pr.status)) {
-            throw new BadRequestException(`Cannot cancel: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot cancel: purchase request is ${pr.status}`)
         }
 
         await this.workflowService.cancel('PURCHASE_REQUISITION', id)
@@ -332,7 +332,7 @@ export class PurchaseRequisitionService {
         const pr = await this.findOneOrFail(id)
         const closable = ['APPROVED', 'PARTIALLY_CONVERTED', 'FULLY_CONVERTED']
         if (!closable.includes(pr.status)) {
-            throw new BadRequestException(`Cannot close: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot close: purchase request is ${pr.status}`)
         }
 
         const updated = await this.prisma.mmPurchaseRequisition.update({
@@ -348,7 +348,7 @@ export class PurchaseRequisitionService {
         const pr = await this.findOneOrFail(id)
         const convertible = ['APPROVED', 'PARTIALLY_CONVERTED', 'FULLY_CONVERTED']
         if (!convertible.includes(pr.status)) {
-            throw new BadRequestException(`Cannot convert: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot convert: purchase request is ${pr.status}`)
         }
 
         const lineMap = new Map(pr.lines.map((l) => [l.id, l]))
@@ -356,7 +356,7 @@ export class PurchaseRequisitionService {
         for (const conv of dto.lines) {
             const line = lineMap.get(conv.lineId)
             if (!line) {
-                throw new BadRequestException(`Line ${conv.lineId} not found on PR`)
+                throw new BadRequestException(`Line ${conv.lineId} not found on purchase request`)
             }
 
             const existing = new Decimal(line.convertedQty)
@@ -420,7 +420,7 @@ export class PurchaseRequisitionService {
     async approveViaWorkflow(id: string, userId?: string, comment?: string) {
         const pr = await this.findOneOrFail(id)
         if (pr.status !== 'PENDING_APPROVAL') {
-            throw new BadRequestException(`Cannot approve: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot approve: purchase request is ${pr.status}`)
         }
         const task = await this.getPendingTask(id)
         await this.workflowService.approveTask(task.id, { userId, comment })
@@ -436,7 +436,7 @@ export class PurchaseRequisitionService {
     async rejectViaWorkflow(id: string, reason?: string, userId?: string) {
         const pr = await this.findOneOrFail(id)
         if (pr.status !== 'PENDING_APPROVAL') {
-            throw new BadRequestException(`Cannot reject: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot reject: purchase request is ${pr.status}`)
         }
         const task = await this.getPendingTask(id)
         await this.workflowService.rejectTask(task.id, { userId, comment: reason })
@@ -452,7 +452,7 @@ export class PurchaseRequisitionService {
     async returnViaWorkflow(id: string, comment?: string, userId?: string) {
         const pr = await this.findOneOrFail(id)
         if (pr.status !== 'PENDING_APPROVAL') {
-            throw new BadRequestException(`Cannot return: PR is ${pr.status}`)
+            throw new BadRequestException(`Cannot return: purchase request is ${pr.status}`)
         }
         const task = await this.getPendingTask(id)
         await this.workflowService.returnTask(task.id, { userId, comment })
@@ -468,7 +468,7 @@ export class PurchaseRequisitionService {
     private async getPendingTask(id: string) {
         const pr = await this.findOneOrFail(id)
         const instance = pr.workflowInstance
-        if (!instance) throw new BadRequestException('No workflow instance for this PR')
+        if (!instance) throw new BadRequestException('No workflow instance for this purchase request')
         const pending = (instance.tasks ?? []).find((t: any) => t.status === 'PENDING')
         if (!pending) throw new BadRequestException('No pending approval task')
         return pending
@@ -479,7 +479,7 @@ export class PurchaseRequisitionService {
             where: { id },
             include: PR_INCLUDES,
         })
-        if (!pr) throw new NotFoundException('Purchase requisition not found')
+        if (!pr) throw new NotFoundException('Purchase request not found')
         return pr
     }
 

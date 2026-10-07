@@ -288,42 +288,16 @@ export class CreateRetailSalesOrderDto {
     createdBy?: string
 }
 
-/** Cart line tagged with the selling division; the server splits orders on it. */
+/** Cart item tagged with the selling division; stored on its sales order line. */
 export class MarketplaceCheckoutLineDto extends CreateRetailSalesOrderLineDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
 }
 
-/** One store's charges (verified against its lines) for its share of the cart. */
-export class MarketplaceStoreChargesDto {
-    @IsIn(RETAIL_SALES_DIVISIONS)
-    divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    subtotal!: number
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    discountAmount!: number
-
-    @IsOptional()
-    @IsString()
-    promoCode?: string
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    shippingAmount!: number
-
-    @IsNumber({ maxDecimalPlaces: 2 })
-    @Min(0)
-    totalAmount!: number
-}
-
 /**
- * Marketplace (mixed-division) e-commerce checkout. Lines are grouped by their
- * `divisionId` into one ECOMMERCE sales order per division, created in a single
- * transaction and sharing `correlationId = checkoutId`. Idempotent on `checkoutId`.
+ * Marketplace (mixed-division) e-commerce checkout. The whole cart becomes ONE
+ * master ECOMMERCE sales order; each line keeps its own `divisionId` and MM
+ * splits fulfillment downstream. Idempotent on `checkoutId`.
  */
 export class CreateMarketplaceCheckoutDto {
     @IsString()
@@ -348,17 +322,29 @@ export class CreateMarketplaceCheckoutDto {
     @ArrayMaxSize(200)
     @ValidateNested({ each: true })
     @Type(() => MarketplaceCheckoutLineDto)
-    lines!: MarketplaceCheckoutLineDto[]
+    cartItems!: MarketplaceCheckoutLineDto[]
 
-    /** Exactly one entry per division present in `lines`. */
-    @IsArray()
-    @ArrayMinSize(1)
-    @ArrayMaxSize(RETAIL_SALES_DIVISIONS.length)
-    @ValidateNested({ each: true })
-    @Type(() => MarketplaceStoreChargesDto)
-    stores!: MarketplaceStoreChargesDto[]
+    /** Whole-cart charges: Σ line totals, promo discount and per-store delivery. */
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    subtotal!: number
 
-    /** Copied onto every division's order so each store can deliver independently. */
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    discountAmount!: number
+
+    @IsOptional()
+    @IsString()
+    promoCode?: string
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    shippingAmount!: number
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    totalAmount!: number
+
     @IsDefined({ message: 'shippingAddress is required' })
     @ValidateNested()
     @Type(() => SalesOrderShippingAddressDto)

@@ -131,22 +131,22 @@ export class RfqService {
             where: { id: dto.purchaseRequisitionId },
             include: { lines: true, company: true },
         })
-        if (!pr) throw new NotFoundException('Purchase requisition not found')
+        if (!pr) throw new NotFoundException('Purchase request not found')
 
         const allowed = ['APPROVED', 'PARTIALLY_CONVERTED']
         if (!allowed.includes(pr.status)) {
-            throw new BadRequestException(`Cannot create RFQ from PR in status ${pr.status}`)
+            throw new BadRequestException(`Cannot create RFQ from purchase request in status ${pr.status}`)
         }
 
         const selected = pr.lines.filter((l) => dto.prLineIds.includes(l.id))
         if (selected.length === 0) {
-            throw new BadRequestException('No matching PR lines selected')
+            throw new BadRequestException('No matching purchase request lines selected')
         }
         for (const line of selected) {
             const remaining = new Decimal(line.requestedQuantity).minus(line.convertedQty)
             if (remaining.lte(0)) {
                 throw new BadRequestException(
-                    `PR line ${line.id} has no remaining quantity to convert`,
+                    `Purchase request line ${line.id} has no remaining quantity to convert`,
                 )
             }
         }

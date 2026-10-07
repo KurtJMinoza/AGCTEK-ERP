@@ -176,13 +176,13 @@ export const MM_CATEGORIES: ErpCategory[] = [
             mmHub(
                 'procurement',
                 'Procurement',
-                'Requisitions, RFQs, quotations, purchase orders, and contracts.',
+                'Purchase requests, RFQs, quotations, purchase orders, and contracts.',
                 'shoppingCart',
                 'Procurement',
                 [
                     {
                         code: 'purchase-requisitions',
-                        title: 'Purchase Requisitions',
+                        title: 'Purchase Requests',
                         icon: 'clipboard',
                     },
                     { code: 'rfqs', title: 'RFQs', icon: 'fileText' },

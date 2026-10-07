@@ -35,6 +35,7 @@ import { useReferenceData } from '../hooks/useReferenceData'
 import { materialService } from '../services/materialService'
 import type { Material, MaterialStatus } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 
 const MATERIALS_PATH = '/modules/mm/material-master/materials-skus'
 
@@ -343,15 +344,11 @@ const MaterialsPage = () => {
                 size: 110,
                 cell: ({ row }) => {
                     const m = row.original
-                    const currencyCode = m.currency?.code || 'USD'
-                    const formatter = new Intl.NumberFormat('en-US', {
-                        style: 'currency',
-                        currency: currencyCode,
-                        maximumFractionDigits: 2,
-                    })
                     return (
                         <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold">{formatter.format(Number(m.standardCost))}</div>
+                            <div className="truncate text-sm font-semibold">
+                                {formatMaterialMoney(Number(m.standardCost), m.currency?.code)}
+                            </div>
                             <div className="truncate text-[11px] text-gray-500 dark:text-gray-400">
                                 {(m.valuationMethod || '—').replace(/_/g, ' ')}
                             </div>

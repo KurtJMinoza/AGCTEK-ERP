@@ -67,7 +67,7 @@ const MarketplaceFilters = ({
 }: MarketplaceFiltersProps) => (
     <div className="flex flex-col gap-8">
         <FilterSection
-            title="Shop by Division"
+            title="Shop by Company"
             options={stores}
             selected={selectedStores}
             onChange={onStoresChange}

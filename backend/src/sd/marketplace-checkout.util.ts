@@ -1,6 +1,7 @@
 /**
- * Splits a mixed marketplace cart into one group per selling division, keeping
- * the cart order of lines within each group and of divisions (first seen first).
+ * Groups a mixed marketplace cart by selling division (e.g. to verify each
+ * division's catalogue prices), keeping the cart order of lines within each
+ * group and of divisions (first seen first).
  */
 export function groupLinesByDivision<T extends { divisionId: string }>(
     lines: readonly T[],

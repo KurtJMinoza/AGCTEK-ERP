@@ -107,7 +107,7 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         financial: false,
         persistsOutbox: true,
         intendedConsumers: ['NOTIFICATIONS', 'PROCUREMENT'],
-        description: 'PR approved via workflow',
+        description: 'Purchase request approved via workflow',
     },
     PurchaseOrderApproved: {
         eventType: 'PurchaseOrderApproved',

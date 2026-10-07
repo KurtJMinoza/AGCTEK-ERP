@@ -13,7 +13,9 @@ import MarketplaceCategoryGrid, {
     marketplaceCategories,
     type MarketplaceCategory,
 } from '../components/MarketplaceCategoryGrid'
-import MarketplaceOfficialStores from '../components/MarketplaceOfficialStores'
+import MarketplaceOfficialStores, {
+    storeCardsFromCatalog,
+} from '../components/MarketplaceOfficialStores'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import { discountPercent } from '../components/MarketplaceProductCard'
 import MarketplaceProductRow from '../components/MarketplaceProductRow'
@@ -179,6 +181,11 @@ const MarketplacePage = () => {
         return counts
     }, [catalog.records])
 
+    const storeCards = useMemo(
+        () => storeCardsFromCatalog(catalog.records),
+        [catalog.records],
+    )
+
     const browse = (query: Parameters<typeof productsHref>[0] = {}) =>
         router.push(productsHref(query))
 
@@ -258,12 +265,13 @@ const MarketplacePage = () => {
                             </h2>
                             <p className={SECTION_SUBTITLE}>
                                 Shop directly from AGC&apos;s verified
-                                divisions.
+                                companies.
                             </p>
                         </div>
                         <MarketplaceOfficialStores
+                            stores={storeCards}
                             counts={storeCounts}
-                            activeDivisionId={null}
+                            activeStoreId={null}
                             onSelect={shopStore}
                         />
                     </section>

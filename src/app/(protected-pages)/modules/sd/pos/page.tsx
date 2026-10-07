@@ -1,1 +1,1 @@
-export { default } from '@/modules/sd/pages/POSDashboard'
+export { default } from '@/modules/sd/pages/POSBranchGateway'

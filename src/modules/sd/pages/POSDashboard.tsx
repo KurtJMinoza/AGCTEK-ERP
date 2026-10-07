@@ -3,26 +3,25 @@
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
 import {
     HiOutlineCamera,
+    HiOutlineLogout,
     HiOutlineMinus,
+    HiOutlineOfficeBuilding,
     HiOutlinePlus,
     HiOutlinePrinter,
     HiOutlineQrcode,
+    HiOutlineSwitchHorizontal,
     HiOutlineTrash,
 } from 'react-icons/hi'
-import PageContainer from '@/components/shared/PageContainer'
-import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
-import ErpBackLink from '@/components/erp/ErpBackLink'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import Loading from '@/components/shared/Loading'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
-import Tag from '@/components/ui/Tag'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
@@ -35,14 +34,15 @@ import {
 } from '../services/posService'
 import POSReceipt from '../components/POSReceipt'
 import POSCheckoutPanel from '../components/POSCheckoutPanel'
-import { POS_RETAIL_BRANCH_ID } from '../catalogs/branchCatalog'
+import {
+    POS_GATEWAY_PATH,
+    useActivePOSBranch,
+} from '../store/usePOSBranchStore'
 
 const CameraBarcodeScanner = dynamic(
     () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
     { ssr: false },
 )
-
-const ROUTE_PATH = '/modules/sd/pos'
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -64,6 +64,14 @@ const notify = (
     )
 
 const POSDashboard = () => {
+    const router = useRouter()
+    const { hydrated, branch } = useActivePOSBranch()
+    const branchId = branch?.id ?? null
+
+    useEffect(() => {
+        if (hydrated && !branchId) router.replace(POS_GATEWAY_PATH)
+    }, [hydrated, branchId, router])
+
     const items = usePOSCartStore((s) => s.items)
     const subtotal = usePOSCartStore((s) => s.getCartTotal())
     const addItem = usePOSCartStore((s) => s.addItem)
@@ -72,7 +80,6 @@ const POSDashboard = () => {
     const clearCart = usePOSCartStore((s) => s.clearCart)
     const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
 
-    const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const skuInputRef = useRef<HTMLInputElement>(null)
     const [sku, setSku] = useState('')
     const [cash, setCash] = useState('')
@@ -90,7 +97,11 @@ const POSDashboard = () => {
     const cashReceived = Number(cash) || 0
     const change = Math.max(0, cashReceived - subtotal)
     const canCheckout =
-        items.length > 0 && cashReceived >= subtotal && !checkingOut && catalog.ready
+        branchId !== null &&
+        items.length > 0 &&
+        cashReceived >= subtotal &&
+        !checkingOut &&
+        catalog.ready
 
     const focusScanner = () => skuInputRef.current?.focus()
 
@@ -162,10 +173,11 @@ const POSDashboard = () => {
     }
 
     const handleCheckout = async () => {
+        if (!branchId) return
         setCheckingOut(true)
         try {
             const result = await processPOSCheckout({
-                branchId: POS_RETAIL_BRANCH_ID,
+                branchId,
                 items: items.map((item) => ({
                     sku: item.product.sku,
                     quantity: item.quantity,
@@ -188,8 +200,8 @@ const POSDashboard = () => {
     }
 
     useEffect(() => {
-        focusScanner()
-    }, [])
+        if (branchId) focusScanner()
+    }, [branchId])
 
     const columns = useMemo<ColumnDef<POSCartItem>[]>(
         () => [
@@ -264,25 +276,56 @@ const POSDashboard = () => {
         [removeItem, updateQuantity],
     )
 
-    return (
-        <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
-            <Breadcrumb items={breadcrumbItems} className="mb-4" />
-            <PageHeader
-                title="POS Terminal"
-                description="Over-the-counter fast-track sale: immediate stock deduction and cash-sale billing. No delivery."
-            />
-
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-                <Tag className="text-xs font-semibold uppercase tracking-wide">
-                    Sales &amp; Distribution
-                </Tag>
-                <Tag className="border-primary/20 bg-primary-subtle text-xs font-semibold text-primary-deep">
-                    POS · AWIC Retail
-                </Tag>
+    if (!hydrated || !branch) {
+        return (
+            <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-gray-900">
+                <Loading loading />
             </div>
+        )
+    }
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+    return (
+        <div className="flex min-h-screen w-full flex-col bg-gray-50 dark:bg-gray-900">
+            <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                        <HiOutlineOfficeBuilding />
+                    </div>
+                    <div className="min-w-0">
+                        <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                            POS Terminal
+                        </div>
+                        <h5 className="truncate font-bold">
+                            Terminal: {branch.label}
+                        </h5>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        size="sm"
+                        icon={<HiOutlineSwitchHorizontal />}
+                        disabled={items.length > 0 || checkingOut}
+                        title={
+                            items.length > 0
+                                ? 'Finish or void the current sale first'
+                                : undefined
+                        }
+                        onClick={() => router.push(POS_GATEWAY_PATH)}
+                    >
+                        Change branch
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="plain"
+                        icon={<HiOutlineLogout />}
+                        onClick={() => router.push('/modules/sd')}
+                    >
+                        Exit POS
+                    </Button>
+                </div>
+            </header>
+
+            <div className="grid flex-1 grid-cols-1 gap-6 p-4 sm:p-6 xl:grid-cols-12 xl:items-start">
                 <div className="flex flex-col gap-6 xl:col-span-8">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4">
@@ -446,7 +489,7 @@ const POSDashboard = () => {
                       document.body,
                   )
                 : null}
-        </PageContainer>
+        </div>
     )
 }
 

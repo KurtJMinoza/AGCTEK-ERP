@@ -171,6 +171,24 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/modules/sd/pos': {
+        key: 'sdPosBranchGateway',
+        authority: [],
+        meta: {
+            layout: 'blank',
+            pageBackgroundType: 'plain',
+            pageContainerType: 'gutterless',
+        },
+    },
+    '/modules/sd/pos/terminal': {
+        key: 'sdPosTerminal',
+        authority: [],
+        meta: {
+            layout: 'blank',
+            pageBackgroundType: 'plain',
+            pageContainerType: 'gutterless',
+        },
+    },
     '/crm': {
         key: 'crmDashboard',
         authority: [],

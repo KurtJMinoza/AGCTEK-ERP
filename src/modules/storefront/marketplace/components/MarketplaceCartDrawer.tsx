@@ -8,6 +8,7 @@ import {
 import Button from '@/components/ui/Button'
 import Drawer from '@/components/ui/Drawer'
 import classNames from '@/utils/classNames'
+import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
 import type { CartPricing } from '@/modules/sd/services/ecommerceService'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
@@ -108,7 +109,20 @@ const MarketplaceCartDrawer = ({
                             you will get one order per store.
                         </p>
                     ) : null}
-                    {pricing.divisions.map((division) => (
+                    {pricing.divisions.map((division) => {
+                        const sellerLabel = (() => {
+                            for (const line of division.lines) {
+                                const product = productsByKey.get(
+                                    productKey({
+                                        divisionId: division.divisionId,
+                                        sku: line.sku,
+                                    }),
+                                )
+                                if (product) return productSellerLabel(product)
+                            }
+                            return productDivisionLabel(division.divisionId)
+                        })()
+                        return (
                         <section
                             key={division.divisionId}
                             className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
@@ -119,8 +133,7 @@ const MarketplaceCartDrawer = ({
                                         className="text-base text-gray-400"
                                         aria-hidden
                                     />
-                                    {productDivisionLabel(division.divisionId)}{' '}
-                                    Items
+                                    {sellerLabel} Items
                                 </h4>
                                 <span className="text-xs text-gray-500">
                                     Delivery {formatPrice(division.shipping)}
@@ -196,7 +209,8 @@ const MarketplaceCartDrawer = ({
                                 })}
                             </ul>
                         </section>
-                    ))}
+                        )
+                    })}
                 </div>
             ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-gray-500">

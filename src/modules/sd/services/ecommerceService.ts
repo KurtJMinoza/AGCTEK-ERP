@@ -51,15 +51,10 @@ export type CartPricing = {
     grandTotal: number
 }
 
-export type PlacedDivisionOrder = {
-    divisionId: SalesDivisionId
-    salesOrderId: string
-    grandTotal: number
-}
-
 export type EcommerceOrderResult = CartPricing & {
     checkoutId: string
-    orders: PlacedDivisionOrder[]
+    /** Business number of the single master sales order (SO-000001). */
+    salesOrderId: string
     status: 'PENDING_DELIVERY'
     message: string
 }
@@ -121,9 +116,9 @@ export function calculateCartPricing(
 }
 
 /**
- * E-commerce standard flow (Lane B): SD pricing → one persisted SD sales
- * order per division (pending delivery), created atomically by the server →
- * MM ATP + soft reservation. No PGI or billing here.
+ * E-commerce standard flow (Lane B): SD pricing → ONE persisted master SD
+ * sales order (pending delivery) whose lines carry their division → MM splits
+ * fulfillment, ATP + soft reservation. No PGI or billing here.
  */
 export async function processEcommerceOrder(
     payload: EcommerceOrder,
@@ -141,51 +136,38 @@ export async function processEcommerceOrder(
         customerName: shippingAddress.fullName,
         customerEmail: email,
         shippingAddress,
-        lines: pricing.divisions.flatMap((division) =>
+        cartItems: pricing.divisions.flatMap((division) =>
             division.lines.map((line) => ({
                 ...line,
                 divisionId: division.divisionId,
             })),
         ),
-        stores: pricing.divisions.map((division) => ({
-            divisionId: division.divisionId,
-            subtotal: division.subtotal,
-            discountAmount: division.discountAmount,
-            promoCode: division.promoCode,
-            shippingAmount: division.shipping,
-            totalAmount: division.grandTotal,
-        })),
+        subtotal: pricing.subtotal,
+        discountAmount: pricing.discountAmount,
+        promoCode: pricing.promoCode,
+        shippingAmount: pricing.shipping,
+        totalAmount: pricing.grandTotal,
     })
-
-    const orders = saved.map<PlacedDivisionOrder>((record) => ({
-        divisionId: record.divisionId as SalesDivisionId,
-        salesOrderId: record.orderId,
-        grandTotal: record.totalAmount,
-    }))
 
     console.info(
         'Triggering MM 2: Availability Check (ATP) & Soft Reservation',
         {
             checkoutId,
-            orders: saved.map((record) => ({
-                salesOrderId: record.orderId,
-                items: record.lines.map(({ sku, quantity }) => ({
-                    sku,
-                    quantity,
-                })),
+            salesOrderId: saved.orderId,
+            items: saved.lines.map(({ divisionId, sku, quantity }) => ({
+                divisionId,
+                sku,
+                quantity,
             })),
         },
     )
 
     return {
         ...pricing,
-        grandTotal: sumMoney(orders.map((o) => o.grandTotal)),
+        grandTotal: saved.totalAmount,
         checkoutId,
-        orders,
+        salesOrderId: saved.orderId,
         status: 'PENDING_DELIVERY',
-        message:
-            orders.length === 1
-                ? `Sales order ${orders[0].salesOrderId} created — pending delivery.`
-                : `${orders.length} sales orders created (one per store) — pending delivery.`,
+        message: `Sales order ${saved.orderId} created — pending delivery.`,
     }
 }
