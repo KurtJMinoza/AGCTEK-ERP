@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 export const STORAGE_KEYS = {
     cart: 'agctek.storefront.cart',
     session: 'agctek.storefront.session',
+    favorites: 'agctek.storefront.favorites',
 } as const
 
 type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

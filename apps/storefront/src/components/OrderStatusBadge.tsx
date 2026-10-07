@@ -1,22 +1,19 @@
 import { StyleSheet, Text, View } from 'react-native'
 import type { OrderStatus } from '../types'
 
+/** Same wording as the web "My orders". */
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-    PLACED: 'Placed',
-    CONFIRMED: 'Confirmed',
-    PACKED: 'Packed',
-    OUT_FOR_DELIVERY: 'Out for delivery',
+    PROCESSING: 'Processing',
+    TO_BE_DELIVERED: 'To be delivered',
     DELIVERED: 'Delivered',
     CANCELLED: 'Cancelled',
 }
 
 const TONES: Record<OrderStatus, { bg: string; fg: string }> = {
-    PLACED: { bg: '#f3f4f6', fg: '#374151' },
-    CONFIRMED: { bg: '#dbeafe', fg: '#1d4ed8' },
-    PACKED: { bg: '#fef3c7', fg: '#b45309' },
-    OUT_FOR_DELIVERY: { bg: '#ffedd5', fg: '#c2410c' },
-    DELIVERED: { bg: '#dcfce7', fg: '#15803d' },
-    CANCELLED: { bg: '#fee2e2', fg: '#b91c1c' },
+    PROCESSING: { bg: '#f3f4f6', fg: '#374151' },
+    TO_BE_DELIVERED: { bg: '#fffbeb', fg: '#b45309' },
+    DELIVERED: { bg: '#ecfdf5', fg: '#047857' },
+    CANCELLED: { bg: '#fef2f2', fg: '#b91c1c' },
 }
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
@@ -29,11 +26,6 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
 }
 
 const styles = StyleSheet.create({
-    badge: {
-        alignSelf: 'flex-start',
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-    },
+    badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
     label: { fontSize: 12, fontWeight: '700' },
 })

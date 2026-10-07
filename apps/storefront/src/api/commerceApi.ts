@@ -1,10 +1,12 @@
 import type {
-    CreateOrderInput,
+    Availability,
+    CheckoutInput,
+    CheckoutResult,
     Customer,
     Order,
-    OrderTracking,
     Product,
-    ProductQuery,
+    ProfileUpdate,
+    RegisterInput,
     SignInInput,
 } from '../types'
 
@@ -15,23 +17,25 @@ export type * from '../types'
  *
  * Screen → Hook/Context → CommerceApi → MockCommerceApi | HttpCommerceApi → ERP
  *
- * Keep this contract stable; swapping implementations must not require UI changes.
+ * The HTTP implementation calls the same SD endpoints as the web marketplace,
+ * so both channels share one catalogue, one checkout and one order history.
  */
 export interface CommerceApi {
+    /** Active products from every official store. */
+    getProducts(): Promise<Product[]>
+    getAvailability(divisionId: string, sku: string): Promise<Availability>
     signIn(input: SignInInput): Promise<Customer>
-    getProducts(query?: ProductQuery): Promise<Product[]>
-    getProduct(id: string): Promise<Product>
-    createOrder(input: CreateOrderInput): Promise<Order>
-    getOrders(): Promise<Order[]>
-    getOrder(id: string): Promise<Order>
-    /** Read-only customer projection: milestones, ETA, coarse area. */
-    getTracking(orderId: string): Promise<OrderTracking>
+    register(input: RegisterInput): Promise<Customer>
+    updateProfile(customerId: string, update: ProfileUpdate): Promise<Customer>
+    /** Places one order per store in a single checkout. */
+    checkout(input: CheckoutInput): Promise<CheckoutResult>
+    getOrders(customerId: string): Promise<Order[]>
 }
 
 export class CommerceApiError extends Error {
     constructor(
         message: string,
-        readonly code: 'NOT_FOUND' | 'VALIDATION' | 'NOT_IMPLEMENTED' | 'NETWORK',
+        readonly code: 'NOT_FOUND' | 'VALIDATION' | 'CONFLICT' | 'NETWORK',
     ) {
         super(message)
         this.name = 'CommerceApiError'

@@ -1,42 +1,55 @@
+import Ionicons from '@expo/vector-icons/Ionicons'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { colors } from '../theme'
 
 type Props = {
     value: number
-    onChange: (value: number) => void
-    min?: number
-    max?: number
+    label: string
+    onDecrease: () => void
+    onIncrease: () => void
+    /** Disables "+" (e.g. at the stock or line limit). */
+    canIncrease?: boolean
+    /** Disables "−" (e.g. product-page quantity at 1). */
+    canDecrease?: boolean
 }
 
-export function QuantityStepper({ value, onChange, min = 1, max = 999 }: Props) {
+/** Round − / + buttons, like the web marketplace stepper. */
+export function QuantityStepper({
+    value,
+    label,
+    onDecrease,
+    onIncrease,
+    canIncrease = true,
+    canDecrease = true,
+}: Props) {
     return (
-        <View style={styles.container}>
+        <View style={styles.row}>
             <StepButton
-                label="−"
-                accessibilityLabel="Decrease quantity"
-                disabled={value <= min}
-                onPress={() => onChange(value - 1)}
+                icon="remove"
+                accessibilityLabel={`Decrease ${label}`}
+                disabled={!canDecrease}
+                onPress={onDecrease}
             />
-            <Text style={styles.value} accessibilityLabel={`Quantity ${value}`}>
+            <Text style={styles.value} accessibilityLiveRegion="polite">
                 {value}
             </Text>
             <StepButton
-                label="+"
-                accessibilityLabel="Increase quantity"
-                disabled={value >= max}
-                onPress={() => onChange(value + 1)}
+                icon="add"
+                accessibilityLabel={`Increase ${label}`}
+                disabled={!canIncrease}
+                onPress={onIncrease}
             />
         </View>
     )
 }
 
 function StepButton({
-    label,
+    icon,
     accessibilityLabel,
     disabled,
     onPress,
 }: {
-    label: string
+    icon: 'add' | 'remove'
     accessibilityLabel: string
     disabled: boolean
     onPress: () => void
@@ -48,36 +61,26 @@ function StepButton({
             disabled={disabled}
             onPress={onPress}
             hitSlop={6}
-            style={({ pressed }) => [
-                styles.button,
-                disabled && styles.disabled,
-                pressed && styles.pressed,
-            ]}
+            style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}
         >
-            <Text style={styles.buttonLabel}>{label}</Text>
+            <Ionicons name={icon} size={16} color={colors.textSecondary} />
         </Pressable>
     )
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    row: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    button: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
         borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 10,
+        borderColor: colors.borderStrong,
         backgroundColor: colors.surface,
-        alignSelf: 'flex-start',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    button: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-    buttonLabel: { fontSize: 20, fontWeight: '600', color: colors.brand },
     disabled: { opacity: 0.35 },
-    pressed: { opacity: 0.6 },
-    value: {
-        minWidth: 36,
-        textAlign: 'center',
-        fontSize: 15,
-        fontWeight: '700',
-        color: colors.text,
-    },
+    pressed: { backgroundColor: colors.tile },
+    value: { minWidth: 26, textAlign: 'center', fontSize: 14, fontWeight: '600', color: colors.text },
 })

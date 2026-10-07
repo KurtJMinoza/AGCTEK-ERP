@@ -33,10 +33,19 @@ function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase()
 
-/** Mock unless explicitly disabled with EXPO_PUBLIC_USE_MOCK_API=false. */
+/**
+ * Next.js origin that serves uploaded product photos (`/uploads/...`).
+ * Defaults to the API host on the ERP web dev port (3010).
+ */
+export const WEB_BASE = (
+    process.env.EXPO_PUBLIC_WEB_URL?.trim() ||
+    API_BASE.replace(/:3011$/, ':3010')
+).replace(/\/$/, '')
+
+/** Live ERP data unless EXPO_PUBLIC_USE_MOCK_API=true (offline demo). */
 export const USE_MOCK_API =
-    process.env.EXPO_PUBLIC_USE_MOCK_API?.trim().toLowerCase() !== 'false'
+    process.env.EXPO_PUBLIC_USE_MOCK_API?.trim().toLowerCase() === 'true'
 
 export const commerceApi: CommerceApi = USE_MOCK_API
     ? new MockCommerceApi()
-    : new HttpCommerceApi(API_BASE)
+    : new HttpCommerceApi(API_BASE, WEB_BASE)
