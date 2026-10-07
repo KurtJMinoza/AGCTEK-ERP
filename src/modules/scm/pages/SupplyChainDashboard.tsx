@@ -337,7 +337,7 @@ export default function SupplyChainDashboardPage() {
                     />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <Link href="/scm">
+                    <Link href="/modules/scm">
                         <Button variant="solid" size="sm">
                             Transportation
                         </Button>
