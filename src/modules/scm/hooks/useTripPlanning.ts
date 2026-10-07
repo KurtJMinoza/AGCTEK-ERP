@@ -88,11 +88,7 @@ export function useTripPlanning() {
         busy,
         error,
         reload: load,
-        createTrip: (body: {
-            loadPlanId: string
-            driverId?: string | null
-            plannedStartAt?: string | null
-        }) =>
+        createTrip: (body: Parameters<typeof apiCreateTmsTrip>[0]) =>
             run(async () => {
                 const trip = await apiCreateTmsTrip(body)
                 setSelectedId(trip.id)

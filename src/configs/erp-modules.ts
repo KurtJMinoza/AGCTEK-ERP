@@ -282,111 +282,65 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'CRM',
         title: 'Customer Relationship Management',
         description:
-            'Manage leads, accounts, opportunities, and customer engagement across the sales cycle.',
+            'Leads, sales pipeline, customer service tickets and a 360° view of SD customers.',
         path: '/modules/crm',
         icon: 'crm',
         categories: [
             {
-                code: 'master-data',
-                title: 'Master Data',
+                code: 'overview',
+                title: 'Overview',
                 submodules: [
                     {
-                        code: 'accounts',
-                        title: 'Accounts',
+                        code: 'dashboard',
+                        title: 'CRM Dashboard',
                         description:
-                            'Maintain customer and prospect account records.',
-                        path: '/modules/crm/accounts',
-                        icon: 'building',
+                            'New leads, pipeline by stage and open tickets at a glance.',
+                        path: '/crm',
+                        icon: 'barChart',
                     },
                     {
-                        code: 'contacts',
-                        title: 'Contacts',
+                        code: 'customers',
+                        title: 'Customers',
                         description:
-                            'Manage contact persons, roles, and communication details.',
-                        path: '/modules/crm/contacts',
+                            'SD customers with their CRM 360° view — opportunities, tickets and loyalty.',
+                        path: '/crm/customers',
                         icon: 'users',
                     },
+                ],
+            },
+            {
+                code: 'sales',
+                title: 'Sales',
+                submodules: [
                     {
                         code: 'leads',
                         title: 'Leads',
                         description:
-                            'Capture and qualify inbound and outbound sales leads.',
-                        path: '/modules/crm/leads',
+                            'Capture and qualify prospects; convert them by linking an SD customer.',
+                        path: '/crm/leads',
                         icon: 'userCircle',
                     },
-                ],
-            },
-            {
-                code: 'transactional',
-                title: 'Transactional',
-                submodules: [
                     {
                         code: 'opportunities',
                         title: 'Opportunities',
                         description:
-                            'Track deals, pipeline stages, and expected revenue.',
-                        path: '/modules/crm/opportunities',
+                            'Track deals through pipeline stages in a table or board view.',
+                        path: '/crm/opportunities',
                         icon: 'lineChart',
                     },
+                ],
+            },
+            {
+                code: 'service',
+                title: 'Service',
+                submodules: [
                     {
-                        code: 'activities',
-                        title: 'Activities',
+                        code: 'tickets',
+                        title: 'Tickets',
                         description:
-                            'Log calls, meetings, tasks, and follow-ups.',
-                        path: '/modules/crm/activities',
+                            'Customer service cases with priorities, status and comments.',
+                        path: '/crm/tickets',
                         icon: 'clipboard',
-                    },
-                    {
-                        code: 'campaigns',
-                        title: 'Campaigns',
-                        description:
-                            'Plan and monitor marketing and outreach campaigns.',
-                        path: '/modules/crm/campaigns',
-                        icon: 'activity',
-                    },
-                ],
-            },
-            {
-                code: 'reports',
-                title: 'Reports & Analytics',
-                submodules: [
-                    {
-                        code: 'pipeline-analytics',
-                        title: 'Pipeline Analytics',
-                        description:
-                            'Analyze win rates, forecast accuracy, and deal velocity.',
-                        path: '/modules/crm/pipeline-analytics',
-                        icon: 'barChart',
-                    },
-                    {
-                        code: 'customer-insights',
-                        title: 'Customer Insights',
-                        description:
-                            'Review engagement trends and account health scores.',
-                        path: '/modules/crm/customer-insights',
-                        icon: 'fileSpreadsheet',
-                    },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'sales-stages',
-                        title: 'Sales Stages',
-                        description:
-                            'Define pipeline stages and transition rules.',
-                        path: '/modules/crm/sales-stages',
-                        icon: 'settings',
-                    },
-                    {
-                        code: 'lead-sources',
-                        title: 'Lead Sources',
-                        description:
-                            'Configure lead source types and attribution.',
-                        path: '/modules/crm/lead-sources',
-                        icon: 'cog',
                     },
                 ],
             },

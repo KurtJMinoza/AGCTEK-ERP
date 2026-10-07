@@ -43,6 +43,13 @@ export const warehouseService = {
             return r.data
         }),
 
+    /** Explicit pin confirmation — the only way routing coordinates are set. */
+    confirmGeocode: (id: string, coords: { lat: number; lng: number }) =>
+        ErpAxiosBase.post<Warehouse>(`${BASE}/${id}/geocode/confirm`, coords).then((r) => {
+            mmInvalidateCache('warehouses:')
+            mmInvalidateCache('org:warehouses')
+            return r.data
+        }),
     activate: (id: string) =>
         ErpAxiosBase.post<Warehouse>(`${BASE}/${id}/activate`).then((r) => {
             mmInvalidateCache('warehouses:')

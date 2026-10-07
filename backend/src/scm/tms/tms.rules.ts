@@ -147,7 +147,11 @@ function round2(n: number): number {
 
 // ─── Locations ───────────────────────────────────────────────────────────────
 
+export type StopLocationKind = 'WAREHOUSE' | 'ADDRESS'
+
 export type CargoLocation = {
+    /** WAREHOUSE = MM master coordinates; ADDRESS = shipment address snapshot */
+    kind?: StopLocationKind
     warehouseId?: string | null
     warehouseName?: string | null
     address?: string | null
@@ -186,6 +190,7 @@ export type StopDraft = {
     sequence: number
     stopType: TmsStopType
     locationKey: string
+    locationKind: StopLocationKind
     warehouseId: string | null
     name: string
     address: string
@@ -209,7 +214,9 @@ export type StopBuildResult = {
  * ShipmentLine → LoadPlanLine → locations → stops.
  * Dedupe by (locationKey, stopType); baseline order SHIP → TO → RETURN.
  * Within SHIP / RETURN: first appearance. Within TO: earliest delivery window,
- * then first appearance. RETURN only when a line has a return location.
+ * then first appearance. Lines with a return location add RETURN stops, and the
+ * trip always ends with a RETURN to the first pickup warehouse (no cargo lines
+ * unless a line returns goods there).
  */
 export function buildTripStops(lines: StopSourceLine[]): StopBuildResult {
     const errors: string[] = []
@@ -259,6 +266,25 @@ export function buildTripStops(lines: StopSourceLine[]): StopBuildResult {
             errors.push(`Shipment line ${line.shipmentLineId} has no ship-to location`)
         }
         if (line.ret) add('RETURN', line.ret, line)
+    }
+
+    const origin = [...groups.values()]
+        .filter((g) => g.stopType === 'SHIP')
+        .sort((a, b) => a.order - b.order)[0]
+    if (origin) {
+        const homeKey = `RETURN|${origin.key}`
+        const home = groups.get(homeKey)
+        if (home) {
+            home.order = Number.MAX_SAFE_INTEGER
+        } else {
+            groups.set(homeKey, {
+                stopType: 'RETURN',
+                key: origin.key,
+                loc: origin.loc,
+                order: Number.MAX_SAFE_INTEGER,
+                lines: [],
+            })
+        }
     }
 
     const minTime = (ls: StopSourceLine[]) => {
@@ -312,6 +338,8 @@ export function buildTripStops(lines: StopSourceLine[]): StopBuildResult {
             sequence: index + 1,
             stopType: group.stopType,
             locationKey: group.key,
+            locationKind:
+                group.loc.kind ?? (group.loc.warehouseId ? 'WAREHOUSE' : 'ADDRESS'),
             warehouseId: group.loc.warehouseId ?? null,
             name,
             address: group.loc.address?.trim() || place,
@@ -337,6 +365,32 @@ export function buildTripStops(lines: StopSourceLine[]): StopBuildResult {
 }
 
 // ─── Reorder ────────────────────────────────────────────────────────────────
+
+/** Stable id for a generated stop before it is persisted (preview / create). */
+export function stopKey(stop: Pick<StopDraft, 'stopType' | 'locationKey'>): string {
+    return `${stop.stopType}|${stop.locationKey}`
+}
+
+/**
+ * Apply a planner order (list of stopKeys) to generated stops using the same
+ * rules as persisted reorder. Sequence is renumbered 1..n.
+ */
+export function applyStopOrder(
+    stops: StopDraft[],
+    order: string[] | null | undefined,
+): { stops: StopDraft[]; error: string | null } {
+    if (!order || order.length === 0) return { stops, error: null }
+    const error = validateStopReorder(
+        stops.map((s) => ({ id: stopKey(s), stopType: s.stopType })),
+        order,
+    )
+    if (error) return { stops, error }
+    const byKey = new Map(stops.map((s) => [stopKey(s), s]))
+    return {
+        stops: order.map((key, index) => ({ ...byKey.get(key)!, sequence: index + 1 })),
+        error: null,
+    }
+}
 
 /**
  * Planner reorder rules: the request must contain every stop exactly once,

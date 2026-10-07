@@ -29,6 +29,8 @@ import type {
     CreateTripInput,
     TelematicsHistoryQuery,
     TelematicsHistoryResponse,
+    RoutePreview,
+    RoutePreviewRequest,
     Vehicle,
     VehicleCargoResponse,
     VehicleDocument,
@@ -251,8 +253,22 @@ export async function apiCreateTmsTrip(body: {
     plannedStartAt?: string | null
     plannedEndAt?: string | null
     notes?: string | null
+    /** Stop keys from route preview; only delivery stops may move */
+    stopOrder?: string[] | null
 }) {
     const { data } = await ErpAxiosBase.post<Trip>('/scm/tms/trips', body)
+    return data
+}
+
+/** Stateless route / ETA preview for a READY load plan — creates nothing. */
+export async function apiPreviewTripRoute(
+    loadPlanId: string,
+    body: RoutePreviewRequest = {},
+) {
+    const { data } = await ErpAxiosBase.post<RoutePreview>(
+        `/scm/tms/load-plans/${loadPlanId}/route-preview`,
+        body,
+    )
     return data
 }
 

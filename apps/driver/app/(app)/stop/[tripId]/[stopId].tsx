@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import {
     ActivityIndicator,
     Image,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -18,8 +19,21 @@ import {
     apiDeliverStop,
     apiGetTrip,
 } from '@/src/api/client'
+import { captureStopMeta } from '@/src/api/stopMeta'
 import { stopQty } from '@/src/hooks/useActiveTrip'
-import type { Trip, TripStop } from '@/src/types'
+import type { DeliveryFailureReason, Trip, TripStop } from '@/src/types'
+
+const FAILURE_REASONS: Array<{ code: DeliveryFailureReason; label: string }> = [
+    { code: 'CUSTOMER_UNAVAILABLE', label: 'Customer not available' },
+    { code: 'CUSTOMER_REFUSED', label: 'Customer refused' },
+    { code: 'WRONG_ADDRESS', label: 'Wrong address' },
+    { code: 'DAMAGED_GOODS', label: 'Damaged goods' },
+    { code: 'VEHICLE_ISSUE', label: 'Vehicle issue' },
+    { code: 'PAYMENT_ISSUE', label: 'Payment issue' },
+    { code: 'OTHER', label: 'Other' },
+]
+
+const TERMINAL = ['COMPLETED', 'FAILED', 'SKIPPED']
 
 export default function StopDetailScreen() {
     const { tripId, stopId } = useLocalSearchParams<{
@@ -35,6 +49,7 @@ export default function StopDetailScreen() {
     const [photoUri, setPhotoUri] = useState<string | null>(null)
     const [signatureUrl, setSignatureUrl] = useState<string | null>(null)
     const [failureReason, setFailureReason] = useState('')
+    const [failureCode, setFailureCode] = useState<DeliveryFailureReason | null>(null)
 
     const reload = useCallback(async () => {
         if (!tripId) return
@@ -100,7 +115,7 @@ export default function StopDetailScreen() {
         setBusy(true)
         setError(null)
         try {
-            setTrip(await apiArriveStop(tripId, stopId))
+            setTrip(await apiArriveStop(tripId, stopId, await captureStopMeta()))
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Arrive failed')
         } finally {
@@ -110,19 +125,26 @@ export default function StopDetailScreen() {
 
     const onDeliver = async (outcome: 'DELIVERED' | 'FAILED') => {
         if (!tripId || !stopId) return
-        if (outcome === 'FAILED' && !failureReason.trim()) {
-            setError('Enter a failure reason')
+        if (outcome === 'FAILED' && !failureCode) {
+            setError('Choose why the delivery failed')
+            return
+        }
+        if (outcome === 'FAILED' && failureCode === 'OTHER' && !failureReason.trim()) {
+            setError('Describe what happened')
             return
         }
         setBusy(true)
         setError(null)
         try {
             const updated = await apiDeliverStop(tripId, stopId, {
+                ...(await captureStopMeta()),
                 outcome,
                 podNotes: notes || null,
                 podPhotoUrl: photoUri,
-                podSignatureUrl: signatureUrl,
-                failureReason: outcome === 'FAILED' ? failureReason : null,
+                podSignatureUrl: outcome === 'DELIVERED' ? signatureUrl : null,
+                ...(outcome === 'FAILED'
+                    ? { reasonCode: failureCode!, failureReason: failureReason.trim() || null }
+                    : {}),
             })
             setTrip(updated)
             router.back()
@@ -149,11 +171,16 @@ export default function StopDetailScreen() {
         )
     }
 
-    const canArrive = stop.status === 'PENDING'
-    const canPod =
-        stop.status === 'ARRIVED' ||
-        stop.status === 'PENDING' ||
-        stop.status === 'COMPLETED'
+    // Mirrors backend rules — the API stays authoritative and its errors are shown as-is.
+    const tripInTransit = trip?.status === 'IN_TRANSIT'
+    const blockingStop = trip?.allowOutOfOrder
+        ? undefined
+        : (trip?.stops ?? [])
+              .filter((s) => s.sequence < stop.sequence && !TERMINAL.includes(s.status))
+              .sort((a, b) => a.sequence - b.sequence)[0]
+    const canArrive = tripInTransit && stop.status === 'PENDING' && !blockingStop
+    const canDeliverOrFail = tripInTransit && stop.status === 'ARRIVED'
+    const failureLabel = FAILURE_REASONS.find((r) => r.code === stop.failureCode)?.label
 
     return (
         <ScrollView contentContainerStyle={styles.content}>
@@ -167,6 +194,17 @@ export default function StopDetailScreen() {
             <Text style={styles.qty}>{stopQty(stop)} items on manifest</Text>
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            {!tripInTransit && !TERMINAL.includes(stop.status) ? (
+                <Text style={styles.hint}>Start trip to begin execution.</Text>
+            ) : null}
+            {tripInTransit && stop.status === 'PENDING' && blockingStop ? (
+                <Text style={styles.hint}>
+                    Finish stop #{blockingStop.sequence}
+                    {blockingStop.name ? ` (${blockingStop.name})` : ''} first — stops
+                    must be done in order.
+                </Text>
+            ) : null}
 
             {canArrive ? (
                 <PrimaryButton
@@ -193,7 +231,7 @@ export default function StopDetailScreen() {
                 </View>
             ))}
 
-            {canPod && stop.status !== 'COMPLETED' && stop.status !== 'FAILED' ? (
+            {canDeliverOrFail ? (
                 <>
                     <Text style={styles.section}>POD notes</Text>
                     <TextInput
@@ -223,36 +261,70 @@ export default function StopDetailScreen() {
                         <Text style={styles.savedSig}>Signature saved</Text>
                     ) : null}
 
-                    <Text style={styles.section}>Failure reason (if failed)</Text>
-                    <TextInput
-                        value={failureReason}
-                        onChangeText={setFailureReason}
-                        placeholder="Optional unless marking failed"
-                        style={styles.input}
-                    />
-
                     <PrimaryButton
                         title="Confirm delivered"
                         loading={busy}
                         onPress={() => void onDeliver('DELIVERED')}
                         style={{ marginTop: 16 }}
                     />
+
+                    <Text style={styles.section}>Could not deliver?</Text>
+                    <View style={styles.chips}>
+                        {FAILURE_REASONS.map((reason) => {
+                            const selected = failureCode === reason.code
+                            return (
+                                <Pressable
+                                    key={reason.code}
+                                    accessibilityRole="radio"
+                                    accessibilityState={{ selected }}
+                                    onPress={() => setFailureCode(reason.code)}
+                                    style={[styles.chip, selected && styles.chipSelected]}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.chipLabel,
+                                            selected && styles.chipLabelSelected,
+                                        ]}
+                                    >
+                                        {reason.label}
+                                    </Text>
+                                </Pressable>
+                            )
+                        })}
+                    </View>
+                    <TextInput
+                        value={failureReason}
+                        onChangeText={setFailureReason}
+                        placeholder={
+                            failureCode === 'OTHER'
+                                ? 'Describe what happened (required)'
+                                : 'Notes (optional)'
+                        }
+                        style={[styles.input, { marginTop: 10 }]}
+                    />
                     <PrimaryButton
                         title="Mark failed"
                         variant="danger"
                         loading={busy}
+                        disabled={!failureCode}
                         onPress={() => void onDeliver('FAILED')}
                         style={{ marginTop: 10 }}
                     />
                 </>
             ) : null}
 
-            {(stop.status === 'COMPLETED' || stop.status === 'FAILED') && (
+            {stop.status === 'FAILED' ? (
                 <Text style={styles.done}>
-                    Stop {stop.status.toLowerCase()}. Use back to continue the
-                    route.
+                    Delivery failed{failureLabel ? `: ${failureLabel}` : ''}
+                    {stop.failureReason ? ` — ${stop.failureReason}` : ''}. The
+                    dispatcher will follow up; continue with the next stop.
                 </Text>
-            )}
+            ) : null}
+            {stop.status === 'COMPLETED' ? (
+                <Text style={styles.done}>
+                    Stop completed. Use back to continue the route.
+                </Text>
+            ) : null}
         </ScrollView>
     )
 }
@@ -316,5 +388,18 @@ const styles = StyleSheet.create({
         backgroundColor: '#e5e7eb',
     },
     savedSig: { marginTop: 8, color: '#047857', fontWeight: '600' },
+    hint: { marginTop: 16, color: '#92400e', lineHeight: 22, fontSize: 15 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+        borderWidth: 1,
+        borderColor: '#d1d5db',
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        backgroundColor: '#fff',
+    },
+    chipSelected: { borderColor: '#dc2626', backgroundColor: '#fef2f2' },
+    chipLabel: { color: '#374151', fontWeight: '600' },
+    chipLabelSelected: { color: '#b91c1c' },
     done: { marginTop: 24, color: '#374151', lineHeight: 22 },
 })

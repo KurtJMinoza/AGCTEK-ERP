@@ -52,6 +52,7 @@ export type Shipment = {
     materialCode: string | null
     description: string | null
     movementType: string
+    /** DRAFT | READY | ASSIGNED | IN_TRANSIT | DELIVERED | CANCELLED | EXCEPTION_HOLD */
     status: string
 }
 
@@ -77,8 +78,30 @@ export type TripStop = {
     podSignatureUrl: string | null
     podPhotoUrl: string | null
     podNotes: string | null
+    /** Free-text failure note */
     failureReason: string | null
+    failureCode: DeliveryFailureReason | null
+    failedAt: string | null
     shipments?: TripStopShipment[]
+}
+
+export type DeliveryFailureReason =
+    | 'CUSTOMER_UNAVAILABLE'
+    | 'CUSTOMER_REFUSED'
+    | 'WRONG_ADDRESS'
+    | 'DAMAGED_GOODS'
+    | 'VEHICLE_ISSUE'
+    | 'PAYMENT_ISSUE'
+    | 'OTHER'
+
+/** Optional best-effort metadata sent with arrive / deliver / fail. */
+export type StopExecutionMeta = {
+    latitude?: number
+    longitude?: number
+    accuracy?: number
+    deviceId?: string
+    clientOccurredAt?: string
+    clientActionId?: string
 }
 
 export type Trip = {
@@ -88,6 +111,8 @@ export type Trip = {
     totalQty: number | null
     plannedStartAt: string | null
     startedAt: string | null
+    /** Dispatcher override — stops may be done out of sequence */
+    allowOutOfOrder: boolean
     notes: string | null
     vehicleId: string | null
     driverId: string | null

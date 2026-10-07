@@ -9,6 +9,7 @@ import Alert from '@/components/ui/Alert'
 import Spinner from '@/components/ui/Spinner'
 import {
     DEFAULT_MAP_CENTER,
+    parseCoordinates,
     reverseGeocode,
     searchAddress,
     type GeocodeResult,
@@ -36,6 +37,14 @@ type LocationPickerDialogProps = {
     initialLng?: number | null
     onClose: () => void
     onConfirm: (location: PickedLocation) => void
+    title?: string
+    description?: string
+    confirmText?: string
+    /** Keep the dialog open while the caller persists (e.g. server confirm) */
+    confirmLoading?: boolean
+    closeOnConfirm?: boolean
+    width?: number
+    mapHeight?: number | string
 }
 
 export default function LocationPickerDialog({
@@ -45,6 +54,13 @@ export default function LocationPickerDialog({
     initialLng,
     onClose,
     onConfirm,
+    title = 'Pick location',
+    description = 'Search or click/drag the pin. Coordinates are saved on the stop for Tracking map pins.',
+    confirmText = 'Use location',
+    confirmLoading = false,
+    closeOnConfirm = true,
+    width = 640,
+    mapHeight = 280,
 }: LocationPickerDialogProps) {
     const hasInitial =
         initialLat != null &&
@@ -83,6 +99,13 @@ export default function LocationPickerDialog({
     }, [isOpen, initialAddress, initialLat, initialLng])
 
     const runSearch = async () => {
+        const coords = parseCoordinates(query)
+        if (coords) {
+            setResults([])
+            setError(null)
+            await onMapPick(coords.lat, coords.lng)
+            return
+        }
         setSearching(true)
         setError(null)
         try {
@@ -132,13 +155,13 @@ export default function LocationPickerDialog({
             query.trim() ||
             `${lat.toFixed(5)}, ${lng.toFixed(5)}`
         onConfirm({ address: label, lat, lng })
-        onClose()
+        if (closeOnConfirm) onClose()
     }
 
     return (
         <Dialog
             isOpen={isOpen}
-            width={640}
+            width={width}
             // Stack above Plan trip wizard (overlay z-40)
             overlayClassName="!z-[60]"
             className="!z-[61]"
@@ -147,10 +170,9 @@ export default function LocationPickerDialog({
             shouldCloseOnOverlayClick={false}
         >
             <div className="mb-4 pe-8">
-                <h5 className="mb-1">Pick location</h5>
+                <h5 className="mb-1">{title}</h5>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Search or click/drag the pin. Coordinates are saved on the
-                    stop for Tracking map pins.
+                    {description}
                 </p>
             </div>
 
@@ -164,7 +186,7 @@ export default function LocationPickerDialog({
                 <Input
                     className="flex-1"
                     value={query}
-                    placeholder="Search address…"
+                    placeholder="Search address or paste lat, lng…"
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -198,7 +220,7 @@ export default function LocationPickerDialog({
                 </ul>
             ) : null}
 
-            <LocationPickerMap lat={lat} lng={lng} onPick={onMapPick} />
+            <LocationPickerMap lat={lat} lng={lng} onPick={onMapPick} height={mapHeight} />
 
             <p className="mt-2 text-xs text-gray-500">
                 {resolving
@@ -210,8 +232,8 @@ export default function LocationPickerDialog({
                 <Button type="button" variant="plain" onClick={onClose}>
                     Cancel
                 </Button>
-                <Button type="button" variant="solid" onClick={confirm}>
-                    Use location
+                <Button type="button" variant="solid" loading={confirmLoading} onClick={confirm}>
+                    {confirmText}
                 </Button>
             </div>
         </Dialog>

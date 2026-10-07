@@ -19,6 +19,8 @@ import { SdFulfillmentService } from './sd-fulfillment.service'
 import { SdMmPipelineService } from './sd-mm-pipeline.service'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
+import { QuotationService } from './quotation.service'
+import { QuotationController } from './quotation.controller'
 
 @Module({
     imports: [forwardRef(() => MmModule), RetailModule],
@@ -28,6 +30,7 @@ import { SdMaterialReferenceController } from './sd-material-reference.controlle
         ProductController,
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
+        QuotationController,
     ],
     providers: [
         CustomerService,
@@ -43,7 +46,14 @@ import { SdMaterialReferenceController } from './sd-material-reference.controlle
         SdFulfillmentService,
         SdMmPipelineService,
         SdMaterialReferenceService,
+        QuotationService,
     ],
-    exports: [SalesOrderService, SdEventEmitterService, SdMmPipelineService],
+    exports: [
+        SalesOrderService,
+        SdEventEmitterService,
+        SdMmPipelineService,
+        CustomerService,
+        QuotationService,
+    ],
 })
 export class SdModule {}

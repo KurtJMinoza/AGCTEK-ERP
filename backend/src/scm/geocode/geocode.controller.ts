@@ -1,14 +1,5 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common'
-
-type NominatimSearchItem = {
-    lat: string
-    lon: string
-    display_name: string
-}
-
-type NominatimReverse = {
-    display_name?: string
-}
+import { GeocodeService } from './geocode.service'
 
 /**
  * Thin Nominatim proxy — avoids browser CORS and keeps User-Agent server-side.
@@ -16,6 +7,8 @@ type NominatimReverse = {
  */
 @Controller('scm/geocode')
 export class GeocodeController {
+    constructor(private readonly geocode: GeocodeService) {}
+
     @Get('search')
     async search(
         @Query('q') q?: string,
@@ -26,35 +19,7 @@ export class GeocodeController {
             throw new BadRequestException('q is required')
         }
         const take = Math.min(8, Math.max(1, Number(limit) || 5))
-
-        const url = new URL('https://nominatim.openstreetmap.org/search')
-        url.searchParams.set('q', query)
-        url.searchParams.set('format', 'json')
-        url.searchParams.set('limit', String(take))
-
-        const res = await fetch(url.toString(), {
-            headers: {
-                Accept: 'application/json',
-                'User-Agent': 'AGCTEK-ERP-SCM/1.0 (geocode-proxy)',
-            },
-        })
-        if (!res.ok) {
-            throw new BadRequestException('Address search failed')
-        }
-
-        const data = (await res.json()) as NominatimSearchItem[]
-        return {
-            data: data
-                .map((item) => ({
-                    lat: Number(item.lat),
-                    lng: Number(item.lon),
-                    displayName: item.display_name,
-                }))
-                .filter(
-                    (item) =>
-                        Number.isFinite(item.lat) && Number.isFinite(item.lng),
-                ),
-        }
+        return { data: await this.geocode.search(query, take) }
     }
 
     @Get('reverse')
@@ -64,25 +29,8 @@ export class GeocodeController {
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
             throw new BadRequestException('lat and lng are required')
         }
-
-        const url = new URL('https://nominatim.openstreetmap.org/reverse')
-        url.searchParams.set('lat', String(latitude))
-        url.searchParams.set('lon', String(longitude))
-        url.searchParams.set('format', 'json')
-
-        const res = await fetch(url.toString(), {
-            headers: {
-                Accept: 'application/json',
-                'User-Agent': 'AGCTEK-ERP-SCM/1.0 (geocode-proxy)',
-            },
-        })
-        if (!res.ok) {
-            throw new BadRequestException('Reverse geocode failed')
-        }
-
-        const data = (await res.json()) as NominatimReverse
         return {
-            displayName: data.display_name?.trim() || null,
+            displayName: await this.geocode.reverse(latitude, longitude),
             lat: latitude,
             lng: longitude,
         }
