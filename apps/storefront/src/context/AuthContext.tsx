@@ -8,12 +8,15 @@ import {
     type ReactNode,
 } from 'react'
 import { commerceApi } from '../api/client'
+import { CommerceApiError } from '../api/commerceApi'
 import { loadJson, removeKey, saveJson, STORAGE_KEYS } from '../api/storage'
 import type { Customer, ProfileUpdate, RegisterInput, SignInInput } from '../types'
 
 export type StorefrontSession = {
     customer: Customer
     signedInAt: string
+    /** Bearer token for account and checkout calls; sessions without one must sign in again. */
+    sessionToken: string | null
 }
 
 type AuthContextValue = {
@@ -37,7 +40,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let cancelled = false
         void loadJson<StorefrontSession>(STORAGE_KEYS.session)
             .then((stored) => {
-                if (!cancelled && stored?.customer?.customerId) setSession(stored)
+                if (cancelled || !stored?.customer?.customerId) return
+                commerceApi.setSessionToken(stored.sessionToken ?? null)
+                setSession({ ...stored, sessionToken: stored.sessionToken ?? null })
             })
             .finally(() => {
                 if (!cancelled) setLoading(false)
@@ -48,9 +53,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const startSession = useCallback(async (customer: Customer) => {
-        const next: StorefrontSession = { customer, signedInAt: new Date().toISOString() }
+        const next: StorefrontSession = {
+            customer,
+            signedInAt: new Date().toISOString(),
+            sessionToken: commerceApi.getSessionToken(),
+        }
         await saveJson(STORAGE_KEYS.session, next)
         setSession(next)
+    }, [])
+
+    const signOut = useCallback(async () => {
+        commerceApi.setSessionToken(null)
+        await removeKey(STORAGE_KEYS.session)
+        setSession(null)
     }, [])
 
     const signIn = useCallback(
@@ -66,18 +81,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updateProfile = useCallback(
         async (update: ProfileUpdate) => {
             if (!session) return
-            const customer = await commerceApi.updateProfile(session.customer.customerId, update)
-            const next = { ...session, customer }
-            await saveJson(STORAGE_KEYS.session, next)
-            setSession(next)
+            try {
+                const customer = await commerceApi.updateProfile(
+                    session.customer.customerId,
+                    update,
+                )
+                const next = { ...session, customer }
+                await saveJson(STORAGE_KEYS.session, next)
+                setSession(next)
+            } catch (error) {
+                if (error instanceof CommerceApiError && error.code === 'UNAUTHORIZED') {
+                    await signOut()
+                }
+                throw error
+            }
         },
-        [session],
+        [session, signOut],
     )
-
-    const signOut = useCallback(async () => {
-        await removeKey(STORAGE_KEYS.session)
-        setSession(null)
-    }, [])
 
     const value = useMemo<AuthContextValue>(
         () => ({

@@ -2,6 +2,11 @@ import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError as toError } from './apiError'
 import type { PricedLine } from './pricingEngine'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
+import {
+    RetailSessionExpiredError,
+    bearer,
+    isSessionRejected,
+} from '@/services/storefront/retailClientService'
 
 export type SalesOrderChannel = 'POS' | 'E-commerce' | 'Standard'
 export type SalesOrderStatus =
@@ -211,6 +216,7 @@ export type MarketplaceCheckoutInput = {
  */
 export async function createMarketplaceCheckout(
     input: MarketplaceCheckoutInput,
+    sessionToken: string,
 ): Promise<SalesOrderRecord> {
     try {
         const { data } = await ErpAxiosBase.post<{ order: ApiSalesOrder }>(
@@ -227,12 +233,14 @@ export async function createMarketplaceCheckout(
                     lineTotal: line.lineTotal,
                 })),
             },
+            { headers: bearer(sessionToken) },
         )
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event(SALES_ORDER_RECORDED_EVENT))
         }
         return toRecord(data.order)
     } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
         throw toError(error, 'Unable to place your order')
     }
 }

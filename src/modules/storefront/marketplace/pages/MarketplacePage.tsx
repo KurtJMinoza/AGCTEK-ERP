@@ -182,8 +182,11 @@ const MarketplacePage = () => {
     }, [catalog.records])
 
     const storeCards = useMemo(
-        () => storeCardsFromCatalog(catalog.records),
-        [catalog.records],
+        () =>
+            storeCardsFromCatalog(catalog.records).filter(
+                (card) => (storeCounts.get(card.id) ?? 0) > 0,
+            ),
+        [catalog.records, storeCounts],
     )
 
     const browse = (query: Parameters<typeof productsHref>[0] = {}) =>
@@ -255,26 +258,28 @@ const MarketplacePage = () => {
                 </div>
 
                 <div className="space-y-16 pt-16">
-                    <section aria-labelledby="official-stores-heading">
-                        <div className="mb-6">
-                            <h2
-                                id="official-stores-heading"
-                                className={SECTION_TITLE}
-                            >
-                                Explore Official Brand Stores
-                            </h2>
-                            <p className={SECTION_SUBTITLE}>
-                                Shop directly from AGC&apos;s verified
-                                companies.
-                            </p>
-                        </div>
-                        <MarketplaceOfficialStores
-                            stores={storeCards}
-                            counts={storeCounts}
-                            activeStoreId={null}
-                            onSelect={shopStore}
-                        />
-                    </section>
+                    {storeCards.length > 0 ? (
+                        <section aria-labelledby="official-stores-heading">
+                            <div className="mb-6">
+                                <h2
+                                    id="official-stores-heading"
+                                    className={SECTION_TITLE}
+                                >
+                                    Explore Official Brand Stores
+                                </h2>
+                                <p className={SECTION_SUBTITLE}>
+                                    Shop directly from AGC&apos;s verified
+                                    companies.
+                                </p>
+                            </div>
+                            <MarketplaceOfficialStores
+                                stores={storeCards}
+                                counts={storeCounts}
+                                activeStoreId={null}
+                                onSelect={shopStore}
+                            />
+                        </section>
+                    ) : null}
 
                     <section aria-labelledby="categories-heading">
                         <div className="mb-6">

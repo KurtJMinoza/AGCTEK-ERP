@@ -10,7 +10,7 @@ import {
     useState,
     type ReactNode,
 } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { HiOutlineCheckCircle } from 'react-icons/hi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Button from '@/components/ui/Button'
@@ -29,16 +29,20 @@ import {
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import { newIdempotencyKey } from '@/modules/sd/services/salesOrderDashboardService'
-import type { RetailClientProfile } from '@/services/storefront/retailClientService'
+import {
+    RetailSessionExpiredError,
+    type RetailClientProfile,
+} from '@/services/storefront/retailClientService'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
-import StorefrontAccountDialog from '@/modules/storefront/shared/components/StorefrontAccountDialog'
 import StorefrontOrdersDrawer from '@/modules/storefront/shared/components/StorefrontOrdersDrawer'
 import MarketplaceCartDrawer from './components/MarketplaceCartDrawer'
+import MarketplaceAuthDialog, {
+    type MarketplaceAuthMode,
+} from './components/MarketplaceAuthDialog'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
-import { productHref } from './host'
+import { MARKETPLACE_ACCOUNT_PATH, productHref, safeReturnPath } from './host'
 import {
-    MARKETPLACE_NAME,
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
     SellerTag,
@@ -50,6 +54,8 @@ import { useMarketplaceClientStore } from './store/useMarketplaceClientStore'
 import { useMarketplaceFavoritesStore } from './store/useMarketplaceFavoritesStore'
 
 const DANGER_BUTTON = () => 'bg-red-500 hover:bg-red-600 text-white'
+
+const NO_ITEMS: never[] = []
 
 type PendingAdd = {
     product: SdProductRecord
@@ -67,7 +73,7 @@ type MarketplaceContextValue = {
     quantityByKey: Map<string, number>
     favorites: Set<string>
     toggleFavorite: (key: string) => void
-    /** Every add-to-cart: sign in first, then confirm before the cart changes. */
+    /** Every add-to-cart is confirmed first; guests may add, sign-in is required at checkout. */
     requestAdd: (
         product: SdProductRecord,
         quantity?: number,
@@ -114,9 +120,10 @@ export const notify = (
  */
 const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const catalog = useMarketplaceProducts()
 
-    const items = useMarketplaceCartStore((s) => s.items)
+    const storedItems = useMarketplaceCartStore((s) => s.items)
     const isCartOpen = useMarketplaceCartStore((s) => s.isDrawerOpen)
     const openCart = useMarketplaceCartStore((s) => s.openDrawer)
     const closeCart = useMarketplaceCartStore((s) => s.closeDrawer)
@@ -127,8 +134,9 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const syncCatalog = useMarketplaceCartStore((s) => s.syncCatalog)
 
     const client = useMarketplaceClientStore((s) => s.client)
-    const openLogin = useMarketplaceClientStore((s) => s.openLogin)
-    const isLoginOpen = useMarketplaceClientStore((s) => s.isLoginOpen)
+    const token = useMarketplaceClientStore((s) => s.token)
+    const logout = useMarketplaceClientStore((s) => s.logout)
+    const pathname = usePathname()
 
     const favoriteKeys = useMarketplaceFavoritesStore((s) => s.keys)
     const toggleFavorite = useMarketplaceFavoritesStore((s) => s.toggle)
@@ -148,33 +156,91 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     } | null>(null)
     const [confirmClearOpen, setConfirmClearOpen] = useState(false)
     const [ordersOpen, setOrdersOpen] = useState(false)
+    const [authMode, setAuthMode] = useState<MarketplaceAuthMode | null>(null)
+    const [authReturnPath, setAuthReturnPath] = useState<string | null>(null)
     const [afterSignIn, setAfterSignIn] = useState<
-        'checkout' | 'orders' | 'add' | null
+        'checkout' | 'orders' | null
     >(null)
-    /** Add-to-cart awaiting sign-in (`afterSignIn === 'add'`) or confirmation. */
+    /** Add-to-cart awaiting confirmation. */
     const [requestedAdd, setRequestedAdd] = useState<PendingAdd | null>(null)
-    const [confirmingAdd, setConfirmingAdd] = useState(false)
     const checkoutIdRef = useRef<string | null>(null)
 
     useEffect(() => setHydrated(true), [])
     const signedInClient = hydrated ? client : null
+    const sessionToken = hydrated ? token : null
+    const items = hydrated ? storedItems : NO_ITEMS
 
     useEffect(() => {
         if (catalog.ready) syncCatalog(catalog.records)
     }, [catalog.ready, catalog.records, syncCatalog])
 
+    /** Open the one marketplace auth modal; it resumes the protected action after sign-in. */
+    const openAuth = useCallback(
+        (
+            intent: 'checkout' | 'orders' | null,
+            mode: MarketplaceAuthMode = 'sign-in',
+        ) => {
+            setAfterSignIn(intent)
+            setAuthReturnPath(null)
+            closeCart()
+            setAuthMode(mode)
+        },
+        [closeCart],
+    )
+
+    const closeAuth = useCallback(() => {
+        setAuthMode(null)
+        setAfterSignIn(null)
+        setAuthReturnPath(null)
+    }, [])
+
+    /** Legacy auth links land on the storefront and open the same modal. */
     useEffect(() => {
-        if (!afterSignIn) return
-        if (signedInClient) {
-            if (afterSignIn === 'checkout') setCheckoutOpen(true)
-            else if (afterSignIn === 'add') setConfirmingAdd(true)
-            else setOrdersOpen(true)
-            setAfterSignIn(null)
-        } else if (!isLoginOpen) {
-            if (afterSignIn === 'add') setRequestedAdd(null)
-            setAfterSignIn(null)
-        }
-    }, [afterSignIn, signedInClient, isLoginOpen])
+        const requestedMode = searchParams.get('auth')
+        if (requestedMode !== 'sign-in' && requestedMode !== 'sign-up') return
+
+        setAuthMode(requestedMode)
+        setAuthReturnPath(safeReturnPath(searchParams.get('next')))
+
+        const params = new URLSearchParams(searchParams.toString())
+        params.delete('auth')
+        params.delete('next')
+        const query = params.toString()
+        router.replace(query ? `${pathname}?${query}` : pathname, {
+            scroll: false,
+        })
+    }, [pathname, router, searchParams])
+
+    useEffect(() => {
+        if (!afterSignIn || !signedInClient) return
+        if (afterSignIn === 'checkout') setCheckoutOpen(true)
+        else setOrdersOpen(true)
+        setAfterSignIn(null)
+        setAuthReturnPath(null)
+    }, [afterSignIn, signedInClient])
+
+    const handleAuthenticated = useCallback(
+        (mode: MarketplaceAuthMode) => {
+            setAuthMode(null)
+            notify(
+                'success',
+                mode === 'sign-in' ? 'Welcome back' : 'Account created',
+                mode === 'sign-in'
+                    ? 'You are now signed in.'
+                    : 'Add your phone number and delivery addresses in My Account.',
+            )
+            if (afterSignIn) return
+
+            const returnPath = authReturnPath
+            setAuthReturnPath(null)
+            if (returnPath && returnPath !== pathname) {
+                router.replace(returnPath)
+            } else if (mode === 'sign-up') {
+                router.push(MARKETPLACE_ACCOUNT_PATH)
+            }
+        },
+        [afterSignIn, authReturnPath, pathname, router],
+    )
 
     useEffect(() => {
         if (!signedInClient) setOrdersOpen(false)
@@ -270,8 +336,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             setCheckoutOpen(true)
             return
         }
-        setAfterSignIn('checkout')
-        openLogin()
+        openAuth('checkout')
     }
 
     const openOrders = useCallback(() => {
@@ -279,27 +344,33 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             setOrdersOpen(true)
             return
         }
-        setAfterSignIn('orders')
-        openLogin()
-    }, [signedInClient, openLogin])
+        openAuth('orders')
+    }, [signedInClient, openAuth])
+
+    const openAccount = useCallback(() => {
+        if (signedInClient) router.push(MARKETPLACE_ACCOUNT_PATH)
+        else openAuth(null)
+    }, [signedInClient, router, openAuth])
 
     const placeOrder = async (shipping: SalesOrderShippingDetails) => {
         setPendingShipping(null)
-        if (!signedInClient) {
+        if (!signedInClient || !sessionToken) {
             setCheckoutOpen(false)
-            setAfterSignIn('checkout')
-            openLogin()
+            openAuth('checkout')
             return
         }
         setSubmitting(true)
         try {
-            const result = await processEcommerceOrder({
-                checkoutId: checkoutIdRef.current ?? undefined,
-                customerId: signedInClient.customerId,
-                items: pricingItems,
-                shipping,
-                discountCode: promoCode ?? undefined,
-            })
+            const result = await processEcommerceOrder(
+                {
+                    checkoutId: checkoutIdRef.current ?? undefined,
+                    customerId: signedInClient.customerId,
+                    items: pricingItems,
+                    shipping,
+                    discountCode: promoCode ?? undefined,
+                },
+                sessionToken,
+            )
             checkoutIdRef.current = null
             clearCart()
             setPromoCode(null)
@@ -307,6 +378,13 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             closeCart()
             setPlacedOrder(result)
         } catch (error) {
+            if (error instanceof RetailSessionExpiredError) {
+                logout()
+                setCheckoutOpen(false)
+                notify('danger', 'Please sign in again', error.message)
+                openAuth('checkout')
+                return
+            }
             notify(
                 'danger',
                 'Order not placed',
@@ -318,25 +396,15 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const requestAdd = useCallback(
-        (product: SdProductRecord, quantity = 1, buyNow = false) => {
-            setRequestedAdd({ product, quantity, buyNow })
-            if (signedInClient) {
-                setConfirmingAdd(true)
-                return
-            }
-            setAfterSignIn('add')
-            openLogin()
-        },
-        [signedInClient, openLogin],
+        (product: SdProductRecord, quantity = 1, buyNow = false) =>
+            setRequestedAdd({ product, quantity, buyNow }),
+        [],
     )
 
-    const cancelAdd = () => {
-        setConfirmingAdd(false)
-        setRequestedAdd(null)
-    }
+    const cancelAdd = () => setRequestedAdd(null)
 
     const confirmAdd = () => {
-        if (!requestedAdd || !signedInClient) return cancelAdd()
+        if (!requestedAdd) return
         const { product, quantity, buyNow } = requestedAdd
         addItem(product, quantity)
         cancelAdd()
@@ -348,14 +416,9 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const increaseItem = useCallback(
-        (product: SdProductRecord, quantity: number) => {
-            if (signedInClient) {
-                updateQuantity(productKey(product), quantity + 1)
-            } else {
-                requestAdd(product)
-            }
-        },
-        [signedInClient, updateQuantity, requestAdd],
+        (product: SdProductRecord, quantity: number) =>
+            updateQuantity(productKey(product), quantity + 1),
+        [updateQuantity],
     )
 
     const openProduct = useCallback(
@@ -410,7 +473,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         requestAdd,
         openCart,
         openOrders,
-        openAccount: openLogin,
+        openAccount,
         openProduct,
         renderCard,
     }
@@ -419,8 +482,15 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         <MarketplaceContext.Provider value={value}>
             {children}
 
+            <MarketplaceAuthDialog
+                isOpen={authMode !== null}
+                initialMode={authMode ?? 'sign-in'}
+                onClose={closeAuth}
+                onAuthenticated={handleAuthenticated}
+            />
+
             <ConfirmDialog
-                isOpen={confirmingAdd && requestedAdd !== null}
+                isOpen={requestedAdd !== null}
                 type="info"
                 title={requestedAdd?.buyNow ? 'Buy this now?' : 'Add to cart?'}
                 confirmText={
@@ -435,9 +505,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             >
                 {requestedAdd ? (
                     <div className="flex flex-col gap-2 text-sm">
-                        <SellerTag
-                            product={requestedAdd.product}
-                        />
+                        <SellerTag product={requestedAdd.product} />
                         <p className="font-semibold text-gray-900">
                             {requestedAdd.product.name}
                         </p>
@@ -640,22 +708,14 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 renderOrderTag={(order) => (
                     <span className="flex flex-wrap gap-1">
                         {order.divisionIds.map((divisionId) => (
-                            <SellerTag key={divisionId} divisionId={divisionId} />
+                            <SellerTag
+                                key={divisionId}
+                                divisionId={divisionId}
+                            />
                         ))}
                     </span>
                 )}
                 onClose={() => setOrdersOpen(false)}
-            />
-
-            <StorefrontAccountDialog
-                useClientStore={useMarketplaceClientStore}
-                storeName={MARKETPLACE_NAME}
-                accentButtonClass={PRIMARY_BUTTON}
-                accentIconClass="bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/30"
-                accentTabClass="hover:!text-emerald-700 aria-selected:!border-emerald-600 aria-selected:!text-emerald-700"
-                accentHeaderClass="!border-emerald-100/70 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60"
-                accentInputClass="focus:!border-emerald-500 focus:!ring-emerald-500"
-                formId="marketplace-account-form"
             />
         </MarketplaceContext.Provider>
     )
