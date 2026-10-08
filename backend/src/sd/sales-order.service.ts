@@ -3,6 +3,7 @@ import {
     BadRequestException,
     ConflictException,
     NotFoundException,
+    UnauthorizedException,
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -334,7 +335,10 @@ export class SalesOrderService {
      * Idempotent on `idempotencyKey`. Totals are re-verified server-side; no MM
      * events are emitted until retail SKUs are mapped to MM-01 materials.
      */
-    async createRetail(dto: CreateRetailSalesOrderDto) {
+    async createRetail(
+        dto: CreateRetailSalesOrderDto,
+        sessionClientId: string | null = null,
+    ) {
         const existing = await this.prisma.sdSalesOrder.findUnique({
             where: { idempotencyKey: dto.idempotencyKey },
             include: { lines: { orderBy: { lineNumber: 'asc' } } },
@@ -353,6 +357,7 @@ export class SalesOrderService {
             dto.channel,
             [dto.divisionId],
             dto.customerId,
+            sessionClientId,
         )
 
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -407,7 +412,10 @@ export class SalesOrderService {
      * carries its own `divisionId` and MM splits fulfillment downstream. The
      * header `divisionId` stays null. Idempotent on `checkoutId`.
      */
-    async createMarketplaceCheckout(dto: CreateMarketplaceCheckoutDto) {
+    async createMarketplaceCheckout(
+        dto: CreateMarketplaceCheckoutDto,
+        sessionClientId: string | null = null,
+    ) {
         const master: RetailOrderInput = {
             channel: 'ECOMMERCE',
             idempotencyKey: dto.checkoutId,
@@ -438,6 +446,7 @@ export class SalesOrderService {
             master.channel,
             dto.cartItems.map((line) => line.divisionId),
             dto.customerId,
+            sessionClientId,
         )
 
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -735,12 +744,18 @@ export class SalesOrderService {
         channel: RetailOrderInput['channel'],
         divisionIds: readonly string[],
         customerId: string,
+        sessionClientId: string | null,
     ) {
         if (
             channel !== 'ECOMMERCE' ||
             !divisionIds.some((id) => SIGNED_IN_ECOMMERCE_DIVISIONS.has(id))
         ) {
             return null
+        }
+        if (!sessionClientId || sessionClientId !== customerId) {
+            throw new UnauthorizedException(
+                'Please sign in to your account before placing an order.',
+            )
         }
         try {
             return await this.retailClients.getProfile(customerId)

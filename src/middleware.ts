@@ -13,6 +13,9 @@ import appConfig, { resolveErpApiBaseUrl } from '@/configs/app.config'
 import {
     MARKETPLACE_PATH,
     MARKETPLACE_PRODUCTS_PATH,
+    MARKETPLACE_ACCOUNT_PATH,
+    MARKETPLACE_SIGN_IN_PATH,
+    MARKETPLACE_SIGN_UP_PATH,
     isMarketplaceHost,
     isMarketplaceProductPath,
 } from '@/modules/storefront/marketplace/host'
@@ -91,11 +94,14 @@ export default auth(async (req) => {
             return
         }
 
-        const productsPage = MARKETPLACE_PRODUCTS_PATH.slice(
-            MARKETPLACE_PATH.length,
-        )
+        const shopPages = [
+            MARKETPLACE_PRODUCTS_PATH,
+            MARKETPLACE_ACCOUNT_PATH,
+            MARKETPLACE_SIGN_IN_PATH,
+            MARKETPLACE_SIGN_UP_PATH,
+        ].map((page) => page.slice(MARKETPLACE_PATH.length))
         const isShopPage = (shopPath: string) =>
-            shopPath === productsPage || isMarketplaceProductPath(shopPath)
+            shopPages.includes(shopPath) || isMarketplaceProductPath(shopPath)
 
         if (
             path === MARKETPLACE_PATH ||

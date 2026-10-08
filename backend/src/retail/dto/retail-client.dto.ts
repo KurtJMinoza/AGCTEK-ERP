@@ -1,51 +1,45 @@
 import {
     IsArray,
     IsEmail,
+    IsIn,
     IsInt,
     IsObject,
     IsOptional,
     IsString,
+    Matches,
+    MaxLength,
     Min,
     MinLength,
     ValidateNested,
 } from 'class-validator'
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
+
+const PHILIPPINE_MOBILE = /^(?:\+63|0)9\d{9}$/
+const normalizeMobile = (value: unknown) =>
+    typeof value === 'string' ? value.trim().replace(/[\s()-]/g, '') : value
 
 export class RetailRegisterDto {
+    @Transform(({ value }) =>
+        typeof value === 'string' ? value.trim().toLowerCase() : value,
+    )
     @IsEmail()
     email!: string
 
     @IsString()
-    @MinLength(6)
+    @MinLength(8, { message: 'Password must be at least 8 characters.' })
+    @MaxLength(72, { message: 'Password must be at most 72 characters.' })
+    @Matches(/^(?=.*[A-Za-z])(?=.*\d)/, {
+        message: 'Password must include at least one letter and one number.',
+    })
     password!: string
 
+    @Transform(({ value }) =>
+        typeof value === 'string' ? value.trim() : value,
+    )
     @IsString()
     @MinLength(1)
-    fullName!: string
-
-    @IsString()
-    @MinLength(1)
-    phone!: string
-
-    @IsString()
-    @MinLength(1)
-    addressLine1!: string
-
-    @IsString()
-    @MinLength(1)
-    city!: string
-
-    @IsString()
-    @MinLength(1)
-    region!: string
-
-    @IsString()
-    @MinLength(1)
-    postalCode!: string
-
-    @IsOptional()
-    @IsString()
-    country?: string
+    @MaxLength(120)
+    firstName!: string
 }
 
 export class RetailLoginDto {
@@ -54,42 +48,27 @@ export class RetailLoginDto {
 
     @IsString()
     @MinLength(1)
+    @MaxLength(128)
     password!: string
 }
 
 export class RetailUpdateProfileDto {
+    @IsOptional()
+    @Transform(({ value }) =>
+        typeof value === 'string' ? value.trim() : value,
+    )
     @IsString()
     @MinLength(1)
-    clientId!: string
+    @MaxLength(120)
+    firstName?: string
 
     @IsOptional()
+    @Transform(({ value }) => normalizeMobile(value))
     @IsString()
-    @MinLength(1)
-    fullName?: string
-
-    @IsOptional()
-    @IsString()
+    @Matches(PHILIPPINE_MOBILE, {
+        message: 'Enter a valid Philippine mobile number.',
+    })
     phone?: string
-
-    @IsOptional()
-    @IsString()
-    addressLine1?: string
-
-    @IsOptional()
-    @IsString()
-    city?: string
-
-    @IsOptional()
-    @IsString()
-    region?: string
-
-    @IsOptional()
-    @IsString()
-    postalCode?: string
-
-    @IsOptional()
-    @IsString()
-    country?: string
 }
 
 export class RetailCartItemDto {
@@ -106,10 +85,6 @@ export class RetailCartItemDto {
 }
 
 export class RetailReplaceCartDto {
-    @IsString()
-    @MinLength(1)
-    clientId!: string
-
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => RetailCartItemDto)

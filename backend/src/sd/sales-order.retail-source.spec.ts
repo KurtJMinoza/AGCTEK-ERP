@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { CreateRetailSalesOrderDto } from './dto/sales-order.dto'
@@ -68,9 +69,20 @@ describe('SalesOrderService retail order source', () => {
 
     it('stamps website orders with channel ECOMMERCE / source WEBSITE and no CRM link', async () => {
         const { prisma, service } = setup()
-        await service.createRetail(retailOrder({ channel: 'ECOMMERCE' }))
+        await service.createRetail(retailOrder({ channel: 'ECOMMERCE' }), 'client-1')
         const data = prisma.sdSalesOrder.create.mock.calls[0][0].data
         expect(data).toMatchObject({ channel: 'ECOMMERCE', source: 'WEBSITE' })
         expect(data.crmOpportunityId).toBeUndefined()
+    })
+
+    it('rejects website orders without a session for the ordering customer', async () => {
+        const { prisma, service } = setup()
+        await expect(
+            service.createRetail(retailOrder({ channel: 'ECOMMERCE' })),
+        ).rejects.toBeInstanceOf(UnauthorizedException)
+        await expect(
+            service.createRetail(retailOrder({ channel: 'ECOMMERCE' }), 'someone-else'),
+        ).rejects.toBeInstanceOf(UnauthorizedException)
+        expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
     })
 })

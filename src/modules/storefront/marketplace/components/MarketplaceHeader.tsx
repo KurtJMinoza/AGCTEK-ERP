@@ -124,7 +124,8 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                     >
                         <span className="hidden max-w-[8rem] truncate text-sm font-medium lg:inline">
                             {signedInClient
-                                ? signedInClient.fullName.split(' ')[0]
+                                ? signedInClient.firstName ||
+                                  signedInClient.fullName.split(' ')[0]
                                 : 'Sign in'}
                         </span>
                     </Button>

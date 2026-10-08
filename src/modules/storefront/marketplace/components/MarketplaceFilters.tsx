@@ -6,11 +6,11 @@ import Checkbox from '@/components/ui/Checkbox'
 export type FilterOption = { value: string; label: string; count: number }
 
 type MarketplaceFiltersProps = {
-    stores: FilterOption[]
+    companies: FilterOption[]
     categories: FilterOption[]
-    selectedStores: string[]
+    selectedCompanies: string[]
     selectedCategories: string[]
-    onStoresChange: (values: string[]) => void
+    onCompaniesChange: (values: string[]) => void
     onCategoriesChange: (values: string[]) => void
     onReset: () => void
 }
@@ -57,30 +57,30 @@ const FilterSection = ({
 
 /** Left-hand marketplace filters. Nothing ticked in a section means "all". */
 const MarketplaceFilters = ({
-    stores,
+    companies,
     categories,
-    selectedStores,
+    selectedCompanies,
     selectedCategories,
-    onStoresChange,
+    onCompaniesChange,
     onCategoriesChange,
     onReset,
 }: MarketplaceFiltersProps) => (
     <div className="flex flex-col gap-8">
         <FilterSection
             title="Shop by Company"
-            options={stores}
-            selected={selectedStores}
-            onChange={onStoresChange}
-            emptyText="No stores yet."
+            options={companies}
+            selected={selectedCompanies}
+            onChange={onCompaniesChange}
+            emptyText="No companies have published products yet."
         />
         <FilterSection
             title="Category"
             options={categories}
             selected={selectedCategories}
             onChange={onCategoriesChange}
-            emptyText="No categories for these stores."
+            emptyText="No categories for the current company and store filters."
         />
-        {selectedStores.length > 0 || selectedCategories.length > 0 ? (
+        {selectedCompanies.length > 0 || selectedCategories.length > 0 ? (
             <Button
                 size="sm"
                 variant="plain"
