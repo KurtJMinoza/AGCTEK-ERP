@@ -63,6 +63,7 @@ import { supplierInvoiceToSlip } from '@/modules/mm/three-way-match/utils/suppli
 import type { SupplierInvoiceSlipData } from '@/modules/mm/three-way-match/components/SupplierInvoiceSlip'
 import type { GoodsReceipt } from '@/modules/mm/inventory/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { required, positiveNumber, firstError, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 
@@ -102,6 +103,7 @@ const PurchaseOrderDetailPage = () => {
     const params = useParams()
     const router = useRouter()
     const id = params?.id as string
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [po, setPo] = useState<MmPurchaseOrder | null>(null)
     const [loading, setLoading] = useState(true)
@@ -769,7 +771,7 @@ const PurchaseOrderDetailPage = () => {
             id: 'actions',
             header: '',
             size: 80,
-            cell: ({ row }) => (
+            cell: ({ row }) => canDelete && (
                 <Button
                     size="xs"
                     variant="plain"
@@ -787,7 +789,7 @@ const PurchaseOrderDetailPage = () => {
                 </Button>
             ),
         },
-    ], [id])
+    ], [id, canDelete])
 
     const breadcrumbItems = useMemo(
         () =>
@@ -831,7 +833,7 @@ const PurchaseOrderDetailPage = () => {
 
     const lifecycleActions = (
         <div className="flex flex-wrap items-center gap-2">
-            {canEditPoHeader && (
+            {canUpdate && canEditPoHeader && (
                 <Button size="sm" icon={<HiOutlineDocumentText />} onClick={() => void openHeaderEdit()}>
                     Edit draft
                 </Button>
@@ -1277,16 +1279,18 @@ const PurchaseOrderDetailPage = () => {
 
                         {tab === 'attachments' && (
                             <div className="space-y-4">
-                                <div className="flex justify-end">
-                                    <Button size="sm" icon={<HiOutlinePlus />} onClick={() => {
-                                        setAttachForm({ fileName: '', fileUrl: '' })
-                                        setAttachTouched({})
-                                        setAttachForce(false)
-                                        setAttachOpen(true)
-                                    }}>
-                                        Add Attachment
-                                    </Button>
-                                </div>
+                                {canCreate && (
+                                    <div className="flex justify-end">
+                                        <Button size="sm" icon={<HiOutlinePlus />} onClick={() => {
+                                            setAttachForm({ fileName: '', fileUrl: '' })
+                                            setAttachTouched({})
+                                            setAttachForce(false)
+                                            setAttachOpen(true)
+                                        }}>
+                                            Add Attachment
+                                        </Button>
+                                    </div>
+                                )}
                                 <DataTable<MmPurchaseOrderAttachment>
                                     columns={attachColumns}
                                     data={attachments}

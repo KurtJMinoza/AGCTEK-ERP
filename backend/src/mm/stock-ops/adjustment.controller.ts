@@ -9,8 +9,11 @@ import {
 import { AdjustmentService } from './adjustment.service'
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('inventory-control', 'adjustment-approval'), ...mmFeatures('inventory-management', 'inventory-adjustments')]
 
 @Controller('mm/adjustments')
 export class AdjustmentController {
@@ -53,11 +56,13 @@ export class AdjustmentController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: StockOpsQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }

@@ -117,7 +117,7 @@ describe('CrmOpportunityHandoffService.win', () => {
         expect(opportunities.assertCanWin).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'opp-1', stage: 'NEGOTIATION' }),
         )
-        expect(permissions.assertPermission).toHaveBeenCalledWith({ role: 'sales' }, 'sd', 'create')
+        expect(permissions.assertPermission).toHaveBeenCalledWith({ role: 'sales' }, 'sd.sales-orders', 'create')
         expect(prisma.$transaction).toHaveBeenCalledTimes(1)
         expect(salesOrders.createFromCrmOpportunity).toHaveBeenCalledWith(
             {
@@ -540,15 +540,15 @@ describe('CrmOpportunityHandoffService.salesOrder', () => {
 describe('Opportunity sales-order routes RBAC', () => {
     const proto = CrmOpportunitiesController.prototype
 
-    it('reads with crm:read; wins and retries with crm:update', () => {
+    it('reads with crm.opportunities:read; wins and retries with crm.opportunities:update', () => {
         expect(Reflect.getMetadata(PERMISSION_KEY, proto.salesOrder)).toEqual({
-            module: 'crm',
+            resource: 'crm.opportunities',
             action: 'read',
         })
-        expect(Reflect.getMetadata(PERMISSION_KEY, proto.quotations)).toEqual({ module: 'crm', action: 'read' })
+        expect(Reflect.getMetadata(PERMISSION_KEY, proto.quotations)).toEqual({ resource: 'crm.opportunities', action: 'read' })
         for (const handler of [proto.win, proto.createSalesOrder, proto.createQuotation]) {
             expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({
-                module: 'crm',
+                resource: 'crm.opportunities',
                 action: 'update',
             })
         }

@@ -22,6 +22,7 @@ import {
 import { ProductService } from './product.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
+import { RequirePermission } from '../permissions/permission.guard'
 
 /**
  * Reads a product payload sent either as JSON or as multipart/form-data with a
@@ -88,6 +89,7 @@ export class ProductController {
 
     /** Multipart upload (field `file`); returns `{ imageUrl }` to save on the product. */
     @Post('images')
+    @RequirePermission('sd.product-catalog', 'create')
     async uploadImage(@Req() req: FastifyRequest) {
         let buffer: Buffer | null = null
         for await (const part of req.parts()) {
@@ -98,6 +100,7 @@ export class ProductController {
 
     /** Multipart upload (field `file`); returns `{ videoUrl }` for `attributes.videos`. */
     @Post('videos')
+    @RequirePermission('sd.product-catalog', 'create')
     async uploadVideo(@Req() req: FastifyRequest) {
         let buffer: Buffer | null = null
         for await (const part of req.parts({
@@ -109,6 +112,7 @@ export class ProductController {
     }
 
     @Get('suggested-sku')
+    @RequirePermission('sd.product-catalog', 'read')
     suggestedSku(@Query('divisionId') divisionId: string) {
         return this.products.suggestSku(divisionId)
     }
@@ -126,6 +130,7 @@ export class ProductController {
     }
 
     @Get(':id/availability')
+    @RequirePermission(['sd.product-catalog', 'sd.pos', 'sd.sales-orders'], 'read')
     availability(
         @Param('id') id: string,
         @Query('companyId') companyId: string,
@@ -150,12 +155,14 @@ export class ProductController {
     }
 
     @Post()
+    @RequirePermission('sd.product-catalog', 'create')
     create(@Body() dto: CreateProductDto) {
         return this.products.create(dto)
     }
 
     /** JSON, or multipart with `data` (JSON) + optional `image` and `gallery` files. */
     @Patch(':id')
+    @RequirePermission('sd.product-catalog', 'update')
     async update(@Param('id') id: string, @Req() req: FastifyRequest) {
         const { dto, image, gallery } = await readProductPayload(
             req,
@@ -165,6 +172,7 @@ export class ProductController {
     }
 
     @Delete(':id')
+    @RequirePermission('sd.product-catalog', 'delete')
     remove(@Param('id') id: string) {
         return this.products.remove(id)
     }

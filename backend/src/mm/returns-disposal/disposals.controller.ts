@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common'
 import { DisposalService } from './disposal.service'
 import { DamagedExpiredQueryService } from './damaged-expired-query.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CreateDisposalDto,
@@ -20,6 +20,9 @@ import {
     ActionDto,
     CreateFromBalancesDto,
 } from './dto/returns-disposal.dto'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('returns-disposal', 'customer-return-intake', 'damaged-stock', 'disposal', 'expired-stock', 'scrap', 'supplier-returns')
 
 @Controller('mm/disposals')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -30,6 +33,7 @@ export class DisposalsController {
     ) {}
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: DisposalQueryDto) {
         return this.disposalService.findAll(query)
     }
@@ -47,11 +51,13 @@ export class DisposalsController {
     }
 
     @Get(':id')
+    @MmRead(READERS)
     get(@Param('id') id: string) {
         return this.disposalService.findOne(id)
     }
 
     @Patch(':id')
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'), 'update')
     update(@Param('id') id: string, @Body() dto: UpdateDisposalDto) {
         return this.disposalService.update(id, dto)
     }

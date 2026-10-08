@@ -5,8 +5,11 @@ import {
     UpdateQuotationScoresDto,
 } from './dto/create-quotation.dto'
 import { QuotationQueryDto } from './dto/rfq-query.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('procurement', 'quotation-comparison', 'supplier-quotations')
 
 @Controller('mm/supplier-quotations')
 export class QuotationController {
@@ -19,11 +22,13 @@ export class QuotationController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: QuotationQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }

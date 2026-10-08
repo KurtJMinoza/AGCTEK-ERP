@@ -19,6 +19,7 @@ import TrackingUnitCallout from '../components/tracking/TrackingUnitCallout'
 import { useFleetTracking } from '../hooks/useFleetTracking'
 import { useFocusedVehicleTrail } from '../hooks/useFocusedVehicleTrail'
 import { useGeofences } from '../hooks/useGeofences'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { scmPageBreadcrumbs } from '../utils/breadcrumbs'
 import { computeTrackingMetrics } from '../utils/trackingMetrics'
 import type { GeofenceZone } from '../utils/geofences'
@@ -57,6 +58,7 @@ export default function TrackingPage() {
     } = useFleetTracking()
 
     const geofences = useGeofences()
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
     const { history } = useFocusedVehicleTrail(selectedVehicleId, liveTrail)
     const [centerRequest, setCenterRequest] = useState(0)
     const [drawing, setDrawing] = useState(false)
@@ -104,13 +106,15 @@ export default function TrackingPage() {
                 breadcrumbs={scmPageBreadcrumbs('Tracking')}
                 actions={
                     <div className="flex flex-wrap gap-2">
-                        <Button
-                            size="sm"
-                            variant={drawing && !editing ? 'solid' : undefined}
-                            onClick={startAdd}
-                        >
-                            Add hub / geofence
-                        </Button>
+                        {canCreate && (
+                            <Button
+                                size="sm"
+                                variant={drawing && !editing ? 'solid' : undefined}
+                                onClick={startAdd}
+                            >
+                                Add hub / geofence
+                            </Button>
+                        )}
                         <Button
                             size="sm"
                             loading={loading}
@@ -233,24 +237,28 @@ export default function TrackingPage() {
                                             className="flex shrink-0 gap-1"
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            <Button
-                                                size="xs"
-                                                onClick={() => startEdit(zone)}
-                                            >
-                                                Edit
-                                            </Button>
-                                            <Button
-                                                size="xs"
-                                                variant="plain"
-                                                className="text-red-600"
-                                                onClick={() =>
-                                                    void geofences.remove(
-                                                        zone.id,
-                                                    )
-                                                }
-                                            >
-                                                Del
-                                            </Button>
+                                            {canUpdate && (
+                                                <Button
+                                                    size="xs"
+                                                    onClick={() => startEdit(zone)}
+                                                >
+                                                    Edit
+                                                </Button>
+                                            )}
+                                            {canDelete && (
+                                                <Button
+                                                    size="xs"
+                                                    variant="plain"
+                                                    className="text-red-600"
+                                                    onClick={() =>
+                                                        void geofences.remove(
+                                                            zone.id,
+                                                        )
+                                                    }
+                                                >
+                                                    Del
+                                                </Button>
+                                            )}
                                         </div>
                                     </li>
                                 ))}

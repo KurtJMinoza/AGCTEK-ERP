@@ -1,5 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common'
 import { GeocodeService } from './geocode.service'
+import { SCM_REFERENCE_READ } from '../../permissions/permissions.constants'
+import { RequirePermission } from '../../permissions/permission.guard'
 
 /**
  * Thin Nominatim proxy — avoids browser CORS and keeps User-Agent server-side.
@@ -10,6 +12,7 @@ export class GeocodeController {
     constructor(private readonly geocode: GeocodeService) {}
 
     @Get('search')
+    @RequirePermission(SCM_REFERENCE_READ, 'read')
     async search(
         @Query('q') q?: string,
         @Query('limit') limit?: string,
@@ -23,6 +26,7 @@ export class GeocodeController {
     }
 
     @Get('reverse')
+    @RequirePermission(SCM_REFERENCE_READ, 'read')
     async reverse(@Query('lat') lat?: string, @Query('lng') lng?: string) {
         const latitude = Number(lat)
         const longitude = Number(lng)

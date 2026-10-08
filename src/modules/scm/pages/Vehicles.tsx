@@ -17,6 +17,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import VehicleViewDialog from '../components/VehicleViewDialog'
 import { useVehicles } from '../hooks/useVehicles'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { Vehicle, VehicleStatus, VehicleType } from '../types'
 
@@ -73,6 +74,7 @@ export default function VehiclesPage() {
         remove,
         reload,
     } = useVehicles()
+    const { canCreate, canDelete } = useResourceAccess()
 
     const [createOpen, setCreateOpen] = useState(false)
     const [viewId, setViewId] = useState<string | null>(null)
@@ -122,9 +124,11 @@ export default function VehiclesPage() {
                 description="Fleet master data — Capacity (items) drives load assignment and routing eligibility."
                 breadcrumbs={scmPageBreadcrumbs('Vehicles')}
                 actions={
-                    <Button variant="solid" onClick={openCreate}>
-                        Add vehicle
-                    </Button>
+                    canCreate ? (
+                        <Button variant="solid" onClick={openCreate}>
+                            Add vehicle
+                        </Button>
+                    ) : undefined
                 }
             />
 
@@ -192,7 +196,11 @@ export default function VehiclesPage() {
                                 key={vehicle.id}
                                 vehicle={vehicle}
                                 onView={() => setViewId(vehicle.id)}
-                                onDelete={() => void remove(vehicle.id)}
+                                onDelete={
+                                    canDelete
+                                        ? () => void remove(vehicle.id)
+                                        : undefined
+                                }
                             />
                         ))}
                     </div>
@@ -405,7 +413,7 @@ function VehicleCard({
 }: {
     vehicle: Vehicle
     onView: () => void
-    onDelete: () => void
+    onDelete?: () => void
 }) {
     return (
         <Card
@@ -482,17 +490,19 @@ function VehicleCard({
                 >
                     View
                 </Button>
-                <Button
-                    size="xs"
-                    variant="plain"
-                    className="text-red-600"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onDelete()
-                    }}
-                >
-                    Delete
-                </Button>
+                {onDelete && (
+                    <Button
+                        size="xs"
+                        variant="plain"
+                        className="text-red-600"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onDelete()
+                        }}
+                    >
+                        Delete
+                    </Button>
+                )}
             </div>
         </Card>
     )

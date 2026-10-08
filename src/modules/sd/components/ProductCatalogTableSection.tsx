@@ -27,6 +27,7 @@ import {
 } from '../services/productCatalogService'
 import type { CatalogStockSnapshot } from '../utils/productCatalogTableColors'
 import { downloadProductCatalogCsv } from '../utils/productCatalogExport'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     badgeTextClass,
     categoryTextClass,
@@ -168,6 +169,7 @@ const ProductCatalogTableSection = ({
     onRefresh,
     refreshing,
 }: ProductCatalogTableSectionProps) => {
+    const { canCreate, canUpdate, canDelete } = useResourceAccess('sd.product-catalog')
     const [filterOpen, setFilterOpen] = useState(false)
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(10)
@@ -392,6 +394,7 @@ const ProductCatalogTableSection = ({
                         <Switcher
                             checked={row.original.isActive}
                             isLoading={togglingId === row.original.id}
+                            disabled={!canUpdate}
                             onChange={(checked) =>
                                 onToggleActive(row.original, checked)
                             }
@@ -405,27 +408,31 @@ const ProductCatalogTableSection = ({
                 size: 88,
                 cell: ({ row }) => (
                     <div className="flex items-center justify-end gap-1">
-                        <Button
-                            size="sm"
-                            variant="plain"
-                            className="text-gray-500 hover:text-primary"
-                            icon={<HiOutlinePencil className="text-lg" />}
-                            aria-label={`Edit ${row.original.name}`}
-                            onClick={() => onEdit(row.original)}
-                        />
-                        <Button
-                            size="sm"
-                            variant="plain"
-                            className="text-gray-500 hover:text-rose-600"
-                            icon={<HiOutlineTrash className="text-lg" />}
-                            aria-label={`Delete ${row.original.name}`}
-                            onClick={() => onDelete(row.original)}
-                        />
+                        {canUpdate && (
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                className="text-gray-500 hover:text-primary"
+                                icon={<HiOutlinePencil className="text-lg" />}
+                                aria-label={`Edit ${row.original.name}`}
+                                onClick={() => onEdit(row.original)}
+                            />
+                        )}
+                        {canDelete && (
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                className="text-gray-500 hover:text-rose-600"
+                                icon={<HiOutlineTrash className="text-lg" />}
+                                aria-label={`Delete ${row.original.name}`}
+                                onClick={() => onDelete(row.original)}
+                            />
+                        )}
                     </div>
                 ),
             },
         ],
-        [onDelete, onEdit, onToggleActive, stockByProductId, togglingId],
+        [onDelete, onEdit, onToggleActive, stockByProductId, togglingId, canUpdate, canDelete],
     )
 
     return (
@@ -455,14 +462,16 @@ const ProductCatalogTableSection = ({
                     >
                         Export
                     </Button>
-                    <Button
-                        size="sm"
-                        variant="solid"
-                        icon={<HiOutlinePlus />}
-                        onClick={onAddProduct}
-                    >
-                        Add products
-                    </Button>
+                    {canCreate && (
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            icon={<HiOutlinePlus />}
+                            onClick={onAddProduct}
+                        >
+                            Add products
+                        </Button>
+                    )}
                 </div>
             </div>
 

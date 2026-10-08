@@ -13,6 +13,7 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { useVehicleDocuments } from '../../hooks/useVehicleDocuments'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { apiGetVehicles } from '../../services/scmApi'
 import { getApiErrorMessage } from '../../utils/apiError'
 import { formatStatusLabel, statusTone } from '../../utils/status'
@@ -98,6 +99,12 @@ export default function RegistrationInsuranceSection() {
         update,
         cancel,
     } = useVehicleDocuments()
+    const maintenanceAccess = useResourceAccess('scm.maintenance')
+    const vehicleAccess = useResourceAccess('scm.vehicles')
+    // Document create is authorized on scm.vehicles (update); edit/cancel accept either resource.
+    const canAddDocument = vehicleAccess.canUpdate
+    const canUpdate = maintenanceAccess.canUpdate || vehicleAccess.canUpdate
+    const canDelete = maintenanceAccess.canDelete || vehicleAccess.canDelete
 
     const [vehicles, setVehicles] = useState<Vehicle[]>([])
     const [dialogOpen, setDialogOpen] = useState(false)
@@ -270,10 +277,12 @@ export default function RegistrationInsuranceSection() {
                 id: 'actions',
                 cell: ({ row }) => (
                     <div className="flex flex-wrap justify-end gap-1">
-                        <Button size="xs" onClick={() => openEdit(row.original)}>
-                            Edit
-                        </Button>
-                        {row.original.status !== 'CANCELLED' ? (
+                        {canUpdate && (
+                            <Button size="xs" onClick={() => openEdit(row.original)}>
+                                Edit
+                            </Button>
+                        )}
+                        {canDelete && row.original.status !== 'CANCELLED' ? (
                             <Button
                                 size="xs"
                                 variant="plain"
@@ -295,7 +304,7 @@ export default function RegistrationInsuranceSection() {
                 ),
             },
         ],
-        [cancel],
+        [cancel, canUpdate, canDelete],
     )
 
     return (
@@ -382,9 +391,11 @@ export default function RegistrationInsuranceSection() {
                             />
                         </FormItem>
                     </div>
-                    <Button variant="solid" onClick={openCreate}>
-                        Add document
-                    </Button>
+                    {canAddDocument && (
+                        <Button variant="solid" onClick={openCreate}>
+                            Add document
+                        </Button>
+                    )}
                 </div>
 
                 {error ? (

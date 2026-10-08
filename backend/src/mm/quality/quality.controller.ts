@@ -10,7 +10,7 @@ import { InspectionLotLifecycleService } from './inspection-lot-lifecycle.servic
 import { NonconformanceService } from './nonconformance.service'
 import { CorrectiveActionService } from './corrective-action.service'
 import { QualityReportingService } from './quality-reporting.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CapaQueryDto,
@@ -38,6 +38,9 @@ import {
     UpdateInspectionRuleDto,
 } from './dto/quality.dto'
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('receiving', 'defect-codes', 'inspection-plans', 'inspection-queue', 'inspection-rules', 'nonconformances', 'quality-dashboard', 'quality-holds', 'quality-quarantine', 'receiving-inspection', 'usage-decisions')
+
 @Controller('mm/quality')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class QualityController {
@@ -55,22 +58,26 @@ export class QualityController {
     ) {}
 
     @Get('dashboard')
+    @MmRead(READERS)
     dashboard(@Query() query: QualityQueryDto) {
         return this.reporting.getDashboard(query)
     }
 
     @Get('usage-decisions')
+    @MmRead(READERS)
     listDecisions(@Query() query: QualityQueryDto) {
         return this.reporting.listDecisions(query)
     }
 
     // ── Inspection plans ──
     @Get('inspection-plans')
+    @MmRead(READERS)
     listPlans(@Query() query: QualityQueryDto) {
         return this.plans.findAll(query)
     }
 
     @Get('inspection-plans/:id')
+    @MmRead(READERS)
     getPlan(@Param('id') id: string) {
         return this.plans.findOne(id)
     }
@@ -95,11 +102,13 @@ export class QualityController {
 
     // ── Inspection rules ──
     @Get('inspection-rules')
+    @MmRead(READERS)
     listInspectionRules(@Query() query: QualityQueryDto) {
         return this.inspectionRules.findAll(query)
     }
 
     @Get('inspection-rules/:id')
+    @MmRead(READERS)
     getInspectionRule(@Param('id') id: string) {
         return this.inspectionRules.findOne(id)
     }
@@ -130,6 +139,7 @@ export class QualityController {
 
     // ── Defect codes ──
     @Get('defect-codes')
+    @MmRead(READERS)
     listDefectCodes(@Query() query: QualityQueryDto) {
         return this.defectCodes.findAll(query)
     }
@@ -148,11 +158,13 @@ export class QualityController {
 
     // ── Inspection lots ──
     @Get('inspection-lots')
+    @MmRead(READERS)
     listLots(@Query() query: QualityQueryDto) {
         return this.lots.findAll(query)
     }
 
     @Get('inspection-lots/:id')
+    @MmRead(READERS)
     getLot(@Param('id') id: string) {
         return this.lots.findOne(id)
     }
@@ -189,6 +201,7 @@ export class QualityController {
     }
 
     @Get('holds')
+    @MmRead(READERS)
     listHolds(@Query() query: QualityQueryDto) {
         return this.holds.findAll(query)
     }
@@ -201,11 +214,13 @@ export class QualityController {
 
     // ── Nonconformances ──
     @Get('nonconformances')
+    @MmRead(READERS)
     listNc(@Query() query: QualityQueryDto) {
         return this.nc.findAll(query)
     }
 
     @Get('nonconformances/:id')
+    @MmRead(READERS)
     getNc(@Param('id') id: string) {
         return this.nc.findOne(id)
     }
@@ -223,6 +238,7 @@ export class QualityController {
     }
 
     @Get('nonconformances/:id/corrective-actions')
+    @MmRead(READERS)
     listCapa(@Param('id') id: string) {
         return this.capa.listForNc(id)
     }
@@ -235,11 +251,13 @@ export class QualityController {
 
     // ── Corrective Actions (top-level) ──
     @Get('corrective-actions')
+    @MmRead(READERS)
     listAllCapa(@Query() query: CapaQueryDto) {
         return this.capa.list(query)
     }
 
     @Get('corrective-actions/:id')
+    @MmRead(READERS)
     getCapaById(@Param('id') id: string) {
         return this.capa.findOne(id)
     }
@@ -258,6 +276,7 @@ export class QualityController {
 
     // ── Attachments ──
     @Get('attachments')
+    @MmRead(READERS)
     listAttachments(
         @Query('entityType') entityType: string,
         @Query('entityId') entityId: string,

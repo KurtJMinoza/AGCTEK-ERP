@@ -30,7 +30,7 @@ type MaterialViewDialogProps = {
     isOpen: boolean
     material: Material | null
     onClose: () => void
-    onEdit: (material: Material) => void
+    onEdit?: (material: Material) => void
 }
 
 const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewDialogProps) => {
@@ -64,7 +64,7 @@ const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewD
             footer={
                 <>
                     <Button size="sm" onClick={onClose}>Close</Button>
-                    <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => onEdit(material)}>Edit</Button>
+                    {onEdit && <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => onEdit(material)}>Edit</Button>}
                 </>
             }
         >

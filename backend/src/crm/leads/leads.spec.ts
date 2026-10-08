@@ -235,7 +235,7 @@ describe('CrmLeadsService.convert', () => {
             { newCustomer: { companyName: 'Acme Corp' } },
             admin,
         )
-        expect(deps.permissions.assertPermission).toHaveBeenCalledWith({ role: 'admin' }, 'sd', 'create')
+        expect(deps.permissions.assertPermission).toHaveBeenCalledWith({ role: 'admin' }, 'sd.customer-master', 'create')
         expect(deps.customers.create).toHaveBeenCalledWith(
             {
                 companyName: 'Acme Corp',
@@ -326,8 +326,8 @@ describe('CrmLeadsController RBAC metadata', () => {
         convert: 'create',
     }
 
-    it.each(Object.entries(expected))('%s requires crm:%s', (handler, action) => {
+    it.each(Object.entries(expected))('%s requires crm.leads:%s', (handler, action) => {
         const fn = CrmLeadsController.prototype[handler as keyof CrmLeadsController]
-        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ module: 'crm', action })
+        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.leads', action })
     })
 })

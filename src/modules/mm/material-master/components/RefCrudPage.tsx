@@ -20,6 +20,7 @@ import Upload from '@/components/ui/Upload'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineSearch } from 'react-icons/hi'
 import { PiImageDuotone } from 'react-icons/pi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { getApiErrorMessage } from '@/modules/mm/shared/apiError'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 import {
@@ -226,6 +227,7 @@ export default function RefCrudPage<T extends { id: string }>({
     formDialogDescription,
 }: RefCrudPageProps<T>) {
     const breadcrumbItems = buildErpBreadcrumbs(routePath)
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<T[]>([])
     const [loading, setLoading] = useState(true)
@@ -421,12 +423,16 @@ export default function RefCrudPage<T extends { id: string }>({
         size: 56,
         cell: ({ row }) => (
             <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
-                    <HiOutlinePencil className="text-base" /><span>Edit</span>
-                </Dropdown.Item>
-                <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}>
-                    <HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span>
-                </Dropdown.Item>
+                {canUpdate && (
+                    <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
+                        <HiOutlinePencil className="text-base" /><span>Edit</span>
+                    </Dropdown.Item>
+                )}
+                {canDelete && (
+                    <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}>
+                        <HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span>
+                    </Dropdown.Item>
+                )}
             </Dropdown>
         ),
     }
@@ -556,7 +562,7 @@ export default function RefCrudPage<T extends { id: string }>({
             <PageHeader
                 title={title}
                 description={description}
-                actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add {title.toLowerCase()}</Button>}
+                actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add {title.toLowerCase()}</Button> : undefined}
             />
             <AdaptiveCard>
                 <div className="mb-4 max-w-md">
@@ -567,7 +573,7 @@ export default function RefCrudPage<T extends { id: string }>({
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">
                             {selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected

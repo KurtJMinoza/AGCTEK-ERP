@@ -37,6 +37,7 @@ import { paymentTermsService } from '../services/paymentTermsService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { Supplier, SupplierCategory, PaymentTerms, SupplierListResponse } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     email as emailRule,
     firstError,

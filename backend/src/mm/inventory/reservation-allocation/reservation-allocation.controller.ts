@@ -10,8 +10,11 @@ import {
     ReservationQueryDto,
 } from './dto/reservation-allocation.dto'
 import { AvailabilityQueryDto } from '../dto/availability-query.dto'
-import { MmMutation } from '../../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../../common/mm-mutation.decorator'
 import { mmFeatures } from '../../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('inventory-management', 'available-stock', 'goods-issue', 'inventory-ledger', 'inventory-status', 'reservations', 'stock-movements', 'stock-overview', 'traceability')
 
 @Controller('mm/inventory')
 export class ReservationAllocationController {
@@ -22,16 +25,19 @@ export class ReservationAllocationController {
     ) {}
 
     @Get('availability')
+    @MmRead(READERS)
     getAvailability(@Query() query: AvailabilityQueryDto) {
         return this.availability.getAvailability(query)
     }
 
     @Get('reservations')
+    @MmRead(READERS)
     listReservations(@Query() query: ReservationQueryDto) {
         return this.reservations.findAll(query)
     }
 
     @Get('reservations/:id')
+    @MmRead(READERS)
     getReservation(@Param('id') id: string) {
         return this.reservations.findOne(id)
     }
@@ -61,11 +67,13 @@ export class ReservationAllocationController {
     }
 
     @Get('allocations')
+    @MmRead(READERS)
     listAllocations(@Query() query: AllocationQueryDto) {
         return this.allocations.findAll(query)
     }
 
     @Get('allocations/:id')
+    @MmRead(READERS)
     getAllocation(@Param('id') id: string) {
         return this.allocations.findOne(id)
     }

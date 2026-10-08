@@ -10,6 +10,7 @@ import {
 import { TrackingService } from './tracking.service'
 import { GeofencesService } from '../geofences/geofences.service'
 import type { ListQuery } from '../scm.utils'
+import { RequirePermission } from '../../permissions/permission.guard'
 
 @Controller('scm/tracking')
 export class TrackingController {
@@ -19,16 +20,19 @@ export class TrackingController {
     ) {}
 
     @Get('fleet')
+    @RequirePermission(['scm.tracking', 'scm.vehicles', 'scm.trips'], 'read')
     fleet(@Query() query: { status?: string; search?: string }) {
         return this.trackingService.fleet(query)
     }
 
     @Get('vehicles/:vehicleId/latest')
+    @RequirePermission(['scm.tracking', 'scm.vehicles', 'scm.trips'], 'read')
     latest(@Param('vehicleId') vehicleId: string) {
         return this.trackingService.latest(vehicleId)
     }
 
     @Get('vehicles/:vehicleId/history')
+    @RequirePermission(['scm.tracking', 'scm.vehicles', 'scm.trips'], 'read')
     history(
         @Param('vehicleId') vehicleId: string,
         @Query() query: { from?: string; to?: string; limit?: string },
@@ -38,6 +42,7 @@ export class TrackingController {
 
     /** Paginated audit trail of stored GpsLog rows (read-only). */
     @Get('vehicles/:vehicleId/telematics-history')
+    @RequirePermission(['scm.tracking', 'scm.vehicles', 'scm.trips'], 'read')
     telematicsHistory(
         @Param('vehicleId') vehicleId: string,
         @Query()
@@ -48,6 +53,7 @@ export class TrackingController {
 
     /** Manual / internal ping by vehicleId (driver app / tools). */
     @Post('ping')
+    @RequirePermission(['scm.tracking', 'scm.trips'], 'create')
     ping(@Body() body: Record<string, unknown>) {
         return this.trackingService.ping(body as never)
     }

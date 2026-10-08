@@ -51,11 +51,14 @@ async function request<T>(
 ): Promise<T> {
     const normalized = path.startsWith('/') ? path : `/${path}`
     const url = `${API_BASE}${API_PREFIX}${normalized}`
+    const session = await loadSession()
     const res = await fetch(url, {
         ...init,
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
+            // ERP permission guards resolve the signed-in user's role from this header.
+            ...(session?.user.id ? { 'X-User-Id': session.user.id } : {}),
             ...(init?.headers ?? {}),
         },
     })
@@ -99,6 +102,7 @@ export async function apiSignIn(
 export async function apiGetDriverMe(userId: string): Promise<Driver> {
     return request<Driver>(
         `/scm/drivers/me?userId=${encodeURIComponent(userId)}`,
+        { headers: { 'X-User-Id': userId } },
     )
 }
 

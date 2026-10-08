@@ -604,6 +604,31 @@ export function featurePermissionCode(
     )
 }
 
+/** Permission resource of the deepest registry page containing `pathname` (detail routes included). */
+export function permissionCodeForPath(pathname: string): string | null {
+    const contains = (path: string) =>
+        pathname === path || pathname.startsWith(`${path}/`)
+    let bestPath = ''
+    let bestCode: string | null = null
+    for (const module of ERP_MODULES) {
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                if (contains(submodule.path) && submodule.path.length > bestPath.length) {
+                    bestPath = submodule.path
+                    bestCode = submodulePermissionCode(module.code, submodule)
+                }
+                for (const child of submodule.children ?? []) {
+                    if (contains(child.path) && child.path.length > bestPath.length) {
+                        bestPath = child.path
+                        bestCode = featurePermissionCode(module.code, submodule, child)
+                    }
+                }
+            }
+        }
+    }
+    return bestCode
+}
+
 export function submoduleHasChildren(submodule: { children?: unknown[] }) {
     return Boolean(submodule.children && submodule.children.length > 0)
 }
