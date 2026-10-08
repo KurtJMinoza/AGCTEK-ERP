@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
-import { requireModuleView } from '@/server/actions/permissions/getMyPermissions'
+import { requireRead } from '@/server/actions/permissions/getMyPermissions'
 
 const CrmLayout = async ({ children }: { children: ReactNode }) => {
-    await requireModuleView('crm')
+    await requireRead('crm')
     return <>{children}</>
 }
 

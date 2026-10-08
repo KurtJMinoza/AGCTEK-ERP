@@ -23,7 +23,7 @@ import { CrmDashboardService } from './dashboard/dashboard.service'
 
 /**
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
- * `@RequirePermission(MODULE_CODES.CRM, action)`; PermissionsModule is global.
+ * `@RequirePermission('crm.<resource>', action)`; PermissionsModule is global.
  * SdModule supplies CustomerService (lead conversion), SalesOrderService (Closed Won
  * handoff) and QuotationService (opportunity quotations) so CRM creates SD documents only
  * through SD. Customer 360 reads SD orders and

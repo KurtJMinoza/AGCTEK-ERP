@@ -130,7 +130,7 @@ const CompanyMembershipPanel = ({
                     {memberships.length === 0 ? (
                         <div className="mt-3 rounded-lg border border-dashed border-gray-300 px-4 py-4 text-sm text-gray-500 dark:border-gray-600">
                             {requiresCompany
-                                ? 'No company assigned. Admin and Employee users should belong to at least one company.'
+                                ? 'No company assigned. Users other than Super Admin should belong to at least one company.'
                                 : 'No company assigned. Super Admins can operate without a company.'}
                         </div>
                     ) : (
@@ -178,7 +178,7 @@ const CompanyMembershipPanel = ({
                                         disabled={Boolean(busyKey) || isLastRequired}
                                         title={
                                             isLastRequired
-                                                ? 'Admin and Employee users must belong to at least one company.'
+                                                ? 'Users other than Super Admin must belong to at least one company.'
                                                 : undefined
                                         }
                                         onClick={() =>

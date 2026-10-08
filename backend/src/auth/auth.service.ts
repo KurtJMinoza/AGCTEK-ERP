@@ -10,12 +10,9 @@ import { PrismaService } from '../prisma/prisma.service'
 import { SystemSettingsService } from '../system-settings/system-settings.service'
 import { SETTING_KEYS } from '../system-settings/system-settings.catalog'
 import { maintenanceException } from '../system-settings/maintenance-mode.guard'
-import {
-    isUserRole,
-    ROLE_AUTHORITY,
-    USER_ROLES,
-    type UserRole,
-} from './auth.constants'
+import { roleAuthority, USER_ROLES } from './auth.constants'
+
+const WITH_ROLE_NAME = { roleRef: { select: { name: true } } } as const
 
 type SignUpInput = {
     email: string
@@ -47,9 +44,10 @@ export class AuthService {
         jobPosition?: string | null
         bio?: string | null
         role: string
+        roleRef?: { name: string } | null
         avatar: string
     }) {
-        const role = isUserRole(user.role) ? user.role : USER_ROLES.EMPLOYEE
+        const role = user.role
 
         return {
             id: user.id,
@@ -61,7 +59,8 @@ export class AuthService {
             bio: user.bio ?? '',
             avatar: user.avatar,
             role,
-            authority: ROLE_AUTHORITY[role],
+            roleName: user.roleRef?.name ?? '',
+            authority: roleAuthority(role),
         }
     }
 
@@ -79,11 +78,7 @@ export class AuthService {
             throw maintenanceException()
         }
 
-        const configuredRole = await this.settings.getString(SETTING_KEYS.DEFAULT_USER_ROLE)
-        const role: UserRole =
-            isUserRole(configuredRole) && configuredRole !== USER_ROLES.SUPER_ADMIN
-                ? configuredRole
-                : USER_ROLES.EMPLOYEE
+        const role = await this.signUpRole()
 
         if (!email || !userName || !password) {
             throw new BadRequestException('Email, username, and password are required.')
@@ -125,6 +120,7 @@ export class AuthService {
                 passwordHash,
                 role,
             },
+            include: WITH_ROLE_NAME,
         })
 
         return {
@@ -144,6 +140,7 @@ export class AuthService {
 
         const user = await this.prisma.user.findUnique({
             where: { userName },
+            include: WITH_ROLE_NAME,
         })
 
         if (!user) {
@@ -166,6 +163,7 @@ export class AuthService {
     async getProfile(userName: string) {
         const user = await this.prisma.user.findUnique({
             where: { userName: userName.trim() },
+            include: WITH_ROLE_NAME,
         })
 
         if (!user) {
@@ -238,6 +236,7 @@ export class AuthService {
                 ...(input.bio !== undefined ? { bio: input.bio.trim() } : {}),
                 ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
             },
+            include: WITH_ROLE_NAME,
         })
 
         return {
@@ -322,8 +321,19 @@ export class AuthService {
                 email,
                 userName,
                 passwordHash,
-                role: USER_ROLES.SUPER_ADMIN as UserRole,
+                role: USER_ROLES.SUPER_ADMIN,
             },
         })
+    }
+
+    /** Configured default role, falling back to employee if it was removed or is not assignable. */
+    private async signUpRole(): Promise<string> {
+        const configured = await this.settings.getString(SETTING_KEYS.DEFAULT_USER_ROLE)
+        if (configured === USER_ROLES.SUPER_ADMIN) return USER_ROLES.EMPLOYEE
+        const role = await this.prisma.role.findUnique({
+            where: { code: configured },
+            select: { isActive: true },
+        })
+        return role?.isActive ? configured : USER_ROLES.EMPLOYEE
     }
 }

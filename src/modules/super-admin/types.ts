@@ -1,5 +1,3 @@
-import type { UserRole } from '@/constants/roles.constant'
-
 export type ManagedUser = {
     id: string
     email: string
@@ -8,6 +6,8 @@ export type ManagedUser = {
     lastName: string
     jobPosition: string
     role: string
+    /** Display name of the role; present on list responses only. */
+    roleName?: string
     isActive: boolean
     createdAt: string
     updatedAt: string
@@ -34,7 +34,8 @@ export type UserStatusFilter = 'active' | 'inactive'
 
 export type UserListQuery = {
     search?: string
-    role?: UserRole
+    /** Role code (system or custom). */
+    role?: string
     status?: UserStatusFilter
     page?: number
     pageSize?: number
@@ -54,7 +55,8 @@ export type CreateUserPayload = {
     lastName: string
     jobPosition?: string
     password: string
-    role: UserRole
+    /** Role code from the roles table. */
+    role: string
     /** Initial default company; required unless role is super_admin. */
     companyId?: string
 }

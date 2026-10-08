@@ -3,6 +3,7 @@ import ModuleLandingPage, {
     getModuleStaticParams,
 } from '@/components/erp/ModuleLandingPage'
 import { getErpModule, isValidModuleCode } from '@/configs/erp-modules'
+import getMyPermissions from '@/server/actions/permissions/getMyPermissions'
 
 type PageProps = {
     params: Promise<{ moduleCode: string }>
@@ -38,5 +39,10 @@ export default async function Page({ params }: PageProps) {
         redirect(module.path)
     }
 
-    return <ModuleLandingPage moduleCode={moduleCode} />
+    return (
+        <ModuleLandingPage
+            moduleCode={moduleCode}
+            permissions={await getMyPermissions()}
+        />
+    )
 }

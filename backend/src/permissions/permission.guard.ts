@@ -15,7 +15,7 @@ import type { PermissionAction } from './permissions.constants'
 
 export const PERMISSION_KEY = 'requiredPermission'
 
-export type RequiredPermission = { module: string; action: PermissionAction }
+export type RequiredPermission = { resource: string; action: PermissionAction }
 
 /** Runs after `UserAuthGuard`, which attaches the authenticated user to the request. */
 @Injectable()
@@ -40,7 +40,7 @@ export class PermissionGuard implements CanActivate {
 
         await this.permissions.assertPermission(
             { role: user.role },
-            required.module,
+            required.resource,
             required.action,
         )
         return true
@@ -48,11 +48,12 @@ export class PermissionGuard implements CanActivate {
 }
 
 /**
- * Require a module CRUD permission on a controller or handler, e.g.
- * `@RequirePermission('mm', 'update')`. Applies `UserAuthGuard` + `PermissionGuard`.
+ * Require a resource permission on a controller or handler, e.g.
+ * `@RequirePermission('crm.leads', 'update')`. A group code (`crm`) passes when any of its
+ * resources allows the action. Applies `UserAuthGuard` + `PermissionGuard`.
  */
-export const RequirePermission = (module: string, action: PermissionAction) =>
+export const RequirePermission = (resource: string, action: PermissionAction) =>
     applyDecorators(
-        SetMetadata(PERMISSION_KEY, { module, action } satisfies RequiredPermission),
+        SetMetadata(PERMISSION_KEY, { resource, action } satisfies RequiredPermission),
         UseGuards(UserAuthGuard, PermissionGuard),
     )

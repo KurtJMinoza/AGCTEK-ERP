@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { PrismaService } from '../prisma/prisma.service'
-import { isUserRole, USER_ROLES, type UserRole } from './auth.constants'
+import type { UserRole } from './auth.constants'
 import {
     AUTH_ROLES_KEY,
     AUTH_USER_KEY,
@@ -33,7 +33,13 @@ export class UserAuthGuard implements CanActivate {
 
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, userName: true, role: true, isActive: true },
+            select: {
+                id: true,
+                userName: true,
+                role: true,
+                isActive: true,
+                roleRef: { select: { isActive: true } },
+            },
         })
 
         if (!user) {
@@ -44,9 +50,11 @@ export class UserAuthGuard implements CanActivate {
             throw new UnauthorizedException('User is deactivated')
         }
 
-        const role: UserRole = isUserRole(user.role)
-            ? user.role
-            : USER_ROLES.EMPLOYEE
+        if (!user.roleRef.isActive) {
+            throw new ForbiddenException('Assigned role is inactive')
+        }
+
+        const role = user.role
         const authUser: AuthRequestUser = {
             id: user.id,
             userName: user.userName,
@@ -59,7 +67,7 @@ export class UserAuthGuard implements CanActivate {
             [context.getHandler(), context.getClass()],
         )
 
-        if (requiredRoles?.length && !requiredRoles.includes(role)) {
+        if (requiredRoles?.length && !requiredRoles.includes(role as UserRole)) {
             throw new ForbiddenException('Insufficient role for this operation')
         }
 

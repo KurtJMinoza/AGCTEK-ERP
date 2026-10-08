@@ -8,6 +8,7 @@ import {
     StoQueryDto,
 } from './dto/stock-transfer.dto'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 @Controller('mm/stock-transfer-orders')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -15,7 +16,7 @@ export class StockTransferOrderController {
     constructor(private orders: StockTransferOrderService) {}
 
     @Post()
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue'))
     create(@Body() dto: CreateStockTransferOrderDto) {
         return this.orders.create(dto)
     }
@@ -31,37 +32,37 @@ export class StockTransferOrderController {
     }
 
     @Post(':id/submit')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue'))
     submit(@Param('id') id: string) {
         return this.orders.submit(id)
     }
 
     @Post(':id/approve')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue'))
     approve(@Param('id') id: string, @Body() dto: ApproveStoDto) {
         return this.orders.approve(id, dto)
     }
 
     @Post(':id/allocate')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue'))
     allocate(@Param('id') id: string) {
         return this.orders.allocate(id)
     }
 
     @Post(':id/dispatch')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue', 'in-transit'))
     dispatch(@Param('id') id: string, @Body() dto: DispatchStoDto) {
         return this.orders.dispatch(id, dto)
     }
 
     @Post(':id/receive')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'in-transit', 'transfer-receipts'))
     receive(@Param('id') id: string, @Body() dto: ReceiveStoDto) {
         return this.orders.receive(id, dto)
     }
 
     @Post(':id/cancel')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'transfer-orders', 'transfer-queue'))
     cancel(@Param('id') id: string) {
         return this.orders.cancel(id)
     }

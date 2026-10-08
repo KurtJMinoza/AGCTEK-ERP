@@ -62,8 +62,8 @@ export default function TicketsPage() {
         update,
     } = useTickets(ticketParamsFromUrl(useSearchParams()))
     const { can } = usePermissions()
-    const canCreate = can('crm', 'create')
-    const canUpdate = can('crm', 'update')
+    const canCreate = can('crm.tickets', 'create')
+    const canUpdate = can('crm.tickets', 'update')
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editing, setEditing] = useState<Ticket | null>(null)

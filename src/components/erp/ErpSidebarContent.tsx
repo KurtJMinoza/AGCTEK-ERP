@@ -6,7 +6,11 @@ import { usePathname } from 'next/navigation'
 import Menu from '@/components/ui/Menu'
 import Tooltip from '@/components/ui/Tooltip'
 import ErpIcon from '@/components/erp/ErpIcon'
-import { getAllSubmodules, getResolvedErpModules } from '@/configs/erp-modules'
+import {
+    getAllSubmodules,
+    getResolvedErpModules,
+    submodulePermissionCode,
+} from '@/configs/erp-modules'
 import { getActiveModuleCode } from '@/utils/erp-navigation'
 import usePermissions from '@/utils/hooks/usePermissions'
 import type { ErpModule, ErpSubmodule } from '@/types/erp-modules'
@@ -28,7 +32,7 @@ export default function ErpSidebarContent({
         () =>
             loading
                 ? []
-                : getResolvedErpModules().filter((module) => can(module.code, 'view')),
+                : getResolvedErpModules().filter((module) => can(module.code)),
         [can, loading],
     )
     const activeModuleCode = getActiveModuleCode(pathname)
@@ -50,7 +54,7 @@ export default function ErpSidebarContent({
                                     collapsed={collapsed}
                                     onNavigate={onNavigate}
                                 />
-                                {sidebarShortcuts(module).map((shortcut) => (
+                                {sidebarShortcuts(module, can).map((shortcut) => (
                                     <ShortcutMenuItem
                                         key={shortcut.path}
                                         shortcut={shortcut}
@@ -67,11 +71,15 @@ export default function ErpSidebarContent({
     )
 }
 
-function sidebarShortcuts(module: ErpModule): ErpSubmodule[] {
+function sidebarShortcuts(module: ErpModule, can: (code: string) => boolean): ErpSubmodule[] {
     const codes = module.sidebarShortcuts ?? []
     return getAllSubmodules(module)
         .map(({ submodule }) => submodule)
-        .filter((submodule) => codes.includes(submodule.code))
+        .filter((submodule) => {
+            if (!codes.includes(submodule.code)) return false
+            const permission = submodulePermissionCode(module.code, submodule)
+            return !permission || can(permission)
+        })
 }
 
 function ShortcutMenuItem({

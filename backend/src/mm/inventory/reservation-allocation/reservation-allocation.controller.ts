@@ -11,6 +11,7 @@ import {
 } from './dto/reservation-allocation.dto'
 import { AvailabilityQueryDto } from '../dto/availability-query.dto'
 import { MmMutation } from '../../common/mm-mutation.decorator'
+import { mmFeatures } from '../../../permissions/permissions.constants'
 
 @Controller('mm/inventory')
 export class ReservationAllocationController {
@@ -35,25 +36,25 @@ export class ReservationAllocationController {
         return this.reservations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations')
     createReservation(@Body() dto: CreateReservationHeaderDto) {
         return this.reservations.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/release')
     releaseReservation(@Param('id') id: string) {
         return this.reservations.release(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/cancel')
     cancelReservation(@Param('id') id: string) {
         return this.reservations.cancel(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/allocate')
     allocateReservation(@Param('id') id: string, @Body() dto: AllocateReservationDto) {
         return this.reservations.allocate(id, dto)
@@ -69,13 +70,13 @@ export class ReservationAllocationController {
         return this.allocations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('allocations')
     createAllocation(@Body() dto: CreateAllocationDto) {
         return this.allocations.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('allocations/:id/release')
     releaseAllocation(@Param('id') id: string) {
         return this.allocations.release(id)

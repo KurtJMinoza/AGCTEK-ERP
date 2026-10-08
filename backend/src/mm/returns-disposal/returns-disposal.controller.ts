@@ -13,6 +13,7 @@ import { DisposalService } from './disposal.service'
 import { CustomerReturnService } from './customer-return.service'
 import { DamagedExpiredQueryService } from './damaged-expired-query.service'
 import { MmMutation } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     UpsertConfigDto,
     CreateSupplierReturnDto,
@@ -61,13 +62,13 @@ export class ReturnsDisposalController {
         return this.returnService.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns')
     createReturn(@Body() dto: CreateSupplierReturnDto) {
         return this.returnService.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/from-balances')
     createReturnFromBalances(@Body() dto: CreateFromBalancesDto) {
         return this.damagedExpiredService.createSupplierReturnFromBalances(dto)
@@ -83,43 +84,43 @@ export class ReturnsDisposalController {
         return this.returnService.update(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/submit')
     submitReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.submit(id, dto?.performedBy)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/approve')
     approveReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.approve(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/reject')
     rejectReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.reject(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/ship')
     shipReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.ship(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/post')
     postReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.post(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/cancel')
     cancelReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.cancel(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'))
     @Post('supplier-returns/:id/reverse')
     reverseReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.returnService.reverse(id, dto)
@@ -132,7 +133,7 @@ export class ReturnsDisposalController {
         return this.customerReturnService.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns')
     createCustomerReturn(@Body() dto: CreateCustomerReturnDto) {
         return this.customerReturnService.create(dto)
@@ -151,55 +152,55 @@ export class ReturnsDisposalController {
         return this.customerReturnService.update(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/intake')
     startIntake(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.startIntake(id, dto?.performedBy)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/inspection')
     startInspection(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.startInspection(id, dto?.performedBy)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/lines/:lineId/disposition')
     setDisposition(@Param('lineId') lineId: string, @Body() dto: SetDispositionDto) {
         return this.customerReturnService.setDisposition(lineId, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/submit')
     submitCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.submit(id, dto?.performedBy)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/approve')
     approveCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.approve(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/reject')
     rejectCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.reject(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/complete')
     completeCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.complete(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/cancel')
     cancelCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.cancel(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'))
     @Post('customer-returns/:id/reverse')
     reverseCustomerReturn(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.customerReturnService.reverse(id, dto)
@@ -212,13 +213,13 @@ export class ReturnsDisposalController {
         return this.disposalService.findAll(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals')
     createDisposal(@Body() dto: CreateDisposalDto) {
         return this.disposalService.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/from-balances')
     createDisposalFromBalances(@Body() dto: CreateFromBalancesDto) {
         return this.damagedExpiredService.createDisposalFromBalances(dto)
@@ -234,37 +235,37 @@ export class ReturnsDisposalController {
         return this.disposalService.update(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/submit')
     submitDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.submit(id, dto?.performedBy)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/approve')
     approveDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.approve(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/reject')
     rejectDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.reject(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/post')
     postDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.post(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/cancel')
     cancelDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.cancel(id, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
     @Post('disposals/:id/reverse')
     reverseDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.reverse(id, dto)
@@ -282,13 +283,13 @@ export class ReturnsDisposalController {
         return this.damagedExpiredService.getExpiredStock(query)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'damaged-stock'))
     @Post('damaged-stock/identify')
     identifyDamage(@Body() dto: IdentifyDamageDto) {
         return this.damagedExpiredService.identifyDamage(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('returns-disposal', 'expired-stock'))
     @Post('expired-stock/mark')
     markExpired(@Body() dto: MarkExpiredDto) {
         return this.damagedExpiredService.markExpired(dto)
