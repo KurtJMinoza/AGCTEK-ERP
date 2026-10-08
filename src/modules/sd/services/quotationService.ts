@@ -80,6 +80,32 @@ export type QuotationPriceChange = {
 
 const path = (id: string, action = '') => `/sd/quotations/${encodeURIComponent(id)}${action}`
 
+/** One SD-owned quotation by id. */
+export async function getQuotation(id: string) {
+    const { data } = await ErpAxiosBase.get<Quotation>(path(id))
+    return data
+}
+
+function filenameFromDisposition(disposition: unknown): string | null {
+    if (typeof disposition !== 'string') return null
+    const match = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(disposition)
+    if (!match) return null
+    try {
+        return decodeURIComponent(match[1].trim())
+    } catch {
+        return match[1].trim()
+    }
+}
+
+/** Read-only PDF of the quotation; returns the bytes plus the server filename when provided. */
+export async function downloadQuotationPdf(id: string) {
+    const response = await ErpAxiosBase.get<Blob>(path(id, '/pdf'), { responseType: 'blob' })
+    return {
+        blob: response.data,
+        filename: filenameFromDisposition(response.headers?.['content-disposition']),
+    }
+}
+
 /** DRAFT only; SD re-prices every line from the catalog. */
 export async function updateQuotationDraft(id: string, body: Partial<QuotationLinesInput>) {
     const { data } = await ErpAxiosBase.patch<Quotation>(path(id), body)

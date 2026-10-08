@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Res } from '@nestjs/common'
+import type { FastifyReply } from 'fastify'
 import { CurrentUser, type AuthRequestUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import {
@@ -11,6 +12,7 @@ import {
     UpdateQuotationDraftDto,
 } from './dto/quotation.dto'
 import { QuotationService } from './quotation.service'
+import { QuotationPdfService } from './quotation-pdf.service'
 
 /**
  * SD quotations. Created from a CRM opportunity (POST /crm/opportunities/:id/quotations, which
@@ -18,7 +20,10 @@ import { QuotationService } from './quotation.service'
  */
 @Controller('sd/quotations')
 export class QuotationController {
-    constructor(private readonly quotations: QuotationService) {}
+    constructor(
+        private readonly quotations: QuotationService,
+        private readonly pdf: QuotationPdfService,
+    ) {}
 
     @Get()
     @RequirePermission('sd.quotations', 'read')
@@ -30,6 +35,29 @@ export class QuotationController {
     @RequirePermission('sd.quotations', 'read')
     findOne(@Param('id') id: string) {
         return this.quotations.findOne(id)
+    }
+
+    /**
+     * Read-only PDF of the quotation (SD-owned data). Never changes the quotation's status or
+     * creates a sales order. `?inline=1` opens it in the browser instead of downloading.
+     */
+    @Get(':id/pdf')
+    @RequirePermission('sd.quotations', 'read')
+    async downloadPdf(
+        @Param('id') id: string,
+        @Query('inline') inline: string | undefined,
+        @Res() res: FastifyReply,
+    ) {
+        const input = await this.quotations.pdfInput(id)
+        const doc = this.pdf.createDocument(input)
+        const filename = `${input.quotationNumber}_rev${input.revision}.pdf`
+        res.header('Content-Type', 'application/pdf')
+        res.header(
+            'Content-Disposition',
+            `${inline === '1' ? 'inline' : 'attachment'}; filename="${filename}"`,
+        )
+        doc.end()
+        return res.send(doc)
     }
 
     @Patch(':id')

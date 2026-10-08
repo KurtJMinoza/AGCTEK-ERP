@@ -188,9 +188,7 @@ export default function OpportunityDetailPage() {
                         quotations={quotations.quotations}
                         loading={quotations.loading}
                         error={quotations.error}
-                        reload={quotations.reload}
                         canCreate={canUpdate && can('sd.quotations', 'create')}
-                        canManage={can('sd.quotations', 'update')}
                     />
                 </div>
                 <div className="flex flex-col gap-4 lg:col-span-2">
