@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export type StorefrontCartItem<P> = { product: P; quantity: number }
 
@@ -19,64 +20,82 @@ export type StorefrontCartState<P> = {
  * Storefront cart. `keyOf` identifies a product line (e.g. division + SKU,
  * since SKUs are only unique per division). Prices are always recomputed by
  * SD pricing; the stored product is for display only.
+ *
+ * Items persist in the browser under `storageKey`, so a guest's cart survives
+ * reloads and carries over when they sign in or register.
  */
-export const createStorefrontCartStore = <P>(keyOf: (product: P) => string) =>
-    create<StorefrontCartState<P>>((set) => ({
-        items: [],
-        isDrawerOpen: false,
-        openDrawer: () => set({ isDrawerOpen: true }),
-        closeDrawer: () => set({ isDrawerOpen: false }),
-        addItem: (product, quantity = 1) =>
-            set((state) => {
-                const key = keyOf(product)
-                const existing = state.items.find(
-                    (item) => keyOf(item.product) === key,
-                )
-                return {
-                    items: existing
-                        ? state.items.map((item) =>
-                              keyOf(item.product) === key
-                                  ? {
-                                        ...item,
-                                        quantity: item.quantity + quantity,
-                                    }
-                                  : item,
-                          )
-                        : [...state.items, { product, quantity }],
-                }
-            }),
-        updateQuantity: (key, quantity) =>
-            set((state) => ({
-                items:
-                    quantity < 1
-                        ? state.items.filter(
-                              (item) => keyOf(item.product) !== key,
-                          )
-                        : state.items.map((item) =>
-                              keyOf(item.product) === key
-                                  ? { ...item, quantity }
-                                  : item,
-                          ),
-            })),
-        removeItem: (key) =>
-            set((state) => ({
-                items: state.items.filter(
-                    (item) => keyOf(item.product) !== key,
-                ),
-            })),
-        clearCart: () => set({ items: [] }),
-        syncCatalog: (products) =>
-            set((state) => {
-                const byKey = new Map(products.map((p) => [keyOf(p), p]))
-                const unchanged = state.items.every(
-                    (item) => byKey.get(keyOf(item.product)) === item.product,
-                )
-                if (unchanged) return state
-                return {
-                    items: state.items.flatMap((item) => {
-                        const product = byKey.get(keyOf(item.product))
-                        return product ? [{ ...item, product }] : []
+export const createStorefrontCartStore = <P>(
+    keyOf: (product: P) => string,
+    storageKey: string,
+) =>
+    create<StorefrontCartState<P>>()(
+        persist(
+            (set) => ({
+                items: [],
+                isDrawerOpen: false,
+                openDrawer: () => set({ isDrawerOpen: true }),
+                closeDrawer: () => set({ isDrawerOpen: false }),
+                addItem: (product, quantity = 1) =>
+                    set((state) => {
+                        const key = keyOf(product)
+                        const existing = state.items.find(
+                            (item) => keyOf(item.product) === key,
+                        )
+                        return {
+                            items: existing
+                                ? state.items.map((item) =>
+                                      keyOf(item.product) === key
+                                          ? {
+                                                ...item,
+                                                quantity:
+                                                    item.quantity + quantity,
+                                            }
+                                          : item,
+                                  )
+                                : [...state.items, { product, quantity }],
+                        }
                     }),
-                }
+                updateQuantity: (key, quantity) =>
+                    set((state) => ({
+                        items:
+                            quantity < 1
+                                ? state.items.filter(
+                                      (item) => keyOf(item.product) !== key,
+                                  )
+                                : state.items.map((item) =>
+                                      keyOf(item.product) === key
+                                          ? { ...item, quantity }
+                                          : item,
+                                  ),
+                    })),
+                removeItem: (key) =>
+                    set((state) => ({
+                        items: state.items.filter(
+                            (item) => keyOf(item.product) !== key,
+                        ),
+                    })),
+                clearCart: () => set({ items: [] }),
+                syncCatalog: (products) =>
+                    set((state) => {
+                        const byKey = new Map(
+                            products.map((p) => [keyOf(p), p]),
+                        )
+                        const unchanged = state.items.every(
+                            (item) =>
+                                byKey.get(keyOf(item.product)) === item.product,
+                        )
+                        if (unchanged) return state
+                        return {
+                            items: state.items.flatMap((item) => {
+                                const product = byKey.get(keyOf(item.product))
+                                return product ? [{ ...item, product }] : []
+                            }),
+                        }
+                    }),
             }),
-    }))
+            {
+                name: storageKey,
+                partialize: (state) => ({ items: state.items }),
+            },
+        ),
+    )

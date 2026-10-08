@@ -122,6 +122,7 @@ export function calculateCartPricing(
  */
 export async function processEcommerceOrder(
     payload: EcommerceOrder,
+    sessionToken: string,
 ): Promise<EcommerceOrderResult> {
     const order = EcommerceOrderSchema.parse(payload)
     const divisionIds = [...new Set(order.items.map((item) => item.divisionId))]
@@ -147,7 +148,7 @@ export async function processEcommerceOrder(
         promoCode: pricing.promoCode,
         shippingAmount: pricing.shipping,
         totalAmount: pricing.grandTotal,
-    })
+    }, sessionToken)
 
     console.info(
         'Triggering MM 2: Availability Check (ATP) & Soft Reservation',

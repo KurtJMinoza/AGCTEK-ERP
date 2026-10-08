@@ -73,6 +73,6 @@ import { MmModule } from '../mm/mm.module'
         OsrmService,
         GeocodeService,
     ],
-    exports: [ShipmentsService],
+    exports: [ShipmentsService, PlacesService, GeocodeService],
 })
 export class ScmModule {}

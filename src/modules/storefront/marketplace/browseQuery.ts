@@ -17,6 +17,8 @@ const SORT_KEYS: readonly SortKey[] = [
 export type BrowseQuery = {
     /** Division ids (the URL carries store slugs, e.g. `store=awic`). */
     stores: string[]
+    /** MM company ids resolved by active SD product-to-material assignments. */
+    companies: string[]
     categories: string[]
     sort: SortKey
     q: string
@@ -24,6 +26,7 @@ export type BrowseQuery = {
 
 export const EMPTY_BROWSE_QUERY: BrowseQuery = {
     stores: [],
+    companies: [],
     categories: [],
     sort: 'recommended',
     q: '',
@@ -40,6 +43,14 @@ export const parseBrowseQuery = (params: URLSearchParams): BrowseQuery => {
                     .filter((id): id is string => id !== null),
             ),
         ],
+        companies: [
+            ...new Set(
+                params
+                    .getAll('company')
+                    .map((id) => id.trim())
+                    .filter(Boolean),
+            ),
+        ],
         categories: [
             ...new Set(params.getAll('category').filter((c) => c.trim())),
         ],
@@ -54,6 +65,8 @@ export const productsHref = (query: Partial<BrowseQuery> = {}) => {
     if (q) params.set('q', q)
     for (const divisionId of query.stores ?? [])
         params.append('store', storeSlug(divisionId))
+    for (const companyId of query.companies ?? [])
+        params.append('company', companyId)
     for (const category of query.categories ?? [])
         params.append('category', category)
     if (query.sort && query.sort !== 'recommended')

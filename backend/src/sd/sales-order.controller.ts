@@ -2,6 +2,7 @@ import {
     Body,
     Controller,
     Get,
+    Headers,
     Param,
     Patch,
     Post,
@@ -18,12 +19,14 @@ import {
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
+import { RetailSessionService } from '../retail/retail-session.service'
 
 @Controller('sd/sales-orders')
 export class SalesOrderController {
     constructor(
         private salesOrders: SalesOrderService,
         private orchestration: SdMmOrchestrationService,
+        private retailSessions: RetailSessionService,
     ) {}
 
     @Get()
@@ -37,14 +40,26 @@ export class SalesOrderController {
     }
 
     @Post('retail')
-    createRetail(@Body() dto: CreateRetailSalesOrderDto) {
-        return this.salesOrders.createRetail(dto)
+    createRetail(
+        @Body() dto: CreateRetailSalesOrderDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.salesOrders.createRetail(
+            dto,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
     }
 
     /** Mixed-division storefront cart → one ECOMMERCE sales order per division. */
     @Post('retail/checkout')
-    createMarketplaceCheckout(@Body() dto: CreateMarketplaceCheckoutDto) {
-        return this.salesOrders.createMarketplaceCheckout(dto)
+    createMarketplaceCheckout(
+        @Body() dto: CreateMarketplaceCheckoutDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.salesOrders.createMarketplaceCheckout(
+            dto,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
     }
 
     @Patch('retail/:id/status')

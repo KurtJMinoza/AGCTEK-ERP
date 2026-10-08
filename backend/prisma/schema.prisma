@@ -6531,21 +6531,48 @@ model DemandPlanAdjustment {
 
 /// Shop customer account (separate from ERP User) — delivery profile + saved cart
 model RetailClient {
-  id           String           @id @default(cuid())
-  email        String           @unique
+  id           String                @id @default(cuid())
+  email        String                @unique
   passwordHash String
   fullName     String
-  phone        String           @default("")
-  addressLine1 String           @default("")
-  city         String           @default("")
-  region       String           @default("")
-  postalCode   String           @default("")
-  country      String           @default("PH")
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  phone        String                @default("")
+  addressLine1 String                @default("")
+  city         String                @default("")
+  region       String                @default("")
+  postalCode   String                @default("")
+  country      String                @default("PH")
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
   cartItems    RetailCartItem[]
+  addresses    RetailClientAddress[]
 
   @@index([email])
+}
+
+/// A shopper-owned delivery location. The final map pin is retained separately
+/// from the reverse-geocoded address so downstream delivery services can use it.
+model RetailClientAddress {
+  id                     String       @id @default(cuid())
+  clientId               String
+  client                 RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// HOME | WORK today. Kept as a string so new address types do not require a schema enum migration.
+  addressType            String
+  formattedAddress       String?
+  addressLine            String?
+  barangayOrNeighborhood String?
+  cityOrMunicipality     String?
+  provinceOrState        String?
+  postalCode             String?
+  country                String?
+  latitude               Float
+  longitude              Float
+  additionalInfo         String?
+  isDefault              Boolean      @default(false)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@index([clientId, createdAt])
+  @@index([clientId, isDefault])
 }
 
 model RetailCartItem {

@@ -152,7 +152,7 @@ const MarketplaceOfficialStores = ({
     activeStoreId,
     onSelect,
 }: MarketplaceOfficialStoresProps) => {
-    const cards = stores && stores.length > 0 ? stores : defaultStoreCards()
+    const cards = stores ?? defaultStoreCards()
     return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {cards.map((store) => {
