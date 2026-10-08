@@ -15,7 +15,8 @@ import type { PermissionAction } from './permissions.constants'
 
 export const PERMISSION_KEY = 'requiredPermission'
 
-export type RequiredPermission = { resource: string; action: PermissionAction }
+/** Allowed when any listed resource allows the action. */
+export type RequiredPermission = { resource: string | readonly string[]; action: PermissionAction }
 
 /** Runs after `UserAuthGuard`, which attaches the authenticated user to the request. */
 @Injectable()
@@ -50,9 +51,10 @@ export class PermissionGuard implements CanActivate {
 /**
  * Require a resource permission on a controller or handler, e.g.
  * `@RequirePermission('crm.leads', 'update')`. A group code (`crm`) passes when any of its
- * resources allows the action. Applies `UserAuthGuard` + `PermissionGuard`.
+ * resources allows the action; several codes pass when any of them does.
+ * Applies `UserAuthGuard` + `PermissionGuard`.
  */
-export const RequirePermission = (resource: string, action: PermissionAction) =>
+export const RequirePermission = (resource: string | readonly string[], action: PermissionAction) =>
     applyDecorators(
         SetMetadata(PERMISSION_KEY, { resource, action } satisfies RequiredPermission),
         UseGuards(UserAuthGuard, PermissionGuard),

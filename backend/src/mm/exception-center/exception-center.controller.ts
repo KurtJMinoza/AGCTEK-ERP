@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, UsePipes, ValidationPipe } from '@nestjs
 import { ExceptionCenterService } from './exception-center.service'
 import { ExceptionCenterQueryDto } from './dto/exception-center.dto'
 import type { MmExceptionFilters } from './exception-center.types'
+import { MmRead } from '../common/mm-mutation.decorator'
 
 @Controller('mm/exceptions')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -9,16 +10,19 @@ export class ExceptionCenterController {
     constructor(private exceptions: ExceptionCenterService) {}
 
     @Get()
+    @MmRead('mm.exception-center')
     list(@Query() query: ExceptionCenterQueryDto) {
         return this.exceptions.list(this.toFilters(query))
     }
 
     @Get('counts')
+    @MmRead('mm.exception-center')
     counts(@Query() query: ExceptionCenterQueryDto) {
         return this.exceptions.getCounts(this.toFilters(query))
     }
 
     @Get(':id')
+    @MmRead('mm.exception-center')
     getOne(@Param('id') id: string, @Query() query: ExceptionCenterQueryDto) {
         return this.exceptions.getOne(id, this.toFilters(query))
     }

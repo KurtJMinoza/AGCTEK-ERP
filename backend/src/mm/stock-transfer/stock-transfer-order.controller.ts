@@ -7,8 +7,11 @@ import {
     ReceiveStoDto,
     StoQueryDto,
 } from './dto/stock-transfer.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('warehouse-management', 'in-transit', 'transfer-history', 'transfer-orders', 'transfer-queue', 'transfer-receipts')
 
 @Controller('mm/stock-transfer-orders')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -22,11 +25,13 @@ export class StockTransferOrderController {
     }
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: StoQueryDto) {
         return this.orders.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     get(@Param('id') id: string) {
         return this.orders.findOne(id)
     }

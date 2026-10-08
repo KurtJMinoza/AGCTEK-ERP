@@ -20,6 +20,7 @@ import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { barcodeService } from '../services/referenceService'
 import type { MmBarcode } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
 
@@ -38,6 +39,7 @@ const BARCODE_TYPE_OPTIONS = [
 
 const BarcodesPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const { canCreate, canDelete } = useResourceAccess()
     const [items, setItems] = useState<(MmBarcode & { material?: { materialCode: string; materialName: string } })[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
@@ -109,15 +111,15 @@ const BarcodesPage = () => {
         { header: 'Type', accessorKey: 'barcodeType', size: 120 },
         { header: 'Value', accessorKey: 'barcodeValue', size: 300 },
         { header: 'Primary', accessorKey: 'isPrimary', size: 80, cell: ({ row }: any) => row.original.isPrimary ? <Tag className="bg-emerald-100 text-emerald-700 text-xs">Yes</Tag> : <span className="text-gray-400">No</span> },
-        { id: 'actions', header: '', size: 56, cell: ({ row }: any) => <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => setDeleting(row.original)} /> },
-    ], [])
+        { id: 'actions', header: '', size: 56, cell: ({ row }: any) => canDelete ? <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => setDeleting(row.original)} /> : null },
+    ], [canDelete])
 
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Barcodes" description="Manage barcode records across all materials." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button>} />
+            <PageHeader title="Barcodes" description="Manage barcode records across all materials." actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button> : undefined} />
             <AdaptiveCard>
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
                         <div className="ml-auto flex items-center gap-2">

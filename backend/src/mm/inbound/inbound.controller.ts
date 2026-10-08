@@ -19,8 +19,11 @@ import {
     QualityDecideDto,
     ReceiveDto,
 } from './dto/inbound.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('barcode-rfid', 'mobile-receiving'), ...mmFeatures('receiving', 'advanced-shipping-notices', 'expected-receipts', 'goods-receipt', 'inspection-queue', 'quality-quarantine', 'receiving-inspection', 'usage-decisions')]
 
 @Controller('mm/inbound')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -33,47 +36,56 @@ export class InboundController {
 
     // ── ASN ─────────────────────────────────────────────────────────
     @Post('asns')
+    @MmMutation(mmFeatures('receiving', 'advanced-shipping-notices'), 'create')
     createAsn(@Body() dto: CreateAsnDto) {
         return this.expectedReceipts.createAsn(dto)
     }
 
     @Get('asns')
+    @MmRead(READERS)
     listAsns(@Query() query: InboundQueryDto) {
         return this.expectedReceipts.listAsns(query)
     }
 
     @Get('asns/:id')
+    @MmRead(READERS)
     getAsn(@Param('id') id: string) {
         return this.expectedReceipts.getAsn(id)
     }
 
     @Post('asns/:id/confirm')
+    @MmMutation(mmFeatures('receiving', 'advanced-shipping-notices'), 'update')
     confirmAsn(@Param('id') id: string) {
         return this.expectedReceipts.confirmAsn(id)
     }
 
     @Post('asns/:id/cancel')
+    @MmMutation(mmFeatures('receiving', 'advanced-shipping-notices'), 'update')
     cancelAsn(@Param('id') id: string) {
         return this.expectedReceipts.cancelAsn(id)
     }
 
     // ── Expected receipts ───────────────────────────────────────────
     @Post('expected-receipts/from-po')
+    @MmMutation(mmFeatures('receiving', 'expected-receipts'), 'create')
     fromPo(@Body() dto: CreateExpectedReceiptFromPoDto) {
         return this.expectedReceipts.createFromPo(dto)
     }
 
     @Post('expected-receipts/from-asn')
+    @MmMutation(mmFeatures('receiving', 'expected-receipts'), 'create')
     fromAsn(@Body() dto: CreateExpectedReceiptFromAsnDto) {
         return this.expectedReceipts.createFromAsn(dto)
     }
 
     @Get('expected-receipts')
+    @MmRead(READERS)
     listExpected(@Query() query: InboundQueryDto) {
         return this.expectedReceipts.list(query)
     }
 
     @Get('expected-receipts/:id')
+    @MmRead(READERS)
     getExpected(@Param('id') id: string) {
         return this.expectedReceipts.findOne(id)
     }
@@ -87,11 +99,13 @@ export class InboundController {
 
     // ── Quality ─────────────────────────────────────────────────────
     @Get('quality-inspections')
+    @MmRead(READERS)
     listQi(@Query() query: InboundQueryDto) {
         return this.quality.list(query)
     }
 
     @Get('quality-inspections/:id')
+    @MmRead(READERS)
     getQi(@Param('id') id: string) {
         return this.quality.findOne(id)
     }

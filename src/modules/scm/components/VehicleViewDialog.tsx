@@ -12,6 +12,7 @@ import ScrollBar from '@/components/ui/ScrollBar'
 import { Form, FormItem } from '@/components/ui/Form'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { useVehicleDetail } from '../hooks/useVehicleDetail'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { VehicleStatus, VehicleType } from '../types'
 import {
@@ -66,6 +67,7 @@ export default function VehicleViewDialog({
         notFound,
         update,
     } = useVehicleDetail(isOpen ? (vehicleId ?? undefined) : undefined)
+    const { canUpdate } = useResourceAccess('scm.vehicles')
 
     const [editing, setEditing] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -419,9 +421,11 @@ export default function VehicleViewDialog({
 
                     <div className="mt-4 flex justify-end gap-2">
                         <Button onClick={handleClose}>Close</Button>
-                        <Button variant="solid" onClick={openEdit}>
-                            Edit
-                        </Button>
+                        {canUpdate && (
+                            <Button variant="solid" onClick={openEdit}>
+                                Edit
+                            </Button>
+                        )}
                     </div>
                 </>
             ) : null}

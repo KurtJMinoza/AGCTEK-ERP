@@ -20,7 +20,7 @@ import {
     UpsertPoToleranceDto,
     RevisePurchaseOrderDto,
 } from './dto/po-actions.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 
 class ActionBody {
@@ -28,6 +28,9 @@ class ActionBody {
     comment?: string
     performedBy?: string
 }
+
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('procurement', 'po-approvals', 'purchase-orders', 'supplier-invoices'), ...mmFeatures('receiving', 'advanced-shipping-notices', 'expected-receipts')]
 
 @Controller('mm/purchase-orders')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -47,11 +50,13 @@ export class PurchaseOrderController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: PurchaseOrderQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }
@@ -111,16 +116,19 @@ export class PurchaseOrderController {
     }
 
     @Get(':id/audit')
+    @MmRead(READERS)
     getAudit(@Param('id') id: string) {
         return this.service.getAudit(id)
     }
 
     @Get(':id/document-flow')
+    @MmRead(READERS)
     getDocumentFlow(@Param('id') id: string) {
         return this.service.getDocumentFlow(id)
     }
 
     @Get(':id/attachments')
+    @MmRead(READERS)
     listAttachments(@Param('id') id: string) {
         return this.service.listAttachments(id)
     }
@@ -148,11 +156,13 @@ export class PoToleranceController {
     constructor(private service: PurchaseOrderService) {}
 
     @Get()
+    @MmRead(READERS)
     get(@Query('companyId') companyId: string) {
         return this.service.getTolerances(companyId)
     }
 
     @Put()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'), 'update')
     upsert(@Body() dto: UpsertPoToleranceDto) {
         return this.service.upsertTolerances(dto)
     }

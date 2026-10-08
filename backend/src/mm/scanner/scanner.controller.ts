@@ -17,7 +17,7 @@ import {
     ScannerEventsQueryDto,
     ScannerEventBatchDto,
 } from './dto/scanner.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 
 function normalizeScannerBody(raw: Record<string, any>): Record<string, any> {
@@ -35,6 +35,9 @@ function normalizeScannerBody(raw: Record<string, any>): Record<string, any> {
         serial: alias('serial', 'serial'),
     }
 }
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'mobile-counting', 'mobile-picking', 'mobile-receiving', 'serial-scanning')
 
 @Controller('mm/scanner')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -81,11 +84,13 @@ export class ScannerController {
     }
 
     @Get('events')
+    @MmRead(READERS)
     listEvents(@Query() query: ScannerEventsQueryDto) {
         return this.eventService.listEvents(query)
     }
 
     @Get('resolve')
+    @MmRead(READERS)
     resolve(@Query() query: ResolveQueryDto) {
         return this.resolveService.resolve(query.barcode, query.companyId)
     }

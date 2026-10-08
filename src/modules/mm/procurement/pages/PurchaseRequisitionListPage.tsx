@@ -38,6 +38,7 @@ import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { defaultMaterialUomId } from '@/modules/mm/shared/uomHelpers'
 import type { PurchaseRequisition, PrListResponse } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     minLength,
@@ -111,6 +112,7 @@ const emptyLine = (): LineDraft => ({
 const PurchaseRequisitionListPage = () => {
     const router = useRouter()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<PurchaseRequisition[]>([])
     const [total, setTotal] = useState(0)
@@ -417,11 +419,11 @@ const PurchaseRequisitionListPage = () => {
             <PageHeader
                 title="Purchase Requests"
                 description="Internal demand documents for materials and services — not a supplier commitment."
-                actions={
+                actions={canCreate ? (
                     <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
                         New request
                     </Button>
-                }
+                ) : undefined}
             />
 
             <AdaptiveCard className="mt-4">

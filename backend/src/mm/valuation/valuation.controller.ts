@@ -16,7 +16,7 @@ import { InventoryValueService } from './inventory-value.service'
 import { LandedCostService } from './landed-cost.service'
 import { CostElementService } from './cost-element.service'
 import { PriceVarianceService } from './price-variance.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     UpsertMaterialValuationDto,
@@ -35,6 +35,9 @@ import {
     PriceVarianceQueryDto,
 } from './dto/valuation.dto'
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('valuation', 'cost-layers', 'fifo', 'inventory-valuation', 'landed-cost', 'moving-average', 'price-variance', 'standard-cost')
+
 @Controller('mm/valuation')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class ValuationController {
@@ -51,6 +54,7 @@ export class ValuationController {
     // ─── Profiles (canonical alias of material-valuations) ──────
 
     @Get('profiles')
+    @MmRead(READERS)
     listProfiles(@Query() query: MaterialValuationQueryDto) {
         return this.materialValuations.findAll(query)
     }
@@ -64,11 +68,13 @@ export class ValuationController {
     // ─── Material valuations (legacy) ───────────────────────────
 
     @Get('material-valuations')
+    @MmRead(READERS)
     listMaterialValuations(@Query() query: MaterialValuationQueryDto) {
         return this.materialValuations.findAll(query)
     }
 
     @Get('material-valuations/:id')
+    @MmRead(READERS)
     getMaterialValuation(@Param('id') id: string) {
         return this.materialValuations.findOne(id)
     }
@@ -80,6 +86,7 @@ export class ValuationController {
     }
 
     @Patch('material-valuations/:id')
+    @MmMutation(mmFeatures('valuation', 'inventory-valuation', 'standard-cost', 'moving-average'), 'update')
     updateMaterialValuation(
         @Param('id') id: string,
         @Body() dto: UpdateMaterialValuationDto,
@@ -99,6 +106,7 @@ export class ValuationController {
     // ─── Cost layers ────────────────────────────────────────────
 
     @Get('cost-layers')
+    @MmRead(READERS)
     listCostLayers(@Query() query: CostLayerQueryDto) {
         return this.costLayers.findAll(query)
     }
@@ -112,16 +120,19 @@ export class ValuationController {
     // ─── Inventory value ────────────────────────────────────────
 
     @Get('inventory')
+    @MmRead(READERS)
     getInventory(@Query() query: InventoryValueQueryDto) {
         return this.inventoryValue.query(query)
     }
 
     @Get('inventory-value')
+    @MmRead(READERS)
     getInventoryValue(@Query() query: InventoryValueQueryDto) {
         return this.inventoryValue.query(query)
     }
 
     @Get('valuation-transactions')
+    @MmRead(READERS)
     listValuationTxns(@Query() query: ValuationTxnQueryDto) {
         return this.engine.listValuationTransactions(query)
     }
@@ -129,6 +140,7 @@ export class ValuationController {
     // ─── Price variance ─────────────────────────────────────────
 
     @Get('price-variance')
+    @MmRead(READERS)
     listPriceVariance(@Query() query: PriceVarianceQueryDto) {
         return this.priceVariances.findAll(query)
     }
@@ -136,6 +148,7 @@ export class ValuationController {
     // ─── Cost elements ──────────────────────────────────────────
 
     @Get('cost-elements')
+    @MmRead(READERS)
     listCostElements(@Query() query: CostElementQueryDto) {
         return this.costElements.findAll(query)
     }
@@ -155,11 +168,13 @@ export class ValuationController {
     // ─── Landed cost (legacy + canonical aliases) ───────────────
 
     @Get('landed-costs')
+    @MmRead(READERS)
     listLandedCosts(@Query() query: LandedCostQueryDto) {
         return this.landedCosts.findAll(query)
     }
 
     @Get('landed-costs/:id')
+    @MmRead(READERS)
     getLandedCost(@Param('id') id: string) {
         return this.landedCosts.findOne(id)
     }

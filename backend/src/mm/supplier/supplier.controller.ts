@@ -16,77 +16,93 @@ import { SupplierService } from './supplier.service'
 import { CreateSupplierDto } from './dto/create-supplier.dto'
 import { UpdateSupplierDto } from './dto/update-supplier.dto'
 import { SupplierQueryDto } from './dto/supplier-query.dto'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { MM_REFERENCE_READ, mmFeatures } from '../../permissions/permissions.constants'
 
 @Controller('mm/suppliers')
 export class SupplierController {
     constructor(private service: SupplierService) {}
 
     @Post()
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'create')
     create(@Body() dto: CreateSupplierDto) {
         return this.service.create(dto)
     }
 
     @Get()
+    @MmRead(MM_REFERENCE_READ)
     findAll(@Query() query: SupplierQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(MM_REFERENCE_READ)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }
 
     @Put(':id')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     update(@Param('id') id: string, @Body() dto: UpdateSupplierDto) {
         return this.service.update(id, dto)
     }
 
     @Post(':id/submit')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     submit(@Param('id') id: string, @Body() body: { performedBy?: string }) {
         return this.service.submitForReview(id, body?.performedBy)
     }
 
     @Post(':id/approve')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     approve(@Param('id') id: string, @Body() body: { performedBy?: string }) {
         return this.service.approve(id, body?.performedBy)
     }
 
     @Post(':id/activate')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     activate(@Param('id') id: string, @Body() body: { performedBy?: string }) {
         return this.service.activate(id, body?.performedBy)
     }
 
     @Post(':id/deactivate')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     deactivate(@Param('id') id: string, @Body() body: { performedBy?: string }) {
         return this.service.deactivate(id, body?.performedBy)
     }
 
     @Post(':id/block')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     block(@Param('id') id: string, @Body() body: { reason?: string; performedBy?: string }) {
         return this.service.block(id, body?.reason, body?.performedBy)
     }
 
     @Post(':id/unblock')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'update')
     unblock(@Param('id') id: string, @Body() body: { performedBy?: string }) {
         return this.service.unblock(id, body?.performedBy)
     }
 
     @Delete(':id')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master'), 'delete')
     softDelete(@Param('id') id: string) {
         return this.service.softDelete(id)
     }
 
     @Get(':id/audit')
+    @MmRead(MM_REFERENCE_READ)
     getAudit(@Param('id') id: string) {
         return this.service.getAuditTrail(id)
     }
 
     @Get(':id/documents')
+    @MmRead(MM_REFERENCE_READ)
     listDocuments(@Param('id') id: string) {
         return this.service.listDocuments(id)
     }
 
     @Post(':id/documents/upload')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master', 'supplier-documents'), 'update')
     async uploadDocument(
         @Param('id') id: string,
         @Req() req: FastifyRequest,
@@ -123,6 +139,7 @@ export class SupplierController {
     }
 
     @Post(':id/documents')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master', 'supplier-documents'), 'update')
     addDocument(
         @Param('id') id: string,
         @Body()
@@ -139,6 +156,7 @@ export class SupplierController {
     }
 
     @Get(':id/documents/:documentId/file')
+    @MmRead(MM_REFERENCE_READ)
     async getDocumentFile(
         @Param('id') id: string,
         @Param('documentId') documentId: string,
@@ -159,6 +177,7 @@ export class SupplierController {
     }
 
     @Delete(':id/documents/:documentId')
+    @MmMutation(mmFeatures('supplier-management', 'supplier-master', 'supplier-documents'), 'delete')
     removeDocument(@Param('id') id: string, @Param('documentId') documentId: string) {
         return this.service.removeDocument(id, documentId)
     }

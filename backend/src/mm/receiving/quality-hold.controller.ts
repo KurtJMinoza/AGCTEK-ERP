@@ -14,8 +14,11 @@ import {
     ReleaseQualityHoldDto,
     ReceivingQueryDto,
 } from './dto/receiving.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('receiving', 'quality-holds', 'quality-quarantine')
 
 @Controller('mm/quality-holds')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -29,6 +32,7 @@ export class QualityHoldController {
     }
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: ReceivingQueryDto) {
         return this.holds.findAll(query)
     }

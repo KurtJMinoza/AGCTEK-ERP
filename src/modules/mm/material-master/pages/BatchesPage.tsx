@@ -21,6 +21,7 @@ import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { batchService } from '../services/referenceService'
 import type { MmBatch } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 import { formatCalendarDate } from '@/modules/mm/shared/calendarDate'
@@ -39,6 +40,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const BatchesPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const { canCreate, canDelete } = useResourceAccess()
     const [items, setItems] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
@@ -127,18 +129,18 @@ const BatchesPage = () => {
         {
             id: 'actions', header: '', size: 56, enableSorting: false, cell: ({ row }: any) => (
                 <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                    <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
+                    {canDelete && <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>}
                 </Dropdown>
             ),
         },
-    ], [])
+    ], [canDelete])
 
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Batches" description="Manage batch records for batch-managed materials." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>} />
+            <PageHeader title="Batches" description="Manage batch records for batch-managed materials." actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button> : undefined} />
             <AdaptiveCard>
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
                         <div className="ml-auto flex items-center gap-2">

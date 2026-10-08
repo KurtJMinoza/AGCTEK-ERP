@@ -242,8 +242,8 @@ describe('CrmTicketsController RBAC metadata', () => {
         ['update', 'update'],
         ['listComments', 'read'],
         ['addComment', 'create'],
-    ])('%s requires crm:%s', (handler, action) => {
+    ])('%s requires crm.tickets:%s', (handler, action) => {
         const fn = CrmTicketsController.prototype[handler as keyof CrmTicketsController]
-        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ module: 'crm', action })
+        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.tickets', action })
     })
 })

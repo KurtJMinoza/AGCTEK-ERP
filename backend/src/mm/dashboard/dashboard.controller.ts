@@ -14,6 +14,7 @@ import { DashboardAnalyticsService } from './dashboard-analytics.service'
 import { DashboardVisibilityService } from './dashboard-visibility.service'
 import { DashboardQueryDto, DashboardRefreshDto } from './dto/dashboard.dto'
 import { DashboardFilters } from './dashboard.helpers'
+import { MmRead } from '../common/mm-mutation.decorator'
 
 @Controller('mm/dashboard')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -26,17 +27,20 @@ export class DashboardController {
     ) {}
 
     @Get()
+    @MmRead('mm.dashboard')
     async getDashboard(@Query() query: DashboardQueryDto) {
         return this.buildDashboard(query)
     }
 
     /** Canonical MM dashboard alias — same payload as GET /mm/dashboard. */
     @Get('mm')
+    @MmRead('mm.dashboard')
     async getMmDashboard(@Query() query: DashboardQueryDto) {
         return this.buildDashboard(query)
     }
 
     @Get('kpis')
+    @MmRead('mm.dashboard')
     async getKpis(@Query() query: DashboardQueryDto) {
         const filters = this.toFilters(query)
         const visibility = this.visibilityService.getVisibility(query.role, query.authority)
@@ -45,6 +49,7 @@ export class DashboardController {
     }
 
     @Get('alerts')
+    @MmRead('mm.dashboard')
     async getAlerts(@Query() query: DashboardQueryDto) {
         const visibility = this.visibilityService.getVisibility(query.role, query.authority)
         const alerts = await this.alertService.getAlerts(this.toFilters(query))
@@ -52,11 +57,13 @@ export class DashboardController {
     }
 
     @Get('analytics/:type')
+    @MmRead('mm.dashboard')
     getAnalytics(@Param('type') type: string, @Query() query: DashboardQueryDto) {
         return this.analyticsService.getAnalytics(type, this.toFilters(query))
     }
 
     @Post('refresh')
+    @MmRead('mm.dashboard')
     refresh(@Body() body: DashboardRefreshDto) {
         return this.analyticsService.refresh(this.toFilters(body))
     }

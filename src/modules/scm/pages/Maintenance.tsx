@@ -17,6 +17,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import Tabs from '@/components/ui/Tabs'
 import RegistrationInsuranceSection from '../components/maintenance/RegistrationInsuranceSection'
 import { useMaintenance } from '../hooks/useMaintenance'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     apiGetVehicles,
     apiSetOdometerThresholds,
@@ -100,6 +101,7 @@ export default function MaintenancePage() {
         update,
         remove,
     } = useMaintenance()
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [vehicles, setVehicles] = useState<Vehicle[]>([])
     const [dialogOpen, setDialogOpen] = useState(false)
@@ -414,7 +416,7 @@ export default function MaintenancePage() {
                               : null
                     return (
                         <div className="flex flex-wrap items-center justify-end gap-1">
-                            {advanceLabel ? (
+                            {canUpdate && advanceLabel ? (
                                 <Button
                                     size="xs"
                                     variant="solid"
@@ -423,8 +425,9 @@ export default function MaintenancePage() {
                                     {advanceLabel}
                                 </Button>
                             ) : null}
-                            {row.original.status === 'SCHEDULED' ||
-                            row.original.status === 'IN_PROGRESS' ? (
+                            {canUpdate &&
+                            (row.original.status === 'SCHEDULED' ||
+                                row.original.status === 'IN_PROGRESS') ? (
                                 <Button
                                     size="xs"
                                     onClick={() =>
@@ -436,34 +439,38 @@ export default function MaintenancePage() {
                                     Cancel
                                 </Button>
                             ) : null}
-                            <Button
-                                size="xs"
-                                onClick={() => openEdit(row.original)}
-                            >
-                                Edit
-                            </Button>
-                            <Button
-                                size="xs"
-                                variant="plain"
-                                className="text-red-600"
-                                onClick={() => {
-                                    if (
-                                        confirm(
-                                            `Delete maintenance “${row.original.title}”?`,
-                                        )
-                                    ) {
-                                        void remove(row.original.id)
-                                    }
-                                }}
-                            >
-                                Delete
-                            </Button>
+                            {canUpdate && (
+                                <Button
+                                    size="xs"
+                                    onClick={() => openEdit(row.original)}
+                                >
+                                    Edit
+                                </Button>
+                            )}
+                            {canDelete && (
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    className="text-red-600"
+                                    onClick={() => {
+                                        if (
+                                            confirm(
+                                                `Delete maintenance “${row.original.title}”?`,
+                                            )
+                                        ) {
+                                            void remove(row.original.id)
+                                        }
+                                    }}
+                                >
+                                    Delete
+                                </Button>
+                            )}
                         </div>
                     )
                 },
             },
         ],
-        [remove, update],
+        [remove, update, canUpdate, canDelete],
     )
 
     return (
@@ -475,12 +482,16 @@ export default function MaintenancePage() {
                 actions={
                     activeTab === 'service' ? (
                         <div className="flex flex-wrap gap-2">
-                            <Button onClick={openThresholdModal}>
-                                Odometer thresholds
-                            </Button>
-                            <Button variant="solid" onClick={openCreate}>
-                                Schedule maintenance
-                            </Button>
+                            {canUpdate && (
+                                <Button onClick={openThresholdModal}>
+                                    Odometer thresholds
+                                </Button>
+                            )}
+                            {canCreate && (
+                                <Button variant="solid" onClick={openCreate}>
+                                    Schedule maintenance
+                                </Button>
+                            )}
                         </div>
                     ) : null
                 }

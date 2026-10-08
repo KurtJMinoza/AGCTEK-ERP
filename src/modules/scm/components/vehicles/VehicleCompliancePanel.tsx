@@ -22,6 +22,7 @@ import {
 import { getApiErrorMessage } from '../../utils/apiError'
 import { formatStatusLabel, statusTone } from '../../utils/status'
 import type { VehicleDocument, VehicleDocumentKind } from '../../types'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 type Option = { value: string; label: string }
 
@@ -94,6 +95,7 @@ export function VehicleCompliancePanel({ vehicleId }: { vehicleId: string }) {
     const [form, setForm] = useState<DocForm>(emptyForm)
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
+    const { canUpdate, canDelete } = useResourceAccess('scm.vehicles')
 
     const reload = useCallback(async () => {
         setLoading(true)
@@ -284,41 +286,47 @@ export function VehicleCompliancePanel({ vehicleId }: { vehicleId: string }) {
                 cell: ({ row }) =>
                     row.original.status === 'CANCELLED' ? null : (
                         <div className="flex flex-wrap justify-end gap-1">
-                            <Button
-                                size="xs"
-                                onClick={() => openRenew(row.original)}
-                            >
-                                Renew
-                            </Button>
-                            <Button
-                                size="xs"
-                                onClick={() => openEdit(row.original)}
-                            >
-                                Edit
-                            </Button>
-                            <Button
-                                size="xs"
-                                variant="plain"
-                                className="text-red-600"
-                                onClick={() => {
-                                    if (
-                                        confirm(
-                                            `Cancel ${kindLabel(row.original.kind)} ${row.original.documentNo}?`,
-                                        )
-                                    ) {
-                                        void apiCancelVehicleDocument(
-                                            row.original.id,
-                                        ).then(() => reload())
-                                    }
-                                }}
-                            >
-                                Cancel
-                            </Button>
+                            {canUpdate && (
+                                <Button
+                                    size="xs"
+                                    onClick={() => openRenew(row.original)}
+                                >
+                                    Renew
+                                </Button>
+                            )}
+                            {canUpdate && (
+                                <Button
+                                    size="xs"
+                                    onClick={() => openEdit(row.original)}
+                                >
+                                    Edit
+                                </Button>
+                            )}
+                            {canDelete && (
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    className="text-red-600"
+                                    onClick={() => {
+                                        if (
+                                            confirm(
+                                                `Cancel ${kindLabel(row.original.kind)} ${row.original.documentNo}?`,
+                                            )
+                                        ) {
+                                            void apiCancelVehicleDocument(
+                                                row.original.id,
+                                            ).then(() => reload())
+                                        }
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                            )}
                         </div>
                     ),
             },
         ],
-        [reload],
+        [reload, canUpdate, canDelete],
     )
 
     if (loading && docs.length === 0) {
@@ -349,9 +357,11 @@ export function VehicleCompliancePanel({ vehicleId }: { vehicleId: string }) {
                         block; expiring soon = badge only.
                     </p>
                 </div>
-                <Button size="sm" variant="solid" onClick={openCreate}>
-                    Add document
-                </Button>
+                {canUpdate && (
+                    <Button size="sm" variant="solid" onClick={openCreate}>
+                        Add document
+                    </Button>
+                )}
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

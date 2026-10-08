@@ -299,10 +299,10 @@ describe('Activities controllers RBAC metadata', () => {
         ['list', 'read'],
         ['create', 'create'],
         ['complete', 'update'],
-    ])('%s requires crm:%s on opportunities and tickets', (handler, action) => {
+    ])('%s requires crm.activities:%s on opportunities and tickets', (handler, action) => {
         for (const ctrl of [CrmActivitiesController, CrmTicketActivitiesController]) {
             const fn = ctrl.prototype[handler as 'list' | 'create' | 'complete']
-            expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ module: 'crm', action })
+            expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.activities', action })
         }
     })
 })

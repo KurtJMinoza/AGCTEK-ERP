@@ -7,8 +7,11 @@ import {
     InviteSuppliersDto,
 } from './dto/create-rfq.dto'
 import { RfqQueryDto } from './dto/rfq-query.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('procurement', 'quotation-comparison', 'rfqs', 'supplier-quotations')
 
 @Controller('mm/rfqs')
 export class RfqController {
@@ -27,11 +30,13 @@ export class RfqController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: RfqQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }
@@ -64,6 +69,7 @@ export class RfqController {
     }
 
     @Get(':id/comparison')
+    @MmRead(READERS)
     comparison(@Param('id') id: string) {
         return this.service.getComparison(id)
     }
@@ -87,6 +93,7 @@ export class RfqController {
     }
 
     @Get(':id/audit')
+    @MmRead(READERS)
     audit(@Param('id') id: string) {
         return this.service.getAudit(id)
     }

@@ -15,6 +15,7 @@ import {
     MODULE_CATALOG,
     NO_ACCESS,
     RESOURCE_CATALOG,
+    RESOURCES_BY_CODE,
     SUPER_ADMIN_ONLY_MODULES,
     mergeFlags,
     moduleOfResource,
@@ -27,6 +28,8 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
 import { FEATURE_MODULE_FLAGS, SETTING_KEYS } from '../system-settings/system-settings.catalog'
 
 export type PermissionSubject = string | { role: string } | { userId: string }
+
+const MODULES_BY_CODE = new Map(MODULE_CATALOG.map((m) => [m.code as string, m]))
 
 /** Effective grants keyed by resource code, plus each group's union (group visible if any resource is). */
 export type EffectivePermissions = {
@@ -542,9 +545,8 @@ export class PermissionsService {
         for (const code of list) {
             if (await this.checkPermission(subject, code, action)) return
         }
-        throw new ForbiddenException(
-            `Missing ${action} permission for ${list.map((c) => `"${c}"`).join(' or ')}`,
-        )
+        const names = list.map((c) => `${RESOURCES_BY_CODE.get(c)?.name ?? MODULES_BY_CODE.get(c)?.name ?? c} (${c})`)
+        throw new ForbiddenException(`You do not have ${action} permission for ${names.join(' or ')}.`)
     }
 
     private async findRole(code: string) {

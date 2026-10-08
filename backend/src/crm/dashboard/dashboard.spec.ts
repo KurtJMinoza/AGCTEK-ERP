@@ -166,9 +166,9 @@ describe('CrmDashboardService', () => {
 })
 
 describe('CrmDashboardController RBAC metadata', () => {
-    it('requires crm:read', () => {
+    it('requires crm.dashboard:read', () => {
         expect(Reflect.getMetadata(PERMISSION_KEY, CrmDashboardController.prototype.get)).toEqual({
-            module: 'crm',
+            resource: 'crm.dashboard',
             action: 'read',
         })
     })

@@ -15,7 +15,7 @@ import {
     MobileSyncDto,
     RegisterDeviceDto,
 } from './dto/mobile.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 
 function normalize(raw: Record<string, any>): Record<string, any> {
@@ -48,6 +48,9 @@ async function toEventDto(body: Record<string, any>, operation: string) {
         expectedTaskUpdatedAt: body.expectedTaskUpdatedAt,
     }
 }
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'mobile-counting', 'mobile-picking', 'mobile-receiving', 'serial-scanning')
 
 @Controller('mm/mobile')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -115,6 +118,7 @@ export class ScannerResolvePostController {
 
     /** Canonical Phase 11: POST /scanner/resolve */
     @Post('resolve')
+    @MmRead(READERS)
     async resolvePost(@Body() body: Record<string, any>) {
         const dto = plainToInstance(MobileResolveDto, normalize(body), {
             enableImplicitConversion: true,

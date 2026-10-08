@@ -30,6 +30,7 @@ import { purchaseRequisitionService } from '../services/purchaseRequisitionServi
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmRfq, MmRfqListResponse, PurchaseRequisition } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     minLength,
@@ -94,6 +95,7 @@ const emptyLine = (): LineDraft => ({
 const RfqListPage = () => {
     const router = useRouter()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmRfq[]>([])
     const [total, setTotal] = useState(0)
@@ -434,7 +436,7 @@ const RfqListPage = () => {
             <PageHeader
                 title="RFQs"
                 description="Request quotations from suppliers, compare responses, and award winners."
-                actions={
+                actions={canCreate ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={openFromPr}>
                             From approved request
@@ -443,7 +445,7 @@ const RfqListPage = () => {
                             New RFQ
                         </Button>
                     </div>
-                }
+                ) : undefined}
             />
 
             <AdaptiveCard className="mt-4">

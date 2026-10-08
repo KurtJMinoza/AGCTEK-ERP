@@ -6,8 +6,11 @@ import {
     ReservationQueryDto,
     AtpQueryDto,
 } from './dto/reservation.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('inventory-management', 'reservations')
 
 @Controller('mm')
 export class ReservationController {
@@ -17,11 +20,13 @@ export class ReservationController {
     ) {}
 
     @Get('reservations')
+    @MmRead(READERS)
     findAll(@Query() query: ReservationQueryDto) {
         return this.reservations.findAll(query)
     }
 
     @Get('reservations/:id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.reservations.findOne(id)
     }
@@ -45,6 +50,7 @@ export class ReservationController {
     }
 
     @Get('available-stock')
+    @MmRead(READERS)
     atp(@Query() query: AtpQueryDto) {
         return this.availability.getAtp(query)
     }
