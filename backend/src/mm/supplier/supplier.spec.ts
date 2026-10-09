@@ -77,11 +77,15 @@ const mockPrisma: any = {
     },
     mmSupplierMaterial: {
         create: jest.fn(),
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
         count: jest.fn(),
+    },
+    mmMaterial: {
+        findUnique: jest.fn(),
     },
     mmPaymentTerms: {
         create: jest.fn(),
@@ -271,6 +275,10 @@ describe('Supplier Management (MM-05)', () => {
             material: { id: 'mat-1', materialCode: 'MAT-001', materialName: 'Widget' },
         }
 
+        // generateSupplierMaterialCode() resolves the two codes before insert
+        mockPrisma.mmSupplier.findUnique.mockResolvedValueOnce({ supplierCode: 'SUP-001' })
+        mockPrisma.mmMaterial.findUnique.mockResolvedValueOnce({ materialCode: 'MAT-001' })
+        mockPrisma.mmSupplierMaterial.findFirst.mockResolvedValueOnce(null)
         mockPrisma.mmSupplierMaterial.findUnique.mockResolvedValueOnce(null)
         mockPrisma.mmSupplierMaterial.create.mockResolvedValue(created)
 
@@ -278,7 +286,6 @@ describe('Supplier Management (MM-05)', () => {
             supplierId: 'sup-1',
             materialId: 'mat-1',
             unitPrice: 25.50,
-            supplierMaterialCode: 'SM-001',
         })
 
         expect(result.unitPrice).toEqual(new Decimal(25.50))
