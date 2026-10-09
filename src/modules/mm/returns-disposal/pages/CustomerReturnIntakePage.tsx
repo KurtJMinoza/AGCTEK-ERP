@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -68,6 +70,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const CustomerReturnIntakePage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const searchParams = useSearchParams()
     const [statusFilter, setStatusFilter] = useState('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(20)
@@ -178,13 +181,19 @@ const CustomerReturnIntakePage = () => {
 
     const [detail, setDetail] = useState<CustomerReturn | null>(null)
 
-    const openDetail = async (id: string) => {
+    const openDetail = useCallback(async (id: string) => {
         try {
             setDetail(await returnsDisposalService.getCustomerReturn(id))
         } catch {
             pushToast('danger', 'Error', 'Failed to load return')
         }
-    }
+    }, [])
+
+    // Deep link from SD (sales return → MM intake).
+    const linkedReturnId = searchParams?.get('returnId') ?? null
+    useEffect(() => {
+        if (linkedReturnId) void openDetail(linkedReturnId)
+    }, [linkedReturnId, openDetail])
 
     const refreshDetail = async () => {
         if (!detail) return
@@ -555,6 +564,42 @@ const CustomerReturnIntakePage = () => {
                             <InfoCard label="Warehouse" value={detail.warehouse?.name} />
                             <InfoCard label="Quantity" value={String(Number(detail.totalQuantity))} />
                         </div>
+                        {detail.sdSalesReturn || detail.damageReport ? (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                <InfoCard
+                                    label="SD sales return"
+                                    value={detail.sdSalesReturn?.returnNumber ?? '—'}
+                                />
+                                <InfoCard
+                                    label="SCM damage report"
+                                    value={detail.damageReport?.reference ?? '—'}
+                                />
+                                <InfoCard
+                                    label="Original delivery"
+                                    value={detail.damageReport?.shipmentId ?? '—'}
+                                />
+                            </div>
+                        ) : null}
+                        {detail.sdSalesReturn || detail.damageReport ? (
+                            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                                {detail.sdSalesReturn ? (
+                                    <Link
+                                        href={`/modules/sd/sales-returns?returnId=${detail.sdSalesReturn.id}`}
+                                        className="text-primary hover:underline"
+                                    >
+                                        View sales return {detail.sdSalesReturn.returnNumber}
+                                    </Link>
+                                ) : null}
+                                {detail.damageReport ? (
+                                    <Link
+                                        href="/scm/shipments"
+                                        className="text-primary hover:underline"
+                                    >
+                                        View damage report {detail.damageReport.reference}
+                                    </Link>
+                                ) : null}
+                            </div>
+                        ) : null}
                         {detail.reason ? (
                             <AdaptiveCard className="!p-3">
                                 <p className="text-xs text-gray-500">Reason</p>

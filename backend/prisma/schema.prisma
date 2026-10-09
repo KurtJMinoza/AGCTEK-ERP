@@ -276,6 +276,7 @@ model Company {
   dashboardAnalyticsCaches     MmDashboardAnalyticsCache[]
   sdSalesOrders                SdSalesOrder[]
   sdShipments                  SdShipment[]
+  sdSalesReturns               SdSalesReturn[]
   sdProductMaterialAssignments SdProductMaterialAssignment[]
   sdBranchFulfillments         SdBranchFulfillment[]
   sdFulfillments               SdFulfillment[]
@@ -3649,11 +3650,12 @@ model SdCustomer {
 
   /// CRM extensions (CRM references SdCustomer; SD remains the customer master).
   crmProfile        CrmProfile?
-  crmLeads          CrmLead[]
+crmLeads          CrmLead[]
   crmOpportunities  CrmOpportunity[]
   crmTickets        CrmTicket[]
   crmLoyaltyAccount CrmLoyaltyAccount?
   sdQuotations      SdQuotation[]
+  sdSalesReturns    SdSalesReturn[]
 
   @@index([status])
   @@index([companyName])
@@ -3796,6 +3798,7 @@ model SdSalesOrder {
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]
+  salesReturns       SdSalesReturn[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -3838,6 +3841,7 @@ model SdSalesOrderLine {
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   fulfillmentLines    SdFulfillmentLine[]
+  salesReturns        SdSalesReturnLine[]
 
   @@unique([salesOrderId, lineNumber])
   @@index([materialId])
@@ -3985,6 +3989,91 @@ model SdShipment {
 
   @@index([salesOrderId])
   @@map("sd_shipments")
+}
+
+/// SD Sales Return requested after a damaged delivery (customer return integration — Phase 3).
+/// SD owns the commercial return document; the SCM damage report and MM intake reference it,
+/// never the reverse. A request is NOT an authorization: status starts REQUESTED and only an
+/// explicit authorize() may move it to AUTHORIZED (Phase 4 opens the MM intake from there).
+model SdSalesReturn {
+  id             String        @id @default(cuid())
+  returnNumber   String        @unique
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id])
+  salesOrderId   String
+  salesOrder     SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  customerId     String
+  customer       SdCustomer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  warehouseId    String?
+  /// SCM damage report that initiated this return; unique ⇒ exactly one return per report.
+  damageReportId String?       @unique
+  damageReport   DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
+  /// DAMAGED_IN_TRANSIT | CUSTOMER_REQUEST | OTHER
+  reason         String?
+  notes          String?
+  /// REQUESTED | AUTHORIZED | REJECTED | CANCELLED
+  status         String        @default("REQUESTED")
+  requestedBy    String?
+  requestedAt    DateTime?
+  authorizedBy   String?
+  authorizedAt   DateTime?
+  rejectedBy     String?
+  rejectedAt     DateTime?
+  rejectReason   String?
+  cancelBy       String?
+  cancelAt       DateTime?
+  cancelReason   String?
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  lines          SdSalesReturnLine[]
+  audits         SdSalesReturnAudit[]
+  /// MM Customer Return Intake opened from this return (customer return integration — Phase 4).
+  customerReturn MmCustomerReturn?
+
+  @@index([salesOrderId])
+  @@index([customerId])
+  @@index([companyId])
+  @@index([status])
+  @@map("sd_sales_returns")
+}
+
+/// One returned order line. `salesOrderLineId` is the authoritative link; material/sku snapshot
+/// fields are convenience references for the MM intake mapping (Phase 4).
+model SdSalesReturnLine {
+  id               String           @id @default(cuid())
+  salesReturnId    String
+  salesReturn      SdSalesReturn    @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  lineNumber       Int
+  salesOrderLineId String
+  salesOrderLine   SdSalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  materialId       String?
+  sku              String?
+  description      String?
+  quantity         Decimal          @db.Decimal(18, 3)
+  uomId            String?
+  /// Reserved for Phase 4 (RESTOCK | REPAIR | BLOCK | SCRAP)
+  disposition      String?
+
+  @@unique([salesReturnId, lineNumber])
+  @@index([salesOrderLineId])
+  @@index([materialId])
+  @@map("sd_sales_return_lines")
+}
+
+/// Append-only trail of Sales Return transitions (matches the per-document audit pattern).
+model SdSalesReturnAudit {
+  id            String        @id @default(cuid())
+  salesReturnId String
+  salesReturn   SdSalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  action        String
+  performedBy   String?
+  details       Json?
+  performedAt   DateTime      @default(now())
+
+  @@index([salesReturnId, performedAt])
+  @@map("sd_sales_return_audits")
 }
 
 model SdEventOutbox {
@@ -5550,8 +5639,15 @@ model MmCustomerReturn {
   /// Optional external customer / SD return request reference
   customerRef               String?
   customerName              String?
-  /// Stub until SD module: external SD return request id
+  /// Legacy free-text SD return reference (kept for backward compatibility).
   sdReturnRequestRef        String?
+  /// SD Sales Return this intake fulfils (customer return integration — Phase 4).
+  /// Unique ⇒ a handoff retry can never open a second intake for the same return.
+  sdSalesReturnId           String?           @unique
+  sdSalesReturn             SdSalesReturn?    @relation(fields: [sdSalesReturnId], references: [id], onDelete: SetNull)
+  /// Originating SCM damage report (Phase 4 traceability back to the delivery).
+  damageReportId            String?
+  damageReport              DamageReport?     @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
   reason                    String?
   remarks                   String?
   /// DRAFT | INTAKE | INSPECTION | PENDING_APPROVAL | APPROVED | COMPLETED | CLOSED | CANCELLED | REVERSED
@@ -6089,6 +6185,7 @@ model Shipment {
   updatedAt           DateTime               @updatedAt
   tripStopShipments   TripStopShipment[]
   lines               ShipmentLine[]
+  damageReports       DamageReport[]
 
   @@index([status])
   @@index([movementType])
@@ -6128,6 +6225,76 @@ model ShipmentLine {
 
   @@unique([shipmentId, lineNo])
   @@index([shipFromWarehouseId])
+  damageReports       DamageReport[]
+}
+
+/**
+ * SCM damage report against a delivered shipment (customer return integration — Phase 2).
+ * SCM owns the report; the SD Sales Return (Phase 3) and MM Customer Return Intake (Phase 4)
+ * reference it, never the reverse. Table name follows the SCM convention (unprefixed
+ * PascalCase, e.g. "Shipment", "Trip").
+ */
+model DamageReport {
+  id               String        @id @default(cuid())
+  /// DR-xxxx readable business reference
+  reference        String        @unique
+  /// Explicit company scope. SCM cargo has no company column; the origin SD order carries one,
+  /// so scope is validated at handoff time rather than derived from an authenticated user.
+  companyId        String
+  shipmentId       String
+  shipment         Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  /// Affected cargo line when reported at line level; null means the whole shipment.
+  shipmentLineId   String?
+  shipmentLine     ShipmentLine? @relation(fields: [shipmentLineId], references: [id], onDelete: SetNull)
+  /// Original SD sales order resolved through the verified package → picking task → MM
+  /// reservation header chain (source SD / SALES_ORDER) or the legacy SALES_ORDER:<id> source.
+  /// Null when no verifiable order exists (e.g. manual shipments); those stay UNRESOLVED and
+  /// cannot be handed to SD Sales Return until an explicit order relationship is established.
+  salesOrderId     String?
+  /// RESOLVED iff salesOrderId came from a verifiable chain, UNRESOLVED otherwise.
+  salesOrderStatus String        @default("UNRESOLVED")
+  reportedBy       String
+  reportedAt       DateTime      @default(now())
+  /// Items reported damaged (ShipmentLine.quantity units).
+  damagedQuantity  Int
+  description      String
+  /// Evidence photo URLs (URL strings — no file-upload endpoint exists yet, like the POD fields).
+  photoUrls        Json?
+  /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED set once an SD Sales Return exists).
+  status           String        @default("SUBMITTED")
+  /// SD Sales Return created from this report (Phase 3 traceability back-reference).
+  sdSalesReturnId  String?
+  /// MM Customer Return Intake opened from this report (Phase 4 traceability back-reference).
+  /// Plain id: the MM intake holds the authoritative FK (MmCustomerReturn.damageReportId).
+  customerReturnId String?
+  /// Client-supplied key so an automated or retried submit never duplicates a report.
+  idempotencyKey   String?       @unique
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  audits           DamageReportAudit[]
+  customerReturns  MmCustomerReturn[]
+  sdSalesReturn    SdSalesReturn?
+
+  @@index([shipmentId, createdAt])
+  @@index([shipmentLineId])
+  @@index([companyId])
+  @@index([salesOrderId])
+  @@index([status])
+}
+
+/// Append-only trail of DamageReport transitions (matches the per-document audit pattern).
+model DamageReportAudit {
+  id          String       @id @default(cuid())
+  reportId    String
+  report      DamageReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  action      String
+  details     Json?
+  performedBy String?
+  performedAt DateTime     @default(now())
+
+  @@index([reportId, performedAt])
 }
 
 /// What is on which vehicle. Capacity enforced server-side on line assignment.
@@ -6634,6 +6801,7 @@ model CrmLead {
   updatedAt     DateTime         @updatedAt
   opportunities CrmOpportunity[]
   activities    CrmActivity[]
+  messages      CrmMessage[]
 
   @@index([status])
   @@index([customerId])
@@ -6670,6 +6838,7 @@ model CrmOpportunity {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   activities        CrmActivity[]
+  messages          CrmMessage[]
 
   @@index([customerId])
   @@index([stage])
@@ -6734,6 +6903,32 @@ model CrmActivity {
   @@index([ticketId, dueAt])
   @@index([assignedTo, dueAt])
   @@map("crm_activities")
+}
+
+/// Chatter entry on an opportunity or lead (at least one parent; DB check constraint).
+/// NOTE rows are the open/append-only chatter feed: edit and soft-delete (deletedAt) are
+/// restricted to the author by the CRM service — rows are never hard-deleted. SYSTEM rows are
+/// an append-only audit of field changes written inside the same transaction as the change.
+model CrmMessage {
+  id            String          @id @default(cuid())
+  opportunityId String?
+  opportunity   CrmOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  leadId        String?
+  lead          CrmLead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  /// NOTE | SYSTEM
+  kind          String
+  /// Free text (NOTE) or a human-readable summary (SYSTEM).
+  body          String?
+  /// SYSTEM only: { field, from, to } of the audited change.
+  metadata      Json?
+  authorId      String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime?
+  deletedAt     DateTime?
+
+  @@index([opportunityId, createdAt])
+  @@index([leadId, createdAt])
+  @@map("crm_messages")
 }
 
 model CrmTicketComment {

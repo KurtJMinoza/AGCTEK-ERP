@@ -5,6 +5,8 @@ import { DriversController } from './drivers/drivers.controller'
 import { DriversService } from './drivers/drivers.service'
 import { ShipmentsController } from './shipments/shipments.controller'
 import { ShipmentsService } from './shipments/shipments.service'
+import { DamageReportsController } from './damage-reports/damage-reports.controller'
+import { DamageReportsService } from './damage-reports/damage-reports.service'
 import { TripsController } from './trips/trips.controller'
 import { TripsService } from './trips/trips.service'
 import { TrackingController } from './tracking/tracking.controller'
@@ -33,13 +35,15 @@ import { TmsRoutePreviewService } from './tms/tms-route-preview.service'
 import { OsrmService } from './routing/osrm.service'
 import { GeocodeService } from './geocode/geocode.service'
 import { MmModule } from '../mm/mm.module'
+import { SdModule } from '../sd/sd.module'
 
 @Module({
-    imports: [forwardRef(() => MmModule)],
+    imports: [forwardRef(() => MmModule), forwardRef(() => SdModule)],
     controllers: [
         VehiclesController,
         DriversController,
         ShipmentsController,
+        DamageReportsController,
         TripsController,
         TrackingController,
         MaintenanceController,
@@ -55,6 +59,7 @@ import { MmModule } from '../mm/mm.module'
         VehiclesService,
         DriversService,
         ShipmentsService,
+        DamageReportsService,
         TripsService,
         TrackingService,
         TrackingGateway,

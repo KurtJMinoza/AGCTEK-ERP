@@ -146,6 +146,7 @@ describe('MM-11 Returns & Disposal', () => {
             configService,
             disposalService,
             events,
+            { assertPermission: jest.fn() } as any,
         )
         damagedExpired = new DamagedExpiredQueryService(
             prisma,

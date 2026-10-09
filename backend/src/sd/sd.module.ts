@@ -22,6 +22,8 @@ import { SdMaterialReferenceController } from './sd-material-reference.controlle
 import { QuotationService } from './quotation.service'
 import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
+import { SalesReturnService } from './sales-return.service'
+import { SalesReturnController } from './sales-return.controller'
 
 @Module({
     imports: [forwardRef(() => MmModule), RetailModule],
@@ -32,6 +34,7 @@ import { QuotationPdfService } from './quotation-pdf.service'
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        SalesReturnController,
     ],
     providers: [
         CustomerService,
@@ -49,6 +52,7 @@ import { QuotationPdfService } from './quotation-pdf.service'
         SdMaterialReferenceService,
         QuotationService,
         QuotationPdfService,
+        SalesReturnService,
     ],
     exports: [
         SalesOrderService,
@@ -56,6 +60,7 @@ import { QuotationPdfService } from './quotation-pdf.service'
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        SalesReturnService,
     ],
 })
 export class SdModule {}

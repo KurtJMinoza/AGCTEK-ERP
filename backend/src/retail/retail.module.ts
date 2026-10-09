@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { RetailClientController } from './retail-client.controller'
 import { RetailClientAuthGuard } from './retail-client.guard'
 import { RetailClientService } from './retail-client.service'
@@ -8,7 +8,7 @@ import { RetailClientAddressService } from './retail-client-address.service'
 import { RetailClientAddressGeocodeService } from './retail-client-address-geocode.service'
 
 @Module({
-    imports: [ScmModule],
+    imports: [forwardRef(() => ScmModule)],
     controllers: [RetailClientController],
     providers: [
         RetailClientService,

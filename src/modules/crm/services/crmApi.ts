@@ -13,11 +13,13 @@ import type {
     CreateOpportunitySalesOrderResult,
     CreateTicketInput,
     CrmDashboard,
+    CrmMessage,
     Customer360,
     Lead,
     LeadListParams,
     LinkedSalesOrder,
     Opportunity,
+    OpportunityFeedPage,
     OpportunityListParams,
     OpportunityPipeline,
     OpportunityPipelineParams,
@@ -82,7 +84,10 @@ export async function apiConvertLead(id: string, body: ConvertLeadInput) {
     const { data } = await ErpAxiosBase.post<
         Omit<ConvertLeadResult, 'opportunity'> & { opportunity: ApiOpportunity }
     >(`/crm/leads/${encodeURIComponent(id)}/convert`, body)
-    return { ...data, opportunity: toOpportunity(data.opportunity) } satisfies ConvertLeadResult
+    return {
+        ...data,
+        opportunity: toOpportunity(data.opportunity),
+    } satisfies ConvertLeadResult
 }
 
 export async function apiGetOpportunities(params?: OpportunityListParams) {
@@ -94,15 +99,25 @@ export async function apiGetOpportunities(params?: OpportunityListParams) {
 }
 
 export async function apiGetOpportunity(id: string) {
-    return toOpportunity(await get<ApiOpportunity>(`/crm/opportunities/${encodeURIComponent(id)}`))
+    return toOpportunity(
+        await get<ApiOpportunity>(
+            `/crm/opportunities/${encodeURIComponent(id)}`,
+        ),
+    )
 }
 
 export async function apiCreateOpportunity(body: CreateOpportunityInput) {
-    const { data } = await ErpAxiosBase.post<ApiOpportunity>('/crm/opportunities', body)
+    const { data } = await ErpAxiosBase.post<ApiOpportunity>(
+        '/crm/opportunities',
+        body,
+    )
     return toOpportunity(data)
 }
 
-export async function apiUpdateOpportunity(id: string, body: UpdateOpportunityInput) {
+export async function apiUpdateOpportunity(
+    id: string,
+    body: UpdateOpportunityInput,
+) {
     const { data } = await ErpAxiosBase.patch<ApiOpportunity>(
         `/crm/opportunities/${encodeURIComponent(id)}`,
         body,
@@ -119,7 +134,9 @@ export async function apiGetOpportunitySalesOrder(opportunityId: string) {
 
 async function postHandoff(path: string, body: WinOpportunityInput) {
     const { data } = await ErpAxiosBase.post<
-        Omit<CreateOpportunitySalesOrderResult, 'opportunity'> & { opportunity: ApiOpportunity }
+        Omit<CreateOpportunitySalesOrderResult, 'opportunity'> & {
+            opportunity: ApiOpportunity
+        }
     >(path, body)
     return {
         ...data,
@@ -131,8 +148,14 @@ async function postHandoff(path: string, body: WinOpportunityInput) {
  * Close as won: SD creates the order and the stage commits together; on any error the
  * opportunity keeps its stage. Idempotent (`created: false` when already won with an order).
  */
-export async function apiWinOpportunity(opportunityId: string, body: WinOpportunityInput) {
-    return postHandoff(`/crm/opportunities/${encodeURIComponent(opportunityId)}/win`, body)
+export async function apiWinOpportunity(
+    opportunityId: string,
+    body: WinOpportunityInput,
+) {
+    return postHandoff(
+        `/crm/opportunities/${encodeURIComponent(opportunityId)}/win`,
+        body,
+    )
 }
 
 /** Retry ERP handoff for Closed Won without an order; idempotent like `apiWinOpportunity`. */
@@ -152,8 +175,14 @@ export async function apiGetOpportunityQuotations(opportunityId: string) {
 }
 
 /** New DRAFT for the opportunity's customer (Proposal / Negotiation only; also needs sd:create). */
-export async function apiCreateOpportunityQuotation(opportunityId: string, body: QuotationLinesInput) {
-    const { data } = await ErpAxiosBase.post<Quotation>(quotationsPath(opportunityId), body)
+export async function apiCreateOpportunityQuotation(
+    opportunityId: string,
+    body: QuotationLinesInput,
+) {
+    const { data } = await ErpAxiosBase.post<Quotation>(
+        quotationsPath(opportunityId),
+        body,
+    )
     return data
 }
 
@@ -161,8 +190,13 @@ export async function apiGetOpportunityStages() {
     return get<OpportunityStagesConfig>('/crm/opportunities/stages')
 }
 
-export async function apiGetOpportunityPipeline(params?: OpportunityPipelineParams) {
-    return get<OpportunityPipeline>('/crm/opportunities/pipeline', compact(params))
+export async function apiGetOpportunityPipeline(
+    params?: OpportunityPipelineParams,
+) {
+    return get<OpportunityPipeline>(
+        '/crm/opportunities/pipeline',
+        compact(params),
+    )
 }
 
 export async function apiGetCrmDashboard(days?: number) {
@@ -181,8 +215,14 @@ export async function apiGetActivities(parent: ActivityParent) {
     return get<Activity[]>(activitiesPath(parent))
 }
 
-export async function apiCreateActivity(parent: ActivityParent, body: CreateActivityInput) {
-    const { data } = await ErpAxiosBase.post<Activity>(activitiesPath(parent), body)
+export async function apiCreateActivity(
+    parent: ActivityParent,
+    body: CreateActivityInput,
+) {
+    const { data } = await ErpAxiosBase.post<Activity>(
+        activitiesPath(parent),
+        body,
+    )
     return data
 }
 
@@ -192,9 +232,59 @@ export async function apiCompleteActivity(
     activityId: string,
     next?: CreateActivityInput,
 ) {
-    const { data } = await ErpAxiosBase.post<{ completed: Activity; next: Activity | null }>(
+    const { data } = await ErpAxiosBase.post<{
+        completed: Activity
+        next: Activity | null
+    }>(
         `${activitiesPath(parent)}/${encodeURIComponent(activityId)}/complete`,
         next ? { next } : {},
+    )
+    return data
+}
+
+const feedPath = (opportunityId: string) =>
+    `/crm/opportunities/${encodeURIComponent(opportunityId)}/feed`
+
+/** Merged chatter feed: notes + SYSTEM audit + activities + SD quotations + sales-order link. */
+export async function apiGetOpportunityFeed(
+    opportunityId: string,
+    params?: { cursor?: string; limit?: number },
+) {
+    return get<OpportunityFeedPage>(feedPath(opportunityId), compact(params))
+}
+
+export async function apiCreateOpportunityNote(
+    opportunityId: string,
+    body: string,
+) {
+    const { data } = await ErpAxiosBase.post<CrmMessage>(
+        `/crm/opportunities/${encodeURIComponent(opportunityId)}/notes`,
+        { body },
+    )
+    return data
+}
+
+export async function apiDeleteOpportunityNote(
+    opportunityId: string,
+    noteId: string,
+) {
+    const { data } = await ErpAxiosBase.delete<{
+        id: string
+        deletedAt: string
+    }>(
+        `/crm/opportunities/${encodeURIComponent(opportunityId)}/notes/${encodeURIComponent(noteId)}`,
+    )
+    return data
+}
+
+export async function apiUpdateOpportunityNote(
+    opportunityId: string,
+    noteId: string,
+    body: string,
+) {
+    const { data } = await ErpAxiosBase.patch<CrmMessage>(
+        `/crm/opportunities/${encodeURIComponent(opportunityId)}/notes/${encodeURIComponent(noteId)}`,
+        { body },
     )
     return data
 }
@@ -217,7 +307,9 @@ export async function apiUpdateTicket(id: string, body: UpdateTicketInput) {
 }
 
 export async function apiGetTicketComments(ticketId: string) {
-    return get<TicketComment[]>(`/crm/tickets/${encodeURIComponent(ticketId)}/comments`)
+    return get<TicketComment[]>(
+        `/crm/tickets/${encodeURIComponent(ticketId)}/comments`,
+    )
 }
 
 export async function apiAddTicketComment(ticketId: string, body: string) {
@@ -229,8 +321,8 @@ export async function apiAddTicketComment(ticketId: string, body: string) {
 }
 
 export async function apiGetCustomer360(customerId: string) {
-    const result = await get<Omit<Customer360, 'opportunities'> & { opportunities: ApiOpportunity[] }>(
-        `/crm/customers/${encodeURIComponent(customerId)}/360`,
-    )
+    const result = await get<
+        Omit<Customer360, 'opportunities'> & { opportunities: ApiOpportunity[] }
+    >(`/crm/customers/${encodeURIComponent(customerId)}/360`)
     return { ...result, opportunities: result.opportunities.map(toOpportunity) }
 }

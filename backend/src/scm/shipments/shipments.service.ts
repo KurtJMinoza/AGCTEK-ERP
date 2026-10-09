@@ -2,6 +2,7 @@ import {
     BadRequestException,
     ConflictException,
     Injectable,
+    NotFoundException,
 } from '@nestjs/common'
 import { Prisma, ShipmentMovementType, ShipmentStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -55,7 +56,10 @@ function parseMovementType(
         if (fallback) return fallback
         return ShipmentMovementType.DELIVERY
     }
-    if (typeof value !== 'string' || !MOVEMENT_TYPES.has(value as ShipmentMovementType)) {
+    if (
+        typeof value !== 'string' ||
+        !MOVEMENT_TYPES.has(value as ShipmentMovementType)
+    ) {
         throw new BadRequestException(
             'movementType must be DELIVERY (shipping) or PICKUP',
         )
@@ -152,7 +156,9 @@ export class ShipmentsService {
                         pickingTask: {
                             select: {
                                 sourceDocument: true,
-                                reservationHeader: { select: { sourceDocumentId: true } },
+                                reservationHeader: {
+                                    select: { sourceDocumentId: true },
+                                },
                             },
                         },
                     },
@@ -161,23 +167,76 @@ export class ShipmentsService {
             orderBy: { createdAt: 'desc' },
             take,
         })
-        return rows.map(({ package: pkg, podSignatureUrl, podPhotoUrl, ...shipment }) => ({
-            ...shipment,
-            salesOrderId:
-                pkg?.pickingTask?.reservationHeader?.sourceDocumentId ??
-                pkg?.pickingTask?.sourceDocument?.replace(/^SALES_ORDER:/, '') ??
-                null,
-            trackingNumber: pkg?.trackingNumber ?? null,
-            carrier: pkg?.carrier ?? null,
-            hasProofOfDelivery: Boolean(podSignatureUrl || podPhotoUrl),
-        }))
+        return rows.map(
+            ({ package: pkg, podSignatureUrl, podPhotoUrl, ...shipment }) => ({
+                ...shipment,
+                salesOrderId:
+                    pkg?.pickingTask?.reservationHeader?.sourceDocumentId ??
+                    pkg?.pickingTask?.sourceDocument?.replace(
+                        /^SALES_ORDER:/,
+                        '',
+                    ) ??
+                    null,
+                trackingNumber: pkg?.trackingNumber ?? null,
+                carrier: pkg?.carrier ?? null,
+                hasProofOfDelivery: Boolean(podSignatureUrl || podPhotoUrl),
+            }),
+        )
     }
 
     async findOne(id: string) {
         return assertFound(
-            await this.prisma.shipment.findUnique({ where: { id } }),
+            await this.prisma.shipment.findUnique({
+                where: { id },
+                include: { lines: { orderBy: { lineNo: 'asc' } } },
+            }),
             'Shipment not found',
         )
+    }
+
+    /**
+     * Resolves the original SD sales order for a shipment through the verifiable chain
+     * package → picking task → MM reservation header (source SD / SALES_ORDER), falling back to
+     * the legacy `SALES_ORDER:<id>` picking source. Returns null when no order can be linked
+     * (e.g. a manually created shipment). Callers must handle the UNRESOLVED case explicitly —
+     * a sales return is only automated from a RESOLVED order (Phase 3).
+     */
+    async resolveSalesOrderId(shipmentId: string): Promise<string | null> {
+        const row = await this.prisma.shipment.findUnique({
+            where: { id: shipmentId },
+            select: {
+                id: true,
+                package: {
+                    select: {
+                        pickingTask: {
+                            select: {
+                                sourceDocument: true,
+                                reservationHeader: {
+                                    select: {
+                                        sourceModule: true,
+                                        sourceDocumentType: true,
+                                        sourceDocumentId: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        if (!row) throw new NotFoundException('Shipment not found')
+
+        const task = row.package?.pickingTask
+        const fromReservation =
+            task?.reservationHeader?.sourceModule === 'SD' &&
+            task.reservationHeader.sourceDocumentType === 'SALES_ORDER' &&
+            task.reservationHeader.sourceDocumentId
+                ? task.reservationHeader.sourceDocumentId
+                : null
+        const fromLegacy = task?.sourceDocument?.startsWith('SALES_ORDER:')
+            ? task.sourceDocument.slice('SALES_ORDER:'.length)
+            : null
+        return fromReservation ?? fromLegacy ?? null
     }
 
     async create(body: CreateShipmentBody) {
@@ -322,8 +381,7 @@ export class ShipmentsService {
                 optionalDate(body.earliestDeliveryAt) ?? null
         }
         if (body.latestDeliveryAt !== undefined) {
-            data.latestDeliveryAt =
-                optionalDate(body.latestDeliveryAt) ?? null
+            data.latestDeliveryAt = optionalDate(body.latestDeliveryAt) ?? null
         }
         if (body.podSignatureUrl !== undefined) {
             data.podSignatureUrl = optionalString(body.podSignatureUrl) ?? null
@@ -341,7 +399,7 @@ export class ShipmentsService {
                 : existing.movementType
         const nextOrigin =
             body.originAddress !== undefined
-                ? optionalString(body.originAddress) ?? null
+                ? (optionalString(body.originAddress) ?? null)
                 : existing.originAddress
         if (nextMovement === ShipmentMovementType.PICKUP && !nextOrigin) {
             throw new BadRequestException(
@@ -389,7 +447,9 @@ export class ShipmentsService {
         }
         if (
             lines.length > 1 &&
-            [body.quantity, body.weightKg, body.volumeM3].some((v) => v !== undefined)
+            [body.quantity, body.weightKg, body.volumeM3].some(
+                (v) => v !== undefined,
+            )
         ) {
             throw new BadRequestException(
                 'Multi-line shipment quantities come from its lines (MM package items)',
@@ -530,7 +590,10 @@ export class ShipmentsService {
                       quantity: row.qty,
                       weightKg:
                           itemQtyTotal > 0
-                              ? Math.round((safeWeight * row.qty * 1000) / itemQtyTotal) / 1000
+                              ? Math.round(
+                                    (safeWeight * row.qty * 1000) /
+                                        itemQtyTotal,
+                                ) / 1000
                               : 0,
                   }))
                 : [
@@ -564,9 +627,7 @@ export class ShipmentsService {
                 status: ShipmentStatus.READY,
                 notes: pkg.carrier
                     ? `Carrier: ${pkg.carrier}${
-                          pkg.trackingNumber
-                              ? ` · ${pkg.trackingNumber}`
-                              : ''
+                          pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : ''
                       }`
                     : null,
             },

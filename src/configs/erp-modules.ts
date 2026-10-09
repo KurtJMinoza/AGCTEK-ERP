@@ -97,6 +97,15 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'truck',
                     },
                     {
+                        code: 'sales-returns',
+                        permissionCode: 'sd.sales-returns',
+                        title: 'Sales Returns',
+                        description:
+                            'Customer return requests from damaged deliveries — authorize and open the MM intake.',
+                        path: '/modules/sd/sales-returns',
+                        icon: 'receipt',
+                    },
+                    {
                         code: 'billing',
                         title: 'Billing',
                         description:
