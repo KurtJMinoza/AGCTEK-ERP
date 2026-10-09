@@ -13,6 +13,7 @@ import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
 import { ProductMaterialAssignmentService } from './product-material-assignment.service'
 import { ProductMaterialAssignmentController } from './product-material-assignment.controller'
 import { MaterialResolutionService } from './material-resolution.service'
+import { ProductOptionVariantsService } from './product-option-variants.service'
 import { FulfillmentDeterminationService } from './fulfillment-determination.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { SdFulfillmentService } from './sd-fulfillment.service'
@@ -21,6 +22,10 @@ import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
 import { QuotationService } from './quotation.service'
 import { QuotationController } from './quotation.controller'
+import { SalesInvoiceService } from './sales-invoice.service'
+import { SdFulfillmentEventsListener } from './sd-fulfillment-events.listener'
+import { ReturnRequestService } from './return-request.service'
+import { ReturnRequestController } from './return-request.controller'
 
 @Module({
     imports: [forwardRef(() => MmModule), RetailModule],
@@ -31,6 +36,7 @@ import { QuotationController } from './quotation.controller'
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        ReturnRequestController,
     ],
     providers: [
         CustomerService,
@@ -41,12 +47,16 @@ import { QuotationController } from './quotation.controller'
         SdMmOrchestrationService,
         ProductMaterialAssignmentService,
         MaterialResolutionService,
+        ProductOptionVariantsService,
         FulfillmentDeterminationService,
         CommercialAvailabilityService,
         SdFulfillmentService,
         SdMmPipelineService,
         SdMaterialReferenceService,
         QuotationService,
+        SalesInvoiceService,
+        SdFulfillmentEventsListener,
+        ReturnRequestService,
     ],
     exports: [
         SalesOrderService,

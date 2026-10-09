@@ -27,6 +27,7 @@ import {
     HiOutlineSearch,
     HiOutlineTrash,
     HiOutlineEye,
+    HiOutlineDuplicate,
 } from 'react-icons/hi'
 import MaterialFormDialog from '../components/MaterialFormDialog'
 import MaterialViewDialog from '../components/MaterialViewDialog'
@@ -108,6 +109,7 @@ const MaterialsPage = () => {
     const [formOpen, setFormOpen] = useState(false)
     const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
     const [editingMaterial, setEditingMaterial] = useState<Material | null>(null)
+    const [templateMaterial, setTemplateMaterial] = useState<Material | null>(null)
     const [viewMaterial, setViewMaterial] = useState<Material | null>(null)
     const [deleteMaterial, setDeleteMaterial] = useState<Material | null>(null)
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
@@ -138,12 +140,21 @@ const MaterialsPage = () => {
     const openCreate = useCallback(() => {
         setFormMode('create')
         setEditingMaterial(null)
+        setTemplateMaterial(null)
+        setFormOpen(true)
+    }, [])
+
+    const openDuplicate = useCallback((material: Material) => {
+        setFormMode('create')
+        setEditingMaterial(null)
+        setTemplateMaterial(material)
         setFormOpen(true)
     }, [])
 
     const openEdit = useCallback((material: Material) => {
         setFormMode('edit')
         setEditingMaterial(material)
+        setTemplateMaterial(null)
         setViewMaterial(null)
         setFormOpen(true)
     }, [])
@@ -151,6 +162,7 @@ const MaterialsPage = () => {
     const closeForm = useCallback(() => {
         setFormOpen(false)
         setEditingMaterial(null)
+        setTemplateMaterial(null)
     }, [])
 
     const handleFormSubmit = useCallback(
@@ -379,12 +391,16 @@ const MaterialsPage = () => {
                             <HiOutlineEye className="text-base" />
                             <span>View</span>
                         </Dropdown.Item>
-                        {canUpdate && (
+{canUpdate && (
                             <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
                                 <HiOutlinePencil className="text-base" />
                                 <span>Edit</span>
                             </Dropdown.Item>
                         )}
+                        <Dropdown.Item eventKey="duplicate" onClick={() => openDuplicate(row.original)}>
+                            <HiOutlineDuplicate className="text-base" />
+                            <span>Duplicate</span>
+                        </Dropdown.Item>
                         {canDelete && (
                             <Dropdown.Item eventKey="delete" onClick={() => setDeleteMaterial(row.original)}>
                                 <HiOutlineTrash className="text-base text-red-500" />
@@ -395,7 +411,7 @@ const MaterialsPage = () => {
                 ),
             },
         ],
-        [openEdit, canUpdate, canDelete],
+[openEdit, openDuplicate, canUpdate, canDelete],
     )
 
     return (
@@ -486,9 +502,11 @@ const MaterialsPage = () => {
             </AdaptiveCard>
 
             <MaterialFormDialog
+                key={`${formMode}:${editingMaterial?.id ?? templateMaterial?.id ?? 'new'}`}
                 isOpen={formOpen}
                 mode={formMode}
                 material={editingMaterial}
+                template={templateMaterial}
                 onClose={closeForm}
                 onSubmit={handleFormSubmit}
             />

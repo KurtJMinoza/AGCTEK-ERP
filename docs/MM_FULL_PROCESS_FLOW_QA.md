@@ -100,16 +100,17 @@ Use this document to walk **every major MM process** in order, verify outcomes, 
 | --- | --- | --- | --- |
 | 4.1 | `/modules/mm/warehouse-management/warehouses` | Warehouse on plant. | WH scoped to plant/company. |
 | 4.2 | `/modules/mm/warehouse-management/storage-types` | Storage types (bulk, pick face, QI). | Types on sections/bins. |
-| 4.3 | `/modules/mm/warehouse-management/storage-sections` | Sections. | Hierarchy complete. |
-| 4.4 | `/modules/mm/warehouse-management/storage-bins` | Bins with codes. | Bin scannable in mobile flows. |
-| 4.5 | `/modules/mm/warehouse-management/bin-capacity` | Capacity (optional). | Over-capacity warnings if implemented. |
+| 4.3 | `/modules/mm/warehouse-management/storage-sections` | Sections (area = storage type). | Hierarchy complete. |
+| 4.4 | `/modules/mm/warehouse-management/storage-shelves` | Shelves within sections (optional). | Shelf code unique per section. |
+| 4.5 | `/modules/mm/warehouse-management/storage-bins` | Bins with codes (optional `shelfId`). | Bin scannable in mobile flows. |
+| 4.6 | `/modules/mm/warehouse-management/bin-capacity` | Capacity (optional). | Over-capacity warnings if implemented. |
 
 **Bug checks**
 
 - [ ] `/modules/mm/warehouse-management/overview` loads without error.
 - [ ] Task queue empty until receipts/transfers create work.
 
-**Automated tests:** `mm03-warehouse.spec.ts`, `warehouse-task-engine.spec.ts`, `warehouse-ops.spec.ts` *(DI drift — § Test status)*.
+**Automated tests:** `mm03-warehouse.spec.ts`, `warehouse-task-engine.spec.ts`, `warehouse-ops.spec.ts`, `storage-shelves.service.spec.ts` *(DI drift — § Test status)*.
 
 ---
 

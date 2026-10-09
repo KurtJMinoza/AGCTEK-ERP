@@ -67,7 +67,7 @@ const SORT_OPTIONS: SortOption[] = [
 const PAGE_SIZE = 24
 const SEARCH_URL_DELAY_MS = 300
 
-const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4'
+const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 lg:gap-7 xl:grid-cols-3'
 
 const CRUMB_BUTTON =
     'cursor-pointer truncate font-medium text-emerald-700 hover:underline focus:outline-none focus-visible:underline'
@@ -325,6 +325,19 @@ const MarketplaceProductsPage = () => {
     const company = singleCompanyId
         ? companyOptions.find((option) => option.value === singleCompanyId)
         : undefined
+    /** Real seller brand of a single-store browse: the MM company behind the store's products. */
+    const storeCompany = useMemo(
+        () =>
+            company ??
+            (singleStore
+                ? catalog.records.find(
+                      (product) =>
+                          product.divisionId === singleStore &&
+                          product.company?.name?.trim(),
+                  )?.company
+                : undefined),
+        [company, singleStore, catalog.records],
+    )
     const storeTheme = divisionTheme(singleStore)
     const StoreIcon = Building2
     const storeTotal = singleCompanyId
@@ -467,7 +480,7 @@ const MarketplaceProductsPage = () => {
                             <h1 className="mt-1 flex items-center gap-2 text-3xl font-semibold tracking-tight text-gray-900">
                                 <span className="truncate">
                                     {singleCategory ??
-                                        company?.name ??
+                                        storeCompany?.name ??
                                         productDivisionLabel(singleStore!)}
                                 </span>
                                 {!singleCategory ? (
@@ -481,10 +494,14 @@ const MarketplaceProductsPage = () => {
                                 {singleCategory
                                     ? company
                                         ? `From ${company.name}${company.code ? ` · ${company.code}` : ''}`
-                                        : `From ${productDivisionLabel(singleStore!)}`
+                                        : storeCompany
+                                          ? `From ${storeCompany.name}`
+                                          : `From ${productDivisionLabel(singleStore!)}`
                                     : company
                                       ? `Products linked to MM materials valued for ${company.name}.`
-                                      : `${productDivisionLabel(singleStore!)} storefront products.`}
+                                      : storeCompany
+                                        ? `Products sold by ${storeCompany.name}.`
+                                        : `${productDivisionLabel(singleStore!)} storefront products.`}
                             </p>
                         </div>
                         {catalog.ready ? (

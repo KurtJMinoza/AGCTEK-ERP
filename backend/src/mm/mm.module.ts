@@ -27,6 +27,8 @@ import { StorageTypesController } from './warehouse/storage-types.controller'
 import { StorageTypesService } from './warehouse/storage-types.service'
 import { StorageSectionsController } from './warehouse/storage-sections.controller'
 import { StorageSectionsService } from './warehouse/storage-sections.service'
+import { StorageShelvesController } from './warehouse/storage-shelves.controller'
+import { StorageShelvesService } from './warehouse/storage-shelves.service'
 import { StorageBinsController } from './warehouse/storage-bins.controller'
 import { StorageBinsService } from './warehouse/storage-bins.service'
 import { InventoryBalanceController } from './warehouse/inventory-balance/inventory-balance.controller'
@@ -260,6 +262,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         WarehouseController,
         StorageTypesController,
         StorageSectionsController,
+        StorageShelvesController,
         StorageBinsController,
         InventoryBalanceController,
         PickingController,
@@ -326,6 +329,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         WarehouseService,
         StorageTypesService,
         StorageSectionsService,
+        StorageShelvesService,
         StorageBinsService,
         InventoryBalanceService,
         PickingService,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { SALES_BRANCHES, type SalesBranch } from '../catalogs/branchCatalog'
+import type { SalesBranch } from '../catalogs/branchCatalog'
 
 export const POS_GATEWAY_PATH = '/modules/sd/pos'
 export const POS_TERMINAL_PATH = '/modules/sd/pos/terminal'
@@ -32,8 +32,8 @@ export const usePOSBranchStore = create<POSBranchState>()(
 )
 
 /**
- * Active branch once storage has been read (`hydrated`). A stored id that is no
- * longer a configured branch counts as no selection.
+ * Active branch once storage has been read (`hydrated`). The stored branch is
+ * a real MM Organization Branch; the live list is loaded by `useSalesBranches`.
  */
 export function useActivePOSBranch() {
     const branchId = usePOSBranchStore((s) => s.branchId)
@@ -48,9 +48,8 @@ export function useActivePOSBranch() {
         return unsubscribe
     }, [])
 
-    const branch = SALES_BRANCHES.find((b) => b.id === branchId) ?? null
-    return {
-        hydrated,
-        branch: branch ? { ...branch, label: branchName ?? branch.label } : null,
-    }
+    const branch = branchId
+        ? ({ id: branchId, label: branchName ?? branchId } satisfies SalesBranch)
+        : null
+    return { hydrated, branch }
 }

@@ -2,6 +2,7 @@
 
 import {
     useCallback,
+    useEffect,
     useRef,
     useState,
     type KeyboardEvent,
@@ -128,14 +129,35 @@ const Thumbnails = ({
  * Product page gallery: large stage with hover zoom (mouse), swipe (touch),
  * arrow keys, thumbnails, and a full-screen viewer.
  */
-const ProductGallery = ({ product }: { product: SdProductRecord }) => {
+const ProductGallery = ({
+    product,
+    heroImage,
+}: {
+    product: SdProductRecord
+    /** Selected-variant image that replaces the cover photo. */
+    heroImage?: string | null
+}) => {
     const media = productMedia(product)
-    const slides: Media[] = media.length
+    const base: Media[] = media.length
         ? media
         : [{ kind: 'image', src: product.imageUrl }]
+    const slides: Media[] = heroImage
+        ? [
+              { kind: 'image', src: heroImage },
+              ...base.filter(
+                  (item) => !(item.kind === 'image' && item.src === heroImage),
+              ),
+          ]
+        : base
     const count = slides.length
     const [index, setIndex] = useState(0)
     const [zoom, setZoom] = useState<{ x: number; y: number } | null>(null)
+
+    /** Selected-variant image becomes the visible cover. */
+    useEffect(() => {
+        setIndex(0)
+        setZoom(null)
+    }, [heroImage])
     const [viewerOpen, setViewerOpen] = useState(false)
     const touchStartX = useRef<number | null>(null)
     const current = slides[index] ?? slides[0]
@@ -204,7 +226,7 @@ const ProductGallery = ({ product }: { product: SdProductRecord }) => {
                 sizes={
                     variant === 'viewer'
                         ? '(max-width: 1100px) 100vw, 1100px'
-                        : '(max-width: 1024px) 100vw, 640px'
+                        : '(max-width: 640px) 92vw, 544px'
                 }
                 className="h-full w-full animate-fade-up !bg-transparent"
             />
@@ -228,7 +250,7 @@ const ProductGallery = ({ product }: { product: SdProductRecord }) => {
                 aria-label={`${product.name} photos`}
                 tabIndex={0}
                 className={classNames(
-                    'group relative aspect-square w-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                    'group relative mx-auto aspect-square w-full min-w-0 max-w-[26rem] flex-1 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 sm:max-w-[30rem] lg:max-w-[34rem]',
                     current.kind === 'image' &&
                         (zoom ? 'cursor-zoom-in' : 'cursor-pointer'),
                 )}

@@ -148,6 +148,7 @@ export const MM_FEATURES = {
         ['warehouses', 'Warehouses'],
         ['storage-types', 'Storage Types'],
         ['storage-sections', 'Storage Sections'],
+        ['storage-shelves', 'Storage Shelves'],
         ['storage-bins', 'Storage Bins'],
         ['bin-capacity', 'Bin Capacity'],
         ['picking', 'Picking'],

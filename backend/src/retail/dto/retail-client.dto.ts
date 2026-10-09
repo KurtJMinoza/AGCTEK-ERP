@@ -14,7 +14,7 @@ import {
 } from 'class-validator'
 import { Transform, Type } from 'class-transformer'
 
-const PHILIPPINE_MOBILE = /^(?:\+63|0)9\d{9}$/
+const OPTIONAL_PHILIPPINE_MOBILE = /^(?:$|(?:\+63|0)9\d{9})$/
 const normalizeMobile = (value: unknown) =>
     typeof value === 'string' ? value.trim().replace(/[\s()-]/g, '') : value
 
@@ -65,7 +65,7 @@ export class RetailUpdateProfileDto {
     @IsOptional()
     @Transform(({ value }) => normalizeMobile(value))
     @IsString()
-    @Matches(PHILIPPINE_MOBILE, {
+    @Matches(OPTIONAL_PHILIPPINE_MOBILE, {
         message: 'Enter a valid Philippine mobile number.',
     })
     phone?: string

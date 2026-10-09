@@ -21,6 +21,10 @@ export class CreateStorageBinDto {
 
     @IsOptional()
     @IsString()
+    shelfId?: string | null
+
+    @IsOptional()
+    @IsString()
     barcode?: string
 
     @IsOptional()

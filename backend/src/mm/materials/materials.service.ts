@@ -292,12 +292,23 @@ export class MaterialsService {
             status = 'DRAFT'
         }
 
+        // Materials default to the PHP currency. The New/Edit Material form no
+        // longer exposes a currency picker; the API remains the authority.
+        const currencyId =
+            dto.currencyId && dto.currencyId.trim() !== ''
+                ? dto.currencyId
+                : ((await this.prisma.mmCurrency.findFirst({
+                      where: { code: 'PHP' },
+                      select: { id: true },
+                  }))?.id ?? null)
+
         const material = await this.prisma.mmMaterial.create({
             data: {
                 ...(dto as Prisma.MmMaterialUncheckedCreateInput),
                 materialCode,
                 sku,
                 status,
+                currencyId,
                 onHandQty: new Decimal(dto.onHandQty ?? 0),
                 reservedQty: new Decimal(dto.reservedQty ?? 0),
             },

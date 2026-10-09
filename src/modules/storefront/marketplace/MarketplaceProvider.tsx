@@ -147,6 +147,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const [pendingShipping, setPendingShipping] =
         useState<SalesOrderShippingDetails | null>(null)
     const [submitting, setSubmitting] = useState(false)
+    const [checkoutError, setCheckoutError] = useState<string | null>(null)
     const [placedOrder, setPlacedOrder] = useState<EcommerceOrderResult | null>(
         null,
     )
@@ -354,6 +355,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const placeOrder = async (shipping: SalesOrderShippingDetails) => {
         setPendingShipping(null)
+        setCheckoutError(null)
         if (!signedInClient || !sessionToken) {
             setCheckoutOpen(false)
             openAuth('checkout')
@@ -381,15 +383,15 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             if (error instanceof RetailSessionExpiredError) {
                 logout()
                 setCheckoutOpen(false)
+                setCheckoutError(null)
                 notify('danger', 'Please sign in again', error.message)
                 openAuth('checkout')
                 return
             }
-            notify(
-                'danger',
-                'Order not placed',
-                error instanceof Error ? error.message : 'Please try again.',
-            )
+            const message =
+                error instanceof Error ? error.message : 'Please try again.'
+            setCheckoutError(message)
+            notify('danger', 'Order not placed', message)
         } finally {
             setSubmitting(false)
         }
@@ -547,9 +549,14 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 pricing={pricing}
                 promoCode={promoCode}
                 submitting={submitting}
+                checkoutError={checkoutError}
                 onApplyPromo={applyPromo}
-                onClose={() => setCheckoutOpen(false)}
+                onClose={() => {
+                    setCheckoutError(null)
+                    setCheckoutOpen(false)
+                }}
                 onSubmit={setPendingShipping}
+                onOpenAccount={openAccount}
             />
 
             <ConfirmDialog
@@ -571,12 +578,23 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                         <p>
                             {itemCount} item{itemCount === 1 ? '' : 's'} from{' '}
                             {pricing.divisions.length} store
-                            {pricing.divisions.length === 1 ? '' : 's'} for
-                            delivery to{' '}
-                            <span className="font-semibold">
-                                {pendingShipping.addressLine1},{' '}
-                                {pendingShipping.city}
-                            </span>
+                            {pricing.divisions.length === 1 ? '' : 's'}
+                            {pendingShipping.addressLine1 ||
+                            pendingShipping.city ? (
+                                <>
+                                    {' '}
+                                    for delivery to{' '}
+                                    <span className="font-semibold">
+                                        {pendingShipping.addressLine1}
+                                        {pendingShipping.addressLine1 &&
+                                        pendingShipping.city
+                                            ? ', '
+                                            : ''}
+                                        {pendingShipping.city}
+                                    </span>
+                                    .
+                                </>
+                            ) : null}
                             .
                         </p>
                         <p>
@@ -703,6 +721,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             <StorefrontOrdersDrawer
                 isOpen={ordersOpen}
                 customerId={signedInClient?.customerId ?? null}
+                clientToken={sessionToken}
                 isMobile={isMobile}
                 accentTextClass="text-emerald-700"
                 renderOrderTag={(order) => (

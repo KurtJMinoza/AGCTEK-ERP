@@ -64,6 +64,20 @@ export class CreatePickingDto {
     @IsString()
     sourceDocument?: string
 
+    /** Sales order that generated this task (ecommerce/retail fulfillment). */
+    @IsOptional()
+    @IsString()
+    salesOrderId?: string
+
+    @IsOptional()
+    @IsString()
+    salesOrderLineId?: string
+
+    /** Deterministic key — a retried call never creates a duplicate task. */
+    @IsOptional()
+    @IsString()
+    lastIdempotencyKey?: string
+
     @IsOptional()
     @IsInt()
     @Min(1)
