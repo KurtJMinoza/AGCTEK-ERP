@@ -36,6 +36,34 @@ type CartApiItem = {
     product: RetailProduct | Record<string, unknown>
 }
 
+/** Saved shipping address from the multi-address book. */
+export type RetailAddress = {
+    id: string
+    label: string | null
+    fullName: string
+    phone: string
+    addressLine1: string
+    city: string
+    region: string
+    postalCode: string
+    country: string
+    isDefault: boolean
+    createdAt: string
+    updatedAt: string
+}
+
+/** Payload for creating a new saved address. */
+export type RetailAddressInput = {
+    label?: string
+    fullName: string
+    phone: string
+    addressLine1: string
+    city: string
+    region: string
+    postalCode: string
+    country?: string
+}
+
 const toProfile = (client: ApiClient): RetailClientProfile => ({
     customerId: client.customerId,
     email: client.email,
@@ -115,3 +143,59 @@ export async function saveRetailClientCart(
         })),
     })
 }
+
+// ── Multi-address book ─────────────────────────────────────────────────────
+
+const getAddress = (data: { address: RetailAddress }): RetailAddress => data.address
+
+export async function listRetailClientAddresses(
+    clientId: string,
+): Promise<RetailAddress[]> {
+    const { data } = await ErpAxiosBase.get<{ addresses: RetailAddress[] }>(
+        `/retail/clients/${encodeURIComponent(clientId)}/addresses`,
+    )
+    return data.addresses
+}
+
+export async function createRetailClientAddress(
+    clientId: string,
+    input: RetailAddressInput,
+): Promise<RetailAddress> {
+    const { data } = await ErpAxiosBase.post<{ address: RetailAddress }>(
+        `/retail/clients/${encodeURIComponent(clientId)}/addresses`,
+        input,
+    )
+    return getAddress(data)
+}
+
+export async function setDefaultRetailClientAddress(
+    addressId: string,
+): Promise<RetailAddress> {
+    const { data } = await ErpAxiosBase.post<{ address: RetailAddress }>(
+        `/retail/clients/addresses/${encodeURIComponent(addressId)}/default`,
+    )
+    return getAddress(data)
+}
+
+export async function deleteRetailClientAddress(
+    addressId: string,
+): Promise<void> {
+    await ErpAxiosBase.delete(
+        `/retail/clients/addresses/${encodeURIComponent(addressId)}`,
+    )
+}
+
+/** Address-book entry as checkout shipping details (email from the account). */
+export const addressToShipping = (
+    address: RetailAddress,
+    email: string,
+): SalesOrderShippingDetails => ({
+    fullName: address.fullName,
+    email,
+    phone: address.phone,
+    addressLine1: address.addressLine1,
+    city: address.city,
+    region: address.region,
+    postalCode: address.postalCode,
+    country: address.country || 'PH',
+})

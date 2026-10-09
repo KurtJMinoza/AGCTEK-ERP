@@ -6,15 +6,12 @@ import {
     useContext,
     useEffect,
     useMemo,
-    useRef,
     useState,
     type ReactNode,
 } from 'react'
 import { useRouter } from 'next/navigation'
-import { HiOutlineCheckCircle } from 'react-icons/hi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Button from '@/components/ui/Button'
-import Dialog from '@/components/ui/Dialog'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import useResponsive from '@/utils/hooks/useResponsive'
@@ -22,21 +19,16 @@ import { LPG_DIVISION_ID, isLpgAddon } from '@/modules/sd/catalogs/lpgCatalog'
 import { useMarketplaceProducts } from '@/modules/sd/hooks/useMarketplaceProducts'
 import {
     calculateCartPricing,
-    processEcommerceOrder,
     type CartPricing,
-    type EcommerceOrderResult,
 } from '@/modules/sd/services/ecommerceService'
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
-import { newIdempotencyKey } from '@/modules/sd/services/salesOrderDashboardService'
 import type { RetailClientProfile } from '@/services/storefront/retailClientService'
-import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
 import StorefrontAccountDialog from '@/modules/storefront/shared/components/StorefrontAccountDialog'
 import StorefrontOrdersDrawer from '@/modules/storefront/shared/components/StorefrontOrdersDrawer'
 import MarketplaceCartDrawer from './components/MarketplaceCartDrawer'
-import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
-import { productHref } from './host'
+import { CHECKOUT_PATH, productHref } from './host'
 import {
     MARKETPLACE_NAME,
     PRIMARY_BUTTON,
@@ -125,6 +117,10 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const removeItem = useMarketplaceCartStore((s) => s.removeItem)
     const clearCart = useMarketplaceCartStore((s) => s.clearCart)
     const syncCatalog = useMarketplaceCartStore((s) => s.syncCatalog)
+    const selectedKeys = useMarketplaceCartStore((s) => s.selectedKeys)
+    const toggleSelect = useMarketplaceCartStore((s) => s.toggleSelect)
+    const setSelectAll = useMarketplaceCartStore((s) => s.setSelectAll)
+    const removeItems = useMarketplaceCartStore((s) => s.removeItems)
 
     const client = useMarketplaceClientStore((s) => s.client)
     const openLogin = useMarketplaceClientStore((s) => s.openLogin)
@@ -134,14 +130,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const toggleFavorite = useMarketplaceFavoritesStore((s) => s.toggle)
 
     const [hydrated, setHydrated] = useState(false)
-    const [checkoutOpen, setCheckoutOpen] = useState(false)
     const [promoCode, setPromoCode] = useState<string | null>(null)
-    const [pendingShipping, setPendingShipping] =
-        useState<SalesOrderShippingDetails | null>(null)
-    const [submitting, setSubmitting] = useState(false)
-    const [placedOrder, setPlacedOrder] = useState<EcommerceOrderResult | null>(
-        null,
-    )
     const [pendingRemoval, setPendingRemoval] = useState<{
         key: string
         name: string
@@ -154,7 +143,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     /** Add-to-cart awaiting sign-in (`afterSignIn === 'add'`) or confirmation. */
     const [requestedAdd, setRequestedAdd] = useState<PendingAdd | null>(null)
     const [confirmingAdd, setConfirmingAdd] = useState(false)
-    const checkoutIdRef = useRef<string | null>(null)
 
     useEffect(() => setHydrated(true), [])
     const signedInClient = hydrated ? client : null
@@ -166,7 +154,8 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         if (!afterSignIn) return
         if (signedInClient) {
-            if (afterSignIn === 'checkout') setCheckoutOpen(true)
+            // Checkout is a full page now; send the signed-in shopper there.
+            if (afterSignIn === 'checkout') router.push(CHECKOUT_PATH)
             else if (afterSignIn === 'add') setConfirmingAdd(true)
             else setOrdersOpen(true)
             setAfterSignIn(null)
@@ -174,7 +163,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             if (afterSignIn === 'add') setRequestedAdd(null)
             setAfterSignIn(null)
         }
-    }, [afterSignIn, signedInClient, isLoginOpen])
+    }, [afterSignIn, signedInClient, isLoginOpen, router])
 
     useEffect(() => {
         if (!signedInClient) setOrdersOpen(false)
@@ -187,23 +176,21 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             ),
         [items],
     )
-    const productsByKey = useMemo(
-        () =>
-            new Map(
-                items.map((item) => [productKey(item.product), item.product]),
-            ),
-        [items],
-    )
     const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
+    // Selective checkout: only checked items are priced and ordered.
     const pricingItems = useMemo(
         () =>
-            items.map((item) => ({
-                divisionId: item.product.divisionId as SalesDivisionId,
-                sku: item.product.sku,
-                quantity: item.quantity,
-            })),
-        [items],
+            items
+                .filter((item) =>
+                    selectedKeys.includes(productKey(item.product)),
+                )
+                .map((item) => ({
+                    divisionId: item.product.divisionId as SalesDivisionId,
+                    sku: item.product.sku,
+                    quantity: item.quantity,
+                })),
+        [items, selectedKeys],
     )
 
     const pricing = useMemo<CartPricing | null>(() => {
@@ -225,20 +212,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         if (promoCode && pricing && !pricing.promoCode) setPromoCode(null)
     }, [promoCode, pricing])
 
-    const applyPromo = (code: string | null) => {
-        if (!code) {
-            setPromoCode(null)
-            return null
-        }
-        try {
-            const next = calculateCartPricing(pricingItems, code)
-            setPromoCode(next.promoCode)
-            return null
-        } catch (error) {
-            return error instanceof Error ? error.message : 'Invalid code'
-        }
-    }
-
     const { smaller } = useResponsive()
     const isMobile = smaller.sm
 
@@ -251,7 +224,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     )
 
     const startCheckout = () => {
-        const lpgItems = items.filter(
+        const selected = items.filter((item) =>
+            selectedKeys.includes(productKey(item.product)),
+        )
+        if (selected.length === 0) return
+        const lpgItems = selected.filter(
             (item) => item.product.divisionId === LPG_DIVISION_ID,
         )
         if (
@@ -265,11 +242,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             )
             return
         }
-        checkoutIdRef.current ??= newIdempotencyKey('web')
         if (signedInClient) {
-            setCheckoutOpen(true)
+            router.push(CHECKOUT_PATH)
             return
         }
+        // Signed-out: sign in first; the effect routes to the checkout page.
         setAfterSignIn('checkout')
         openLogin()
     }
@@ -282,40 +259,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         setAfterSignIn('orders')
         openLogin()
     }, [signedInClient, openLogin])
-
-    const placeOrder = async (shipping: SalesOrderShippingDetails) => {
-        setPendingShipping(null)
-        if (!signedInClient) {
-            setCheckoutOpen(false)
-            setAfterSignIn('checkout')
-            openLogin()
-            return
-        }
-        setSubmitting(true)
-        try {
-            const result = await processEcommerceOrder({
-                checkoutId: checkoutIdRef.current ?? undefined,
-                customerId: signedInClient.customerId,
-                items: pricingItems,
-                shipping,
-                discountCode: promoCode ?? undefined,
-            })
-            checkoutIdRef.current = null
-            clearCart()
-            setPromoCode(null)
-            setCheckoutOpen(false)
-            closeCart()
-            setPlacedOrder(result)
-        } catch (error) {
-            notify(
-                'danger',
-                'Order not placed',
-                error instanceof Error ? error.message : 'Please try again.',
-            )
-        } finally {
-            setSubmitting(false)
-        }
-    }
 
     const requestAdd = useCallback(
         (product: SdProductRecord, quantity = 1, buyNow = false) => {
@@ -338,12 +281,21 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const confirmAdd = () => {
         if (!requestedAdd || !signedInClient) return cancelAdd()
         const { product, quantity, buyNow } = requestedAdd
-        addItem(product, quantity)
         cancelAdd()
         if (buyNow) {
-            openCart()
+            // Buy Now is fully detached from the cart: hand the item straight
+            // to the checkout page via query params (it resolves the product
+            // from the catalogue). Nothing is added to the cart.
+            const params = new URLSearchParams({
+                buyNow: '1',
+                division: product.divisionId,
+                sku: product.sku,
+                qty: String(quantity),
+            })
+            router.push(`${CHECKOUT_PATH}?${params.toString()}`)
             return
         }
+        addItem(product, quantity)
         notify('success', 'Added to cart', `${quantity} × ${product.name}`)
     }
 
@@ -424,7 +376,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 type="info"
                 title={requestedAdd?.buyNow ? 'Buy this now?' : 'Add to cart?'}
                 confirmText={
-                    requestedAdd?.buyNow ? 'Add & view cart' : 'Add to cart'
+                    requestedAdd?.buyNow ? 'Buy Now' : 'Add to cart'
                 }
                 cancelText="Cancel"
                 confirmButtonProps={{ customColorClass: PRIMARY_BUTTON }}
@@ -462,138 +414,20 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             <MarketplaceCartDrawer
                 isOpen={isCartOpen}
                 isMobile={isMobile}
+                items={items}
                 pricing={pricing}
-                productsByKey={productsByKey}
                 signedIn={Boolean(signedInClient)}
+                selectedKeys={selectedKeys}
                 onClose={closeCart}
                 onIncrease={updateQuantity}
                 onDecrease={decreaseItem}
                 onRemove={(key, name) => setPendingRemoval({ key, name })}
+                onToggleSelect={toggleSelect}
+                onSelectAll={setSelectAll}
+                onRemoveSelected={() => removeItems(selectedKeys)}
                 onCheckout={startCheckout}
                 onClear={() => setConfirmClearOpen(true)}
             />
-
-            <MarketplaceCheckoutDialog
-                isOpen={checkoutOpen}
-                client={signedInClient}
-                pricing={pricing}
-                promoCode={promoCode}
-                submitting={submitting}
-                onApplyPromo={applyPromo}
-                onClose={() => setCheckoutOpen(false)}
-                onSubmit={setPendingShipping}
-            />
-
-            <ConfirmDialog
-                isOpen={pendingShipping !== null}
-                type="warning"
-                title="Place this order?"
-                confirmText="Place order"
-                cancelText="Review again"
-                confirmButtonProps={{ customColorClass: PRIMARY_BUTTON }}
-                onClose={() => setPendingShipping(null)}
-                onRequestClose={() => setPendingShipping(null)}
-                onCancel={() => setPendingShipping(null)}
-                onConfirm={() => {
-                    if (pendingShipping) void placeOrder(pendingShipping)
-                }}
-            >
-                {pendingShipping && pricing ? (
-                    <div className="flex flex-col gap-1 text-sm">
-                        <p>
-                            {itemCount} item{itemCount === 1 ? '' : 's'} from{' '}
-                            {pricing.divisions.length} store
-                            {pricing.divisions.length === 1 ? '' : 's'} for
-                            delivery to{' '}
-                            <span className="font-semibold">
-                                {pendingShipping.addressLine1},{' '}
-                                {pendingShipping.city}
-                            </span>
-                            .
-                        </p>
-                        <p>
-                            Total due on delivery:{' '}
-                            <span className="font-semibold text-gray-900">
-                                {formatPrice(pricing.grandTotal)}
-                            </span>
-                        </p>
-                    </div>
-                ) : null}
-            </ConfirmDialog>
-
-            <Dialog
-                isOpen={placedOrder !== null}
-                width={440}
-                onClose={() => setPlacedOrder(null)}
-                onRequestClose={() => setPlacedOrder(null)}
-            >
-                {placedOrder ? (
-                    <div className="flex flex-col items-center gap-3 text-center">
-                        <HiOutlineCheckCircle
-                            className="text-5xl text-gray-900"
-                            aria-hidden
-                        />
-                        <h4 className="text-xl font-semibold tracking-tight text-gray-900">
-                            Order placed
-                        </h4>
-                        <p className="text-sm text-gray-500">
-                            Order{' '}
-                            <span className="font-mono font-medium text-gray-900">
-                                {placedOrder.salesOrderId}
-                            </span>{' '}
-                            is pending delivery.
-                        </p>
-                        <ul className="flex w-full flex-col gap-2 text-sm">
-                            {placedOrder.divisions.map((division) => (
-                                <li
-                                    key={division.divisionId}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <SellerTag
-                                            divisionId={division.divisionId}
-                                            short
-                                        />
-                                        <span className="text-gray-500">
-                                            {division.lines.length}{' '}
-                                            {division.lines.length === 1
-                                                ? 'item'
-                                                : 'items'}
-                                        </span>
-                                    </span>
-                                    <span className="font-semibold">
-                                        {formatPrice(division.grandTotal)}
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
-                        <p className="text-sm">
-                            Total due on delivery:{' '}
-                            <span className="font-semibold text-gray-900">
-                                {formatPrice(placedOrder.grandTotal)}
-                            </span>
-                        </p>
-                        <Button
-                            block
-                            className={PRIMARY_BUTTON_CLASS}
-                            customColorClass={PRIMARY_BUTTON}
-                            onClick={() => setPlacedOrder(null)}
-                        >
-                            Continue shopping
-                        </Button>
-                        <Button
-                            block
-                            variant="plain"
-                            onClick={() => {
-                                setPlacedOrder(null)
-                                setOrdersOpen(true)
-                            }}
-                        >
-                            View my orders
-                        </Button>
-                    </div>
-                ) : null}
-            </Dialog>
 
             <ConfirmDialog
                 isOpen={pendingRemoval !== null}

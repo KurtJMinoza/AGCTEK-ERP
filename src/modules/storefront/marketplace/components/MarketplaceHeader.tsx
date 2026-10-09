@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-    HiOutlineClipboardList,
+    HiOutlineChevronDown,
+    HiOutlineLogout,
     HiOutlineSearch,
     HiOutlineShoppingBag,
     HiOutlineShoppingCart,
@@ -12,12 +13,14 @@ import {
 } from 'react-icons/hi'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
+import Dropdown from '@/components/ui/Dropdown'
 import Input from '@/components/ui/Input'
 import { productsHref } from '../browseQuery'
 import { MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
 import { MARKETPLACE_NAME } from '../marketplaceUi'
 import { useMarketplaceBrowseStore } from '../store/useMarketplaceBrowseStore'
+import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
 
 type MarketplaceHeaderProps = {
     /** Enter in the search box; defaults to opening the products page with the query. */
@@ -34,6 +37,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
     const search = useMarketplaceBrowseStore((s) => s.search)
     const setSearch = useMarketplaceBrowseStore((s) => s.setSearch)
     const resetBrowse = useMarketplaceBrowseStore((s) => s.reset)
+    const logout = useMarketplaceClientStore((s) => s.logout)
 
     const submitSearch = () => {
         if (onSearchSubmit) onSearchSubmit()
@@ -102,32 +106,83 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                     />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                        size="sm"
-                        variant="plain"
-                        className={ICON_BUTTON}
-                        icon={<HiOutlineClipboardList className="text-xl" />}
-                        aria-label="My orders"
-                        onClick={openOrders}
-                    >
-                        <span className="hidden text-sm font-medium lg:inline">
-                            My Orders
-                        </span>
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="plain"
-                        className={ICON_BUTTON}
-                        icon={<HiOutlineUserCircle className="text-xl" />}
-                        aria-label={signedInClient ? 'Your account' : 'Sign in'}
-                        onClick={openAccount}
-                    >
-                        <span className="hidden max-w-[8rem] truncate text-sm font-medium lg:inline">
-                            {signedInClient
-                                ? signedInClient.fullName.split(' ')[0]
-                                : 'Sign in'}
-                        </span>
-                    </Button>
+                    {signedInClient ? (
+                        <Dropdown
+                            renderTitle={
+                                <Button
+                                    size="sm"
+                                    variant="plain"
+                                    className={ICON_BUTTON}
+                                    icon={
+                                        <HiOutlineUserCircle className="text-xl" />
+                                    }
+                                    aria-label="Your account"
+                                >
+                                    <span className="hidden max-w-[7rem] truncate text-sm font-medium lg:inline">
+                                        {signedInClient.fullName.split(' ')[0]}
+                                    </span>
+                                    <HiOutlineChevronDown className="hidden text-sm lg:inline" />
+                                </Button>
+                            }
+                            placement="bottom-end"
+                            menuClass="!z-40 !mt-1 !min-w-[220px] !rounded-xl !border !border-gray-100 !bg-white !p-1 !shadow-lg"
+                        >
+                            <Dropdown.Item
+                                variant="header"
+                                className="!px-3 !py-2"
+                            >
+                                <span className="block text-sm font-semibold text-gray-900">
+                                    {signedInClient.fullName}
+                                </span>
+                                <span className="block max-w-[190px] truncate text-xs text-gray-500">
+                                    {signedInClient.email}
+                                </span>
+                            </Dropdown.Item>
+                            <Dropdown.Item variant="divider" />
+                            <Dropdown.Item
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                onClick={() => {
+                                    openAccount()
+                                }}
+                            >
+                                My Account
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                onClick={() => {
+                                    openOrders()
+                                }}
+                            >
+                                My Orders
+                            </Dropdown.Item>
+                            <Dropdown.Item variant="divider" />
+                            <Dropdown.Item
+                                className="!py-2 !text-sm !text-red-600 hover:!bg-red-50"
+                                onClick={() => {
+                                    logout()
+                                    router.push(MARKETPLACE_PATH)
+                                }}
+                            >
+                                <span className="flex items-center gap-2">
+                                    <HiOutlineLogout className="text-lg" />
+                                    Sign out
+                                </span>
+                            </Dropdown.Item>
+                        </Dropdown>
+                    ) : (
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            className={ICON_BUTTON}
+                            icon={<HiOutlineUserCircle className="text-xl" />}
+                            aria-label="Sign in"
+                            onClick={openAccount}
+                        >
+                            <span className="hidden max-w-[8rem] truncate text-sm font-medium lg:inline">
+                                Sign in
+                            </span>
+                        </Button>
+                    )}
                     {itemCount > 0 ? (
                         <Badge
                             content={itemCount}

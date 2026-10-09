@@ -65,8 +65,9 @@ type ApiSalesOrder = {
 }
 
 const STATUS_MAP: Record<string, OrderStatus> = {
-    DRAFT: 'PROCESSING',
-    CONFIRMED: 'TO_BE_DELIVERED',
+    DRAFT: 'PENDING_APPROVAL',
+    PENDING: 'PENDING_APPROVAL',
+    CONFIRMED: 'PREPARING_TO_SHIP',
     COMPLETED: 'DELIVERED',
     CANCELLED: 'CANCELLED',
 }
@@ -186,6 +187,13 @@ export class HttpCommerceApi implements CommerceApi {
         return rows.map((row) => this.toOrder(row))
     }
 
+    async cancelOrder(orderId: string): Promise<void> {
+        await this.request<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(orderId)}/cancel`,
+            { method: 'POST' },
+        )
+    }
+
     private imageUrl(src: unknown): string | null {
         const value = typeof src === 'string' ? src.trim() : ''
         if (!value || value.split('?')[0].toLowerCase().endsWith('.svg')) return null
@@ -281,7 +289,7 @@ export class HttpCommerceApi implements CommerceApi {
                         .filter((id): id is string => Boolean(id)),
                 ),
             ],
-            status: STATUS_MAP[row.status] ?? 'PROCESSING',
+            status: STATUS_MAP[row.status] ?? 'PENDING_APPROVAL',
             placedAt: row.createdAt,
             updatedAt: row.updatedAt,
             lines,

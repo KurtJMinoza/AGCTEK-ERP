@@ -6456,21 +6456,48 @@ model DemandPlanAdjustment {
 
 /// Shop customer account (separate from ERP User) — delivery profile + saved cart
 model RetailClient {
-  id            String           @id @default(cuid())
-  email         String           @unique
+  id            String                @id @default(cuid())
+  email         String                @unique
   passwordHash  String
   fullName      String
-  phone         String           @default("")
-  addressLine1  String           @default("")
-  city          String           @default("")
-  region        String           @default("")
-  postalCode    String           @default("")
-  country       String           @default("PH")
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  phone         String                @default("")
+  addressLine1  String                @default("")
+  city          String                @default("")
+  region        String                @default("")
+  postalCode    String                @default("")
+  country       String                @default("PH")
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
   cartItems     RetailCartItem[]
+  addresses     RetailClientAddress[]
 
   @@index([email])
+}
+
+/// Saved shipping address for a shop customer — one customer, many addresses.
+/// Exactly one address per customer is the checkout default (`isDefault`).
+model RetailClientAddress {
+  id             String       @id @default(cuid())
+  retailClientId String
+  retailClient   RetailClient @relation(fields: [retailClientId], references: [id], onDelete: Cascade)
+  /// Optional short label the shopper picks, e.g. "Home", "Office".
+  label          String?
+  fullName       String
+  phone          String
+  addressLine1   String
+  city           String
+  region         String
+  postalCode     String
+  country        String       @default("PH")
+  /// Default shipping destination. Set via the dedicated endpoint so the
+  /// switch clears every other address for the same customer atomically.
+  isDefault      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([retailClientId])
+  @@index([retailClientId, isDefault])
+  @@map("retail_client_addresses")
 }
 
 model RetailCartItem {

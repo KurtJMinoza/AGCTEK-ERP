@@ -1,5 +1,4 @@
 ﻿import {
-    RETAIL_DIVISION_ID,
     type RetailProduct,
     type RetailProductCategory,
     type RetailProductReview,
@@ -29,7 +28,7 @@ export function toRetailProduct(record: SdProductRecord): RetailProduct {
         category: record.category as RetailProductCategory,
         imageUrl: images[0] ?? productImageSrc(record.imageUrl),
         imageGallery: images,
-        salesOrgId: RETAIL_DIVISION_ID,
+        salesOrgId: record.divisionId,
         popularity: productAttribute<number | undefined>(
             record,
             'popularity',

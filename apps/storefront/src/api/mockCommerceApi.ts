@@ -165,7 +165,7 @@ export class MockCommerceApi implements CommerceApi {
             id: `o-${this.nextNumber}`,
             orderNumber: `SO-${String(this.nextNumber++).padStart(6, '0')}`,
             divisionIds: pricing.stores.map((store) => store.divisionId),
-            status: 'TO_BE_DELIVERED' as const,
+            status: 'PREPARING_TO_SHIP' as const,
             placedAt: now,
             updatedAt: now,
             lines: pricing.stores.flatMap((store) =>
@@ -198,5 +198,11 @@ export class MockCommerceApi implements CommerceApi {
                 .filter((o) => o.customerId === customerId)
                 .map(({ customerId: _c, ...order }) => order),
         )
+    }
+
+    cancelOrder(orderId: string): Promise<void> {
+        const order = this.orders.find((o) => o.id === orderId)
+        if (order) order.status = 'CANCELLED'
+        return delay(undefined)
     }
 }

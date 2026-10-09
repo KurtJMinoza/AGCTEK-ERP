@@ -4,6 +4,7 @@ import {
     loadPricingCatalog,
     priceLines,
     type PricedLine,
+    type SalesDivisionId,
 } from './pricingEngine'
 import {
     createRetailSalesOrder,
@@ -30,10 +31,11 @@ export type POSCheckoutResult = {
  */
 export async function processPOSCheckout(
     payload: POSOrder,
+    divisionId: SalesDivisionId = RETAIL_DIVISION_ID,
 ): Promise<POSCheckoutResult> {
     const order = POSOrderSchema.parse(payload)
-    await loadPricingCatalog(RETAIL_DIVISION_ID)
-    const { lines, subtotal } = priceLines(order.items, RETAIL_DIVISION_ID)
+    await loadPricingCatalog(divisionId)
+    const { lines, subtotal } = priceLines(order.items, divisionId)
 
     if (order.paymentReceived < subtotal) {
         throw new Error(
@@ -44,7 +46,7 @@ export async function processPOSCheckout(
     const saved = await createRetailSalesOrder({
         channel: 'POS',
         idempotencyKey: newIdempotencyKey('pos'),
-        divisionId: RETAIL_DIVISION_ID,
+        divisionId,
         branchId: order.branchId,
         customerId: 'WALK-IN',
         customerName: 'Walk-in customer',

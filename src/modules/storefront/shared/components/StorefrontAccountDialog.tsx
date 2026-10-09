@@ -14,6 +14,7 @@ import { Form, FormItem } from '@/components/ui/Form'
 import { toApiError } from '@/modules/sd/services/apiError'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
 import type { createStorefrontClientStore } from '@/modules/storefront/shared/store/createStorefrontClientStore'
+import StorefrontAddressBook from '@/modules/storefront/shared/components/StorefrontAddressBook'
 
 type Mode = 'login' | 'register' | 'profile'
 type FormState = SalesOrderShippingDetails & { password: string }
@@ -34,6 +35,8 @@ export type StorefrontAccountDialogProps = {
     accentHeaderClass?: string
     /** Extra classes for inputs, e.g. focus ring colour. */
     accentInputClass?: string
+    /** Extra classes for text links inside the account dialog. */
+    accentTextClass?: string
     formId: string
 }
 
@@ -119,6 +122,7 @@ const StorefrontAccountDialog = ({
     accentTabClass,
     accentHeaderClass,
     accentInputClass,
+    accentTextClass = 'text-emerald-700 hover:!text-emerald-800',
     formId,
 }: StorefrontAccountDialogProps) => {
     const client = useClientStore((s) => s.client)
@@ -384,6 +388,14 @@ const StorefrontAccountDialog = ({
                         </div>
                     )}
                 </Form>
+                {mode === 'profile' && client ? (
+                    <StorefrontAddressBook
+                        clientId={client.customerId}
+                        accentButtonClass={accentButtonClass}
+                        accentInputClass={accentInputClass}
+                        accentTextClass={accentTextClass}
+                    />
+                ) : null}
             </FormDialog>
 
             <ConfirmDialog
