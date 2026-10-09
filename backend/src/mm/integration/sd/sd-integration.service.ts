@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, Inject, Optional } from '@nestjs/common'
+import { Injectable, BadRequestException, Inject, Logger, Optional } from '@nestjs/common'
 import { InventoryAvailabilityService } from '../../inventory/inventory-availability.service'
 import { ReservationEngineService } from '../../inventory/reservation-allocation/reservation-engine.service'
+import { AllocationEngineService } from '../../inventory/reservation-allocation/allocation-engine.service'
 import {
     SdAdjustDemandDto,
     SdAvailabilityBatchDto,
@@ -16,12 +17,16 @@ const SD_SOURCE_DOCUMENT_TYPE = 'SALES_ORDER'
 
 @Injectable()
 export class SdIntegrationService {
+    private readonly logger = new Logger(SdIntegrationService.name)
+
     constructor(
         private availability: InventoryAvailabilityService,
         private reservations: ReservationEngineService,
         @Optional()
         @Inject(SD_ORDER_GUARD_PORT)
         private sdGuard?: SdOrderGuardPort,
+        @Optional()
+        private allocations?: AllocationEngineService,
     ) {}
 
     async checkAvailability(dto: SdAvailabilityCheckDto) {
@@ -179,7 +184,7 @@ export class SdIntegrationService {
 
     async reserveFromSalesOrderPayload(payload: Record<string, unknown>) {
         const lines = (payload.lines as Array<Record<string, unknown>>) ?? []
-        return this.reserveDemand({
+        const reserved = await this.reserveDemand({
             companyId: String(payload.companyId),
             warehouseId: String(payload.warehouseId),
             sourceDocumentId: String(payload.salesOrderId),
@@ -199,6 +204,38 @@ export class SdIntegrationService {
                 demandReferenceLineId: String(l.demandReferenceLineId ?? l.lineId),
             })),
         })
+
+        // Ecommerce/standard orders: after reserving, allocate + auto-generate the
+        // warehouse picking tasks. POS counter sales skip the warehouse chain.
+        const channel = String(payload.channel ?? '')
+        if (channel !== 'POS' && reserved.reservationHeaderId) {
+            await this.autoReleaseToWarehouse(reserved.reservationHeaderId)
+        }
+
+        return reserved
+    }
+
+    /**
+     * Confirm = reserve only (no stock deduction). Allocation picks physical
+     * bins and generates the picking tasks; retries never duplicate tasks.
+     */
+    private async autoReleaseToWarehouse(reservationHeaderId: string) {
+        if (!this.allocations) return
+        try {
+            const allocation = await this.allocations.allocateHeader(
+                reservationHeaderId,
+                { strategy: 'FIFO' } as never,
+            )
+            if (allocation?.id) {
+                await this.allocations.generatePickTasks(allocation.id)
+            }
+        } catch (err) {
+            this.logger.warn(
+                `Auto picking failed for reservation ${reservationHeaderId}: ${
+                    err instanceof Error ? err.message : 'unknown'
+                }`,
+            )
+        }
     }
 
     private async assertOrderActive(sourceDocumentId: string) {

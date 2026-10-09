@@ -116,7 +116,7 @@ const StorefrontAccountDialog = ({
                 isOpen={isOpen && client !== null}
                 size="md"
                 title="Your account"
-                description="Your saved delivery details are used at checkout."
+                description="Your saved delivery details are used at checkout (optional)."
                 icon={<HiOutlineUserCircle />}
                 iconClassName={accentIconClass}
                 headerClassName={accentHeaderClass}
@@ -169,7 +169,6 @@ const StorefrontAccountDialog = ({
                                 className={f.wide ? 'sm:col-span-2' : undefined}
                             >
                                 <FormItem
-                                    asterisk
                                     label={f.label}
                                     invalid={Boolean(errors[f.key])}
                                     errorMessage={errors[f.key]}

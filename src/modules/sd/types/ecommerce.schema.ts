@@ -4,14 +4,14 @@ import { SALES_DIVISION_IDS } from '../services/pricingEngine'
 import { POSOrderItemSchema } from './pos.schema'
 
 export const SalesOrderShippingSchema = z.strictObject({
-    fullName: z.string().trim().min(1, 'Full name is required'),
-    email: z.email('Enter a valid email address'),
-    phone: z.string().trim().min(1, 'Phone is required'),
-    addressLine1: z.string().trim().min(1, 'Address is required'),
-    city: z.string().trim().min(1, 'City is required'),
-    region: z.string().trim().min(1, 'Region is required'),
-    postalCode: z.string().trim().min(1, 'Postal code is required'),
-    country: z.string().trim().min(1, 'Country is required'),
+    fullName: z.string().trim(),
+    email: z.string().trim(),
+    phone: z.string().trim(),
+    addressLine1: z.string().trim(),
+    city: z.string().trim(),
+    region: z.string().trim(),
+    postalCode: z.string().trim(),
+    country: z.string().trim().min(1, 'Country is required').default('PH'),
 }) satisfies z.ZodType<SalesOrderShippingDetails>
 
 /** Cart line; SKUs are unique per division only, so the seller division is part of the key. */

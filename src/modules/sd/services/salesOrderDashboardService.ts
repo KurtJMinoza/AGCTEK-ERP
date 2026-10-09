@@ -27,7 +27,7 @@ export type SalesOrderRecord = {
     divisionIds: string[]
     branchId: string | null
     customer: { id: string; name: string; email: string | null }
-    lines: (PricedLine & { divisionId: string | null })[]
+    lines: (PricedLine & { lineId: string; divisionId: string | null })[]
     subtotal: number
     promoCode: string | null
     discountAmount: number
@@ -69,6 +69,7 @@ export type CreateRetailSalesOrderInput = {
 type DecimalString = string | number | null
 
 type ApiSalesOrderLine = {
+    id: string
     divisionId: string | null
     sku: string | null
     description: string | null
@@ -137,6 +138,7 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             email: order.customerEmail,
         },
         lines: order.lines.map((line) => ({
+            lineId: line.id,
             divisionId: line.divisionId ?? order.divisionId,
             sku: line.sku ?? '—',
             name: line.description ?? line.sku ?? '—',
@@ -310,6 +312,78 @@ export async function updateRetailSalesOrderStatus(
         return toRecord(data)
     } catch (error) {
         throw toError(error, 'Unable to update order status')
+    }
+}
+
+export type CustomerReturnLinePayload = {
+    salesOrderLineId: string
+    quantity: number
+    reason?: string
+    conditionNote?: string
+}
+
+export type CustomerReturnRequestPayload = {
+    reason?: string
+    conditionNote?: string
+    photos?: string[]
+    lines: CustomerReturnLinePayload[]
+}
+
+export type CustomerReturnRequestRecord = {
+    id: string
+    requestNumber: string
+    status: string
+    reason: string | null
+    conditionNote: string | null
+    photos: unknown
+    mmCustomerReturnId: string | null
+    lines: Array<{
+        id: string
+        salesOrderLineId: string
+        quantity: number
+        reason: string | null
+        disposition: string | null
+    }>
+}
+
+/**
+ * Storefront return request against a delivered order (shopper bearer token).
+ * Ownership and company scope are enforced server-side.
+ */
+export async function createCustomerReturnRequest(
+    orderId: string,
+    payload: CustomerReturnRequestPayload,
+    token: string,
+): Promise<CustomerReturnRequestRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<CustomerReturnRequestRecord>(
+            `/sd/sales-orders/retail/${encodeURIComponent(orderId)}/returns`,
+            payload,
+            { headers: { Authorization: `Bearer ${token}` } },
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to submit return request')
+    }
+}
+
+/** Uploads return evidence photo (POST /sd/returns/photos); returns the public URL. */
+export async function uploadReturnPhoto(
+    file: File,
+): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await ErpAxiosBase.post<{ imageUrl: string }>(
+            '/sd/returns/photos',
+            formData,
+            {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            },
+        )
+        return data.imageUrl
+    } catch (error) {
+        throw toError(error, 'Unable to upload photo')
     }
 }
 

@@ -289,6 +289,8 @@ model Company {
   bomExplosionTraces           MmBomExplosionTrace[]
   userCompanies                UserCompany[]
 
+  sdProductVariants SdProductVariant[] @relation("SdVariantCompany")
+
   @@map("companies")
 }
 
@@ -474,20 +476,38 @@ model WmStorageType {
 }
 
 model WmStorageSection {
-  id            String         @id @default(cuid())
+  id            String           @id @default(cuid())
   code          String
   name          String
   description   String?
   storageTypeId String
-  storageType   WmStorageType  @relation(fields: [storageTypeId], references: [id])
-  status        String         @default("ACTIVE")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  storageType   WmStorageType    @relation(fields: [storageTypeId], references: [id])
+  status        String           @default("ACTIVE")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
   deletedAt     DateTime?
+  shelves       WmStorageShelf[]
   bins          WmStorageBin[]
 
   @@unique([storageTypeId, code])
   @@map("wm_storage_sections")
+}
+
+model WmStorageShelf {
+  id               String           @id @default(cuid())
+  code             String
+  name             String
+  description      String?
+  storageSectionId String
+  storageSection   WmStorageSection @relation(fields: [storageSectionId], references: [id])
+  status           String           @default("ACTIVE")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+  bins             WmStorageBin[]
+
+  @@unique([storageSectionId, code])
+  @@map("wm_storage_shelves")
 }
 
 model WmStorageBin {
@@ -495,6 +515,9 @@ model WmStorageBin {
   code             String
   storageSectionId String
   storageSection   WmStorageSection @relation(fields: [storageSectionId], references: [id])
+  /// Optional shelf level (area → section → shelf → bin). Null keeps legacy bins valid.
+  shelfId          String?
+  shelf            WmStorageShelf?  @relation(fields: [shelfId], references: [id])
   barcode          String?          @unique
   capacityQuantity Decimal          @default(0)
   capacityWeight   Decimal          @default(0)
@@ -538,6 +561,7 @@ model WmStorageBin {
   serialNumbersCurrent MmSerialNumber[]               @relation("SerialCurrentBin")
 
   @@unique([storageSectionId, code])
+  @@index([shelfId])
   @@map("wm_storage_bins")
 }
 
@@ -640,6 +664,7 @@ model WmPackingSession {
   sessionNumber   String           @unique
   warehouseId     String
   warehouse       Warehouse        @relation(fields: [warehouseId], references: [id])
+  companyId       String?
   warehouseTaskId String?
   warehouseTask   WmWarehouseTask? @relation(fields: [warehouseTaskId], references: [id])
   pickingTaskId   String?
@@ -652,6 +677,7 @@ model WmPackingSession {
   packages        WmPackage[]
 
   @@index([warehouseId, status])
+  @@index([companyId, status])
   @@map("wm_packing_sessions")
 }
 
@@ -743,6 +769,11 @@ model WmPickingTask {
   requiredQty         Decimal
   pickedQty           Decimal                       @default(0)
   sourceDocument      String?
+  /// Sales order that generated this ecommerce/retail picking task.
+  salesOrderId        String?
+  salesOrder          SdSalesOrder?                 @relation("SdOrderPickingTasks", fields: [salesOrderId], references: [id], onDelete: SetNull)
+  salesOrderLineId    String?
+  salesOrderLine      SdSalesOrderLine?             @relation("SdOrderLinePickingTasks", fields: [salesOrderLineId], references: [id], onDelete: SetNull)
   assignedUser        String?
   warehouseTaskId     String?                       @unique
   warehouseTask       WmWarehouseTask?              @relation(fields: [warehouseTaskId], references: [id])
@@ -759,6 +790,8 @@ model WmPickingTask {
   @@index([waveId])
   @@index([reservationId])
   @@index([warehouseTaskId])
+  @@index([salesOrderId])
+  @@index([salesOrderLineId])
   @@map("wm_picking_tasks")
 }
 
@@ -770,6 +803,7 @@ model WmPackage {
   orderNumber      String?
   warehouseId      String
   warehouse        Warehouse               @relation(fields: [warehouseId], references: [id])
+  companyId        String?
   pickingTaskId    String?
   pickingTask      WmPickingTask?          @relation("PackageFromPick", fields: [pickingTaskId], references: [id])
   packingSessionId String?
@@ -797,6 +831,7 @@ model WmPackage {
 
   @@index([warehouseId, status])
   @@index([pickingTaskId])
+  @@index([companyId, status])
   @@map("wm_packages")
 }
 
@@ -942,6 +977,8 @@ model MmUom {
   sdAssignmentMaterialUom SdProductMaterialAssignment[]  @relation("SdAssignmentMaterialUom")
   sdOrderLineSalesUom     SdSalesOrderLine[]             @relation("SdOrderLineSalesUom")
   sdOrderLineBaseUom      SdSalesOrderLine[]             @relation("SdOrderLineBaseUom")
+  sdVariantSalesUoms      SdProductVariant[]             @relation("SdVariantSalesUom")
+  sdVariantMaterialUoms   SdProductVariant[]             @relation("SdVariantMaterialUom")
 
   @@map("mm_uoms")
 }
@@ -1060,12 +1097,13 @@ model MmMaterial {
   leadTimeDays         Int     @default(0)
   minimumOrderQuantity Decimal @default(0)
 
-  valuationMethod  String?
-  standardCost     Decimal           @default(0)
-  currencyId       String?
-  currency         MmCurrency?       @relation(fields: [currencyId], references: [id])
-  valuationClassId String?
-  valuationClass   MmValuationClass? @relation(fields: [valuationClassId], references: [id])
+  valuationMethod   String?
+  standardCost      Decimal            @default(0)
+  currencyId        String?
+  currency          MmCurrency?        @relation(fields: [currencyId], references: [id])
+  valuationClassId  String?
+  valuationClass    MmValuationClass?  @relation(fields: [valuationClassId], references: [id])
+  sdProductVariants SdProductVariant[] @relation("SdVariantMaterial")
 
   companyId          String?
   company            Company?   @relation(fields: [companyId], references: [id])
@@ -3689,10 +3727,101 @@ model SdProduct {
   updatedAt           DateTime                      @updatedAt
   materialAssignments SdProductMaterialAssignment[]
   fulfillmentLines    SdFulfillmentLine[]
+  options             SdProductOption[]             @relation("ProductOptions")
+  variants            SdProductVariant[]            @relation("ProductVariants")
 
   @@unique([divisionId, sku])
   @@index([divisionId, isActive, sortOrder])
   @@map("sd_products")
+}
+
+/// Generic selectable option group on a product (Size, Color, Bottle Size, Flavor, Pack…).
+model SdProductOption {
+  id         String                 @id @default(cuid())
+  productId  String
+  product    SdProduct              @relation("ProductOptions", fields: [productId], references: [id], onDelete: Cascade)
+  name         String
+  sortOrder    Int                    @default(0)
+  isRequired   Boolean                @default(true)
+  /// Storefront control style: BUTTON | DROPDOWN | SWATCH | IMAGE | TILE
+  displayStyle String                 @default("BUTTON")
+  createdAt    DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  values     SdProductOptionValue[]
+
+  @@unique([productId, name])
+  @@index([productId, sortOrder])
+  @@map("sd_product_options")
+}
+
+model SdProductOptionValue {
+  id           String                        @id @default(cuid())
+  optionId     String
+  option       SdProductOption               @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  value        String
+  sortOrder    Int                           @default(0)
+  /// Color swatch hex for the SWATCH display style.
+  swatchColor  String?
+  /// Value image for the IMAGE display style.
+  imageUrl     String                        @default("")
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  variantLinks SdProductVariantOptionValue[] @relation("OptionValueVariants")
+
+  @@unique([optionId, value])
+  @@index([optionId, sortOrder])
+  @@map("sd_product_option_values")
+}
+
+/// Sellable variant of an SD product. Parent = display / grouping; variant = the stock item.
+model SdProductVariant {
+  id             String                        @id @default(cuid())
+  productId      String
+  product        SdProduct                     @relation("ProductVariants", fields: [productId], references: [id], onDelete: Cascade)
+  variantName    String
+  sku            String                        @unique
+  barcode        String?                       @unique
+  /// Sellable price override; null → inherit the parent product price.
+  price          Decimal?                      @db.Decimal(18, 2)
+  compareAtPrice Decimal?                      @db.Decimal(18, 2)
+  cost           Decimal?                      @db.Decimal(18, 2)
+  imageUrl       String                        @default("")
+  weight         Decimal?
+  isActive       Boolean                       @default(true)
+  /// Default preset variant on the storefront / POS (one per product).
+  isDefault      Boolean                       @default(false)
+  sortOrder      Int                           @default(0)
+  /// MM stock authority for this variant (null = non-stock / service variant)
+  materialId     String?
+  material       MmMaterial?                   @relation("SdVariantMaterial", fields: [materialId], references: [id], onDelete: SetNull)
+  companyId      String?
+  company        Company?                      @relation("SdVariantCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  salesUomId     String?
+  salesUom       MmUom?                        @relation("SdVariantSalesUom", fields: [salesUomId], references: [id], onDelete: SetNull)
+  materialUomId  String?
+  materialUom    MmUom?                        @relation("SdVariantMaterialUom", fields: [materialUomId], references: [id], onDelete: SetNull)
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  optionValues   SdProductVariantOptionValue[] @relation("VariantOptionValues")
+
+  @@unique([productId, variantName])
+  @@index([productId, isActive])
+  @@index([productId, sortOrder])
+  @@index([materialId])
+  @@index([barcode])
+  @@map("sd_product_variants")
+}
+
+model SdProductVariantOptionValue {
+  id            String               @id @default(cuid())
+  variantId     String
+  variant       SdProductVariant     @relation("VariantOptionValues", fields: [variantId], references: [id], onDelete: Cascade)
+  optionValueId String
+  optionValue   SdProductOptionValue @relation("OptionValueVariants", fields: [optionValueId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, optionValueId])
+  @@index([optionValueId])
+  @@map("sd_product_variant_option_values")
 }
 
 /// Explicit SD product → MM material link (commercial vs inventory authority).
@@ -3796,6 +3925,9 @@ model SdSalesOrder {
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]
+  pickingTasks       WmPickingTask[]  @relation("SdOrderPickingTasks")
+  invoices           SdSalesInvoice[]
+  returnRequests     SdReturnRequest[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -3830,6 +3962,11 @@ model SdSalesOrderLine {
   baseQuantity        Decimal?
   baseUomId           String?
   baseUom             MmUom?              @relation("SdOrderLineBaseUom", fields: [baseUomId], references: [id])
+  /// Sold variant (products with options always select one); snapshots for orders.
+  variantId           String?
+  variantName         String?
+  variantSku          String?
+  variantBarcode      String?
   reservedQuantity    Decimal             @default(0)
   issuedQuantity      Decimal             @default(0)
   reservationHeaderId String?
@@ -3838,6 +3975,9 @@ model SdSalesOrderLine {
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   fulfillmentLines    SdFulfillmentLine[]
+  pickingTasks        WmPickingTask[]      @relation("SdOrderLinePickingTasks")
+  invoiceLines        SdSalesInvoiceLine[]
+  returnRequestLines  SdReturnRequestLine[]
 
   @@unique([salesOrderId, lineNumber])
   @@index([materialId])
@@ -3985,6 +4125,105 @@ model SdShipment {
 
   @@index([salesOrderId])
   @@map("sd_shipments")
+}
+
+/// Customer sales invoice (AR) — auto-created for fulfilled ecommerce orders.
+model SdSalesInvoice {
+  id             String   @id @default(cuid())
+  invoiceNumber  String   @unique
+  companyId      String
+  salesOrderId   String
+  salesOrder     SdSalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  shipmentId     String?
+  /// DRAFT | ISSUED | PAID | CANCELLED | REFUNDED
+  status         String   @default("DRAFT")
+  currency       String   @default("PHP")
+  subtotal       Decimal  @default(0)
+  discountAmount Decimal  @default(0)
+  shippingAmount Decimal  @default(0)
+  totalAmount    Decimal  @default(0)
+  issuedAt       DateTime?
+  paidAt         DateTime?
+  cancelledAt    DateTime?
+  refundedAmount Decimal  @default(0)
+  notes          String?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lines SdSalesInvoiceLine[]
+
+  @@unique([salesOrderId])
+  @@index([companyId, status])
+  @@index([shipmentId])
+  @@map("sd_sales_invoices")
+}
+
+model SdSalesInvoiceLine {
+  id               String           @id @default(cuid())
+  invoiceId        String
+  invoice          SdSalesInvoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNumber       Int              @default(1)
+  salesOrderLineId String
+  salesOrderLine   SdSalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  description      String?
+  sku              String
+  variantName      String?
+  quantity         Decimal
+  unitPrice        Decimal
+  lineTotal        Decimal
+
+  @@unique([invoiceId, salesOrderLineId])
+  @@index([salesOrderLineId])
+  @@map("sd_sales_invoice_lines")
+}
+
+/// Customer return request raised from a delivered order (storefront or admin).
+model SdReturnRequest {
+  id                 String           @id @default(cuid())
+  requestNumber      String           @unique
+  companyId          String
+  salesOrderId       String
+  salesOrder         SdSalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  customerId         String
+  /// REQUESTED | APPROVED | REJECTED | RECEIVED | INSPECTED | COMPLETED | CANCELLED
+  status             String           @default("REQUESTED")
+  reason             String?
+  conditionNote      String?
+  photos             Json?
+  /// MM customer return created on approval (link to MM processing).
+  mmCustomerReturnId String?
+  requestedBy        String?
+  approvedBy         String?
+  approvedAt         DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  lines SdReturnRequestLine[]
+
+  @@index([companyId, status])
+  @@index([salesOrderId])
+  @@map("sd_return_requests")
+}
+
+model SdReturnRequestLine {
+  id               String           @id @default(cuid())
+  returnRequestId  String
+  returnRequest    SdReturnRequest  @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  salesOrderLineId String
+  salesOrderLine   SdSalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  variantId        String?
+  materialId       String?
+  quantity         Decimal
+  reason           String?
+  conditionNote    String?
+  /// PENDING | RESTOCK | QUALITY_HOLD | DAMAGED | SCRAP | DISPOSAL | REFUND_ONLY
+  disposition      String?
+
+  @@unique([returnRequestId, salesOrderLineId])
+  @@index([salesOrderLineId])
+  @@map("sd_return_request_lines")
 }
 
 model SdEventOutbox {
@@ -5920,11 +6159,14 @@ enum ShipmentStatus {
   DRAFT
   READY
   ASSIGNED
+  DISPATCHED
   IN_TRANSIT
   DELIVERED
   CANCELLED
   /// Delivery failed at the stop — awaiting dispatcher decision (re-attempt / return). Not delivered.
   EXCEPTION_HOLD
+  /// Customer return hand-back completed by the carrier.
+  RETURNED
 }
 
 /// Outbound shipping vs customer/supplier pickup (return to hub).
@@ -6046,6 +6288,7 @@ model Driver {
 model Shipment {
   id                  String                 @id @default(cuid())
   reference           String                 @unique
+  companyId           String?
   customerName        String?
   originAddress       String?
   originLat           Float?
@@ -6093,6 +6336,7 @@ model Shipment {
   @@index([status])
   @@index([movementType])
   @@index([packageId])
+  @@index([companyId, status])
 }
 
 /// Cargo unit for load building. SHIP/RETURN prefer Warehouse master ids; TO is an address snapshot.
@@ -6101,6 +6345,7 @@ model ShipmentLine {
   shipmentId          String
   shipment            Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   lineNo              Int
+  companyId           String?
   materialCode        String?
   description         String?
   quantity            Int
@@ -6576,15 +6821,18 @@ model RetailClientAddress {
 }
 
 model RetailCartItem {
-  id        String       @id @default(cuid())
-  clientId  String
-  client    RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  sku       String
-  quantity  Int          @default(1)
+  id          String       @id @default(cuid())
+  clientId    String
+  client      RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sku         String
+  variantId   String?
+  variantName String?
+  variantSku  String?
+  quantity    Int          @default(1)
   /// Snapshot of RetailProduct fields for cart restore without catalog dependency
-  product   Json
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  product     Json
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@unique([clientId, sku])
   @@index([clientId])

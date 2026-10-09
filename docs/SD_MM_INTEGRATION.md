@@ -27,6 +27,28 @@ STANDARD | POS | ECOMMERCE
 | `POST /sd/sales-orders/:id/confirm` | STANDARD (uses pipeline) |
 | Retail create | `createRetail` → pipeline |
 
+## Returns (storefront → MM disposition)
+
+```text
+Customer (signed in, delivered order only)
+  → POST /sd/sales-orders/retail/:id/returns     (bearer; ownership + company server-side)
+  → SdReturnRequest (REQUESTED) + lines (disposition defaulted: damaged → QUALITY_HOLD)
+  → POST /sd/returns/:id/approve                 (admin; company-scoped)
+       → MmCustomerReturn (DRAFT, sdReturnRequestRef link)
+  → MM returns intake → inspection → disposition (RESTOCK posts return receipt;
+       QUALITY_HOLD/BLOCK → hold/damaged/scrap/disposal; REFUND_ONLY → refund)
+```
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /sd/sales-orders/retail/:id/returns` | Customer return request (signed-in, own order, delivered only) |
+| `GET /sd/returns?companyId=` | Company-scoped return request list |
+| `POST /sd/returns` | Back-office return request create |
+| `POST /sd/returns/:id/approve` | Admin approve → creates linked `MmCustomerReturn` |
+| `POST /sd/returns/photos` | Multipart evidence photo (`{ imageUrl }`, reuses product image storage) |
+
+Rules: one open (REQUESTED) request per order (damaged/defective lines never auto-restock; disposition is decided in MM inspection). Refund-only requests skip stock movement — the MM return has no lines to post.
+
 ## Admin setup
 
 Demo SD/MM seeds are **disabled** — use the UI (or `npm run prisma:seed-sd-purge` / `prisma:seed-mm-purge` only to clear old demo rows).

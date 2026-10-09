@@ -12,6 +12,7 @@ import {
     getSalesOrders,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
+import StorefrontReturnDialog from './StorefrontReturnDialog'
 
 const STATUS_COPY: Record<
     SalesOrderRecord['status'],
@@ -40,6 +41,8 @@ export type StorefrontOrdersDrawerProps = {
     onClose: () => void
     /** Signed-in storefront client; orders are fetched only for this customer. */
     customerId: string | null
+    /** Shopper bearer token — required to file a return request. */
+    clientToken: string | null
     /** Limits the list to one division; omit to show orders from every store. */
     divisionId?: string
     isMobile: boolean
@@ -53,6 +56,7 @@ const StorefrontOrdersDrawer = ({
     isOpen,
     onClose,
     customerId,
+    clientToken,
     divisionId,
     isMobile,
     accentTextClass,
@@ -61,6 +65,10 @@ const StorefrontOrdersDrawer = ({
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(
+        null,
+    )
+    const [returnMessage, setReturnMessage] = useState<string | null>(null)
 
     const load = useCallback(async () => {
         if (!customerId) return
@@ -108,6 +116,12 @@ const StorefrontOrdersDrawer = ({
                             Retry
                         </Button>
                     </div>
+                </Alert>
+            ) : null}
+
+            {returnMessage ? (
+                <Alert showIcon type="success" className="mb-4">
+                    {returnMessage}
                 </Alert>
             ) : null}
 
@@ -191,7 +205,7 @@ const StorefrontOrdersDrawer = ({
                                             </li>
                                         ) : null}
                                     </ul>
-                                    <div className="mt-3 flex justify-between border-t border-gray-100 pt-3 font-bold dark:border-gray-700">
+                                    <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 font-bold dark:border-gray-700">
                                         <span>
                                             {order.status === 'Completed'
                                                 ? 'Total paid'
@@ -201,12 +215,45 @@ const StorefrontOrdersDrawer = ({
                                             {formatPrice(order.totalAmount)}
                                         </span>
                                     </div>
+                                    {order.status === 'Completed' &&
+                                    clientToken ? (
+                                        <div className="mt-3 border-t border-gray-100 pt-3 dark:border-gray-700">
+                                            <Button
+                                                size="xs"
+                                                variant="plain"
+                                                className="!px-0 !text-emerald-700 dark:!text-emerald-400"
+                                                onClick={() => {
+                                                    setReturnMessage(null)
+                                                    setReturnOrder(order)
+                                                }}
+                                            >
+                                                Return items
+                                            </Button>
+                                        </div>
+                                    ) : null}
                                 </Card>
                             </li>
                         )
                     })}
                 </ul>
             )}
+
+            {returnOrder ? (
+                <StorefrontReturnDialog
+                    isOpen={returnOrder !== null}
+                    order={returnOrder}
+                    token={clientToken ?? ''}
+                    onClose={() => setReturnOrder(null)}
+                    onSubmitted={(requestNumber) => {
+                        setReturnOrder(null)
+                        setReturnMessage(
+                            `Return request ${requestNumber} submitted — it will be reviewed before processing.`,
+                        )
+                        void load()
+                    }}
+                    onError={() => setReturnMessage(null)}
+                />
+            ) : null}
         </Drawer>
     )
 }

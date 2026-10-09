@@ -323,7 +323,7 @@ const ProductCatalogMaterialSection = ({
                             Loading inventory from MM…
                         </div>
                     ) : batch ? (
-                        <table className="w-full min-w-[960px] text-left text-sm">
+                        <table className="w-full min-w-[880px] text-left text-sm">
                             <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
                                 <tr>
                                     <th className="px-3 py-2">Material</th>

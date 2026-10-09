@@ -20,11 +20,23 @@ export type PricedLine = {
     quantity: number
     unitPrice: number
     lineTotal: number
+    /** Selected variant of the SKU (products with options). */
+    variantId?: string
+    variantName?: string
 }
 
 export type PricedLines = {
     lines: PricedLine[]
     subtotal: number
+}
+
+/** Cart line input; `unitPrice` overrides catalog price for variant lines. */
+export type PricingLineInput = {
+    sku: string
+    quantity: number
+    unitPrice?: number
+    variantId?: string
+    variantName?: string
 }
 
 export const roundMoney = (value: number) => Number(value.toFixed(2))
@@ -36,11 +48,11 @@ export const loadPricingCatalog = (divisionId: SalesDivisionId) =>
 /**
  * SD pricing engine: active SD product price × quantity, no seasonal
  * conditions. Shared by POS (Lane A) and e-commerce (Lane B); the backend
- * re-verifies every unit price against `sd_products` on save.
- * Throws when the division catalog is not loaded or a SKU is not sold.
+ * re-verifies every unit price against `sd_products` (or the selected variant)
+ * on save. Throws when the division catalog is not loaded or a SKU is not sold.
  */
 export function priceLines(
-    items: ReadonlyArray<{ sku: string; quantity: number }>,
+    items: ReadonlyArray<PricingLineInput>,
     divisionId: SalesDivisionId = RETAIL_DIVISION_ID,
 ): PricedLines {
     const catalog =
@@ -55,12 +67,17 @@ export function priceLines(
         if (!product) {
             throw new Error(`Unknown SKU for ${divisionId}: ${item.sku}`)
         }
+        const unitPrice = item.unitPrice ?? product.price
         return {
             sku: product.sku,
-            name: product.name,
+            name: item.variantName
+                ? `${product.name} · ${item.variantName}`
+                : product.name,
             quantity: item.quantity,
-            unitPrice: product.price,
-            lineTotal: roundMoney(product.price * item.quantity),
+            unitPrice,
+            lineTotal: roundMoney(unitPrice * item.quantity),
+            ...(item.variantId ? { variantId: item.variantId } : {}),
+            ...(item.variantName ? { variantName: item.variantName } : {}),
         }
     })
 

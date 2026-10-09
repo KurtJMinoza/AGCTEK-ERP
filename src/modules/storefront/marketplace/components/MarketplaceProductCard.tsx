@@ -5,6 +5,7 @@ import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
+import { productReviews } from './product/productContent'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
     PRIMARY_BUTTON,
@@ -53,14 +54,18 @@ const MarketplaceProductCard = ({
     onToggleFavorite,
 }: MarketplaceProductCardProps) => {
     const discount = discountPercent(product)
+    const reviews = productReviews(product)
+    const averageRating = reviews.length
+        ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+        : null
     return (
         <Card
             clickable
             role="button"
             tabIndex={0}
             aria-label={`View ${product.name}`}
-            bodyClass="flex h-full flex-col gap-5 p-5"
-            className={classNames('h-full rounded-xl', SURFACE, SURFACE_HOVER)}
+            bodyClass="flex h-full flex-col gap-5 p-5 sm:p-6"
+            className={classNames('h-full rounded-2xl', SURFACE, SURFACE_HOVER)}
             onClick={onOpen}
             onKeyDown={(event) => {
                 if (
@@ -72,13 +77,18 @@ const MarketplaceProductCard = ({
                 }
             }}
         >
-            <div className="relative overflow-hidden rounded-lg bg-gray-50 p-4">
+            <div className="relative overflow-hidden rounded-xl bg-gray-50 p-5">
                 <ProductImage
                     product={product}
                     fit="contain"
-                    sizes="(max-width: 768px) 45vw, 288px"
+                    sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 380px"
                     className="aspect-square w-full !bg-transparent"
                 />
+                {product.category ? (
+                    <span className="absolute bottom-3 left-3 max-w-[55%] truncate rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 shadow-sm">
+                        {product.category}
+                    </span>
+                ) : null}
                 {product.badge ? (
                     <span className="absolute left-3 top-3 max-w-[65%] truncate rounded-md bg-rose-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">
                         {product.badge}
@@ -112,7 +122,7 @@ const MarketplaceProductCard = ({
                 </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <span
                     className={classNames(
                         'flex min-w-0 items-center gap-1.5 truncate text-xs font-medium',
@@ -126,15 +136,34 @@ const MarketplaceProductCard = ({
                         {productSellerLabel(product)}
                     </span>
                 </span>
-                <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-snug text-gray-900">
+                <h3 className="line-clamp-2 min-h-[2.5rem] text-[15px] font-medium leading-snug text-gray-900">
                     {product.name}
                 </h3>
+                {product.description ? (
+                    <p className="line-clamp-2 text-xs leading-relaxed text-gray-500">
+                        {product.description}
+                    </p>
+                ) : null}
                 <div className="mt-auto flex flex-col gap-2 pt-1">
-                    <StarRating />
+                    {averageRating !== null ? (
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <StarRating rating={averageRating} />
+                            <span className="text-xs font-semibold text-gray-700">
+                                {averageRating.toFixed(1)}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                                ({reviews.length} review{reviews.length === 1 ? '' : 's'})
+                            </span>
+                        </span>
+                    ) : (
+                        <span className="text-xs text-gray-400">
+                            No reviews yet
+                        </span>
+                    )}
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
                         <span
                             className={classNames(
-                                'text-lg font-bold',
+                                'text-xl font-bold',
                                 discount ? 'text-rose-600' : 'text-gray-900',
                             )}
                         >

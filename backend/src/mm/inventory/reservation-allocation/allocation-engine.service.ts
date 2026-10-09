@@ -293,9 +293,29 @@ export class AllocationEngineService {
             const open = new Decimal(line.quantity).minus(line.pickedQuantity)
             if (open.lte(0)) continue
 
+            // Idempotent: one picking task per reservation line, ever.
+            const existing = await this.prisma.wmPickingTask.findFirst({
+                where: { reservationLineId: line.reservationLineId },
+                select: { id: true },
+            })
+            if (existing) continue
+
             const legacy = await this.prisma.mmInventoryReservation.findFirst({
                 where: { reservationLineId: line.reservationLineId },
             })
+
+            // Sales-order sourced reservations link the task to SD order + line.
+            const isSalesOrder = header.sourceDocumentType === 'SALES_ORDER'
+            let salesOrderLineId: string | undefined
+            if (isSalesOrder) {
+                const rLine =
+                    await this.prisma.mmInventoryReservationLine.findUnique({
+                        where: { id: line.reservationLineId },
+                        select: { demandReferenceLineId: true },
+                    })
+                salesOrderLineId =
+                    rLine?.demandReferenceLineId ?? undefined
+            }
 
             const pick = await this.picking.create({
                 warehouseId: line.warehouseId,
@@ -310,6 +330,9 @@ export class AllocationEngineService {
                 reservationLineId: line.reservationLineId,
                 allocationLineId: line.id,
                 sourceDocument: header.reservationNumber,
+                salesOrderId: isSalesOrder ? header.sourceDocumentId : undefined,
+                salesOrderLineId,
+                lastIdempotencyKey: `PICK:ALLOC_LINE:${line.id}`,
             } as any)
 
             tasks.push(pick)

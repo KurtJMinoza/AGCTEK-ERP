@@ -33,6 +33,7 @@ export class StorageBinsService {
                 storageSection: {
                     include: { storageType: { include: { warehouse: true } } },
                 },
+                shelf: true,
             },
             orderBy: { createdAt: 'desc' },
         })
@@ -46,6 +47,7 @@ export class StorageBinsService {
                 storageSection: {
                     include: { storageType: { include: { warehouse: true } } },
                 },
+                shelf: true,
             },
         })
         if (!bin) throw new NotFoundException('Storage bin not found')
@@ -62,6 +64,10 @@ export class StorageBinsService {
         })
         if (!section) throw new NotFoundException('Storage section not found')
 
+        if (dto.shelfId) {
+            await this.assertShelfInSection(dto.shelfId, dto.storageSectionId)
+        }
+
         const barcode = dto.barcode || await this.generateBarcode()
         if (dto.barcode) await this.assertUniqueBarcode(dto.barcode)
 
@@ -71,6 +77,7 @@ export class StorageBinsService {
                 storageSection: {
                     include: { storageType: { include: { warehouse: true } } },
                 },
+                shelf: true,
             },
         })
 
@@ -94,6 +101,10 @@ export class StorageBinsService {
         }
         delete (dto as any).storageSectionId
 
+        if (dto.shelfId) {
+            await this.assertShelfInSection(dto.shelfId, existing.storageSectionId)
+        }
+
         const updated = await this.prisma.wmStorageBin.update({
             where: { id },
             data: dto as any,
@@ -101,6 +112,7 @@ export class StorageBinsService {
                 storageSection: {
                     include: { storageType: { include: { warehouse: true } } },
                 },
+                shelf: true,
             },
         })
 
@@ -251,6 +263,18 @@ export class StorageBinsService {
         if (existing) {
             throw new ConflictException(
                 'Bin code already exists in this storage section',
+            )
+        }
+    }
+
+    private async assertShelfInSection(shelfId: string, storageSectionId: string) {
+        const shelf = await this.prisma.wmStorageShelf.findFirst({
+            where: { id: shelfId, deletedAt: null },
+        })
+        if (!shelf) throw new NotFoundException('Storage shelf not found')
+        if (shelf.storageSectionId !== storageSectionId) {
+            throw new BadRequestException(
+                'Storage shelf does not belong to the selected section',
             )
         }
     }

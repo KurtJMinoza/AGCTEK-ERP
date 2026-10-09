@@ -187,7 +187,7 @@ const AddressDialog = ({
                     }
                 })
                 .finally(() => active && setReverseLoading(false))
-        }, 450)
+        }, 120)
         return () => {
             active = false
             window.clearTimeout(timeout)
@@ -215,10 +215,14 @@ const AddressDialog = ({
         if (!editor || readOnly) return
         setSaving(true)
         setSaveError(null)
+        // Leaflet pins carry full float precision; store 6 decimals to keep
+        // the saved point stable, display-friendly and safely within DTO bounds.
+        const roundCoord = (value: number, digits = 6) =>
+            Number(value.toFixed(digits))
         const payload: RetailAddressPayload = {
             addressType: draft.addressType,
-            latitude: draft.latitude,
-            longitude: draft.longitude,
+            latitude: roundCoord(draft.latitude),
+            longitude: roundCoord(draft.longitude),
             formattedAddress: draft.detected.formattedAddress,
             addressLine: draft.detected.addressLine,
             barangayOrNeighborhood: draft.detected.barangayOrNeighborhood,
@@ -311,7 +315,10 @@ const AddressDialog = ({
                                     ))}
                                 </div>
                             </FormItem>
-                            <FormItem label="Search address or location">
+                            <FormItem
+                                label="Search address or location (optional)"
+                                extra="Pin the map directly — search is only a shortcut."
+                            >
                                 <Input
                                     value={search}
                                     placeholder="Search for a location..."
@@ -427,8 +434,8 @@ const AddressDialog = ({
                             </div>
                         ) : (
                             <p className="mt-2 text-sm text-gray-500">
-                                The final coordinates are retained even if no
-                                complete address is available.
+                                No text address found — you can still save. The
+                                pinned point is your exact delivery location.
                             </p>
                         )}
                     </section>

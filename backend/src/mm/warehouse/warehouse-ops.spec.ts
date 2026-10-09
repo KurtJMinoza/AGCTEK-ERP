@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { PutawayService } from './putaway/putaway.service'
 import { PickingService } from './picking/picking.service'
 import { PackingService } from './packing/packing.service'
+import { ShipmentsService } from '../../scm/shipments/shipments.service'
 import { TransfersService } from './transfers/transfers.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { InventoryBalanceService } from './inventory-balance/inventory-balance.service'
@@ -109,6 +110,7 @@ describe('Warehouse Operations', () => {
                 PutawayService,
                 PickingService,
                 PackingService,
+                { provide: ShipmentsService, useValue: { createFromPackage: jest.fn(), findOne: jest.fn() } },
                 TransfersService,
                 InventoryBalanceService,
                 { provide: PrismaService, useValue: mockPrisma },

@@ -141,11 +141,14 @@ const MarketplaceCartDrawer = ({
                             </div>
                             <ul className="flex flex-col gap-4">
                                 {division.lines.map((line) => {
-                                    const key = productKey({
+                                    const baseKey = productKey({
                                         divisionId: division.divisionId,
                                         sku: line.sku,
                                     })
-                                    const product = productsByKey.get(key)
+                                    const key = line.variantId
+                                        ? `${baseKey}#${line.variantId}`
+                                        : baseKey
+                                    const product = productsByKey.get(baseKey)
                                     return (
                                         <li key={key} className="flex gap-3">
                                             {product ? (

@@ -7,35 +7,40 @@ const PHILIPPINE_MOBILE = /^(?:\+63|0)9\d{9}$/
 export const normalizePhilippineMobile = (value: string) =>
     value.trim().replace(/[\s()-]/g, '')
 
-const required = (label: string, minLength = 2) =>
+/** Optional in account setup: empty is fine, non-empty must be valid. */
+const optionalText = (label: string, minLength = 2) =>
     z
         .string()
         .trim()
-        .min(1, `${label} is required`)
-        .min(minLength, `${label} must be at least ${minLength} characters`)
+        .refine(
+            (value) =>
+                value === '' || value.length >= minLength,
+            `${label} must be at least ${minLength} characters`,
+        )
 
-const philippineMobile = z
+const optionalPhilippineMobile = z
     .string()
     .trim()
-    .min(1, 'Mobile number is required')
     .refine(
-        (value) => PHILIPPINE_MOBILE.test(normalizePhilippineMobile(value)),
+        (value) =>
+            value === '' ||
+            PHILIPPINE_MOBILE.test(normalizePhilippineMobile(value)),
         'Enter a valid Philippine mobile number',
     )
 
-const philippinePostalCode = z
+const optionalPhilippinePostalCode = z
     .string()
     .trim()
-    .regex(/^\d{4}$/, 'Enter a valid 4-digit postal code')
+    .regex(/^(?:\d{4})?$/, 'Enter a valid 4-digit postal code')
 
-/** Delivery details every shopper account keeps for checkout. */
+/** Delivery details a shopper account MAY keep for checkout (all optional). */
 export const deliverySchema = {
-    fullName: required('Full name'),
-    phone: philippineMobile,
-    addressLine1: required('Address', 5),
-    city: required('City'),
-    region: required('Region'),
-    postalCode: philippinePostalCode,
+    fullName: optionalText('Full name'),
+    phone: optionalPhilippineMobile,
+    addressLine1: optionalText('Address', 5),
+    city: optionalText('City'),
+    region: optionalText('Region'),
+    postalCode: optionalPhilippinePostalCode,
 }
 
 export type DeliveryFieldKey = Exclude<
