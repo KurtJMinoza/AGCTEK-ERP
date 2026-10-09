@@ -36,46 +36,82 @@ export class Tile38Service implements OnModuleInit, OnModuleDestroy {
         const host = process.env.TILE38_HOST || '127.0.0.1'
         const port = Number(process.env.TILE38_PORT) || 9851
 
+        // Keep ONE long-lived client. ioredis retries on its own once a socket
+        // fails, so discarding the reference here would leave a client that keeps
+        // reconnecting forever with nobody able to quit() it: unbounded log spam
+        // plus a leaked socket/timer, and no way to recover when Tile38 comes back.
+        const client = new Redis({
+            host,
+            port,
+            lazyConnect: true,
+            maxRetriesPerRequest: 1,
+            enableReadyCheck: false,
+            connectTimeout: 3000,
+        })
+        this.client = client
+
+        // Log state transitions only. A single retry error fires every couple of
+        // seconds for as long as Tile38 stays down — announcing it once keeps the
+        // log readable.
+        let announcedDown = false
+        const announceDown = (reason: string) => {
+            if (announcedDown) return
+            announcedDown = true
+            this.logger.warn(
+                `Tile38 unavailable (${host}:${port}) — geofence live detect disabled, retrying in background. ${reason}`,
+            )
+        }
+
+        client.on('error', (err) => {
+            this.ready = false
+            announceDown(err.message)
+        })
+
+        client.on('ready', () => {
+            if (announcedDown) this.logger.log(`Tile38 reconnected at ${host}:${port}`)
+            announcedDown = false
+            this.ready = true
+        })
+
+        client.on('close', () => {
+            this.ready = false
+        })
+
         try {
-            this.client = new Redis({
-                host,
-                port,
-                lazyConnect: true,
-                maxRetriesPerRequest: 1,
-                enableReadyCheck: false,
-                connectTimeout: 3000,
-            })
-
-            this.client.on('error', (err) => {
-                this.ready = false
-                this.logger.warn(`Tile38 connection error: ${err.message}`)
-            })
-
-            await this.client.connect()
-            const pong = await this.client.call('PING')
+            await client.connect()
+            const pong = await client.call('PING')
             this.ready = String(pong).toUpperCase() === 'PONG'
+            announcedDown = !this.ready
             this.logger.log(
                 this.ready
                     ? `Tile38 connected at ${host}:${port}`
                     : `Tile38 ping unexpected response at ${host}:${port}`,
             )
         } catch (err) {
+            // connect() rejects on the first failure while ioredis keeps retrying
+            // in the background; the 'ready' listener above re-enables the service
+            // if/when Tile38 starts.
             this.ready = false
-            this.client = null
-            this.logger.warn(
-                `Tile38 unavailable (${host}:${port}) — geofence live detect disabled. ${
-                    err instanceof Error ? err.message : String(err)
-                }`,
-            )
+            announceDown(err instanceof Error ? err.message : String(err))
         }
     }
 
     async onModuleDestroy() {
-        if (this.client) {
-            await this.client.quit().catch(() => undefined)
-            this.client = null
-            this.ready = false
-        }
+        const client = this.client
+        this.client = null
+        this.ready = false
+        if (!client) return
+
+        // quit() sits in ioredis' offline queue while the client is reconnecting,
+        // so with Tile38 down it would never settle and Nest would hang on
+        // shutdown. Give it a beat, then force the socket closed regardless.
+        const graceful = client.quit().catch(() => undefined)
+        const deadline = new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 1000)
+            if (typeof timer.unref === 'function') timer.unref()
+        })
+        await Promise.race([graceful, deadline])
+        client.disconnect()
     }
 
     /** SET scm:fleet {vehicleId} POINT lat lng */

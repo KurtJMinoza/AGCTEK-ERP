@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { MaterialsService } from './materials.service'
 import { PrismaService } from '../../prisma/prisma.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common'
 
 describe('MaterialsService', () => {
@@ -13,7 +14,7 @@ describe('MaterialsService', () => {
 
     beforeAll(async () => {
         const module: TestingModule = await Test.createTestingModule({
-            providers: [MaterialsService, PrismaService],
+            providers: [MaterialsService, PrismaService, InventoryAvailabilityService],
         }).compile()
 
         service = module.get(MaterialsService)
@@ -109,7 +110,9 @@ describe('MaterialsService', () => {
     })
 
     it('should reject updating a BLOCKED material', async () => {
-        const created = await service.create({ ...baseDto(), status: 'BLOCKED' })
+        // create() deliberately coerces BLOCKED → DRAFT, so block it afterwards.
+        const created = await service.create(baseDto())
+        await service.block(created.id)
         await expect(service.update(created.id, { materialName: 'New' }))
             .rejects.toThrow(BadRequestException)
         await prisma.mmMaterialAudit.deleteMany({ where: { materialId: created.id } })
