@@ -6,6 +6,7 @@ import {
     ExecutionContext,
     ForbiddenException,
     NotFoundException,
+    UnauthorizedException,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { PermissionsService } from './permissions.service'
@@ -20,6 +21,7 @@ import {
     RESOURCE_CATALOG,
     MM_FEATURES,
     MODULE_CATALOG,
+    type PermissionAction,
 } from './permissions.constants'
 import { AUTH_USER_KEY } from '../auth/auth.decorator'
 import { USER_ROLES } from '../auth/auth.constants'
@@ -674,5 +676,87 @@ describe('PermissionGuard', () => {
         await expect(
             guard({ resource: 'sd.sales-orders', action: 'delete' }).canActivate(ctx({ role: 'employee' })),
         ).rejects.toThrow(ForbiddenException)
+    })
+})
+
+describe('PermissionGuard CRUD enforcement (read-only role cannot mutate)', () => {
+    const ROLES: RoleFixture[] = [
+        { id: 'r-super', code: USER_ROLES.SUPER_ADMIN, isSystem: true },
+        { id: 'r-ro', code: 'read_only', name: 'Read Only' },
+        { id: 'r-full', code: 'full_access', name: 'Full Access' },
+    ]
+    const MODULES: ModuleFixture[] = [
+        {
+            id: 'm-sd',
+            code: 'sd',
+            resources: [
+                {
+                    id: 'res-q',
+                    code: 'sd.quotations',
+                    perms: {
+                        'r-ro': flags(true, false, false, false),
+                        'r-full': flags(true, true, true, true),
+                    },
+                },
+            ],
+        },
+    ]
+
+    function ctx(user?: { role: string }): ExecutionContext {
+        return {
+            switchToHttp: () => ({
+                getRequest: () => (user ? { [AUTH_USER_KEY]: user } : {}),
+            }),
+            getHandler: () => ({}),
+            getClass: () => ({}),
+        } as unknown as ExecutionContext
+    }
+
+    function guard(resource: string, action: PermissionAction, user?: { role: string }) {
+        const service = new PermissionsService(
+            mockPrisma(MODULES, ROLES) as unknown as PrismaService,
+            settingsStub(),
+        )
+        const reflector = new Reflector()
+        jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) =>
+            key === PERMISSION_KEY ? { resource, action } : undefined,
+        )
+        return new PermissionGuard(reflector, service).canActivate(ctx(user))
+    }
+
+    it('lets a read-only role view (GET → read)', async () => {
+        await expect(guard('sd.quotations', 'read', { role: 'read_only' })).resolves.toBe(true)
+    })
+
+    it.each(['create', 'update', 'delete'] as PermissionAction[])(
+        'blocks a read-only role from %s',
+        async (action) => {
+            await expect(guard('sd.quotations', action, { role: 'read_only' })).rejects.toThrow(
+                ForbiddenException,
+            )
+        },
+    )
+
+    it('returns HTTP 403 (not 401) for a denied write by an authenticated user', async () => {
+        const error = await guard('sd.quotations', 'delete', { role: 'read_only' }).catch((e) => e)
+        expect(error).toBeInstanceOf(ForbiddenException)
+        expect((error as ForbiddenException).getStatus()).toBe(403)
+    })
+
+    it.each(['create', 'update', 'delete'] as PermissionAction[])(
+        'allows a fully granted role to %s',
+        async (action) => {
+            await expect(guard('sd.quotations', action, { role: 'full_access' })).resolves.toBe(true)
+        },
+    )
+
+    it('gives super_admin full access even without stored grants', async () => {
+        for (const action of ['read', 'create', 'update', 'delete'] as PermissionAction[]) {
+            await expect(guard('sd.quotations', action, { role: USER_ROLES.SUPER_ADMIN })).resolves.toBe(true)
+        }
+    })
+
+    it('still requires authentication: an anonymous request is 401', async () => {
+        await expect(guard('sd.quotations', 'read')).rejects.toThrow(UnauthorizedException)
     })
 })

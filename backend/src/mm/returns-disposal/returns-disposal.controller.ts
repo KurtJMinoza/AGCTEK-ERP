@@ -12,7 +12,7 @@ import { SupplierReturnService } from './supplier-return.service'
 import { DisposalService } from './disposal.service'
 import { CustomerReturnService } from './customer-return.service'
 import { DamagedExpiredQueryService } from './damaged-expired-query.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     UpsertConfigDto,
@@ -33,6 +33,9 @@ import {
     CreateFromBalancesDto,
 } from './dto/returns-disposal.dto'
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('returns-disposal', 'customer-return-intake', 'damaged-stock', 'disposal', 'expired-stock', 'scrap', 'supplier-returns')
+
 @Controller('mm/returns-disposal')
 export class ReturnsDisposalController {
     constructor(
@@ -46,11 +49,13 @@ export class ReturnsDisposalController {
     // ─── Config ─────────────────────────────────────────────────
 
     @Get('config')
+    @MmRead(READERS)
     getConfig(@Query('companyId') companyId: string) {
         return this.configService.get(companyId)
     }
 
     @Patch('config')
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns', 'customer-return-intake', 'damaged-stock', 'expired-stock', 'scrap', 'disposal'), 'update')
     upsertConfig(@Body() dto: UpsertConfigDto) {
         return this.configService.upsert(dto)
     }
@@ -58,6 +63,7 @@ export class ReturnsDisposalController {
     // ─── Supplier Returns ───────────────────────────────────────
 
     @Get('supplier-returns')
+    @MmRead(READERS)
     listReturns(@Query() query: ReturnsQueryDto) {
         return this.returnService.findAll(query)
     }
@@ -75,11 +81,13 @@ export class ReturnsDisposalController {
     }
 
     @Get('supplier-returns/:id')
+    @MmRead(READERS)
     getReturn(@Param('id') id: string) {
         return this.returnService.findOne(id)
     }
 
     @Patch('supplier-returns/:id')
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'), 'update')
     updateReturn(@Param('id') id: string, @Body() dto: UpdateSupplierReturnDto) {
         return this.returnService.update(id, dto)
     }
@@ -129,6 +137,7 @@ export class ReturnsDisposalController {
     // ─── Customer Returns ───────────────────────────────────────
 
     @Get('customer-returns')
+    @MmRead(READERS)
     listCustomerReturns(@Query() query: CustomerReturnQueryDto) {
         return this.customerReturnService.findAll(query)
     }
@@ -140,11 +149,13 @@ export class ReturnsDisposalController {
     }
 
     @Get('customer-returns/:id')
+    @MmRead(READERS)
     getCustomerReturn(@Param('id') id: string) {
         return this.customerReturnService.findOne(id)
     }
 
     @Patch('customer-returns/:id')
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'), 'update')
     updateCustomerReturn(
         @Param('id') id: string,
         @Body() dto: UpdateCustomerReturnDto,
@@ -209,6 +220,7 @@ export class ReturnsDisposalController {
     // ─── Disposals ──────────────────────────────────────────────
 
     @Get('disposals')
+    @MmRead(READERS)
     listDisposals(@Query() query: DisposalQueryDto) {
         return this.disposalService.findAll(query)
     }
@@ -226,11 +238,13 @@ export class ReturnsDisposalController {
     }
 
     @Get('disposals/:id')
+    @MmRead(READERS)
     getDisposal(@Param('id') id: string) {
         return this.disposalService.findOne(id)
     }
 
     @Patch('disposals/:id')
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'), 'update')
     updateDisposal(@Param('id') id: string, @Body() dto: UpdateDisposalDto) {
         return this.disposalService.update(id, dto)
     }
@@ -274,11 +288,13 @@ export class ReturnsDisposalController {
     // ─── Worklists ──────────────────────────────────────────────
 
     @Get('damaged-stock')
+    @MmRead(READERS)
     damagedStock(@Query() query: DamagedExpiredQueryDto) {
         return this.damagedExpiredService.getDamagedStock(query)
     }
 
     @Get('expired-stock')
+    @MmRead(READERS)
     expiredStock(@Query() query: DamagedExpiredQueryDto) {
         return this.damagedExpiredService.getExpiredStock(query)
     }

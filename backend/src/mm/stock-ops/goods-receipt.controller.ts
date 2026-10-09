@@ -9,8 +9,11 @@ import {
 import { GoodsReceiptService } from './goods-receipt.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('procurement', 'supplier-invoices'), ...mmFeatures('receiving', 'goods-receipt')]
 
 @Controller('mm/goods-receipts')
 export class GoodsReceiptController {
@@ -29,6 +32,7 @@ export class GoodsReceiptController {
     }
 
     @Post(':id/cancel')
+    @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')], 'update')
     cancel(@Param('id') id: string) {
         return this.service.cancel(id)
     }
@@ -40,11 +44,13 @@ export class GoodsReceiptController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: StockOpsQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }

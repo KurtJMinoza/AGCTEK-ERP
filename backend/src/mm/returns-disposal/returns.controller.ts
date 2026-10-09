@@ -13,7 +13,7 @@ import { SupplierReturnService } from './supplier-return.service'
 import { CustomerReturnService } from './customer-return.service'
 import { DamagedExpiredQueryService } from './damaged-expired-query.service'
 import { ExpiryControlService } from './expiry-control.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CreateSupplierReturnDto,
@@ -26,6 +26,9 @@ import {
     ActionDto,
     CreateFromBalancesDto,
 } from './dto/returns-disposal.dto'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('returns-disposal', 'customer-return-intake', 'damaged-stock', 'disposal', 'expired-stock', 'scrap', 'supplier-returns')
 
 @Controller('mm/returns')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -40,6 +43,7 @@ export class ReturnsController {
     // ─── Supplier ───────────────────────────────────────────────
 
     @Get('supplier')
+    @MmRead(READERS)
     listSupplier(@Query() query: ReturnsQueryDto) {
         return this.returnService.findAll(query)
     }
@@ -57,11 +61,13 @@ export class ReturnsController {
     }
 
     @Get('supplier/:id')
+    @MmRead(READERS)
     getSupplier(@Param('id') id: string) {
         return this.returnService.findOne(id)
     }
 
     @Patch('supplier/:id')
+    @MmMutation(mmFeatures('returns-disposal', 'supplier-returns'), 'update')
     updateSupplier(@Param('id') id: string, @Body() dto: UpdateSupplierReturnDto) {
         return this.returnService.update(id, dto)
     }
@@ -111,6 +117,7 @@ export class ReturnsController {
     // ─── Customer ───────────────────────────────────────────────
 
     @Get('customer')
+    @MmRead(READERS)
     listCustomer(@Query() query: CustomerReturnQueryDto) {
         return this.customerReturnService.findAll(query)
     }
@@ -122,11 +129,13 @@ export class ReturnsController {
     }
 
     @Get('customer/:id')
+    @MmRead(READERS)
     getCustomer(@Param('id') id: string) {
         return this.customerReturnService.findOne(id)
     }
 
     @Patch('customer/:id')
+    @MmMutation(mmFeatures('returns-disposal', 'customer-return-intake'), 'update')
     updateCustomer(@Param('id') id: string, @Body() dto: UpdateCustomerReturnDto) {
         return this.customerReturnService.update(id, dto)
     }

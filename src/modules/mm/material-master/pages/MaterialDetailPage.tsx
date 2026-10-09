@@ -55,6 +55,7 @@ import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, Cre
 import type { SupplierMaterial } from '@/modules/mm/supplier-management/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     ACTIVE: 'success', DRAFT: 'default', INACTIVE: 'warning', BLOCKED: 'danger',
@@ -96,6 +97,7 @@ const MaterialDetailPage = () => {
     const router = useRouter()
     const id = params?.id as string
     const { data: material, loading, refresh } = useMaterial(id)
+    const { canUpdate } = useResourceAccess()
     const breadcrumbItems = useMemo(
         () =>
             buildErpBreadcrumbs(`/modules/mm/material-master/materials-skus/${id}`, {
@@ -161,15 +163,17 @@ const MaterialDetailPage = () => {
                 title={material.materialName}
                 description={`${material.materialCode}${material.sku ? ` · SKU: ${material.sku}` : ''}${material.brand ? ` · ${material.brand}` : ''}${material.model ? ` ${material.model}` : ''}`}
                 actions={
-                    <>
-                        {material.status !== 'ACTIVE' && (
-                            <Button size="sm" variant="plain" icon={<HiOutlineCheckCircle />} onClick={() => setConfirmAction('activate')}>Activate</Button>
-                        )}
-                        {material.status === 'ACTIVE' && (
-                            <Button size="sm" variant="plain" icon={<HiOutlineBan />} onClick={() => setConfirmAction('deactivate')}>Deactivate</Button>
-                        )}
-                        <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => setEditOpen(true)}>Edit</Button>
-                    </>
+                    canUpdate ? (
+                        <>
+                            {material.status !== 'ACTIVE' && (
+                                <Button size="sm" variant="plain" icon={<HiOutlineCheckCircle />} onClick={() => setConfirmAction('activate')}>Activate</Button>
+                            )}
+                            {material.status === 'ACTIVE' && (
+                                <Button size="sm" variant="plain" icon={<HiOutlineBan />} onClick={() => setConfirmAction('deactivate')}>Deactivate</Button>
+                            )}
+                            <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => setEditOpen(true)}>Edit</Button>
+                        </>
+                    ) : undefined
                 }
             />
 
@@ -599,6 +603,7 @@ const TransactionsTab = ({ materialId }: { materialId: string }) => {
 }
 
 const DocumentsTab = ({ materialId }: { materialId: string }) => {
+    const { canCreate, canDelete } = useResourceAccess()
     const [rows, setRows] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
@@ -678,22 +683,22 @@ const DocumentsTab = ({ materialId }: { materialId: string }) => {
             id: 'actions',
             header: '',
             size: 56,
-            cell: ({ row }) => (
+            cell: ({ row }) => canDelete ? (
                 <Button
                     size="xs"
                     variant="plain"
                     icon={<HiOutlineTrash className="text-red-500" />}
                     onClick={() => handleDelete(row.original.id)}
                 />
-            ),
+            ) : null,
         },
-    ], [materialId])
+    ], [materialId, canDelete])
 
     return (
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Documents</h6>
-                <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add document</Button>
+                {canCreate && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add document</Button>}
             </div>
             {loading ? (
                 <div className="flex justify-center py-8"><Spinner size={28} /></div>
@@ -735,6 +740,7 @@ const DocumentsTab = ({ materialId }: { materialId: string }) => {
 
 const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const barcodes = material.barcodes ?? []
+    const { canCreate, canDelete } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [barcodeType, setBarcodeType] = useState('EAN13')
     const [barcodeValue, setBarcodeValue] = useState('')
@@ -757,14 +763,14 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
         { header: 'Type', accessorKey: 'barcodeType', size: 120 },
         { header: 'Value', accessorKey: 'barcodeValue', size: 300 },
         { header: 'Primary', accessorKey: 'isPrimary', size: 80, cell: ({ row }) => row.original.isPrimary ? <Tag className="bg-emerald-100 text-emerald-700 text-xs">Yes</Tag> : <span className="text-gray-400">No</span> },
-        { id: 'actions', header: '', size: 56, cell: ({ row }) => <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => handleDelete(row.original.id)} /> },
+        { id: 'actions', header: '', size: 56, cell: ({ row }) => canDelete ? <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => handleDelete(row.original.id)} /> : null },
     ]
 
     return (
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Barcodes</h6>
-                <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button>
+                {canCreate && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button>}
             </div>
             <DataTable<MmBarcode> columns={cols} data={barcodes} compact />
             <FormDialog
@@ -796,6 +802,7 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
 
 const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const batches = material.batches ?? []
+    const { canCreate } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [manufacturingDate, setManufacturingDate] = useState('')
     const [expiryDate, setExpiryDate] = useState('')
@@ -842,7 +849,7 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Batches</h6>
-                {material.batchManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>}
+                {canCreate && material.batchManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>}
             </div>
             {!material.batchManaged ? (
                 <p className="text-sm text-gray-500">This material is not batch-managed.</p>
@@ -896,6 +903,7 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
 
 const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const serials = material.serialNumbers ?? []
+    const { canCreate } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [batchId, setBatchId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
@@ -969,7 +977,7 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Serial Numbers</h6>
-                {material.serialManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add serial</Button>}
+                {canCreate && material.serialManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add serial</Button>}
             </div>
             {!material.serialManaged ? (
                 <p className="text-sm text-gray-500">This material is not serial-managed.</p>

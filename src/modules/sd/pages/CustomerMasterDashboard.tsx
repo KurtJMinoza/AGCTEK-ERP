@@ -27,6 +27,7 @@ import type {
     Customer,
 } from '../services/customerMasterService'
 import { useCustomerStore, type CustomerFilters } from '../store/useCustomerStore'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const ROUTE_PATH = '/modules/sd/customer-master'
 const SEARCH_DEBOUNCE_MS = 350
@@ -76,6 +77,7 @@ const CustomerMasterDashboard = () => {
     const setFilters = useCustomerStore((s) => s.setFilters)
     const addCustomer = useCustomerStore((s) => s.addCustomer)
     const editCustomer = useCustomerStore((s) => s.editCustomer)
+    const { canCreate, canUpdate } = useResourceAccess('sd.customer-master')
 
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const [searchInput, setSearchInput] = useState(filters.search)
@@ -201,21 +203,22 @@ const CustomerMasterDashboard = () => {
             {
                 header: '',
                 id: 'actions',
-                cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        className="whitespace-nowrap"
-                        icon={<HiOutlinePencil />}
-                        onClick={() =>
-                            setDialog({ mode: 'edit', customer: row.original })
-                        }
-                    >
-                        Edit
-                    </Button>
-                ),
+                cell: ({ row }) =>
+                    canUpdate ? (
+                        <Button
+                            size="xs"
+                            className="whitespace-nowrap"
+                            icon={<HiOutlinePencil />}
+                            onClick={() =>
+                                setDialog({ mode: 'edit', customer: row.original })
+                            }
+                        >
+                            Edit
+                        </Button>
+                    ) : null,
             },
         ],
-        [],
+        [canUpdate],
     )
 
     return (
@@ -235,14 +238,16 @@ const CustomerMasterDashboard = () => {
                         >
                             Refresh
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="solid"
-                            icon={<HiOutlinePlus />}
-                            onClick={() => setDialog({ mode: 'create' })}
-                        >
-                            Add New Customer
-                        </Button>
+                        {canCreate && (
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                icon={<HiOutlinePlus />}
+                                onClick={() => setDialog({ mode: 'create' })}
+                            >
+                                Add New Customer
+                            </Button>
+                        )}
                     </div>
                 }
             />

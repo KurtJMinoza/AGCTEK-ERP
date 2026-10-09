@@ -14,7 +14,7 @@ import { CreatePurchaseRequisitionDto } from './dto/create-purchase-requisition.
 import { UpdatePurchaseRequisitionDto } from './dto/update-purchase-requisition.dto'
 import { PurchaseRequisitionQueryDto } from './dto/purchase-requisition-query.dto'
 import { ConvertPurchaseRequisitionDto } from './dto/convert-pr-line.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 
 class ActionResult {
@@ -22,6 +22,9 @@ class ActionResult {
     comment?: string
     performedBy?: string
 }
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('procurement', 'purchase-orders', 'purchase-requisitions', 'rfqs')
 
 @Controller('mm/purchase-requisitions')
 export class PurchaseRequisitionController {
@@ -34,11 +37,13 @@ export class PurchaseRequisitionController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: PurchaseRequisitionQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }
@@ -95,6 +100,7 @@ export class PurchaseRequisitionController {
     }
 
     @Get(':id/audit')
+    @MmRead(READERS)
     getAudit(@Param('id') id: string) {
         return this.service.getAudit(id)
     }

@@ -37,6 +37,7 @@ import { materialService } from '../services/materialService'
 import type { Material, MaterialStatus } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const MATERIALS_PATH = '/modules/mm/material-master/materials-skus'
 
@@ -59,6 +60,7 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
 
 const MaterialsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(MATERIALS_PATH)
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const { materialTypes, materialCategories } = useReferenceData([
         'materialTypes',
@@ -389,23 +391,27 @@ const MaterialsPage = () => {
                             <HiOutlineEye className="text-base" />
                             <span>View</span>
                         </Dropdown.Item>
-                        <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
-                            <HiOutlinePencil className="text-base" />
-                            <span>Edit</span>
-                        </Dropdown.Item>
+{canUpdate && (
+                            <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
+                                <HiOutlinePencil className="text-base" />
+                                <span>Edit</span>
+                            </Dropdown.Item>
+                        )}
                         <Dropdown.Item eventKey="duplicate" onClick={() => openDuplicate(row.original)}>
                             <HiOutlineDuplicate className="text-base" />
                             <span>Duplicate</span>
                         </Dropdown.Item>
-                        <Dropdown.Item eventKey="delete" onClick={() => setDeleteMaterial(row.original)}>
-                            <HiOutlineTrash className="text-base text-red-500" />
-                            <span className="text-red-500">Delete</span>
-                        </Dropdown.Item>
+                        {canDelete && (
+                            <Dropdown.Item eventKey="delete" onClick={() => setDeleteMaterial(row.original)}>
+                                <HiOutlineTrash className="text-base text-red-500" />
+                                <span className="text-red-500">Delete</span>
+                            </Dropdown.Item>
+                        )}
                     </Dropdown>
                 ),
             },
         ],
-        [openEdit, openDuplicate],
+[openEdit, openDuplicate, canUpdate, canDelete],
     )
 
     return (
@@ -415,7 +421,7 @@ const MaterialsPage = () => {
                 title="Materials / SKUs"
                 description="Master data for all materials — codes, UOMs, tracking rules, reorder points, and valuation."
                 actions={
-                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button>
+                    canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button> : undefined
                 }
             />
 
@@ -454,7 +460,7 @@ const MaterialsPage = () => {
                     />
                 </div>
 
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">
                             {selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected
@@ -484,7 +490,7 @@ const MaterialsPage = () => {
                             <EmptyState
                                 hasFilters={hasActiveFilters}
                                 totalMaterials={meta.total}
-                                onCreate={openCreate}
+                                onCreate={canCreate ? openCreate : undefined}
                                 onClearFilters={clearFilters}
                             />
                         }
@@ -509,7 +515,7 @@ const MaterialsPage = () => {
                 isOpen={Boolean(viewMaterial)}
                 material={viewMaterial}
                 onClose={() => setViewMaterial(null)}
-                onEdit={openEdit}
+                onEdit={canUpdate ? openEdit : undefined}
             />
 
             <ConfirmDialog
@@ -581,7 +587,7 @@ const StatCard = ({ label, value, icon, tone = 'default' }: StatCardProps) => (
     </AdaptiveCard>
 )
 
-type EmptyStateProps = { hasFilters: boolean; totalMaterials: number; onCreate: () => void; onClearFilters: () => void }
+type EmptyStateProps = { hasFilters: boolean; totalMaterials: number; onCreate?: () => void; onClearFilters: () => void }
 
 const EmptyState = ({ hasFilters, totalMaterials, onCreate, onClearFilters }: EmptyStateProps) => {
     const filteredEmpty = hasFilters && totalMaterials > 0
@@ -602,7 +608,7 @@ const EmptyState = ({ hasFilters, totalMaterials, onCreate, onClearFilters }: Em
             </div>
             <div className="mt-1 flex items-center gap-2">
                 {filteredEmpty ? <Button size="sm" onClick={onClearFilters}>Clear filters</Button> : null}
-                <Button size="sm" variant="solid" icon={<HiOutlinePlus />} onClick={onCreate}>New material</Button>
+                {onCreate ? <Button size="sm" variant="solid" icon={<HiOutlinePlus />} onClick={onCreate}>New material</Button> : null}
             </div>
         </div>
     )

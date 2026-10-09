@@ -1,5 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common'
 import { PlacesService } from './places.service'
+import { SCM_REFERENCE_READ } from '../../permissions/permissions.constants'
+import { RequirePermission } from '../../permissions/permission.guard'
 
 /**
  * GET /scm/places/search?q=&limit=&country=
@@ -10,6 +12,7 @@ export class PlacesController {
     constructor(private readonly placesService: PlacesService) {}
 
     @Get('search')
+    @RequirePermission(SCM_REFERENCE_READ, 'read')
     search(
         @Query('q') q?: string,
         @Query('limit') limit?: string,

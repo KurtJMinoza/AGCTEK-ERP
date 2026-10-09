@@ -16,7 +16,7 @@ import {
     IsOptional,
     IsIn,
 } from 'class-validator'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 
 class CreateGiFromPackageDto {
@@ -38,6 +38,9 @@ class CreateGiFromPackageDto {
     @IsString()
     createdBy?: string
 }
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('inventory-management', 'goods-issue')
 
 @Controller('mm/goods-issues')
 export class GoodsIssueController {
@@ -77,11 +80,13 @@ export class GoodsIssueController {
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: StockOpsQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }

@@ -311,6 +311,15 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
 
 export const RESOURCES_BY_CODE: ReadonlyMap<string, ResourceDef> = new Map(RESOURCE_CATALOG.map((r) => [r.code, r]))
 
+/**
+ * Read access to MM master data (organization, materials, units, suppliers, warehouses, bins):
+ * every MM page and SD Product Catalog load it for pickers and labels. Writes stay feature-specific.
+ */
+export const MM_REFERENCE_READ = [MODULE_CODES.MM, 'sd.product-catalog'] as const
+
+/** Read access to SCM lookups (vehicles, drivers, geofences, places) shared by every SCM page. */
+export const SCM_REFERENCE_READ = MODULE_CODES.SCM
+
 export const NO_ACCESS: CrudFlags = { canRead: false, canCreate: false, canUpdate: false, canDelete: false }
 export const FULL_ACCESS: CrudFlags = { canRead: true, canCreate: true, canUpdate: true, canDelete: true }
 const READ: CrudFlags = { ...NO_ACCESS, canRead: true }

@@ -24,6 +24,7 @@ import CurrentCargoPanel from '../components/vehicles/CurrentCargoPanel'
 import VehicleMaintenanceSection from '../components/vehicles/VehicleMaintenanceSection'
 import VehicleTelematicsHistoryPanel from '../components/vehicles/VehicleTelematicsHistoryPanel'
 import { useVehicleDetail } from '../hooks/useVehicleDetail'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { scmVehicleBreadcrumbs } from '../utils/breadcrumbs'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { VehicleStatus, VehicleType } from '../types'
@@ -63,6 +64,7 @@ export default function VehicleDetailPage() {
         reload,
         update,
     } = useVehicleDetail(vehicleId)
+    const { canUpdate } = useResourceAccess()
 
     const [editOpen, setEditOpen] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -202,9 +204,11 @@ export default function VehicleDetailPage() {
                         <Link href="/scm/tracking">
                             <Button size="sm">Open tracking map</Button>
                         </Link>
-                        <Button size="sm" variant="solid" onClick={openEdit}>
-                            Edit vehicle
-                        </Button>
+                        {canUpdate && (
+                            <Button size="sm" variant="solid" onClick={openEdit}>
+                                Edit vehicle
+                            </Button>
+                        )}
                         <Button
                             size="sm"
                             loading={loading}

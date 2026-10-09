@@ -46,6 +46,7 @@ import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
 } from '../store/usePOSBranchStore'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const CameraBarcodeScanner = dynamic(
     () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
@@ -75,6 +76,7 @@ const POSDashboard = () => {
     const router = useRouter()
     const { hydrated, branch } = useActivePOSBranch()
     const branchId = branch?.id ?? null
+    const { canCreate } = useResourceAccess('sd.pos')
 
     useEffect(() => {
         if (hydrated && !branchId) router.replace(POS_GATEWAY_PATH)
@@ -455,18 +457,20 @@ const POSDashboard = () => {
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <Button
-                                block
-                                size="lg"
-                                variant="solid"
-                                className="h-12 sm:col-span-1"
-                                icon={<HiOutlineQrcode className="text-lg" />}
-                                loading={addingSku}
-                                disabled={!sku.trim() && !catalog.ready}
-                                onClick={() => void handleAdd()}
-                            >
-                                Add item
-                            </Button>
+                            {canCreate && (
+                                <Button
+                                    block
+                                    size="lg"
+                                    variant="solid"
+                                    className="h-12 sm:col-span-1"
+                                    icon={<HiOutlineQrcode className="text-lg" />}
+                                    loading={addingSku}
+                                    disabled={!sku.trim() && !catalog.ready}
+                                    onClick={() => void handleAdd()}
+                                >
+                                    Add item
+                                </Button>
+                            )}
                             <Button
                                 block
                                 size="lg"
@@ -632,9 +636,11 @@ const POSDashboard = () => {
                     </div>
                 ) : null}
                 <div className="mt-4 flex justify-end gap-2">
-                    <Button size="sm" onClick={() => setReceipt(null)}>
-                        New sale
-                    </Button>
+                    {canCreate && (
+                        <Button size="sm" onClick={() => setReceipt(null)}>
+                            New sale
+                        </Button>
+                    )}
                     <Button
                         size="sm"
                         variant="solid"

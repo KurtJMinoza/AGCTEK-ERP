@@ -36,6 +36,7 @@ import {
 } from '../services/salesOrderDashboardService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const { TabList, TabNav } = Tabs
 
@@ -183,6 +184,7 @@ const SalesOrdersDashboard = () => {
     const setFilters = useSalesOrdersStore((s) => s.setFilters)
     const updatingId = useSalesOrdersStore((s) => s.updatingId)
     const updateOrderStatus = useSalesOrdersStore((s) => s.updateOrderStatus)
+    const { canUpdate } = useResourceAccess('sd.sales-orders')
 
     /** Branch filter + labels come from the MM Organization Branch master. */
     const { branches } = useSalesBranches()
@@ -555,7 +557,7 @@ const SalesOrdersDashboard = () => {
                             ) : null}
                         </div>
                         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-                            {selected.status === 'Pending Delivery' ? (
+                            {canUpdate && selected.status === 'Pending Delivery' ? (
                                 <>
                                     <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
                                         Update status

@@ -203,9 +203,9 @@ describe('CrmCustomer360Service', () => {
 })
 
 describe('CrmCustomer360Controller RBAC metadata', () => {
-    it('get requires crm:read', () => {
+    it('get requires crm.customers:read', () => {
         expect(Reflect.getMetadata(PERMISSION_KEY, CrmCustomer360Controller.prototype.get)).toEqual({
-            module: 'crm',
+            resource: 'crm.customers',
             action: 'read',
         })
     })

@@ -15,8 +15,11 @@ import {
     UsageDecisionDto,
     ReceivingQueryDto,
 } from './dto/receiving.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('receiving', 'inspection-queue', 'receiving-inspection', 'usage-decisions')
 
 @Controller('mm/inspection-lots')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -27,11 +30,13 @@ export class InspectionLotController {
     ) {}
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: ReceivingQueryDto) {
         return this.lots.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     get(@Param('id') id: string) {
         return this.lots.findOne(id)
     }

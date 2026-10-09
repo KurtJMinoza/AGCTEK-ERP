@@ -62,9 +62,9 @@ describe('CrmLoyaltyService', () => {
 })
 
 describe('CrmLoyaltyController RBAC metadata', () => {
-    it('getForCustomer requires crm:read', () => {
+    it('getForCustomer requires crm.loyalty:read', () => {
         expect(
             Reflect.getMetadata(PERMISSION_KEY, CrmLoyaltyController.prototype.getForCustomer),
-        ).toEqual({ module: 'crm', action: 'read' })
+        ).toEqual({ resource: 'crm.loyalty', action: 'read' })
     })
 })

@@ -66,7 +66,6 @@ function buildService(prisma: any, domain: Partial<Record<string, any>> = {}) {
         prisma,
         new BarcodeResolveService(prisma),
         domain.receiving ?? { receive: jest.fn() },
-        domain.putaway ?? { confirm: jest.fn() },
         domain.picking ?? { confirmPick: jest.fn() },
         domain.packing ?? { scanItem: jest.fn() },
         domain.count ?? { blindCount: jest.fn() },

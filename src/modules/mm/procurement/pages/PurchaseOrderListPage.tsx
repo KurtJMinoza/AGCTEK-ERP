@@ -33,6 +33,7 @@ import type {
 } from '../types'
 import { prRemainingQty } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     nonNegativeNumber,
@@ -97,6 +98,7 @@ const emptyLine = (): LineDraft => ({
 const PurchaseOrderListPage = () => {
     const router = useRouter()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmPurchaseOrder[]>([])
     const [total, setTotal] = useState(0)
@@ -378,7 +380,7 @@ const PurchaseOrderListPage = () => {
             <PageHeader
                 title="Purchase Orders"
                 description="Supplier commitments with approval, delivery, and receiving tracking."
-                actions={
+                actions={canCreate ? (
                     <div className="flex flex-wrap gap-2">
                         <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={() => openCreate('pr')}>
                             From request
@@ -387,7 +389,7 @@ const PurchaseOrderListPage = () => {
                             New PO
                         </Button>
                     </div>
-                }
+                ) : undefined}
             />
 
             <AdaptiveCard className="mt-4">

@@ -14,6 +14,7 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { useDrivers } from '../hooks/useDrivers'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     apiGetAuthProfile,
 } from '../services/scmApi'
@@ -84,6 +85,7 @@ export default function DriversPage() {
         update,
         remove,
     } = useDrivers()
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editing, setEditing] = useState<Driver | null>(null)
@@ -212,33 +214,37 @@ export default function DriversPage() {
                 id: 'actions',
                 cell: ({ row }) => (
                     <div className="flex items-center justify-end gap-1">
-                        <Button
-                            size="xs"
-                            onClick={() => openEdit(row.original)}
-                        >
-                            Edit
-                        </Button>
-                        <Button
-                            size="xs"
-                            variant="plain"
-                            className="text-red-600"
-                            onClick={() => {
-                                if (
-                                    confirm(
-                                        `Delete driver ${driverDisplayName(row.original)}?`,
-                                    )
-                                ) {
-                                    void remove(row.original.id)
-                                }
-                            }}
-                        >
-                            Delete
-                        </Button>
+                        {canUpdate && (
+                            <Button
+                                size="xs"
+                                onClick={() => openEdit(row.original)}
+                            >
+                                Edit
+                            </Button>
+                        )}
+                        {canDelete && (
+                            <Button
+                                size="xs"
+                                variant="plain"
+                                className="text-red-600"
+                                onClick={() => {
+                                    if (
+                                        confirm(
+                                            `Delete driver ${driverDisplayName(row.original)}?`,
+                                        )
+                                    ) {
+                                        void remove(row.original.id)
+                                    }
+                                }}
+                            >
+                                Delete
+                            </Button>
+                        )}
                     </div>
                 ),
             },
         ],
-        [remove],
+        [remove, canUpdate, canDelete],
     )
 
     return (
@@ -248,9 +254,11 @@ export default function DriversPage() {
                 description="Driver master data linked to ERP users. Used for trip assign and the mobile driver app."
                 breadcrumbs={scmPageBreadcrumbs('Drivers')}
                 actions={
-                    <Button variant="solid" onClick={openCreate}>
-                        Add driver
-                    </Button>
+                    canCreate ? (
+                        <Button variant="solid" onClick={openCreate}>
+                            Add driver
+                        </Button>
+                    ) : undefined
                 }
             />
 

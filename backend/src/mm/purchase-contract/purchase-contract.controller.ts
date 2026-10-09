@@ -15,19 +15,24 @@ import {
     LinkContractPoDto,
     CreateContractReleaseDto,
 } from './dto/purchase-contract.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('procurement', 'purchase-contracts')
 
 @Controller('mm/purchase-contracts')
 export class PurchaseContractController {
     constructor(private service: PurchaseContractService) {}
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: PurchaseContractQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     get(@Param('id') id: string) {
         return this.service.findOne(id)
     }
@@ -75,6 +80,7 @@ export class PurchaseContractController {
     }
 
     @Get(':id/audit')
+    @MmRead(READERS)
     audit(@Param('id') id: string) {
         return this.service.getAudit(id)
     }

@@ -11,3 +11,8 @@ import type { PermissionAction } from '../../permissions/permissions.constants'
 export function MmMutation(resource: string | readonly string[], action?: PermissionAction) {
     return applyDecorators(UseGuards(MmAuthGuard), RequireMmPermission(resource, action))
 }
+
+/** Read guard for MM queries: GET endpoints and POST lookups that change nothing. */
+export function MmRead(resource: string | readonly string[]) {
+    return MmMutation(resource, 'read')
+}

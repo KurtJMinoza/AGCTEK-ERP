@@ -1,5 +1,6 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
+import { RequirePermission } from '../permissions/permission.guard'
 
 const emptyBatch = (companyId: string, divisionId?: string) => ({
     materials: [],
@@ -19,6 +20,7 @@ export class SdMaterialReferenceController {
     constructor(private readonly references: SdMaterialReferenceService) {}
 
     @Get('batch/preview')
+    @RequirePermission(['sd.product-catalog', 'sd.material-sales-view'], 'read')
     batchPreview(
         @Query('companyId') companyId: string,
         @Query('materialIds') materialIds?: string,
@@ -38,6 +40,7 @@ export class SdMaterialReferenceController {
     }
 
     @Get(':materialId')
+    @RequirePermission(['sd.product-catalog', 'sd.material-sales-view'], 'read')
     preview(
         @Param('materialId') materialId: string,
         @Query('companyId') companyId: string,

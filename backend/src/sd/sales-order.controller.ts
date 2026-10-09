@@ -20,6 +20,7 @@ import {
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
+import { RequirePermission } from '../permissions/permission.guard'
 import { RetailSessionService } from '../retail/retail-session.service'
 import { ReturnRequestService } from './return-request.service'
 import {
@@ -41,11 +42,13 @@ export class SalesOrderController {
     }
 
     @Post()
+    @RequirePermission('sd.sales-orders', 'create')
     create(@Body() dto: CreateSalesOrderDto) {
         return this.salesOrders.create(dto)
     }
 
     @Post('retail')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'create')
     createRetail(
         @Body() dto: CreateRetailSalesOrderDto,
         @Headers('authorization') authorization?: string,
@@ -69,6 +72,7 @@ export class SalesOrderController {
     }
 
     @Patch('retail/:id/status')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'update')
     updateRetailStatus(
         @Param('id') id: string,
         @Body() dto: UpdateRetailSalesOrderStatusDto,
@@ -98,21 +102,25 @@ export class SalesOrderController {
     }
 
     @Get(':id')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
     findOne(@Param('id') id: string) {
         return this.salesOrders.findOne(id)
     }
 
     @Post(':id/confirm')
+    @RequirePermission('sd.sales-orders', 'update')
     confirm(@Param('id') id: string) {
         return this.salesOrders.confirm(id)
     }
 
     @Post(':id/cancel')
+    @RequirePermission('sd.sales-orders', 'update')
     cancel(@Param('id') id: string) {
         return this.salesOrders.cancel(id)
     }
 
     @Patch(':id/lines/:lineId/quantity')
+    @RequirePermission('sd.sales-orders', 'update')
     changeQuantity(
         @Param('id') id: string,
         @Param('lineId') lineId: string,
@@ -122,6 +130,7 @@ export class SalesOrderController {
     }
 
     @Post(':id/issue')
+    @RequirePermission(['sd.sales-orders', 'sd.deliveries'], 'update')
     issue(@Param('id') id: string, @Body() dto: IssueSalesOrderDto) {
         return this.orchestration.issueSalesOrder({
             salesOrderId: id,

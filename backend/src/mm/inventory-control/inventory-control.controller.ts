@@ -20,7 +20,7 @@ import { CountEntryService } from './count-entry.service'
 import { CountRecountService } from './count-recount.service'
 import { CountAdjustmentRequestService } from './count-adjustment-request.service'
 import { CountVarianceService } from './count-variance.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CreateCountRuleDto,
@@ -53,6 +53,9 @@ import {
     AdjustmentRequestQueryDto,
 } from './dto/count-engine.dto'
 
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('barcode-rfid', 'mobile-counting'), ...mmFeatures('inventory-control', 'adjustment-approval', 'blind-counting', 'count-history', 'count-planning', 'count-sessions', 'cycle-counting', 'physical-inventory', 'recounts', 'variance-analysis')]
+
 @Controller('mm/inventory-control')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class InventoryControlController {
@@ -72,11 +75,13 @@ export class InventoryControlController {
     // ── Phase 7: Count policies ────────────────────────────────────
 
     @Get('count-policies')
+    @MmRead(READERS)
     listPolicies(@Query() query: CountPolicyQueryDto) {
         return this.policies.findAll(query)
     }
 
     @Get('count-policies/:id')
+    @MmRead(READERS)
     getPolicy(@Param('id') id: string) {
         return this.policies.findOne(id)
     }
@@ -88,6 +93,7 @@ export class InventoryControlController {
     }
 
     @Patch('count-policies/:id')
+    @MmMutation(mmFeatures('inventory-control', 'count-planning'), 'update')
     updatePolicy(@Param('id') id: string, @Body() dto: UpdateCountPolicyDto) {
         return this.policies.update(id, dto)
     }
@@ -95,11 +101,13 @@ export class InventoryControlController {
     // ── Phase 7: Count plans ───────────────────────────────────────
 
     @Get('count-plans')
+    @MmRead(READERS)
     listPlans(@Query() query: CountPlanQueryDto) {
         return this.plans.findAll(query)
     }
 
     @Get('count-plans/:id')
+    @MmRead(READERS)
     getPlan(@Param('id') id: string) {
         return this.plans.findOne(id)
     }
@@ -119,11 +127,13 @@ export class InventoryControlController {
     // ── Phase 7: Count sessions ────────────────────────────────────
 
     @Get('count-sessions')
+    @MmRead(READERS)
     listSessions(@Query() query: CountSessionQueryDto) {
         return this.sessions.findAll(query)
     }
 
     @Get('count-sessions/:id')
+    @MmRead(READERS)
     getSession(@Param('id') id: string, @Query('blind') blind?: string) {
         return this.sessions.findOne(id, { blind: blind === 'true' || blind === '1' })
     }
@@ -149,6 +159,7 @@ export class InventoryControlController {
     // ── Phase 7: Count tasks / entries ────────────────────────────
 
     @Get('count-tasks')
+    @MmRead(READERS)
     listTasks(@Query() query: CountTaskQueryDto) {
         return this.tasks.findAll(query)
     }
@@ -168,6 +179,7 @@ export class InventoryControlController {
     // ── Phase 7: Recounts ──────────────────────────────────────────
 
     @Get('recounts')
+    @MmRead(READERS)
     listRecounts(@Query() query: { taskId?: string; status?: string }) {
         return this.recounts.findAll(query)
     }
@@ -181,11 +193,13 @@ export class InventoryControlController {
     // ── Phase 7: Adjustment requests ───────────────────────────────
 
     @Get('adjustment-requests')
+    @MmRead(READERS)
     listAdjRequests(@Query() query: AdjustmentRequestQueryDto) {
         return this.adjustmentRequests.findAll(query)
     }
 
     @Get('adjustment-requests/:id')
+    @MmRead(READERS)
     getAdjRequest(@Param('id') id: string) {
         return this.adjustmentRequests.findOne(id)
     }
@@ -209,6 +223,7 @@ export class InventoryControlController {
     }
 
     @Get('count-sessions/:id/variances')
+    @MmRead(READERS)
     listVariances(@Param('id') id: string) {
         return this.variances.listBySession(id)
     }
@@ -216,11 +231,13 @@ export class InventoryControlController {
     // ── Legacy: Count rules ────────────────────────────────────────
 
     @Get('count-rules')
+    @MmRead(READERS)
     listRules(@Query() query: CountRuleQueryDto) {
         return this.rules.findAll(query)
     }
 
     @Get('count-rules/:id')
+    @MmRead(READERS)
     getRule(@Param('id') id: string) {
         return this.rules.findOne(id)
     }
@@ -232,11 +249,13 @@ export class InventoryControlController {
     }
 
     @Patch('count-rules/:id')
+    @MmMutation(mmFeatures('inventory-control', 'count-planning'), 'update')
     updateRule(@Param('id') id: string, @Body() dto: UpdateCountRuleDto) {
         return this.rules.update(id, dto)
     }
 
     @Delete('count-rules/:id')
+    @MmMutation(mmFeatures('inventory-control', 'count-planning'), 'delete')
     deleteRule(@Param('id') id: string) {
         return this.rules.remove(id)
     }
@@ -244,6 +263,7 @@ export class InventoryControlController {
     // ── Legacy: Count lines ────────────────────────────────────────
 
     @Get('count-lines')
+    @MmRead(READERS)
     listLines(@Query() query: CountLineQueryDto) {
         return this.counts.listLines(query)
     }
@@ -263,11 +283,13 @@ export class InventoryControlController {
     // ── Legacy: Count sessions (MmInventoryCount) ──────────────────
 
     @Get('counts')
+    @MmRead(READERS)
     listCounts(@Query() query: InventoryCountQueryDto) {
         return this.counts.findAll(query)
     }
 
     @Get('counts/:id')
+    @MmRead(READERS)
     getCount(@Param('id') id: string, @Query('blind') blind?: string) {
         return this.counts.findOne(id, { blind: blind === 'true' || blind === '1' })
     }

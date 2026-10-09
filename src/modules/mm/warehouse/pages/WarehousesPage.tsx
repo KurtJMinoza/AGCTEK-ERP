@@ -39,6 +39,7 @@ import { orgService } from '../../material-master/services/referenceService'
 import type { Warehouse, CreateWarehousePayload } from '../types'
 import type { MmBranch, MmCompany } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     hasErrors,
@@ -81,6 +82,7 @@ function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: s
 
 const WarehousesPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
@@ -345,14 +347,14 @@ const WarehousesPage = () => {
                 cell: ({ row }) => (
                     <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
                         <Dropdown.Item eventKey="view" onClick={() => setViewing(row.original)}><HiOutlineEye className="text-base" /><span>View</span></Dropdown.Item>
-                        <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>
-                        <Dropdown.Item eventKey="locate" onClick={() => openLocate(row.original)}><HiOutlineLocationMarker className="text-base" /><span>Set location</span></Dropdown.Item>
-                        <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
+                        {canUpdate && <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>}
+                        {canUpdate && <Dropdown.Item eventKey="locate" onClick={() => openLocate(row.original)}><HiOutlineLocationMarker className="text-base" /><span>Set location</span></Dropdown.Item>}
+                        {canDelete && <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>}
                     </Dropdown>
                 ),
             },
         ],
-        [openEdit, openLocate],
+        [openEdit, openLocate, canUpdate, canDelete],
     )
 
     return (
@@ -361,7 +363,7 @@ const WarehousesPage = () => {
             <PageHeader
                 title="Warehouses"
                 description="Manage physical warehouse locations and their configuration."
-                actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New warehouse</Button>}
+                actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New warehouse</Button> : undefined}
             />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -376,7 +378,7 @@ const WarehousesPage = () => {
                     <Select<FilterOption> placeholder="Status" options={STATUS_FILTER_OPTIONS} value={STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)} onChange={(opt) => { setStatusFilter(opt?.value ?? ''); setPage(1) }} />
                 </div>
 
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
                         <div className="ml-auto flex items-center gap-2">
@@ -514,8 +516,8 @@ const WarehousesPage = () => {
                 footer={
                     viewing ? (
                         <>
-                            <Button size="sm" icon={<HiOutlineLocationMarker />} onClick={() => openLocate(viewing)}>Set location</Button>
-                            <Button size="sm" onClick={() => { setViewing(null); openEdit(viewing) }}>Edit</Button>
+                        {canUpdate && <Button size="sm" icon={<HiOutlineLocationMarker />} onClick={() => openLocate(viewing)}>Set location</Button>}
+                        {canUpdate && <Button size="sm" onClick={() => { setViewing(null); openEdit(viewing) }}>Edit</Button>}
                             <Button size="sm" onClick={() => setViewing(null)}>Close</Button>
                         </>
                     ) : undefined
