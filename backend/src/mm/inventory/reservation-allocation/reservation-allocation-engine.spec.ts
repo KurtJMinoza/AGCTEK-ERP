@@ -11,6 +11,7 @@ import { AllocationStrategyRegistry } from './strategies/allocation-strategy.reg
 import { FifoAllocationStrategy } from './strategies/fifo-allocation.strategy'
 import { FefoAllocationStrategy } from './strategies/fefo-allocation.strategy'
 import { MmDomainEventsService } from '../../common/mm-domain-events.service'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PickingService } from '../../warehouse/picking/picking.service'
 import { WarehouseTaskService } from '../../warehouse/tasks/warehouse-task.service'
 import { PutawayStrategyRegistry } from '../../warehouse/tasks/strategies/putaway-strategy.registry'
@@ -310,6 +311,7 @@ describe('Reservation + Allocation Engine (Phase 5)', () => {
                         allocationReleased: jest.fn(),
                     },
                 },
+                { provide: EventEmitter2, useValue: { emit: jest.fn() } },
                 {
                     provide: PickingService,
                     useValue: { create: jest.fn().mockResolvedValue({ id: 'pick-1' }) },

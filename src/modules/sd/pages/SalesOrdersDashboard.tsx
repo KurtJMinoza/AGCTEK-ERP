@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
     HiOutlineCheck,
     HiOutlineDesktopComputer,
@@ -28,6 +29,8 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import {
+    PAYMENT_METHOD_LABEL,
+    markOrderPaymentPaid,
     summarizeSalesOrders,
     type RetailStatusTarget,
     type SalesOrderChannel,
@@ -36,23 +39,12 @@ import {
 } from '../services/salesOrderDashboardService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
+import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const { TabList, TabNav } = Tabs
 
 type ChannelFilter = 'all' | SalesOrderChannel
-
-const DIVISION_LABEL: Record<string, string> = {
-    DIV_RETAIL: 'AWIC',
-    DIV_LPG: 'LPG',
-    DIV_APPLIANCES: 'MCONPINCO',
-}
-
-const divisionLabel = (divisionId: string | null) =>
-    divisionId ? (DIVISION_LABEL[divisionId] ?? divisionId) : '—'
-
-const divisionsLabel = (divisionIds: string[]) =>
-    divisionIds.length ? divisionIds.map(divisionLabel).join(', ') : '—'
 
 const ROUTE_PATH = '/modules/sd/sales-orders'
 const REFRESH_INTERVAL_MS = 30_000
@@ -68,6 +60,8 @@ const DATE_RANGE_OPTIONS: DateRangeOption[] = [
 ]
 
 type BranchFilterOption = { value: string; label: string }
+
+type CompanyFilterOption = { value: string; label: string }
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -93,14 +87,20 @@ const formatDateTime = (iso: string) =>
 const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
     if (channel === 'POS') {
         return (
-            <StatusBadge tone="warning" prefix={<HiOutlineDesktopComputer className="mr-1" />}>
+            <StatusBadge
+                tone="warning"
+                prefix={<HiOutlineDesktopComputer className="mr-1" />}
+            >
                 POS Fast-Track
             </StatusBadge>
         )
     }
     if (channel === 'E-commerce') {
         return (
-            <StatusBadge tone="info" prefix={<HiOutlineGlobeAlt className="mr-1" />}>
+            <StatusBadge
+                tone="info"
+                prefix={<HiOutlineGlobeAlt className="mr-1" />}
+            >
                 E-commerce
             </StatusBadge>
         )
@@ -110,9 +110,26 @@ const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
 
 const STATUS_TONE: Record<SalesOrderRecord['status'], StatusTone> = {
     Completed: 'success',
+    Delivered: 'success',
+    Dispatched: 'info',
     'Pending Delivery': 'warning',
     Draft: 'default',
     Cancelled: 'danger',
+}
+
+/** Admin-only payment collection follows commercial state, not UI visibility. */
+const canRecordPayment = (order: SalesOrderRecord) => {
+    if (order.channel !== 'E-commerce' || !order.payment) return false
+    if (['Completed', 'Cancelled'].includes(order.status)) return false
+    if (
+        ['Paid', 'Failed', 'Cancelled', 'Refunded'].includes(
+            order.payment.status ?? '',
+        )
+    ) {
+        return false
+    }
+    // A delivery-stage collection is specifically for unpaid COD orders.
+    return order.status !== 'Delivered' || order.payment.method === 'COD'
 }
 
 const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
@@ -129,11 +146,6 @@ const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
                 <div className="text-xs text-gray-500">{row.original.name}</div>
             </div>
         ),
-    },
-    {
-        header: 'Division',
-        id: 'division',
-        cell: ({ row }) => divisionLabel(row.original.divisionId),
     },
     { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
     {
@@ -208,6 +220,33 @@ const SalesOrdersDashboard = () => {
         [branches],
     )
 
+    /** Organization / MM companies for the company scope filter. */
+    const [companyOptions, setCompanyOptions] = useState<CompanyFilterOption[]>(
+        [],
+    )
+    useEffect(() => {
+        let alive = true
+        orgService
+            .companies()
+            .then((rows: { id: string; name: string }[]) => {
+                if (!alive) return
+                setCompanyOptions(
+                    rows.map((company) => ({
+                        value: company.id,
+                        label: company.name,
+                    })),
+                )
+            })
+            .catch(() => undefined)
+        return () => {
+            alive = false
+        }
+    }, [])
+    const companyFilterOptions = useMemo<CompanyFilterOption[]>(
+        () => [{ value: 'all', label: 'All companies' }, ...companyOptions],
+        [companyOptions],
+    )
+
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const [channel, setChannel] = useState<ChannelFilter>('all')
     const [selectedSnapshot, setSelectedSnapshot] =
@@ -266,17 +305,48 @@ const SalesOrdersDashboard = () => {
                 notify(
                     'danger',
                     'Order not approved',
-                    error instanceof Error ? error.message : 'Please try again.',
+                    error instanceof Error
+                        ? error.message
+                        : 'Please try again.',
                 )
             }
         },
         [confirmOrder],
     )
 
+    const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(
+        null,
+    )
+
+    /** Admin: verify a bank transfer / collect COD — then picking may start. */
+    const markPaid = async (order: SalesOrderRecord) => {
+        setPaymentUpdatingId(order.id)
+        try {
+            const updated = await markOrderPaymentPaid(order.id)
+            setSelectedSnapshot(updated)
+            await fetchOrders({ force: true })
+            notify(
+                'success',
+                'Payment recorded',
+                `${updated.orderId} is now Paid — the warehouse pipeline can proceed.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Payment not updated',
+                error instanceof Error ? error.message : 'Please try again.',
+            )
+        } finally {
+            setPaymentUpdatingId(null)
+        }
+    }
+
     const hasActiveFilters =
         filters.search.trim() !== '' ||
         filters.dateRange !== 'all' ||
-        filters.branchId !== 'all'
+        filters.branchId !== 'all' ||
+        filters.companyId !== 'all'
+
     useEffect(() => {
         void fetchOrders({ force: true })
         const timer = window.setInterval(() => {
@@ -319,14 +389,21 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Channel',
                 id: 'channel',
-                cell: ({ row }) => <ChannelBadge channel={row.original.channel} />,
+                cell: ({ row }) => (
+                    <ChannelBadge channel={row.original.channel} />
+                ),
             },
             {
-                header: 'Division',
-                id: 'division',
-                cell: ({ row }) => divisionsLabel(row.original.divisionIds),
+                header: 'Company',
+                id: 'company',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap">
+                        {row.original.company?.name ?? '—'}
+                    </span>
+                ),
             },
             {
+                // Organization / MM branch master (created per company).
                 header: 'Branch',
                 id: 'branch',
                 cell: ({ row }) => (
@@ -336,17 +413,21 @@ const SalesOrdersDashboard = () => {
                 ),
             },
             {
-                header: 'Customer / Cashier',
+                header: 'Customer',
                 id: 'customer',
                 cell: ({ row }) => {
                     const { channel: orderChannel, customer } = row.original
+                    const name =
+                        (customer.name.trim() || '') === ''
+                            ? orderChannel === 'POS'
+                                ? 'Walk-in Customer'
+                                : '—'
+                            : customer.name
                     return (
                         <div className="min-w-[10rem]">
-                            <div className="font-semibold">{customer.name}</div>
+                            <div className="font-semibold">{name}</div>
                             <div className="text-xs text-gray-500">
-                                {orderChannel === 'POS'
-                                    ? 'Counter sale · POS terminal'
-                                    : customer.email}
+                                {customer.email ?? '—'}
                             </div>
                         </div>
                     )
@@ -362,9 +443,57 @@ const SalesOrdersDashboard = () => {
                 ),
             },
             {
-                header: 'Status',
-                id: 'status',
+                header: 'Order Status',
+                id: 'orderStatus',
                 cell: ({ row }) => <StatusCell status={row.original.status} />,
+            },
+            {
+                header: 'Payment Method',
+                id: 'paymentMethod',
+                cell: ({ row }) => {
+                    const payment = row.original.payment
+                    if (!payment)
+                        return <span className="text-gray-400">—</span>
+                    return (
+                        <div className="whitespace-nowrap">
+                            <span>
+                                {payment.method &&
+                                payment.method in PAYMENT_METHOD_LABEL
+                                    ? PAYMENT_METHOD_LABEL[
+                                          payment.method as keyof typeof PAYMENT_METHOD_LABEL
+                                      ]
+                                    : payment.method}
+                            </span>
+                            {payment.isDemo ? (
+                                <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
+                                    Demo
+                                </span>
+                            ) : null}
+                        </div>
+                    )
+                },
+            },
+            {
+                header: 'Payment Status',
+                id: 'paymentStatus',
+                cell: ({ row }) => {
+                    const payment = row.original.payment
+                    if (!payment)
+                        return <span className="text-gray-400">—</span>
+                    return (
+                        <StatusBadge
+                            tone={
+                                payment.status === 'Paid'
+                                    ? 'success'
+                                    : payment.status === 'Failed'
+                                      ? 'danger'
+                                      : 'warning'
+                            }
+                        >
+                            {payment.status ?? '—'}
+                        </StatusBadge>
+                    )
+                },
             },
             {
                 header: '',
@@ -435,10 +564,16 @@ const SalesOrdersDashboard = () => {
                         All Orders ({summary.orderCount})
                     </TabNav>
                     <TabNav value="POS" className="shrink-0 whitespace-nowrap">
-                        POS<span className="hidden sm:inline">&nbsp;Fast-Track</span>
+                        POS
+                        <span className="hidden sm:inline">
+                            &nbsp;Fast-Track
+                        </span>
                         &nbsp;({summary.posCount})
                     </TabNav>
-                    <TabNav value="E-commerce" className="shrink-0 whitespace-nowrap">
+                    <TabNav
+                        value="E-commerce"
+                        className="shrink-0 whitespace-nowrap"
+                    >
                         E-commerce
                         <span className="hidden sm:inline">&nbsp;Standard</span>
                         &nbsp;({summary.ecommerceCount})
@@ -462,7 +597,9 @@ const SalesOrdersDashboard = () => {
                             (option) => option.value === filters.dateRange,
                         )}
                         onChange={(option) =>
-                            void setFilters({ dateRange: option?.value ?? 'all' })
+                            void setFilters({
+                                dateRange: option?.value ?? 'all',
+                            })
                         }
                     />
                 </div>
@@ -474,7 +611,23 @@ const SalesOrdersDashboard = () => {
                             (option) => option.value === filters.branchId,
                         )}
                         onChange={(option) =>
-                            void setFilters({ branchId: option?.value ?? 'all' })
+                            void setFilters({
+                                branchId: option?.value ?? 'all',
+                            })
+                        }
+                    />
+                </div>
+                <div className="md:w-56">
+                    <Select<CompanyFilterOption>
+                        isSearchable={false}
+                        options={companyFilterOptions}
+                        value={companyFilterOptions.find(
+                            (option) => option.value === filters.companyId,
+                        )}
+                        onChange={(option) =>
+                            void setFilters({
+                                companyId: option?.value ?? 'all',
+                            })
                         }
                     />
                 </div>
@@ -489,6 +642,7 @@ const SalesOrdersDashboard = () => {
                                 search: '',
                                 dateRange: 'all',
                                 branchId: 'all',
+                                companyId: 'all',
                             })
                         }}
                     >
@@ -535,7 +689,9 @@ const SalesOrdersDashboard = () => {
                         </div>
                         <div className="mb-4 grid gap-1 break-words text-sm sm:grid-cols-2">
                             <div>
-                                <span className="text-gray-500">Customer: </span>
+                                <span className="text-gray-500">
+                                    Customer:{' '}
+                                </span>
                                 {selected.customer.name}
                             </div>
                             <div>
@@ -543,8 +699,8 @@ const SalesOrdersDashboard = () => {
                                 {selected.customer.email ?? '—'}
                             </div>
                             <div>
-                                <span className="text-gray-500">Division: </span>
-                                {divisionsLabel(selected.divisionIds)}
+                                <span className="text-gray-500">Company: </span>
+                                {selected.company?.name ?? '—'}
                             </div>
                             <div>
                                 <span className="text-gray-500">Branch: </span>
@@ -570,13 +726,19 @@ const SalesOrdersDashboard = () => {
                             {selected.promoCode ? (
                                 <div className="flex justify-between text-emerald-600">
                                     <span>Promo ({selected.promoCode})</span>
-                                    <span>−{formatPrice(selected.discountAmount)}</span>
+                                    <span>
+                                        −{formatPrice(selected.discountAmount)}
+                                    </span>
                                 </div>
                             ) : null}
                             {selected.channel === 'E-commerce' ? (
                                 <div className="flex justify-between">
-                                    <span className="text-gray-500">Shipping</span>
-                                    <span>{formatPrice(selected.shipping)}</span>
+                                    <span className="text-gray-500">
+                                        Shipping
+                                    </span>
+                                    <span>
+                                        {formatPrice(selected.shipping)}
+                                    </span>
                                 </div>
                             ) : null}
                             <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
@@ -586,16 +748,77 @@ const SalesOrdersDashboard = () => {
                             {selected.paymentReceived !== null ? (
                                 <>
                                     <div className="flex justify-between">
-                                        <span className="text-gray-500">Cash</span>
-                                        <span>{formatPrice(selected.paymentReceived)}</span>
+                                        <span className="text-gray-500">
+                                            Cash
+                                        </span>
+                                        <span>
+                                            {formatPrice(
+                                                selected.paymentReceived,
+                                            )}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-gray-500">Change</span>
-                                        <span>{formatPrice(selected.change ?? 0)}</span>
+                                        <span className="text-gray-500">
+                                            Change
+                                        </span>
+                                        <span>
+                                            {formatPrice(selected.change ?? 0)}
+                                        </span>
                                     </div>
                                 </>
                             ) : null}
                         </div>
+                        {selected.payment ? (
+                            <div className="mt-3 flex flex-col gap-0.5 text-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-gray-500">
+                                        Payment Method
+                                    </span>
+                                    <span className="flex items-center gap-2 font-medium">
+                                        {selected.payment.method &&
+                                        selected.payment.method in
+                                            PAYMENT_METHOD_LABEL
+                                            ? PAYMENT_METHOD_LABEL[
+                                                  selected.payment
+                                                      .method as keyof typeof PAYMENT_METHOD_LABEL
+                                              ]
+                                            : selected.payment.method}
+                                        {selected.payment.isDemo ? (
+                                            <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
+                                                Demo
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-gray-500">
+                                        Payment Status
+                                    </span>
+                                    <StatusBadge
+                                        tone={
+                                            selected.payment.status === 'Paid'
+                                                ? 'success'
+                                                : selected.payment.status ===
+                                                    'Failed'
+                                                  ? 'danger'
+                                                  : 'warning'
+                                        }
+                                    >
+                                        {selected.payment.status ?? '—'}
+                                    </StatusBadge>
+                                </div>
+                                {selected.payment.reference ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-gray-500">
+                                            Reference
+                                        </span>
+                                        <span className="font-mono text-xs">
+                                            {selected.payment.reference}
+                                        </span>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
                             {canUpdate && selected.status === 'Draft' ? (
                                 <Button
@@ -613,34 +836,91 @@ const SalesOrdersDashboard = () => {
                                     Approve Order
                                 </Button>
                             ) : null}
-                            {canUpdate && selected.status === 'Pending Delivery' ? (
+                            {canUpdate && canRecordPayment(selected) ? (
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    className="flex-1 sm:flex-none"
+                                    icon={<HiOutlineCheck />}
+                                    loading={paymentUpdatingId === selected.id}
+                                    onClick={() => void markPaid(selected)}
+                                >
+                                    {selected.payment?.status ===
+                                    'Pending Verification'
+                                        ? 'Verify & Mark Paid'
+                                        : 'Mark Paid'}
+                                </Button>
+                            ) : null}
+                            {canUpdate &&
+                            selected.channel === 'E-commerce' &&
+                            (selected.status === 'Pending Delivery' ||
+                                selected.status === 'Delivered') ? (
                                 <>
-                                    <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                        Update status
-                                    </span>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        className="flex-1 sm:flex-none"
-                                        customColorClass={() =>
-                                            'bg-red-500 hover:bg-red-600 text-white'
-                                        }
-                                        icon={<HiOutlineX />}
-                                        disabled={updatingId === selected.id}
-                                        onClick={() => setConfirmCancelOpen(true)}
-                                    >
-                                        Cancel Order
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        className="flex-1 sm:flex-none"
-                                        icon={<HiOutlineCheck />}
-                                        loading={updatingId === selected.id}
-                                        onClick={() => void changeStatus('Completed')}
-                                    >
-                                        Mark Completed
-                                    </Button>
+                                    {selected.status === 'Pending Delivery' ? (
+                                        <>
+                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
+                                                Fulfillment proceeds through
+                                                picking, packing, dispatch, and
+                                                delivery. Mark Completed is
+                                                available only after delivery.
+                                            </div>
+                                            <Link href="/modules/mm/warehouse-management/picking">
+                                                <Button
+                                                    size="sm"
+                                                    className="flex-1 sm:flex-none"
+                                                >
+                                                    Go to Picking
+                                                </Button>
+                                            </Link>
+                                            {selected.customerCancel
+                                                ?.canCancel ? (
+                                                <Button
+                                                    size="sm"
+                                                    variant="solid"
+                                                    className="flex-1 sm:flex-none"
+                                                    customColorClass={() =>
+                                                        'bg-red-500 hover:bg-red-600 text-white'
+                                                    }
+                                                    icon={<HiOutlineX />}
+                                                    disabled={
+                                                        updatingId ===
+                                                        selected.id
+                                                    }
+                                                    onClick={() =>
+                                                        setConfirmCancelOpen(
+                                                            true,
+                                                        )
+                                                    }
+                                                >
+                                                    Cancel Order
+                                                </Button>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
+                                                Shipment delivered. Close the
+                                                commercial order when all
+                                                delivery evidence is accepted.
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="solid"
+                                                className="flex-1 sm:flex-none"
+                                                icon={<HiOutlineCheck />}
+                                                loading={
+                                                    updatingId === selected.id
+                                                }
+                                                onClick={() =>
+                                                    void changeStatus(
+                                                        'Completed',
+                                                    )
+                                                }
+                                            >
+                                                Mark Completed
+                                            </Button>
+                                        </>
+                                    )}
                                 </>
                             ) : null}
                             <Button
@@ -674,8 +954,8 @@ const SalesOrdersDashboard = () => {
                 }}
             >
                 <p>
-                    {selected?.orderId} will be marked Cancelled. This cannot
-                    be undone from the dashboard.
+                    {selected?.orderId} will be marked Cancelled. This cannot be
+                    undone from the dashboard.
                 </p>
             </ConfirmDialog>
         </PageContainer>

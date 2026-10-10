@@ -9,7 +9,6 @@ import {
     HiOutlineShoppingBag,
 } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
 import classNames from '@/utils/classNames'
 import {
     calculateCartPricing,
@@ -199,6 +198,7 @@ const MarketplaceCheckoutPageContent = () => {
                     customerId: signedInClient.customerId,
                     items: pricingItems,
                     shipping,
+                    paymentMethod: 'COD',
                 },
                 sessionToken,
             )

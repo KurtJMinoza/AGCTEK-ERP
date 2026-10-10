@@ -364,6 +364,11 @@ export interface PickingTask {
     wave?: PickWave
     warehouseId: string
     warehouse?: Warehouse
+    /** Organization / MM company (from the Sales Order). */
+    companyId?: string | null
+    salesOrderId?: string | null
+    salesOrder?: { orderNumber: string; status: string } | null
+    salesOrderLine?: { id: string; sku: string } | null
     sourceBinId: string
     sourceBin?: StorageBin
     materialId: string
@@ -372,12 +377,50 @@ export interface PickingTask {
     serialId?: string
     requiredQty: number
     pickedQty: number
-    assignedUser?: string
+    /** Worker user-account id assigned to the task (scalar). */
+    assignedUser?: string | null
+    /** Display-safe profile resolved by the picking API for read UIs. */
+    assignedWorker?: {
+        id: string
+        displayName: string
+        avatar: string
+        jobPosition: string
+    } | null
     priority: number
     status: string
     completedAt?: string
     createdAt: string
     updatedAt: string
+}
+
+/** Worker selectable for picking assignment (GET /mm/picking/assignable-users). */
+export interface AssignableWorker {
+    id: string
+    userId: string
+    employeeId: string | null
+    displayName: string
+    email: string
+    /** Existing profile image URL from the worker's user account. */
+    avatar: string
+    jobPosition: string
+    role: string
+    companyId: string | null
+    warehouseId: string | null
+    isActive: boolean
+}
+
+/** Display name of the assigned worker — resolved from the assignable list. */
+export const assignedWorkerName = (
+    assigned: string | null | undefined,
+    workers?: AssignableWorker[],
+    assignedWorker?: PickingTask['assignedWorker'],
+): string | null => {
+    if (!assigned) return null
+    if (assignedWorker?.displayName) return assignedWorker.displayName
+    const worker = workers?.find(
+        (w) => w.id === assigned || w.userId === assigned,
+    )
+    return worker ? worker.displayName : assigned
 }
 
 export interface PickingTaskListResponse {
@@ -417,8 +460,11 @@ export interface WmPackage {
     id: string
     packageNumber: string
     orderNumber?: string
+    salesOrderId?: string | null
     warehouseId: string
     warehouse?: Warehouse
+    /** DEFAULT is automatic; SPLIT/MANUAL require an explicit user action. */
+    packageRole?: 'DEFAULT' | 'SPLIT' | 'MANUAL'
     packageType?: string
     weight?: number
     length?: number
@@ -434,6 +480,47 @@ export interface WmPackage {
     createdAt: string
     updatedAt: string
     items?: WmPackageItem[]
+    /** API-calculated sum of package item quantities, not the number of lines. */
+    totalItemQuantity?: number
+    salesOrder?: {
+        orderNumber: string
+        customerName?: string | null
+        customerEmail?: string | null
+        shipToName?: string | null
+        shipToPhone?: string | null
+        shipToAddressLine1?: string | null
+        shipToCity?: string | null
+        shipToRegion?: string | null
+        shipToPostalCode?: string | null
+        shipToCountry?: string | null
+    } | null
+    shipment?: { id: string; reference: string; status: string } | null
+    /** Detail responses only — source picking task + its sales order (ship-to). */
+    pickingTask?: {
+        id: string
+        taskNumber: string
+        status: string
+        salesOrder?: {
+            orderNumber: string
+            customerName?: string | null
+            customerEmail?: string | null
+            shipToName?: string | null
+            shipToPhone?: string | null
+            shipToAddressLine1?: string | null
+            shipToCity?: string | null
+            shipToRegion?: string | null
+            shipToPostalCode?: string | null
+            shipToCountry?: string | null
+        } | null
+    } | null
+    /** Weight/carton suggestion from the Material Master physical fields. */
+    suggestedMeasurements?: {
+        weightKg: number | null
+        length: number | null
+        width: number | null
+        height: number | null
+        source: 'MATERIAL_MASTER'
+    }
     /** Present on ready-for-dispatch / retry responses */
     scmShipment?: { id: string; reference: string; status: string } | null
     scmReleaseError?: string | null
@@ -448,6 +535,9 @@ export interface WmPackageItem {
     scannedQty: number
     batchId?: string
     serialId?: string
+    /** Packer stamped on first scan (dropdown or QR) — name snapshot for display. */
+    packedById?: string
+    packedByName?: string
     status: string
     createdAt: string
     updatedAt: string
@@ -472,6 +562,9 @@ export interface PackageQueryParams {
 export interface CreatePackagePayload {
     warehouseId: string
     orderNumber?: string
+    salesOrderId?: string
+    /** Manual package creation is explicit; automatic defaults are server-owned. */
+    packageRole?: 'SPLIT' | 'MANUAL'
     packageType?: string
     items: {
         materialId: string
@@ -621,6 +714,12 @@ export interface PackingSession {
     warehouse?: Warehouse
     warehouseTaskId?: string
     pickingTaskId?: string
+    salesOrderId?: string
+    salesOrder?: {
+        id: string
+        orderNumber: string
+        customerName?: string | null
+    }
     status: string
     createdBy?: string
     completedAt?: string
