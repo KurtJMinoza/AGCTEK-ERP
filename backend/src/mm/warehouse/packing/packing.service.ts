@@ -753,28 +753,48 @@ export class PackingService {
             )
         }
 
-        const item = await this.prisma.wmPackageItem.findFirst({
+        // A package can retain separate audit lines for the same material
+        // (for example, ten picked units represented as ten one-unit lines).
+        // Always select the first line that still needs a scan, rather than
+        // repeatedly selecting the already-complete first match.
+        const matchingItems = await this.prisma.wmPackageItem.findMany({
             where: {
                 packageId,
                 materialId,
                 ...(batchId ? { batchId } : {}),
                 ...(serialId ? { serialId } : {}),
             },
+            orderBy: { createdAt: 'asc' },
         })
-        if (!item)
+        if (!matchingItems.length)
             throw new NotFoundException('Matching package item not found')
+
+        const item = matchingItems.find((candidate) =>
+            new Decimal(candidate.scannedQty).lt(candidate.expectedQty),
+        )
 
         if (idempotencyKey) {
             // Exact match already fully scanned — treat as idempotent no-op
-            if (
-                new Decimal(item.scannedQty).gte(item.expectedQty) &&
-                new Decimal(item.scannedQty).eq(item.expectedQty)
-            ) {
+            if (!item) {
                 return this.prisma.wmPackageItem.findUnique({
-                    where: { id: item.id },
+                    where: { id: matchingItems[0].id },
                     include: { material: true },
                 })
             }
+        }
+        if (!item) {
+            const expectedQty = matchingItems.reduce(
+                (total, candidate) =>
+                    total.plus(candidate.expectedQty),
+                new Decimal(0),
+            )
+            const scannedQty = matchingItems.reduce(
+                (total, candidate) => total.plus(candidate.scannedQty),
+                new Decimal(0),
+            )
+            throw new BadRequestException(
+                `All matching package items are already scanned. Expected total: ${expectedQty}, Scanned: ${scannedQty}`,
+            )
         }
 
         const material = await this.prisma.mmMaterial.findUnique({

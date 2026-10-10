@@ -339,3 +339,100 @@ describe('PackingService default order package', () => {
         )
     })
 })
+
+describe('PackingService duplicate package-item scans', () => {
+    const duplicateItems = (scanned: number[]) =>
+        scanned.map((scannedQty, index) => ({
+            id: 'item-' + (index + 1),
+            packageId: 'pkg-1',
+            materialId: 'material-1',
+            expectedQty: new Decimal(1),
+            scannedQty: new Decimal(scannedQty),
+            batchId: null,
+            serialId: null,
+            packedById: null,
+            packedByName: null,
+        }))
+
+    const scanSetup = (items: ReturnType<typeof duplicateItems>) => {
+        const prisma = {
+            wmPackageItem: {
+                findMany: jest.fn().mockResolvedValue(items),
+                findUnique: jest.fn(),
+                update: jest.fn(
+                    ({
+                        where,
+                        data,
+                    }: {
+                        where: { id: string }
+                        data: { scannedQty: Decimal; status: string }
+                    }) => {
+                        const item = items.find(
+                            (candidate) => candidate.id === where.id,
+                        )
+                        item!.scannedQty = data.scannedQty
+                        return Promise.resolve({
+                            ...item,
+                            ...data,
+                            material: {
+                                materialCode: 'MAT-000001',
+                                materialName: 'Test material',
+                            },
+                        })
+                    },
+                ),
+            },
+            mmMaterial: {
+                findUnique: jest.fn().mockResolvedValue({
+                    batchManaged: false,
+                    serialManaged: false,
+                }),
+            },
+        }
+        const service = new PackingService(
+            prisma as unknown as PrismaService,
+            {} as never,
+        )
+        jest.spyOn(service, 'findOne').mockResolvedValue({
+            id: 'pkg-1',
+            status: 'OPEN',
+        } as never)
+        return { prisma, service }
+    }
+
+    it('moves a repeated material scan to the next incomplete package line', async () => {
+        const { prisma, service } = scanSetup(duplicateItems([1, 0, 0]))
+
+        const scanned = await service.scanItem('pkg-1', 'material-1')
+
+        expect(prisma.wmPackageItem.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    packageId: 'pkg-1',
+                    materialId: 'material-1',
+                }),
+                orderBy: { createdAt: 'asc' },
+            }),
+        )
+        expect(prisma.wmPackageItem.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id: 'item-2' },
+                data: expect.objectContaining({
+                    scannedQty: new Decimal(1),
+                    status: 'SCANNED',
+                }),
+            }),
+        )
+        expect(scanned).toMatchObject({ id: 'item-2' })
+    })
+
+    it('reports an aggregate message only after every matching line is complete', async () => {
+        const { service } = scanSetup(duplicateItems([1, 1, 1]))
+
+        await expect(
+            service.scanItem('pkg-1', 'material-1'),
+        ).rejects.toThrow(
+            'All matching package items are already scanned. Expected total: 3, Scanned: 3',
+        )
+    })
+})
