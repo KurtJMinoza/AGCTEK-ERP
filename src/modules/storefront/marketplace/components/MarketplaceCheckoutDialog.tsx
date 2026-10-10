@@ -2,12 +2,19 @@
 
 import { useState } from 'react'
 import { HiOutlineShoppingCart } from 'react-icons/hi'
+import { HiOutlineCreditCard, HiOutlineQrcode } from 'react-icons/hi'
 import FormDialog from '@/components/shared/FormDialog'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import Checkbox from '@/components/ui/Checkbox'
 import { Form, FormItem } from '@/components/ui/Form'
 import type { CartPricing } from '@/modules/sd/services/ecommerceService'
+import {
+    CHECKOUT_PAYMENT_OPTIONS,
+    type CheckoutPaymentMethod,
+    type CheckoutPaymentSelection,
+} from '@/modules/sd/services/salesOrderDashboardService'
 import type { RetailClientProfile } from '@/services/storefront/retailClientService'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
 import {
@@ -30,7 +37,10 @@ type MarketplaceCheckoutDialogProps = {
     /** Returns an error message when the code cannot be applied. */
     onApplyPromo: (code: string | null) => string | null
     onClose: () => void
-    onSubmit: (shipping: SalesOrderShippingDetails) => void
+    onSubmit: (
+        shipping: SalesOrderShippingDetails,
+        payment: CheckoutPaymentSelection,
+    ) => void
     /** Opens the account page where the customer can save a delivery address. */
     onOpenAccount: () => void
 }
@@ -83,12 +93,26 @@ const MarketplaceCheckoutDialog = ({
 }: MarketplaceCheckoutDialogProps) => {
     const [promoInput, setPromoInput] = useState('')
     const [promoError, setPromoError] = useState<string | null>(null)
+    const [paymentMethod, setPaymentMethod] =
+        useState<CheckoutPaymentMethod | null>(null)
+    const [cardSimulateFailure, setCardSimulateFailure] = useState(false)
     const savedAddress = hasSavedAddress(client)
 
     const applyPromo = () =>
         setPromoError(onApplyPromo(promoInput.trim() || null))
 
-    const submit = () => onSubmit(shippingDetails(client))
+    const submit = (event: { preventDefault: () => void }) => {
+        // Without this the native form POST reloads the page instead of placing the order.
+        event.preventDefault()
+        if (!paymentMethod) return
+        onSubmit(shippingDetails(client), {
+            method: paymentMethod,
+            cardDemoSimulateFailure:
+                paymentMethod === 'CARD_DEMO' && cardSimulateFailure
+                    ? true
+                    : undefined,
+        })
+    }
 
     const addressBlock = client ? (
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm">
@@ -169,7 +193,7 @@ const MarketplaceCheckoutDialog = ({
                         type="submit"
                         form={FORM_ID}
                         loading={submitting}
-                        disabled={!pricing}
+                        disabled={!pricing || !paymentMethod}
                     >
                         Place order
                     </Button>
@@ -219,6 +243,160 @@ const MarketplaceCheckoutDialog = ({
                                 : 'Apply'}
                         </Button>
                     </div>
+                </FormItem>
+
+                <FormItem label="Mode of payment" className="mt-4">
+                    <div
+                        className="flex flex-col gap-2"
+                        role="radiogroup"
+                        aria-label="Mode of payment"
+                    >
+                        {CHECKOUT_PAYMENT_OPTIONS.map((option) => {
+                            const active = paymentMethod === option.value
+                            return (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={active}
+                                    onClick={() =>
+                                        setPaymentMethod(option.value)
+                                    }
+                                    className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors ${
+                                        active
+                                            ? 'border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-500/10'
+                                            : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800'
+                                    }`}
+                                >
+                                    <span
+                                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                                            active
+                                                ? 'border-emerald-500'
+                                                : 'border-gray-300'
+                                        }`}
+                                    >
+                                        {active ? (
+                                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                        ) : null}
+                                    </span>
+                                    <span className="flex flex-col gap-0.5">
+                                        <span
+                                            className={`font-medium ${
+                                                active
+                                                    ? 'text-emerald-800 dark:text-emerald-300'
+                                                    : 'text-gray-900 dark:text-gray-100'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </span>
+                                        <span className="text-xs text-gray-500">
+                                            {option.hint}
+                                        </span>
+                                    </span>
+                                </button>
+                            )
+                        })}
+                    </div>
+
+                    {paymentMethod === 'CARD_DEMO' ? (
+                        <div className="mt-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+                            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                <HiOutlineCreditCard
+                                    className="text-lg"
+                                    aria-hidden
+                                />
+                                Demo card details
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                    <label className="mb-1 block text-xs font-medium text-gray-500">
+                                        Card holder (demo only)
+                                    </label>
+                                    <Input
+                                        placeholder="e.g. Maria Santos"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label className="mb-1 block text-xs font-medium text-gray-500">
+                                        Card number (demo only — never sent)
+                                    </label>
+                                    <Input
+                                        placeholder="4242 4242 4242 4242"
+                                        inputMode="numeric"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-500">
+                                        Expiry
+                                    </label>
+                                    <Input
+                                        placeholder="MM/YY"
+                                        inputMode="numeric"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-500">
+                                        CVV
+                                    </label>
+                                    <Input
+                                        placeholder="•••"
+                                        inputMode="numeric"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            </div>
+                            <Checkbox
+                                checked={cardSimulateFailure}
+                                onChange={(checked) =>
+                                    setCardSimulateFailure(checked)
+                                }
+                                className="mt-3"
+                            >
+                                Simulate a failed payment (demo)
+                            </Checkbox>
+                            <p className="mt-2 text-xs text-gray-400">
+                                Fake fields only — no real card data is
+                                collected or stored.
+                            </p>
+                        </div>
+                    ) : null}
+
+                    {paymentMethod === 'WALLET_DEMO' ? (
+                        <Alert showIcon type="info" className="mt-3">
+                            The demo wallet payment is confirmed in the review
+                            step. No real wallet is charged.
+                        </Alert>
+                    ) : null}
+
+                    {paymentMethod === 'QR_DEMO' ? (
+                        <div className="mt-3 flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+                            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
+                                <HiOutlineQrcode
+                                    className="h-10 w-10"
+                                    aria-hidden
+                                />
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                Demo QR placeholder — confirm payment in the
+                                review step to record it as paid.
+                            </p>
+                        </div>
+                    ) : null}
+
+                    {paymentMethod === 'BANK_TRANSFER_DEMO' ? (
+                        <Alert showIcon type="warning" className="mt-3">
+                            Your order is recorded, but warehouse processing
+                            (stock reservation &amp; picking) starts only after
+                            an admin verifies the bank transfer (demo).
+                        </Alert>
+                    ) : null}
+
+                    <p className="mt-2 text-xs text-gray-400">
+                        Demo only. No real payment will be processed.
+                    </p>
                 </FormItem>
 
                 {!pricing ? (

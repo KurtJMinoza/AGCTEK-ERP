@@ -9,7 +9,6 @@ import {
     HiOutlineShoppingBag,
 } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
 import classNames from '@/utils/classNames'
 import {
     calculateCartPricing,
@@ -18,7 +17,12 @@ import {
     type EcommerceOrderResult,
     type PricingItem,
 } from '@/modules/sd/services/ecommerceService'
-import { newIdempotencyKey } from '@/modules/sd/services/salesOrderDashboardService'
+import {
+    CHECKOUT_PAYMENT_OPTIONS,
+    PAYMENT_METHOD_LABEL,
+    newIdempotencyKey,
+    type CheckoutPaymentMethod,
+} from '@/modules/sd/services/salesOrderDashboardService'
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
 import {
     RetailSessionExpiredError,
@@ -98,6 +102,8 @@ const MarketplaceCheckoutPageContent = () => {
     const [submitting, setSubmitting] = useState(false)
     const [submitError, setSubmitError] = useState<string | null>(null)
     const [placed, setPlaced] = useState<EcommerceOrderResult | null>(null)
+    const [paymentMethod, setPaymentMethod] =
+        useState<CheckoutPaymentMethod | null>(null)
     const checkoutIdRef = useRef<string | null>(null)
 
     // Buy Now handoff (fully detached from the cart): params carry the item.
@@ -189,6 +195,10 @@ const MarketplaceCheckoutPageContent = () => {
 
     const placeOrder = async () => {
         if (!signedInClient || !sessionToken || !shipping || !pricing) return
+        if (!paymentMethod) {
+            setSubmitError('Select a mode of payment before placing your order.')
+            return
+        }
         setSubmitting(true)
         setSubmitError(null)
         try {
@@ -199,6 +209,7 @@ const MarketplaceCheckoutPageContent = () => {
                     customerId: signedInClient.customerId,
                     items: pricingItems,
                     shipping,
+                    paymentMethod,
                 },
                 sessionToken,
             )
@@ -267,10 +278,7 @@ const MarketplaceCheckoutPageContent = () => {
                                 block
                                 className={PRIMARY_BUTTON_CLASS}
                                 customColorClass={PRIMARY_BUTTON}
-                                onClick={() => {
-                                    openOrders()
-                                    router.replace(MARKETPLACE_PATH)
-                                }}
+                                onClick={openOrders}
                             >
                                 View my orders
                             </Button>
@@ -483,6 +491,70 @@ const MarketplaceCheckoutPageContent = () => {
                             </section>
 
                             <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <h2 className="mb-1 text-sm font-semibold text-gray-900">
+                                    Mode of payment
+                                </h2>
+                                <p className="mb-4 text-xs text-gray-500">
+                                    Demo methods do not process or store real payment details.
+                                </p>
+                                <div
+                                    className="flex flex-col gap-2"
+                                    role="radiogroup"
+                                    aria-label="Mode of payment"
+                                >
+                                    {CHECKOUT_PAYMENT_OPTIONS.map((option) => {
+                                        const active = paymentMethod === option.value
+                                        return (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                role="radio"
+                                                aria-checked={active}
+                                                onClick={() => {
+                                                    setPaymentMethod(option.value)
+                                                    setSubmitError(null)
+                                                }}
+                                                className={classNames(
+                                                    'flex w-full items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors',
+                                                    active
+                                                        ? 'border-emerald-500 bg-emerald-50'
+                                                        : 'border-gray-200 bg-white hover:border-emerald-200',
+                                                )}
+                                            >
+                                                <span
+                                                    className={classNames(
+                                                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
+                                                        active
+                                                            ? 'border-emerald-500'
+                                                            : 'border-gray-300',
+                                                    )}
+                                                >
+                                                    {active ? (
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                                    ) : null}
+                                                </span>
+                                                <span className="flex flex-col gap-0.5">
+                                                    <span
+                                                        className={classNames(
+                                                            'font-medium',
+                                                            active
+                                                                ? 'text-emerald-800'
+                                                                : 'text-gray-900',
+                                                        )}
+                                                    >
+                                                        {option.label}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {option.hint}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </section>
+
+                            <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                                 <h2 className="mb-4 text-sm font-semibold text-gray-900">
                                     Items to order
                                 </h2>
@@ -576,15 +648,16 @@ const MarketplaceCheckoutPageContent = () => {
                                     PRIMARY_BUTTON_CLASS,
                                 )}
                                 customColorClass={PRIMARY_BUTTON}
-                                disabled={!shipping || submitting}
+                                disabled={!shipping || !paymentMethod || submitting}
                                 loading={submitting}
                                 onClick={() => void placeOrder()}
                             >
                                 Place Order
                             </Button>
                             <p className="mt-2 text-center text-xs text-gray-400">
-                                Cash on delivery — pay each store when your
-                                order arrives.
+                                {paymentMethod
+                                    ? `${PAYMENT_METHOD_LABEL[paymentMethod]} selected.`
+                                    : 'Select a mode of payment to continue.'}
                             </p>
                         </aside>
                     </div>

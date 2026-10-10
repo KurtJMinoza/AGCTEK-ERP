@@ -19,9 +19,6 @@ import {
     newIdempotencyKey,
 } from './salesOrderDashboardService'
 
-/** Flat freight per seller (division) in the order, like per-shop shipping. */
-export const ECOMMERCE_FREIGHT_PHP = 150
-
 /** Promo codes are issued by one division and only discount that division's items. */
 const PROMO_CODES: Record<SalesDivisionId, Record<string, number>> = {
     [RETAIL_DIVISION_ID]: { AWIC10: 0.1 },
@@ -120,6 +117,14 @@ export function calculateCartPricing(
  * sales order (pending delivery) whose lines carry their division → MM splits
  * fulfillment, ATP + soft reservation. No PGI or billing here.
  */
+
+/** Flat e-commerce delivery fee per seller (division) in Philippine pesos.
+ *  Server-authoritative: the backend re-verifies this rate at checkout so the
+ *  storefront can never submit its own freight. Override with env. */
+export const ECOMMERCE_FREIGHT_PHP = Number(
+    process.env.NEXT_PUBLIC_ECOMMERCE_FREIGHT_PHP ?? 50,
+)
+
 export async function processEcommerceOrder(
     payload: EcommerceOrder,
     sessionToken: string,
@@ -148,6 +153,9 @@ export async function processEcommerceOrder(
         promoCode: pricing.promoCode,
         shippingAmount: pricing.shipping,
         totalAmount: pricing.grandTotal,
+        paymentMethod: order.paymentMethod,
+        paymentProvider: order.paymentProvider,
+        cardDemoSimulateFailure: order.cardDemoSimulateFailure,
     }, sessionToken)
 
     console.info(
