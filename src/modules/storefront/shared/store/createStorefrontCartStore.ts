@@ -75,8 +75,8 @@ export const createStorefrontCartStore = <P>(
                             }
                         }),
                     updateQuantity: (key, quantity) =>
-                        set((state) => ({
-                            items:
+                        set((state) => {
+                            const newItems =
                                 quantity < 1
                                     ? state.items.filter(
                                           (item) =>
@@ -86,33 +86,40 @@ export const createStorefrontCartStore = <P>(
                                           keyOf(item.product) === key
                                               ? { ...item, quantity }
                                               : item,
-                                      ),
-                            selectedKeys: prune(
-                                state.selectedKeys,
-                                state.items,
-                            ),
-                        })),
+                                      )
+                            return {
+                                items: newItems,
+                                selectedKeys: prune(
+                                    state.selectedKeys,
+                                    newItems,
+                                ),
+                            }
+                        }),
                     removeItem: (key) =>
-                        set((state) => ({
-                            items: state.items.filter(
+                        set((state) => {
+                            const newItems = state.items.filter(
                                 (item) => keyOf(item.product) !== key,
-                            ),
-                            selectedKeys: prune(
-                                state.selectedKeys,
-                                state.items,
-                            ),
-                        })),
+                            )
+                            return {
+                                items: newItems,
+                                selectedKeys: prune(
+                                    state.selectedKeys,
+                                    newItems,
+                                ),
+                            }
+                        }),
                     removeItems: (keys) =>
                         set((state) => {
                             const excluded = new Set(keys)
+                            const newItems = state.items.filter(
+                                (item) =>
+                                    !excluded.has(keyOf(item.product)),
+                            )
                             return {
-                                items: state.items.filter(
-                                    (item) =>
-                                        !excluded.has(keyOf(item.product)),
-                                ),
+                                items: newItems,
                                 selectedKeys: prune(
                                     state.selectedKeys,
-                                    state.items,
+                                    newItems,
                                 ),
                             }
                         }),
@@ -128,18 +135,19 @@ export const createStorefrontCartStore = <P>(
                                     item.product,
                             )
                             if (unchanged) return state
+                            const newItems = state.items.flatMap((item) => {
+                                const product = byKey.get(
+                                    keyOf(item.product),
+                                )
+                                return product
+                                    ? [{ ...item, product }]
+                                    : []
+                            })
                             return {
-                                items: state.items.flatMap((item) => {
-                                    const product = byKey.get(
-                                        keyOf(item.product),
-                                    )
-                                    return product
-                                        ? [{ ...item, product }]
-                                        : []
-                                }),
+                                items: newItems,
                                 selectedKeys: prune(
                                     state.selectedKeys,
-                                    state.items,
+                                    newItems,
                                 ),
                             }
                         }),

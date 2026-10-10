@@ -17,6 +17,7 @@ import {
     CreateSalesOrderDto,
     CreateSalesOrderFromCrmOpportunityInput,
     ListSalesOrdersQueryDto,
+    RETAIL_STATUS_TARGETS,
     SD_CATALOG_CURRENCY,
     UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
@@ -583,32 +584,71 @@ export class SalesOrderService {
                 'Only POS / e-commerce orders can be updated through this endpoint',
             )
         }
-        if (order.status === dto.status) return order
 
-        const allowed: Record<string, readonly string[]> = {
-            CONFIRMED: ['COMPLETED', 'CANCELLED'],
-        }
-        if (!allowed[order.status]?.includes(dto.status)) {
-            throw new ConflictException(
-                `Cannot change ${order.orderNumber} from ${order.status} to ${dto.status}`,
-            )
+        const hasDeliveryDetails =
+            dto.trackingNumber !== undefined ||
+            dto.courierName !== undefined ||
+            dto.proofOfDeliveryUrl !== undefined
+        const changingStatus =
+            dto.status !== undefined && dto.status !== order.status
+        // Delivery-only updates (tracking / courier / POD) are allowed with or
+        // without a status change; nothing to do when neither applies.
+        if (!changingStatus && !hasDeliveryDetails) return order
+
+        if (changingStatus) {
+            const target = dto.status as (typeof RETAIL_STATUS_TARGETS)[number]
+            const allowed: Record<string, readonly string[]> = {
+                CONFIRMED: ['COMPLETED', 'CANCELLED'],
+            }
+            if (!allowed[order.status]?.includes(target)) {
+                throw new ConflictException(
+                    `Cannot change ${order.orderNumber} from ${order.status} to ${target}`,
+                )
+            }
         }
 
+        const targetStatus = dto.status ?? order.status
         const lineStatus =
-            dto.status === 'COMPLETED' ? 'FULFILLED' : 'CANCELLED'
-        try {
-            const [, updated] = await this.prisma.$transaction([
+            targetStatus === 'COMPLETED' ? 'FULFILLED' : 'CANCELLED'
+        const data: Prisma.SdSalesOrderUpdateInput = {
+            ...(changingStatus ? { status: targetStatus } : {}),
+            ...(changingStatus && targetStatus === 'COMPLETED'
+                ? { deliveredAt: new Date() }
+                : {}),
+            ...(dto.trackingNumber !== undefined
+                ? { trackingNumber: dto.trackingNumber }
+                : {}),
+            ...(dto.courierName !== undefined
+                ? { courierName: dto.courierName }
+                : {}),
+            ...(dto.proofOfDeliveryUrl !== undefined
+                ? { proofOfDeliveryUrl: dto.proofOfDeliveryUrl }
+                : {}),
+            // Attaching a tracking number implies the parcel is out for delivery.
+            ...(dto.trackingNumber !== undefined
+                ? { shippedAt: order.shippedAt ?? new Date() }
+                : {}),
+        }
+
+        const operations: Prisma.PrismaPromise<unknown>[] = []
+        if (changingStatus) {
+            operations.push(
                 this.prisma.sdSalesOrderLine.updateMany({
                     where: { salesOrderId: id },
                     data: { integrationStatus: lineStatus },
                 }),
-                this.prisma.sdSalesOrder.update({
-                    where: { id, status: order.status },
-                    data: { status: dto.status },
-                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
-                }),
-            ])
-            return updated
+            )
+        }
+        operations.push(
+            this.prisma.sdSalesOrder.update({
+                where: { id, status: order.status },
+                data,
+                include: { lines: { orderBy: { lineNumber: 'asc' } } },
+            }),
+        )
+        try {
+            const result = await this.prisma.$transaction(operations)
+            return result[result.length - 1]
         } catch (error) {
             if (
                 error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -815,7 +855,7 @@ export class SalesOrderService {
 
         const updated = await this.prisma.sdSalesOrder.update({
             where: { id },
-            data: { status: 'CONFIRMED' },
+            data: { status: 'CONFIRMED', approvedAt: new Date() },
             include: this.includes,
         })
 
