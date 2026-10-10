@@ -14,6 +14,8 @@ type SalesOrderFilters = {
     dateRange: SalesOrderDateRange
     /** Branch code, or `'all'` for every branch. */
     branchId: string
+    /** Organization / MM company id, or `'all'` for every company. */
+    companyId: string
 }
 
 type SalesOrdersState = {
@@ -41,7 +43,7 @@ let latestRequest = 0
 
 export const useSalesOrdersStore = create<SalesOrdersState>((set, get) => ({
     orders: [],
-    filters: { search: '', dateRange: 'all', branchId: 'all' },
+    filters: { search: '', dateRange: 'all', branchId: 'all', companyId: 'all' },
     loading: false,
     error: null,
     lastFetchedAt: null,
@@ -107,4 +109,23 @@ if (typeof window !== 'undefined') {
     window.addEventListener(SALES_ORDER_RECORDED_EVENT, () =>
         useSalesOrdersStore.setState({ lastFetchedAt: null }),
     )
+
+    // Cross-tab: an order placed/cancelled in another tab (storefront, POS)
+    // invalidates the cache immediately and refetches now — no 30s wait.
+    if ('BroadcastChannel' in window) {
+        const channel = new BroadcastChannel('agc-erp')
+        channel.onmessage = (event: MessageEvent) => {
+            const message = event.data as { type?: string } | null
+            if (message?.type === 'sales-order-recorded') {
+                useSalesOrdersStore.setState({ lastFetchedAt: null })
+                void useSalesOrdersStore.getState().fetchOrders({ force: true })
+            }
+        }
+    }
+
+    // Refetch as soon as the user returns to the tab (no stale view).
+    window.addEventListener('focus', () => {
+        useSalesOrdersStore.setState({ lastFetchedAt: null })
+        void useSalesOrdersStore.getState().fetchOrders({ force: true })
+    })
 }
