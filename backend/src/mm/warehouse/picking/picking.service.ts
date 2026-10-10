@@ -77,7 +77,7 @@ export class PickingService {
         ])
 
         return {
-            data,
+            data: await this.withAssignedWorkerProfiles(data),
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         }
     }
@@ -88,7 +88,66 @@ export class PickingService {
             include: this.includes,
         })
         if (!task) throw new NotFoundException('Picking task not found')
-        return task
+        const [enrichedTask] = await this.withAssignedWorkerProfiles([task])
+        return enrichedTask
+    }
+
+    /**
+     * `assignedUser` is a persisted User ID. Keep that ID authoritative for
+     * assignment commands, but provide its safe display profile for read UIs.
+     * The task table must never expose a CUID as an employee name.
+     */
+    private async withAssignedWorkerProfiles<
+        T extends { assignedUser: string | null },
+    >(tasks: T[]) {
+        const assignedUserIds = [
+            ...new Set(
+                tasks
+                    .map((task) => task.assignedUser)
+                    .filter((id): id is string => Boolean(id)),
+            ),
+        ]
+
+        if (!assignedUserIds.length) {
+            return tasks.map((task) => ({ ...task, assignedWorker: null }))
+        }
+
+        const users = await this.prisma.user.findMany({
+            where: { id: { in: assignedUserIds } },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                userName: true,
+                email: true,
+                avatar: true,
+                jobPosition: true,
+            },
+        })
+        const usersById = new Map(users.map((user) => [user.id, user]))
+
+        return tasks.map((task) => {
+            const user = task.assignedUser
+                ? usersById.get(task.assignedUser)
+                : undefined
+
+            return {
+                ...task,
+                assignedWorker: user
+                    ? {
+                          id: user.id,
+                          displayName:
+                              [user.firstName, user.lastName]
+                                  .filter(Boolean)
+                                  .join(' ') ||
+                              user.userName ||
+                              user.email,
+                          avatar: user.avatar,
+                          jobPosition: user.jobPosition,
+                      }
+                    : null,
+            }
+        })
     }
 
     async create(dto: CreatePickingDto) {
@@ -289,6 +348,8 @@ export class PickingService {
             employeeId: string | null
             displayName: string
             email: string
+            avatar: string
+            jobPosition: string
             role: string
             companyId: string | null
             warehouseId: string | null
@@ -320,6 +381,7 @@ export class PickingService {
                 userName: true,
                 firstName: true,
                 lastName: true,
+                avatar: true,
                 jobPosition: true,
                 role: true,
                 isActive: true,
@@ -331,8 +393,13 @@ export class PickingService {
             id: u.id,
             userId: u.id,
             employeeId: null,
-            displayName: [u.firstName, u.lastName].filter(Boolean).join(' '),
+            displayName:
+                [u.firstName, u.lastName].filter(Boolean).join(' ') ||
+                u.userName ||
+                u.email,
             email: u.email,
+            avatar: u.avatar,
+            jobPosition: u.jobPosition,
             role: u.role,
             companyId: u.companies[0]?.companyId ?? null,
             warehouseId: null,

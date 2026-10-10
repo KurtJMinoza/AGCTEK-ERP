@@ -10,6 +10,7 @@ function setup() {
             userName: 'worker1',
             firstName: 'Juan',
             lastName: 'Dela Cruz',
+            avatar: 'https://cdn.agc.test/avatars/juan.jpg',
             jobPosition: 'Warehouse Staff',
             role: 'employee',
             isActive: true,
@@ -21,6 +22,7 @@ function setup() {
             userName: 'inactive1',
             firstName: 'Inactive',
             lastName: 'Worker',
+            avatar: '',
             jobPosition: null,
             role: 'employee',
             isActive: false,
@@ -32,6 +34,7 @@ function setup() {
             userName: 'other1',
             firstName: 'Other',
             lastName: 'Company',
+            avatar: '',
             jobPosition: null,
             role: 'employee',
             isActive: true,
@@ -43,6 +46,7 @@ function setup() {
             userName: 'unlinked1',
             firstName: 'No',
             lastName: 'Links',
+            avatar: '',
             jobPosition: null,
             role: 'employee',
             isActive: true,
@@ -91,6 +95,8 @@ function setup() {
         },
         wmPickingTask: {
             findFirst: jest.fn().mockResolvedValue(null),
+            findMany: jest.fn().mockResolvedValue([]),
+            count: jest.fn().mockResolvedValue(0),
             findUnique: jest.fn((args) => {
                 if (args.where.id === 'task-1') {
                     return Promise.resolve({
@@ -122,6 +128,29 @@ describe('PickingService assignable workers', () => {
         const rows = await service.assignableUsers()
         expect(rows.every((u) => u.isActive)).toBe(true)
         expect(rows.map((u) => u.userId)).not.toContain('u-2')
+        expect(rows.find((u) => u.userId === 'u-1')).toMatchObject({
+            avatar: 'https://cdn.agc.test/avatars/juan.jpg',
+            jobPosition: 'Warehouse Staff',
+        })
+    })
+
+    it('returns the assigned worker display profile instead of exposing only the user ID', async () => {
+        const { prisma, service } = setup()
+        prisma.wmPickingTask.findMany.mockResolvedValue([
+            { id: 'task-1', taskNumber: 'PK-000001', assignedUser: 'u-1' },
+        ])
+        prisma.wmPickingTask.count.mockResolvedValue(1)
+
+        const result = await service.findAll({})
+
+        expect(result.data[0]).toMatchObject({
+            assignedUser: 'u-1',
+            assignedWorker: {
+                id: 'u-1',
+                displayName: 'Juan Dela Cruz',
+                avatar: 'https://cdn.agc.test/avatars/juan.jpg',
+            },
+        })
     })
 
     it('is company-scoped when Organization user-company links exist', async () => {

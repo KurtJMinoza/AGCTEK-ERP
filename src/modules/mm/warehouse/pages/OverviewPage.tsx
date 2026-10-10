@@ -135,7 +135,11 @@ const OverviewPage = () => {
                 size: 140,
                 cell: ({ row }) => (
                     <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {assignedWorkerName(row.original.assignedUser) || 'Unassigned'}
+                        {assignedWorkerName(
+                            row.original.assignedUser,
+                            undefined,
+                            row.original.assignedWorker,
+                        ) || 'Unassigned'}
                     </span>
                 ),
             },

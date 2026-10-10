@@ -379,6 +379,13 @@ export interface PickingTask {
     pickedQty: number
     /** Worker user-account id assigned to the task (scalar). */
     assignedUser?: string | null
+    /** Display-safe profile resolved by the picking API for read UIs. */
+    assignedWorker?: {
+        id: string
+        displayName: string
+        avatar: string
+        jobPosition: string
+    } | null
     priority: number
     status: string
     completedAt?: string
@@ -393,6 +400,9 @@ export interface AssignableWorker {
     employeeId: string | null
     displayName: string
     email: string
+    /** Existing profile image URL from the worker's user account. */
+    avatar: string
+    jobPosition: string
     role: string
     companyId: string | null
     warehouseId: string | null
@@ -403,8 +413,10 @@ export interface AssignableWorker {
 export const assignedWorkerName = (
     assigned: string | null | undefined,
     workers?: AssignableWorker[],
+    assignedWorker?: PickingTask['assignedWorker'],
 ): string | null => {
     if (!assigned) return null
+    if (assignedWorker?.displayName) return assignedWorker.displayName
     const worker = workers?.find(
         (w) => w.id === assigned || w.userId === assigned,
     )
