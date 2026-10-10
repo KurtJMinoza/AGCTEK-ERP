@@ -597,6 +597,25 @@ const SalesOrdersDashboard = () => {
                             ) : null}
                         </div>
                         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+                            {canUpdate && selected.status === 'Draft' ? (
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    className="flex-1 sm:flex-none"
+                                    customColorClass={() =>
+                                        'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    }
+                                    icon={<HiOutlineCheck />}
+                                    loading={updatingId === selected.id}
+                                    disabled={updatingId !== null}
+                                    onClick={async () => {
+                                        await approveOrder(selected)
+                                        setSelected(null)
+                                    }}
+                                >
+                                    Approve Order
+                                </Button>
+                            ) : null}
                             {canUpdate && selected.status === 'Pending Delivery' ? (
                                 <>
                                     <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
