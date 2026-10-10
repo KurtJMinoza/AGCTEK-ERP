@@ -625,7 +625,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                                             : ''}
                                         {pendingShipping.city}
                                     </span>
-                                    .
                                 </>
                             ) : null}
                             .

@@ -184,6 +184,7 @@ const SalesOrdersDashboard = () => {
     const setFilters = useSalesOrdersStore((s) => s.setFilters)
     const updatingId = useSalesOrdersStore((s) => s.updatingId)
     const updateOrderStatus = useSalesOrdersStore((s) => s.updateOrderStatus)
+    const confirmOrder = useSalesOrdersStore((s) => s.confirmOrder)
     const { canUpdate } = useResourceAccess('sd.sales-orders')
 
     /** Branch filter + labels come from the MM Organization Branch master. */
@@ -248,11 +249,34 @@ const SalesOrdersDashboard = () => {
         }
     }
 
+    /** Approve a pending (Draft) order — SD→MM handoff, moves it to Pending Delivery. */
+    const approveOrder = useCallback(
+        async (order: SalesOrderRecord) => {
+            try {
+                const updated = await confirmOrder(order.id)
+                setSelectedSnapshot((current) =>
+                    current?.id === updated.id ? updated : current,
+                )
+                notify(
+                    'success',
+                    'Order approved',
+                    `${updated.orderId} is now ${updated.status}.`,
+                )
+            } catch (error) {
+                notify(
+                    'danger',
+                    'Order not approved',
+                    error instanceof Error ? error.message : 'Please try again.',
+                )
+            }
+        },
+        [confirmOrder],
+    )
+
     const hasActiveFilters =
         filters.search.trim() !== '' ||
         filters.dateRange !== 'all' ||
         filters.branchId !== 'all'
-
     useEffect(() => {
         void fetchOrders({ force: true })
         const timer = window.setInterval(() => {
@@ -346,19 +370,35 @@ const SalesOrdersDashboard = () => {
                 header: '',
                 id: 'actions',
                 cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        variant="default"
-                        className="whitespace-nowrap"
-                        icon={<HiOutlineEye />}
-                        onClick={() => setSelected(row.original)}
-                    >
-                        View Details
-                    </Button>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Button
+                            size="xs"
+                            variant="default"
+                            icon={<HiOutlineEye />}
+                            onClick={() => setSelected(row.original)}
+                        >
+                            View Details
+                        </Button>
+                        {row.original.status === 'Draft' && canUpdate ? (
+                            <Button
+                                size="xs"
+                                variant="solid"
+                                customColorClass={() =>
+                                    'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                }
+                                icon={<HiOutlineCheck />}
+                                loading={updatingId === row.original.id}
+                                disabled={updatingId !== null}
+                                onClick={() => void approveOrder(row.original)}
+                            >
+                                Approve Order
+                            </Button>
+                        ) : null}
+                    </div>
                 ),
             },
         ],
-        [],
+        [approveOrder, canUpdate, updatingId],
     )
 
     return (

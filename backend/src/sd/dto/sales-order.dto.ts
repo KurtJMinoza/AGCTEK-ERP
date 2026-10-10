@@ -9,6 +9,7 @@ import {
     IsNotEmpty,
     IsOptional,
     IsArray,
+    IsUrl,
     ValidateNested,
     IsNumber,
     Max,
@@ -357,12 +358,27 @@ export class CreateMarketplaceCheckoutDto {
 export const RETAIL_STATUS_TARGETS = ['COMPLETED', 'CANCELLED'] as const
 
 export class UpdateRetailSalesOrderStatusDto {
+    @IsOptional()
     @IsIn(RETAIL_STATUS_TARGETS)
-    status!: (typeof RETAIL_STATUS_TARGETS)[number]
+    status?: (typeof RETAIL_STATUS_TARGETS)[number]
 
     @IsOptional()
     @IsString()
     updatedBy?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    trackingNumber?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    courierName?: string
+
+    @IsOptional()
+    @IsUrl({ require_tld: false })
+    proofOfDeliveryUrl?: string
 }
 
 export class CustomerReturnLineDto {
