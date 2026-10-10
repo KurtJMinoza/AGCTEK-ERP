@@ -91,7 +91,11 @@ export type UpdateLeadInput = {
 }
 
 /** Leads in these statuses can be converted; LOST / UNQUALIFIED must be re-engaged first. */
-export const CONVERTIBLE_LEAD_STATUSES: readonly LeadStatus[] = ['NEW', 'CONTACTED', 'QUALIFIED']
+export const CONVERTIBLE_LEAD_STATUSES: readonly LeadStatus[] = [
+    'NEW',
+    'CONTACTED',
+    'QUALIFIED',
+]
 
 export type ConvertLeadInput = {
     /** Link an existing SD customer (omit when the lead is already linked). */
@@ -130,7 +134,12 @@ export type Opportunity = {
     customerId: string
     customer: CrmCustomerRef
     leadId: string | null
-    lead: { id: string; name: string; status: LeadStatus; source?: LeadSource } | null
+    lead: {
+        id: string
+        name: string
+        status: LeadStatus
+        source?: LeadSource
+    } | null
     name: string
     description: string | null
     /** Parsed from the API's 2-decimal string. */
@@ -155,7 +164,12 @@ export type Opportunity = {
     updatedAt: string
 }
 
-export type CrmUserRef = { id: string; userName: string; firstName: string; lastName: string }
+export type CrmUserRef = {
+    id: string
+    userName: string
+    firstName: string
+    lastName: string
+}
 
 /** Read-only view of the SD order linked to an opportunity (SD owns the document). */
 export type LinkedSalesOrder = {
@@ -237,6 +251,50 @@ export type CreateActivityInput = {
 }
 
 export type ActivityParent = { kind: 'opportunity' | 'ticket'; id: string }
+
+/**
+ * Chatter feed entry (Odoo-style): CRM notes / SYSTEM audit rows plus activities, SD quotes
+ * and the sales-order link that CRM merges at read time (SD data is never copied here).
+ */
+export const FEED_ITEM_TYPES = [
+    'NOTE',
+    'SYSTEM',
+    'ACTIVITY',
+    'QUOTATION',
+    'SALES_ORDER',
+] as const
+export type FeedItemType = (typeof FEED_ITEM_TYPES)[number]
+
+export type CrmFeedItem = {
+    id: string
+    type: FeedItemType
+    /** ISO instant used for the cursor. */
+    at: string
+    actor: CrmUserRef | null
+    summary: string
+    metadata: Record<string, unknown> | null
+}
+
+export type OpportunityFeedPage = {
+    data: CrmFeedItem[]
+    /** Pass this back as `cursor` to page older entries; null = end of the feed. */
+    nextCursor: string | null
+}
+
+/** A CRM-owned chat note (NOTE rows). SYSTEM rows never reach the client as editable notes. */
+export type CrmMessage = {
+    id: string
+    opportunityId: string | null
+    leadId: string | null
+    kind: 'NOTE' | 'SYSTEM'
+    body: string | null
+    metadata: Record<string, unknown> | null
+    authorId: string | null
+    author: CrmUserRef | null
+    createdAt: string
+    updatedAt: string | null
+    deletedAt: string | null
+}
 
 export type OpportunityListParams = PageParams & {
     search?: string
@@ -412,7 +470,12 @@ export type TicketComment = {
     ticketId: string
     body: string
     authorId: string | null
-    author: { id: string; userName: string; firstName: string; lastName: string } | null
+    author: {
+        id: string
+        userName: string
+        firstName: string
+        lastName: string
+    } | null
     createdAt: string
 }
 
@@ -515,7 +578,10 @@ export type CrmDashboard = {
     periodDays: number
     periodFrom: string
     leads: { new: number; qualified: number }
-    overdue: Record<'opportunities' | 'tickets', { records: number; activities: number }>
+    overdue: Record<
+        'opportunities' | 'tickets',
+        { records: number; activities: number }
+    >
     pipeline: OpportunityPipeline
     tickets: {
         queueTotal: number
@@ -523,7 +589,10 @@ export type CrmDashboard = {
         byPriority: { priority: TicketPriority; count: number }[]
     }
     winLoss: {
-        won: { count: number; byCurrency: { currency: string; count: number; amount: string }[] }
+        won: {
+            count: number
+            byCurrency: { currency: string; count: number; amount: string }[]
+        }
         lost: { count: number; byReason: { reason: string; count: number }[] }
         winRate: number | null
     }

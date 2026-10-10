@@ -27,6 +27,7 @@ import {
     resolveValidUntil,
     type QuotationAction,
 } from './quotation.rules'
+import { QUOTATION_PDF_DEFAULT_COMPANY, type QuotationPdfInput } from './quotation-pdf.model'
 
 type Client = Prisma.TransactionClient
 
@@ -71,6 +72,50 @@ export class QuotationService {
     async findOne(id: string) {
         const [quote] = await this.views(this.prisma, [await this.load(this.prisma, id)])
         return quote
+    }
+
+    /**
+     * Assembles the printable model input for the PDF endpoint. Read-only: loads the quotation,
+     * its customer, the linked opportunity name and the default company letterhead; never writes.
+     */
+    async pdfInput(id: string): Promise<QuotationPdfInput> {
+        const view = await this.findOne(id)
+        const [customer, opportunity, company] = await Promise.all([
+            this.prisma.sdCustomer.findUnique({
+                where: { id: view.customerId },
+                select: { companyName: true, contactName: true, email: true, phone: true },
+            }),
+            this.prisma.crmOpportunity.findUnique({
+                where: { id: view.crmOpportunityId },
+                select: { name: true },
+            }),
+            this.prisma.company.findFirst({
+                where: { code: QUOTATION_PDF_DEFAULT_COMPANY },
+                select: { name: true, address: true, tin: true },
+            }),
+        ])
+        return {
+            quotationNumber: view.quotationNumber,
+            revision: view.revision,
+            status: view.status,
+            currency: view.currency,
+            validUntil: view.validUntil,
+            createdAt: view.createdAt,
+            notes: view.notes,
+            subtotal: view.subtotal,
+            totalAmount: view.totalAmount,
+            lines: view.lines.map((line) => ({
+                lineNumber: line.lineNumber,
+                sku: line.sku,
+                description: line.description,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                lineTotal: line.lineTotal,
+            })),
+            customer: customer ?? { companyName: 'Unknown customer' },
+            opportunityName: opportunity?.name ?? null,
+            company,
+        }
     }
 
     async list(query: ListQuotationsQueryDto) {

@@ -14,6 +14,7 @@ import type { PrismaService } from '../../prisma/prisma.service'
 import { QuotationService } from '../../sd/quotation.service'
 import { SalesOrderService } from '../../sd/sales-order.service'
 import type { CrmActivitiesService } from '../activities/activities.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmOpportunitiesService } from './opportunities.service'
 import { CrmOpportunityHandoffService } from './opportunity-handoff.service'
 
@@ -228,7 +229,8 @@ function setup() {
         quotations,
     )
     const activities = { withNextActivity: async (rows: unknown[]) => rows } as unknown as CrmActivitiesService
-    const opportunities = new CrmOpportunitiesService(prisma, activities, quotations)
+    const messages = { recordSystem: jest.fn().mockResolvedValue({ count: 0 }) } as unknown as CrmMessagesService
+    const opportunities = new CrmOpportunitiesService(prisma, activities, quotations, messages)
     jest.spyOn(opportunities, 'findOne').mockImplementation(async (id: string) => {
         const row = db.opps.get(id)
         if (!row) throw new NotFoundException('Opportunity not found')
@@ -241,6 +243,7 @@ function setup() {
         salesOrders,
         permissions as unknown as PermissionsService,
         quotations,
+        messages,
     )
 
     const addOpportunity = (id: string, overrides: Row = {}) => {

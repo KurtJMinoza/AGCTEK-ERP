@@ -8,6 +8,7 @@ import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
 import type { QuotationService } from '../../sd/quotation.service'
 import { CrmActivitiesService } from '../activities/activities.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import type { UpdateOpportunityDto } from './dto/opportunity.dto'
 import { CrmOpportunitiesController } from './opportunities.controller'
 import {
@@ -72,6 +73,7 @@ function mockPrisma(
             count: jest.fn().mockResolvedValue(1),
         },
         crmActivity: { groupBy: jest.fn().mockResolvedValue([]) },
+        crmMessage: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
         $queryRaw: jest.fn(
             (strings: TemplateStringsArray): Promise<unknown[]> =>
                 Promise.resolve(strings.join('?').includes('FOR UPDATE') ? [{ id: 'opp-1' }] : []),
@@ -90,10 +92,17 @@ const service = (prisma: ReturnType<typeof mockPrisma>, quotations = mockQuotati
     prisma.$transaction.mockImplementation((arg: unknown) =>
         Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(prisma),
     )
+    const messages = new CrmMessagesService(
+        prisma as unknown as PrismaService,
+        new CrmActivitiesService(prisma as unknown as PrismaService),
+        {} as never,
+        {} as never,
+    )
     return new CrmOpportunitiesService(
         prisma as unknown as PrismaService,
         new CrmActivitiesService(prisma as unknown as PrismaService),
         quotations as unknown as QuotationService,
+        messages,
     )
 }
 
@@ -584,11 +593,11 @@ describe('Phase 2 pipeline quality', () => {
             expect(updateData(prisma)).toMatchObject({ customerId: 'cust-2' })
         })
 
-        it('leaves quotations alone for other edits and does not lock', async () => {
+        it('leaves quotations alone for non-quotation edits and does not lock', async () => {
             const prisma = mockPrisma()
             const quotations = mockQuotations()
 
-            await service(prisma, quotations).update('opp-1', { name: 'Renamed', stage: 'PROPOSAL' }, 'user-1')
+            await service(prisma, quotations).update('opp-1', { name: 'Renamed' }, 'user-1')
 
             expect(prisma.$transaction).not.toHaveBeenCalled()
             expect(quotations.findActiveForOpportunity).not.toHaveBeenCalled()
@@ -603,6 +612,128 @@ describe('Phase 2 pipeline quality', () => {
         )
         expect(meta.lostReasons).toContain('OTHER')
         expect(meta.lostReasonsRequiringNotes).toEqual(['OTHER'])
+    })
+})
+
+describe('audit SYSTEM messages (opportunity chatter feed)', () => {
+    /**
+     * Fake transaction client whose crmMessage writes only persist when the transaction
+     * resolves; a throw inside `fn` rolls every message back (no orphan rows).
+     */
+    const transactional = (
+        prisma: ReturnType<typeof mockPrisma>,
+        opts: { updateCount?: number } = {},
+    ) => {
+        const committed = { messages: [] as unknown[] }
+        prisma.crmOpportunity.updateMany = jest.fn(async () => ({ count: opts.updateCount ?? 1 }))
+        prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+            const temp: unknown[] = []
+            const tx = {
+                ...prisma,
+                crmMessage: {
+                    createMany: jest.fn(async ({ data }: { data: unknown[] }) => {
+                        temp.push(...data)
+                        return { count: data.length }
+                    }),
+                },
+            }
+            const result = await fn(tx)
+            committed.messages.push(...temp)
+            return result
+        })
+        return { committed }
+    }
+
+    it('writes stage and lost-reason SYSTEM messages in the same transaction as the update', async () => {
+        const prisma = mockPrisma()
+        const svc = service(prisma)
+        const { committed } = transactional(prisma)
+
+        await svc.update('opp-1', { stage: 'CLOSED_LOST', lostReason: 'PRICE' }, 'user-1')
+
+        expect(committed.messages).toHaveLength(2)
+        const [stage, lost] = committed.messages as { kind: string; metadata: Record<string, unknown>; authorId: string; opportunityId: string; createdAt: Date }[]
+        expect(stage).toEqual(
+            expect.objectContaining({
+                opportunityId: 'opp-1',
+                kind: 'SYSTEM',
+                authorId: 'user-1',
+                metadata: { field: 'stage', from: 'NEGOTIATION', to: 'CLOSED_LOST' },
+            }),
+        )
+        expect(stage.createdAt).toBeInstanceOf(Date)
+        expect(lost.metadata).toEqual({ field: 'lostReason', from: null, to: 'PRICE' })
+    })
+
+    it('audits owner, amount and expected-close changes', async () => {
+        const prisma = mockPrisma()
+        const svc = service(prisma)
+        const { committed } = transactional(prisma)
+
+        await svc.update(
+            'opp-1',
+            {
+                assignedTo: 'user-2',
+                amount: 2000,
+                expectedCloseDate: new Date('2026-11-30T00:00:00Z'),
+            },
+            'user-1',
+        )
+
+        const metadata = (committed.messages as { metadata: Record<string, unknown> }[]).map(
+            (m) => m.metadata,
+        )
+        expect(metadata).toContainEqual({ field: 'assignedTo', from: null, to: 'user-2' })
+        expect(metadata).toContainEqual({ field: 'amount', from: '1500.00', to: '2000.00' })
+        expect(metadata).toContainEqual({
+            field: 'expectedCloseDate',
+            from: '2026-12-31T00:00:00.000Z',
+            to: '2026-11-30T00:00:00.000Z',
+        })
+    })
+
+    it('summarizes a transition out of a closed stage as a reopen', async () => {
+        const prisma = mockPrisma({
+            opportunity: opportunity({ stage: 'CLOSED_LOST', closedAt: new Date() }),
+        })
+        const svc = service(prisma)
+        const { committed } = transactional(prisma)
+
+        await svc.update('opp-1', { stage: 'QUALIFICATION' }, 'user-1')
+
+        const [reopen] = committed.messages as { body: string; metadata: Record<string, unknown> }[]
+        expect(reopen.metadata).toEqual({ field: 'stage', from: 'CLOSED_LOST', to: 'QUALIFICATION' })
+        expect(reopen.body).toBe('Opportunity reopened to Qualification')
+    })
+
+    it('rolls back the SYSTEM message when the transaction fails afterwards', async () => {
+        const prisma = mockPrisma()
+        const quotations = mockQuotations()
+        quotations.cancelActiveForOpportunity.mockRejectedValue(new Error('cancel failed'))
+        const svc = service(prisma, quotations)
+        const { committed } = transactional(prisma)
+
+        await expect(
+            svc.update(
+                'opp-1',
+                { stage: 'CLOSED_LOST', lostReason: 'PRICE' },
+                'user-1',
+            ),
+        ).rejects.toThrow('cancel failed')
+
+        expect(committed.messages).toHaveLength(0)
+    })
+
+    it('leaves no orphan message when the optimistic update loses the race', async () => {
+        const prisma = mockPrisma()
+        const svc = service(prisma)
+        const { committed } = transactional(prisma, { updateCount: 0 })
+
+        await expect(
+            svc.update('opp-1', { stage: 'PROPOSAL' }, 'user-1'),
+        ).rejects.toThrow(/changed concurrently/)
+
+        expect(committed.messages).toHaveLength(0)
     })
 })
 

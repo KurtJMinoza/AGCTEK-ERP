@@ -164,6 +164,20 @@ export interface CustomerReturn {
     status: string
     estimatedValue: number
     totalQuantity: number
+    /** SD sales return that opened this intake (Phase 5 traceability). */
+    sdSalesReturn?: {
+        id: string
+        returnNumber: string
+        status: string
+        salesOrderId: string
+    } | null
+    /** Originating SCM damage report (Phase 5 traceability). */
+    damageReport?: {
+        id: string
+        reference: string
+        shipmentId: string
+        status: string
+    } | null
     createdAt: string
     updatedAt: string
     lines: CustomerReturnLine[]

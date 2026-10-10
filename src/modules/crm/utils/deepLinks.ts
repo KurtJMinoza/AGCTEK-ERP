@@ -17,6 +17,10 @@ export const CRM_PATHS = {
 
 export const opportunityHref = (id: string) => `${CRM_PATHS.opportunities}/${encodeURIComponent(id)}`
 
+/** `quotationId` may be a UUID or the literal `new`. */
+export const quotationHref = (opportunityId: string, quotationId: string) =>
+    `${opportunityHref(opportunityId)}/quotations/${encodeURIComponent(quotationId)}`
+
 type Query = Record<string, string | number | null | undefined>
 type SearchParamsLike = { get(name: string): string | null }
 

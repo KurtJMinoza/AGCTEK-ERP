@@ -1,16 +1,19 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Alert from '@/components/ui/Alert'
+import Button from '@/components/ui/Button'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable from '@/components/shared/DataTable'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { useShipments } from '../hooks/useShipments'
+import DamageReportDialog from '../components/shipments/DamageReportDialog'
 import { scmPageBreadcrumbs } from '../utils/breadcrumbs'
 import {
     formatMovementLabel,
@@ -40,6 +43,8 @@ const movementFilterOptions: Option[] = [
 export default function ShipmentsPage() {
     const { data, total, page, pageSize, loading, error, params, setParams } =
         useShipments()
+    const { canCreate } = useResourceAccess('scm.shipments')
+    const [reportFor, setReportFor] = useState<Shipment | null>(null)
 
     const columns = useMemo<ColumnDef<Shipment>[]>(
         () => [
@@ -99,8 +104,23 @@ export default function ShipmentsPage() {
                 cell: ({ row }) =>
                     new Date(row.original.updatedAt).toLocaleString(),
             },
+            {
+                id: 'damage',
+                header: '',
+                cell: ({ row }) =>
+                    canCreate &&
+                    (row.original.status === 'DELIVERED' ||
+                        row.original.status === 'EXCEPTION_HOLD') ? (
+                        <Button
+                            size="xs"
+                            onClick={() => setReportFor(row.original)}
+                        >
+                            Report damage
+                        </Button>
+                    ) : null,
+            },
         ],
-        [],
+        [canCreate],
     )
 
     return (
@@ -112,7 +132,12 @@ export default function ShipmentsPage() {
             />
 
             {error ? (
-                <Alert showIcon type="danger" className="mb-4" title="API error">
+                <Alert
+                    showIcon
+                    type="danger"
+                    className="mb-4"
+                    title="API error"
+                >
                     {error}
                 </Alert>
             ) : null}
@@ -144,7 +169,9 @@ export default function ShipmentsPage() {
                             setParams((current) => ({
                                 ...current,
                                 page: 1,
-                                status: (option as Option | null)?.value || undefined,
+                                status:
+                                    (option as Option | null)?.value ||
+                                    undefined,
                             }))
                         }
                     />
@@ -193,6 +220,12 @@ export default function ShipmentsPage() {
                     }
                 />
             </AdaptiveCard>
+
+            <DamageReportDialog
+                shipment={reportFor}
+                canCreate={canCreate}
+                onClose={() => setReportFor(null)}
+            />
         </PageContainer>
     )
 }

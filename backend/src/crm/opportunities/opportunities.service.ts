@@ -11,6 +11,11 @@ import { QuotationService } from '../../sd/quotation.service'
 import { CrmActivitiesService, overdueOpportunityWhere } from '../activities/activities.service'
 import { NO_NEXT_ACTIVITY } from '../activities/activity-status'
 import {
+    CrmMessagesService,
+    formatSystemLabel,
+    type SystemChange,
+} from '../messages/crm-messages.service'
+import {
     assertCustomerExists,
     assertUserExists,
     CRM_CUSTOMER_SUMMARY_SELECT,
@@ -124,6 +129,7 @@ export class CrmOpportunitiesService {
         private readonly prisma: PrismaService,
         private readonly activities: CrmActivitiesService,
         private readonly quotations: QuotationService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     async list(query: ListOpportunitiesQueryDto) {
@@ -389,38 +395,87 @@ export class CrmOpportunitiesService {
 
         const customerChanges = data.customerId !== undefined
         const closesLost = stageChanged && stageMeta(targetStage).isLost
-        const write = (client: Prisma.TransactionClient) =>
-            client.crmOpportunity.updateMany({
+        const systemChanges = this.systemChanges(current, dto, data, stageChanged)
+        /** Writes SYSTEM audit rows only for the fields that actually changed (never on a lost race). */
+        const write = async (client: Prisma.TransactionClient) => {
+            const updated = await client.crmOpportunity.updateMany({
                 where: { id, stage: current.stage, updatedAt: current.updatedAt },
                 data,
             })
-        const result =
-            customerChanges || closesLost
-                ? await this.prisma.$transaction(async (tx) => {
-                      await lockOpportunity(tx, id)
-                      if (customerChanges) {
-                          await this.quotations.expireOverdue(tx, id)
-                          const active = await this.quotations.findActiveForOpportunity(tx, id)
-                          if (active) {
-                              throw activeQuotationBlocks(active, 'cancel it before changing the customer')
-                          }
+            if (updated.count > 0 && systemChanges.length > 0) {
+                await this.messages.recordSystem(client, id, systemChanges, userId)
+            }
+            return updated
+        }
+        const needsTransaction = customerChanges || closesLost || systemChanges.length > 0
+        const result = needsTransaction
+            ? await this.prisma.$transaction(async (tx) => {
+                  if (customerChanges || closesLost) await lockOpportunity(tx, id)
+                  if (customerChanges) {
+                      await this.quotations.expireOverdue(tx, id)
+                      const active = await this.quotations.findActiveForOpportunity(tx, id)
+                      if (active) {
+                          throw activeQuotationBlocks(active, 'cancel it before changing the customer')
                       }
-                      const updated = await write(tx)
-                      if (updated.count > 0 && closesLost) {
-                          await this.quotations.cancelActiveForOpportunity(tx, id, {
-                              cancelledBy: userId,
-                              reason: `Opportunity closed as lost (${data.lostReason})`,
-                          })
-                      }
-                      return updated
-                  })
-                : await write(this.prisma)
+                  }
+                  const updated = await write(tx)
+                  if (updated.count > 0 && closesLost) {
+                      await this.quotations.cancelActiveForOpportunity(tx, id, {
+                          cancelledBy: userId,
+                          reason: `Opportunity closed as lost (${data.lostReason})`,
+                      })
+                  }
+                  return updated
+              })
+            : await write(this.prisma)
         if (result.count === 0) {
             throw new ConflictException(
                 'Opportunity changed concurrently, reload and retry',
             )
         }
         return this.findOne(id)
+    }
+
+    /**
+     * Audit feed entries for tracked changes (stage, owner, amount, expected close, lost reason).
+     * A transition out of a closed stage is rendered as a reopen. Non-tracked edits (name /
+     * description / currency / probability / customer / lead) stay silent.
+     */
+    private systemChanges(
+        current: OpportunityRow,
+        dto: UpdateOpportunityDto,
+        data: Prisma.CrmOpportunityUncheckedUpdateManyInput,
+        stageChanged: boolean,
+    ): SystemChange[] {
+        const changes: SystemChange[] = []
+        if (stageChanged && data.stage) {
+            changes.push({
+                field: 'stage',
+                from: current.stage,
+                to: data.stage,
+                summary:
+                    current.closedAt !== null
+                        ? `Opportunity reopened to ${formatSystemLabel(String(data.stage))}`
+                        : undefined,
+            })
+        }
+        if ('assignedTo' in data) {
+            changes.push({ field: 'assignedTo', from: current.assignedTo, to: data.assignedTo })
+        }
+        if ('amount' in data) {
+            changes.push({ field: 'amount', from: current.amount, to: data.amount })
+        }
+        if ('expectedCloseDate' in data) {
+            changes.push({
+                field: 'expectedCloseDate',
+                from: current.expectedCloseDate,
+                to: data.expectedCloseDate,
+            })
+        }
+        if ('lostReason' in data && dto.lostReason !== undefined) {
+            changes.push({ field: 'lostReason', from: current.lostReason, to: data.lostReason })
+        }
+        return changes
     }
 
     private async assertStageRequirements(

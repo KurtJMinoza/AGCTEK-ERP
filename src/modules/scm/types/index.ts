@@ -187,6 +187,8 @@ export type Shipment = {
     podPhotoUrl: string | null
     deliveredAt: string | null
     notes: string | null
+    /** Present on the shipment detail payload (Report Damage line picker). */
+    lines?: ShipmentLine[]
     createdAt: string
     updatedAt: string
 }
@@ -846,7 +848,12 @@ export type LoadPlanStatus =
 
 export type TripStopType = 'SHIP' | 'TO' | 'RETURN'
 
-type WarehouseRef = { id: string; code: string; name: string; address: string | null }
+type WarehouseRef = {
+    id: string
+    code: string
+    name: string
+    address: string | null
+}
 
 export type ShipmentLine = {
     id: string
@@ -878,6 +885,73 @@ export type ShipmentLine = {
     >
     shipFromWarehouse: WarehouseRef | null
     returnWarehouse: WarehouseRef | null
+}
+
+/** SCM damage report against a delivered shipment (customer return integration, Phase 2). */
+export type DamageReportSalesOrderStatus = 'RESOLVED' | 'UNRESOLVED'
+
+export type DamageReportStatus = 'SUBMITTED' | 'CANCELLED' | 'RETURN_CREATED'
+
+export type DamageReport = {
+    id: string
+    reference: string
+    companyId: string
+    shipmentId: string
+    shipment: {
+        id: string
+        reference: string
+        customerName: string | null
+        status: string
+        deliveredAt: string | null
+        exceptionCode: string | null
+        exceptionNote: string | null
+    }
+    shipmentLineId: string | null
+    shipmentLine: {
+        id: string
+        lineNo: number
+        materialCode: string | null
+        description: string | null
+        quantity: number
+    } | null
+    /** Original SD sales order id when the verifiable chain resolved one. */
+    salesOrderId: string | null
+    salesOrderStatus: DamageReportSalesOrderStatus
+    reportedBy: string
+    reportedAt: string
+    damagedQuantity: number
+    description: string
+    /** Evidence photo URLs (URL strings; there is no file-upload endpoint yet). */
+    photoUrls: string[] | null
+    status: DamageReportStatus
+    /** SD Sales Return created from this report (Phase 3 traceability back-reference). */
+    sdSalesReturnId: string | null
+    /** MM Customer Return Intake opened from this report (set from Phase 4). */
+    customerReturnId: string | null
+    createdAt: string
+    updatedAt: string
+    audits: {
+        id: string
+        action: string
+        performedBy: string | null
+        performedAt: string
+    }[]
+}
+
+export type InitiateSalesReturnResult = {
+    created: boolean
+    salesReturn: { id: string; returnNumber: string; status: string }
+    damageReport: DamageReport
+}
+
+export type CreateDamageReportInput = {
+    /** Omit to report the whole shipment. */
+    shipmentLineId?: string | null
+    damagedQuantity: number
+    description: string
+    photoUrls?: string[]
+    /** Optional client key so a double submit never creates two reports. */
+    idempotencyKey?: string
 }
 
 export type LoadPlanLine = {

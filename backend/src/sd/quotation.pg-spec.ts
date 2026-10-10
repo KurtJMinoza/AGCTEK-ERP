@@ -10,6 +10,7 @@
 import 'reflect-metadata'
 import { Prisma, PrismaClient } from '@prisma/client'
 import { CrmActivitiesService } from '../crm/activities/activities.service'
+import { CrmMessagesService } from '../crm/messages/crm-messages.service'
 import { CrmOpportunitiesService } from '../crm/opportunities/opportunities.service'
 import { CrmOpportunityHandoffService } from '../crm/opportunities/opportunity-handoff.service'
 import { CrmOpportunityQuotationsService } from '../crm/opportunities/opportunity-quotations.service'
@@ -89,9 +90,10 @@ describe('SD quotations on PostgreSQL', () => {
 
         const allow = { assertPermission: async () => undefined }
         quotations = new QuotationService(prisma as never)
-        opps = new CrmOpportunitiesService(prisma as never, new CrmActivitiesService(prisma as never), quotations)
+        const messages = new CrmMessagesService(prisma as never, new CrmActivitiesService(prisma as never), quotations, {} as never)
+        opps = new CrmOpportunitiesService(prisma as never, new CrmActivitiesService(prisma as never), quotations, messages)
         salesOrders = new SalesOrderService(prisma as never, {} as never, {} as never, {} as never, {} as never, quotations)
-        handoff = new CrmOpportunityHandoffService(prisma as never, opps, salesOrders, allow as never, quotations)
+        handoff = new CrmOpportunityHandoffService(prisma as never, opps, salesOrders, allow as never, quotations, messages)
         oppQuotes = new CrmOpportunityQuotationsService(prisma as never, quotations, allow as never)
     })
 

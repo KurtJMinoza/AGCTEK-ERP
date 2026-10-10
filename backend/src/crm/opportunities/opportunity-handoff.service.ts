@@ -10,6 +10,7 @@ import { PermissionsService } from '../../permissions/permissions.service'
 import { QuotationService } from '../../sd/quotation.service'
 import { SalesOrderService } from '../../sd/sales-order.service'
 import { CreateOpportunitySalesOrderDto, WinOpportunityDto } from './dto/opportunity.dto'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import {
     activeQuotationBlocks,
     CrmOpportunitiesService,
@@ -74,6 +75,7 @@ export class CrmOpportunityHandoffService {
         private readonly salesOrders: SalesOrderService,
         private readonly permissions: PermissionsService,
         private readonly quotations: QuotationService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     async salesOrder(id: string) {
@@ -98,9 +100,17 @@ export class CrmOpportunityHandoffService {
         const guard = { id, stage: current.stage, updatedAt: current.updatedAt }
         if (current.sdSalesOrderId) {
             // Re-winning after a reopen keeps the order created the first time.
-            const won = await this.prisma.crmOpportunity.updateMany({
-                where: { ...guard, sdSalesOrderId: current.sdSalesOrderId },
-                data: wonUpdateData(user.id),
+            const won = await this.prisma.$transaction(async (tx) => {
+                const result = await tx.crmOpportunity.updateMany({
+                    where: { ...guard, sdSalesOrderId: current.sdSalesOrderId },
+                    data: wonUpdateData(user.id),
+                })
+                if (result.count > 0) {
+                    await this.messages.recordSystem(tx, id, [
+                        { field: 'stage', from: current.stage, to: 'CLOSED_WON' },
+                    ], user.id)
+                }
+                return result
             })
             if (won.count === 0) throw new LinkConflict()
             return this.linkedResult(id, current.sdSalesOrderId)
@@ -195,6 +205,11 @@ export class CrmOpportunityHandoffService {
                     }
                     const linked = await link(tx, order.salesOrderId)
                     if (linked.count === 0) throw new LinkConflict()
+                    if (current.stage !== 'CLOSED_WON') {
+                        await this.messages.recordSystem(tx, current.id, [
+                            { field: 'stage', from: current.stage, to: 'CLOSED_WON' },
+                        ], user.id)
+                    }
                     return order
                 })
                 return this.result(

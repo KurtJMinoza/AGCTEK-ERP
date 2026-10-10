@@ -23,6 +23,9 @@ import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
 import { QuotationService } from './quotation.service'
 import { QuotationController } from './quotation.controller'
+import { QuotationPdfService } from './quotation-pdf.service'
+import { SalesReturnService } from './sales-return.service'
+import { SalesReturnController } from './sales-return.controller'
 import { SalesInvoiceService } from './sales-invoice.service'
 import { SdFulfillmentEventsListener } from './sd-fulfillment-events.listener'
 import { ReturnRequestService } from './return-request.service'
@@ -37,6 +40,7 @@ import { ReturnRequestController } from './return-request.controller'
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        SalesReturnController,
         ReturnRequestController,
     ],
     providers: [
@@ -55,6 +59,8 @@ import { ReturnRequestController } from './return-request.controller'
         SdMmPipelineService,
         SdMaterialReferenceService,
         QuotationService,
+        QuotationPdfService,
+        SalesReturnService,
         SalesInvoiceService,
         SdFulfillmentEventsListener,
         ReturnRequestService,
@@ -65,6 +71,7 @@ import { ReturnRequestController } from './return-request.controller'
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        SalesReturnService,
     ],
 })
 export class SdModule {}

@@ -1,6 +1,9 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
     ComplianceSummary,
+    CreateDamageReportInput,
+    DamageReport,
+    InitiateSalesReturnResult,
     DemandCellAdjustment,
     DemandHorizonKind,
     DemandHorizonPreset,
@@ -52,9 +55,12 @@ function toQuery(params?: ListParams) {
 }
 
 export async function apiGetVehicles(params?: ListParams) {
-    const { data } = await ErpAxiosBase.get<Paginated<Vehicle>>('/scm/vehicles', {
-        params: toQuery(params),
-    })
+    const { data } = await ErpAxiosBase.get<Paginated<Vehicle>>(
+        '/scm/vehicles',
+        {
+            params: toQuery(params),
+        },
+    )
     return data
 }
 
@@ -160,9 +166,68 @@ export async function apiCreateShipment(body: Partial<Shipment>) {
     return data
 }
 
+export async function apiGetShipment(id: string) {
+    const { data } = await ErpAxiosBase.get<Shipment>(
+        `/scm/shipments/${encodeURIComponent(id)}`,
+    )
+    return data
+}
+
 export async function apiDeleteShipment(id: string) {
     const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
         `/scm/shipments/${id}`,
+    )
+    return data
+}
+
+// ─── Delivery damage reports (customer return integration — Phase 2) ──────
+
+function damageReportsPath(shipmentId: string) {
+    return `/scm/shipments/${encodeURIComponent(shipmentId)}/damage-reports`
+}
+
+export async function apiGetShipmentDamageReports(
+    shipmentId: string,
+    params?: ListParams,
+) {
+    const { data } = await ErpAxiosBase.get<Paginated<DamageReport>>(
+        damageReportsPath(shipmentId),
+        { params: toQuery(params) },
+    )
+    return data
+}
+
+export async function apiCreateShipmentDamageReport(
+    shipmentId: string,
+    body: CreateDamageReportInput,
+) {
+    const { data } = await ErpAxiosBase.post<DamageReport>(
+        damageReportsPath(shipmentId),
+        body,
+    )
+    return data
+}
+
+export async function apiCancelDamageReport(
+    shipmentId: string,
+    reportId: string,
+    reason?: string,
+) {
+    const { data } = await ErpAxiosBase.post<DamageReport>(
+        `${damageReportsPath(shipmentId)}/${encodeURIComponent(reportId)}/cancel`,
+        reason ? { reason } : {},
+    )
+    return data
+}
+
+/** SCM → SD handoff: creates one REQUESTED Sales Return per report (idempotent). */
+export async function apiInitiateSalesReturn(
+    shipmentId: string,
+    reportId: string,
+) {
+    const { data } = await ErpAxiosBase.post<InitiateSalesReturnResult>(
+        `${damageReportsPath(shipmentId)}/${encodeURIComponent(reportId)}/initiate-return`,
+        {},
     )
     return data
 }
@@ -185,7 +250,9 @@ export async function apiGetLoadPlans(
 }
 
 export async function apiGetLoadPlan(id: string) {
-    const { data } = await ErpAxiosBase.get<LoadPlan>(`/scm/tms/load-plans/${id}`)
+    const { data } = await ErpAxiosBase.get<LoadPlan>(
+        `/scm/tms/load-plans/${id}`,
+    )
     return data
 }
 
@@ -193,15 +260,20 @@ export async function apiCreateLoadPlan(body: {
     vehicleId: string
     notes?: string | null
 }) {
-    const { data } = await ErpAxiosBase.post<LoadPlan>('/scm/tms/load-plans', body)
+    const { data } = await ErpAxiosBase.post<LoadPlan>(
+        '/scm/tms/load-plans',
+        body,
+    )
     return data
 }
 
 export async function apiGetAvailableShipmentLines(search?: string) {
-    const { data } = await ErpAxiosBase.get<{ data: ShipmentLine[]; total: number }>(
-        '/scm/tms/shipment-lines/available',
-        { params: search ? { search } : undefined },
-    )
+    const { data } = await ErpAxiosBase.get<{
+        data: ShipmentLine[]
+        total: number
+    }>('/scm/tms/shipment-lines/available', {
+        params: search ? { search } : undefined,
+    })
     return data
 }
 
@@ -281,7 +353,10 @@ export async function apiUpdateTmsTrip(
         notes?: string | null
     },
 ) {
-    const { data } = await ErpAxiosBase.patch<Trip>(`/scm/tms/trips/${id}`, body)
+    const { data } = await ErpAxiosBase.patch<Trip>(
+        `/scm/tms/trips/${id}`,
+        body,
+    )
     return data
 }
 
@@ -297,7 +372,9 @@ export async function apiTmsTripAction(
     id: string,
     action: 'validate' | 'dispatch' | 'cancel',
 ) {
-    const { data } = await ErpAxiosBase.post<Trip>(`/scm/tms/trips/${id}/${action}`)
+    const { data } = await ErpAxiosBase.post<Trip>(
+        `/scm/tms/trips/${id}/${action}`,
+    )
     return data
 }
 
@@ -534,7 +611,9 @@ export async function apiGetComplianceSummary() {
     return data
 }
 
-export async function apiGetGeofences(params?: ListParams & { kind?: string; active?: string }) {
+export async function apiGetGeofences(
+    params?: ListParams & { kind?: string; active?: string },
+) {
     const { data } = await ErpAxiosBase.get<Paginated<GeofenceZone>>(
         '/scm/geofences',
         {
