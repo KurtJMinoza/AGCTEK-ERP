@@ -497,6 +497,19 @@ export async function updateRetailSalesOrderStatus(
     }
 }
 
+/** Confirms a Draft sales order through SD's canonical MM fulfillment handoff. */
+export async function confirmSalesOrder(id: string): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/confirm`,
+        )
+        broadcastSalesOrderChanged()
+        return toRecord(data)
+    } catch (error) {
+        throw toError(error, 'Unable to confirm sales order')
+    }
+}
+
 /**
  * Admin: mark an order's demo payment Paid (bank transfer verified, COD
  * collected). When the payment allows fulfillment, the backend triggers
