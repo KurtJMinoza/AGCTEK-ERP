@@ -300,6 +300,28 @@ const MaterialsPage = () => {
                 ),
             },
             {
+                header: 'Batch / Serial',
+                id: 'batchSerial',
+                enableSorting: false,
+                size: 110,
+                cell: ({ row }) => {
+                    const m = row.original
+                    const flags = [
+                        m.batchManaged ? 'Batch' : null,
+                        m.serialManaged ? 'Serial' : null,
+                    ].filter(Boolean) as string[]
+                    if (flags.length === 0)
+                        return <span className="text-xs text-gray-400">—</span>
+                    return (
+                        <div className="flex flex-wrap gap-0.5">
+                            {flags.map((label) => (
+                                <Tag key={label} className="text-[10px] leading-tight">{label}</Tag>
+                            ))}
+                        </div>
+                    )
+                },
+            },
+            {
                 header: 'Tracking',
                 id: 'tracking',
                 enableSorting: false,
@@ -307,8 +329,6 @@ const MaterialsPage = () => {
                 cell: ({ row }) => {
                     const m = row.original
                     const flags = [
-                        m.batchManaged ? 'Batch' : null,
-                        m.serialManaged ? 'Serial' : null,
                         m.qualityInspectionRequired ? 'QC' : null,
                         m.expiryManaged ? 'Expiry' : null,
                     ].filter(Boolean) as string[]
