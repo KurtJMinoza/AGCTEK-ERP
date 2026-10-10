@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
@@ -30,6 +30,7 @@ import {
     HiOutlineCollection,
 } from 'react-icons/hi'
 import { pickingService } from '../services/pickingService'
+import { assignedWorkerName } from '../types'
 import { pickWaveService } from '../services/pickWaveService'
 import {
     useMmFilterRefs,
@@ -37,11 +38,13 @@ import {
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
+import Dialog from '@/components/ui/Dialog'
 import type {
     PickingTask,
     PickingQueryParams,
     CreatePickingTaskPayload,
     CreatePickWavePayload,
+    AssignableWorker,
     StorageBin,
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -112,7 +115,82 @@ const PickingPage = () => {
 
     const [assignOpen, setAssignOpen] = useState(false)
     const [assignTarget, setAssignTarget] = useState<PickingTask | null>(null)
-    const [assignUser, setAssignUser] = useState('')
+    const [assignGroupTasks, setAssignGroupTasks] = useState<PickingTask[]>([])
+    const [assignUserId, setAssignUserId] = useState('')
+    const [assignWorkers, setAssignWorkers] = useState<AssignableWorker[]>([])
+    const [tasksListOpen, setTasksListOpen] = useState(false)
+    const [tasksListGroup, setTasksListGroup] = useState<PickingTask[]>([])
+
+    /** Active workers for the assign dropdown (company-scoped by the API). */
+    useEffect(() => {
+        pickingService
+            .assignableUsers()
+            .then(setAssignWorkers)
+            .catch(() => undefined)
+    }, [])
+
+    const assignWorkerOptions = useMemo(
+        () =>
+            assignWorkers.map((w) => ({
+                value: w.id,
+                label: `${w.displayName} — ${w.email}`,
+            })),
+        [assignWorkers],
+    )
+
+    /**
+     * One aggregated row per Sales Order item: serial-managed stock creates
+     * one pick task per serial (qty 1 each), so the table shows the summed
+     * quantity with the Sales Order reference instead of 18 tiny rows.
+     */
+    const groupedTasks = useMemo(() => {
+        const STATUS_RANK: Record<string, number> = {
+            OPEN: 0,
+            ASSIGNED: 1,
+            IN_PROGRESS: 2,
+            PARTIALLY_PICKED: 3,
+            COMPLETED: 4,
+            CANCELLED: 5,
+        }
+        const groups = new Map<
+            string,
+            {
+                tasks: PickingTask[]
+                orderNumber: string | null
+                requiredQty: number
+                pickedQty: number
+                assignedNames: string[]
+                priority: number
+                status: string
+            }
+        >()
+        for (const t of tasks) {
+            const key = `${t.salesOrderId ?? 'no-so'}:${t.materialId}:${t.sourceBinId}`
+            let g = groups.get(key)
+            if (!g) {
+                g = {
+                    tasks: [],
+                    orderNumber: t.salesOrder?.orderNumber ?? null,
+                    requiredQty: 0,
+                    pickedQty: 0,
+                    assignedNames: [],
+                    priority: t.priority ?? 5,
+                    status: t.status,
+                }
+                groups.set(key, g)
+            }
+            g.tasks.push(t)
+            g.requiredQty += Number(t.requiredQty ?? 0)
+            g.pickedQty += Number(t.pickedQty ?? 0)
+            const name = assignedWorkerName(t.assignedUser, assignWorkers)
+            if (name && !g.assignedNames.includes(name)) g.assignedNames.push(name)
+            g.priority = Math.min(g.priority, t.priority ?? 5)
+            const rank = STATUS_RANK[t.status] ?? 99
+            const current = STATUS_RANK[g.status] ?? 99
+            if (rank < current) g.status = t.status
+        }
+        return [...groups.values()]
+    }, [tasks, assignWorkers])
 
     const [confirmOpen, setConfirmOpen] = useState(false)
     const [confirmTarget, setConfirmTarget] = useState<PickingTask | null>(null)
@@ -165,7 +243,7 @@ const PickingPage = () => {
     )
 
     const materialOptions = useMemo<FilterOption[]>(
-        () => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })),
+        () => materials.map((m) => ({ value: m.id, label: `${m.materialCode} â€” ${m.materialName}` })),
         [materials],
     )
 
@@ -223,23 +301,33 @@ const PickingPage = () => {
         }
     }, [waveForm, fetchTasks])
 
-    const openAssign = useCallback((task: PickingTask) => {
-        setAssignTarget(task)
-        setAssignUser(task.assignedUser || '')
-        setAssignOpen(true)
-    }, [])
+    const openAssign = useCallback(
+        (task: PickingTask, group?: PickingTask[]) => {
+            setAssignTarget(task)
+            setAssignGroupTasks(group && group.length > 1 ? group : [task])
+            setAssignUserId('')
+            setAssignOpen(true)
+        },
+        [],
+    )
 
     const handleAssign = useCallback(async () => {
         if (!assignTarget) return
+        const ids = assignGroupTasks.length ? assignGroupTasks.map((t) => t.id) : [assignTarget.id]
         try {
-            await pickingService.assign(assignTarget.id, { assignedUser: assignUser })
-            pushToast('success', 'Assigned', `Task ${assignTarget.taskNumber} assigned to ${assignUser}.`)
+            await Promise.all(ids.map((id) => pickingService.assign(id, { userId: assignUserId })))
+            const worker = assignWorkers.find((w) => w.id === assignUserId)
+            pushToast(
+                'success',
+                'Assigned',
+                `${ids.length} task(s) assigned to ${worker?.displayName ?? 'worker'}.`,
+            )
             setAssignOpen(false)
             fetchTasks()
         } catch (err: any) {
             pushToast('danger', 'Error', err?.response?.data?.message || 'Assign failed')
         }
-    }, [assignTarget, assignUser, fetchTasks])
+    }, [assignTarget, assignGroupTasks, assignUserId, assignWorkers, fetchTasks])
 
     const openConfirm = useCallback((task: PickingTask) => {
         setConfirmTarget(task)
@@ -281,11 +369,19 @@ const PickingPage = () => {
         }
     }, [fetchTasks])
 
-    const handleCheckBoxChange = useCallback((checked: boolean, row: PickingTask) => {
-        setSelectedRows((prev) => { const next = new Set(prev); checked ? next.add(row.id) : next.delete(row.id); return next })
+    const handleGroupCheckBoxChange = useCallback((checked: boolean, row: PickGroupRow) => {
+        setSelectedRows((prev) => {
+            const next = new Set(prev)
+            for (const t of row.tasks) { checked ? next.add(t.id) : next.delete(t.id) }
+            return next
+        })
     }, [])
-    const handleSelectAllChange = useCallback((checked: boolean, rows: { original: PickingTask }[]) => {
-        setSelectedRows((prev) => { const next = new Set(prev); for (const r of rows) { checked ? next.add(r.original.id) : next.delete(r.original.id) } return next })
+    const handleGroupSelectAllChange = useCallback((checked: boolean, rows: { original: PickGroupRow }[]) => {
+        setSelectedRows((prev) => {
+            const next = new Set(prev)
+            for (const r of rows) { for (const t of r.original.tasks) { checked ? next.add(t.id) : next.delete(t.id) } }
+            return next
+        })
     }, [])
     const handleBulkCancel = useCallback(async () => {
         setBulkCancelling(true)
@@ -305,117 +401,257 @@ const PickingPage = () => {
         })
     }, [])
 
-    const columns = useMemo<ColumnDef<PickingTask>[]>(
-        () => [
-            {
-                header: 'Task #',
-                accessorKey: 'taskNumber',
-                size: 130,
-                minSize: 110,
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap font-mono text-xs font-semibold text-primary">{row.original.taskNumber}</span>
-                ),
+    type PickGroupRow = {
+    key: string
+    tasks: PickingTask[]
+    orderNumber: string | null
+    material: PickingTask['material']
+    sourceBin: PickingTask['sourceBin']
+    requiredQty: number
+    pickedQty: number
+    assignedNames: string[]
+    priority: number
+    status: string
+}
+
+const groupRows = useMemo<PickGroupRow[]>(
+    () =>
+        groupedTasks.map((g) => ({
+            key: g.tasks[0]?.id ?? `${g.tasks.length}`,
+            tasks: g.tasks,
+            orderNumber: g.orderNumber,
+            material: g.tasks[0]?.material,
+            sourceBin: g.tasks[0]?.sourceBin,
+            requiredQty: g.requiredQty,
+            pickedQty: g.pickedQty,
+            assignedNames: g.assignedNames,
+            priority: g.priority,
+            status: g.status,
+        })),
+    [groupedTasks],
+)
+
+const openTasksList = (group: PickGroupRow) => {
+    setTasksListGroup(group.tasks)
+    setTasksListOpen(true)
+}
+
+const columns = useMemo<ColumnDef<PickGroupRow>[]>(
+    () => [
+        {
+            header: 'Picking Number',
+            accessorKey: 'tasks',
+            size: 150,
+            minSize: 120,
+            cell: ({ row }) => {
+                const first = row.original.tasks[0]
+                const count = row.original.tasks.length
+                return (
+                    <span className="whitespace-nowrap font-mono text-xs font-semibold text-primary">
+                        {first?.taskNumber ?? '—'}
+                        {count > 1 ? ` +${count - 1}` : ''}
+                    </span>
+                )
             },
-            {
-                header: 'Wave',
-                accessorKey: 'waveId',
-                size: 120,
-                minSize: 100,
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-sm">{row.original.wave?.waveNumber || '—'}</span>
-                ),
+        },
+        {
+            header: 'Sales Order',
+            accessorKey: 'orderNumber',
+            size: 130,
+            minSize: 110,
+            cell: ({ row }) => (
+                <span className="whitespace-nowrap font-mono text-xs">
+                    {row.original.orderNumber || '—'}
+                </span>
+            ),
+        },
+        {
+            header: 'Bin',
+            accessorKey: 'sourceBin',
+            size: 120,
+            minSize: 100,
+            cell: ({ row }) => (
+                <span className="whitespace-nowrap text-xs text-gray-500">
+                    {row.original.sourceBin?.code || '—'}
+                </span>
+            ),
+        },
+        {
+            header: 'Item',
+            accessorKey: 'material',
+            size: 240,
+            minSize: 180,
+            cell: ({ row }) => {
+                const m = row.original.material
+                return m ? (
+                    <span className="truncate text-sm">
+                        {m.materialCode} — {m.materialName}
+                    </span>
+                ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                )
             },
-            {
-                header: 'Source Bin',
-                accessorKey: 'sourceBinId',
-                size: 120,
-                minSize: 100,
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-xs text-gray-500">{row.original.sourceBin?.code || '—'}</span>
-                ),
+        },
+        {
+            header: 'Qty To Pick',
+            accessorKey: 'requiredQty',
+            size: 110,
+            minSize: 90,
+            cell: ({ row }) => (
+                <span className="text-sm font-medium">
+                    {row.original.requiredQty.toLocaleString()}
+                </span>
+            ),
+        },
+        {
+            header: 'Picked Qty',
+            accessorKey: 'pickedQty',
+            size: 110,
+            minSize: 90,
+            cell: ({ row }) => (
+                <span className="text-sm font-medium">
+                    {row.original.pickedQty.toLocaleString()}
+                </span>
+            ),
+        },
+        {
+            header: 'Assigned User',
+            accessorKey: 'assignedNames',
+            size: 160,
+            minSize: 110,
+            cell: ({ row }) => (
+                <span className="text-sm">
+                    {row.original.assignedNames.length ? (
+                        row.original.assignedNames.join(', ')
+                    ) : (
+                        <span className="text-gray-400">Unassigned</span>
+                    )}
+                </span>
+            ),
+        },
+        {
+            header: 'Priority',
+            accessorKey: 'priority',
+            size: 90,
+            minSize: 80,
+            cell: ({ row }) => {
+                const p = row.original.priority
+                const cls =
+                    PRIORITY_COLOR[p] ||
+                    'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                return (
+                    <Tag className={cls}>
+                        {p === 1 ? 'High' : p === 2 ? 'Medium' : 'Low'}
+                    </Tag>
+                )
             },
-            {
-                header: 'Material',
-                accessorKey: 'materialId',
-                size: 240,
-                minSize: 180,
-                cell: ({ row }) => {
-                    const m = row.original.material
-                    return m ? (
-                        <span className="truncate text-sm">{m.materialCode} — {m.materialName}</span>
-                    ) : <span className="text-sm text-gray-400">—</span>
-                },
+        },
+        {
+            header: 'Status',
+            accessorKey: 'status',
+            size: 130,
+            minSize: 110,
+            cell: ({ row }) => (
+                <StatusBadge
+                    tone={STATUS_TONE[row.original.status] ?? 'default'}
+                >
+                    {row.original.status.replace(/_/g, ' ')}
+                </StatusBadge>
+            ),
+        },
+        {
+            id: 'actions',
+            header: '',
+            enableSorting: false,
+            size: 64,
+            cell: ({ row }) => {
+                const g = row.original
+                const first = g.tasks[0]
+                const canAssign =
+                    g.status === 'OPEN' || g.status === 'ASSIGNED'
+                const canConfirm =
+                    g.tasks.length === 1 &&
+                    (g.status === 'ASSIGNED' ||
+                        g.status === 'IN_PROGRESS' ||
+                        g.status === 'PARTIALLY_PICKED')
+                const canCancel =
+                    g.status !== 'COMPLETED' && g.status !== 'CANCELLED'
+                return (
+                    <Dropdown
+                        renderTitle={<EllipsisButton />}
+                        placement="bottom-end"
+                    >
+                        {canAssign && first ? (
+                            <Dropdown.Item
+                                eventKey="assign"
+                                onClick={() => openAssign(first, g.tasks)}
+                            >
+                                <HiOutlineUserAdd className="text-base" />
+                                <span>Assign</span>
+                            </Dropdown.Item>
+                        ) : null}
+                        {g.tasks.length > 1 ? (
+                            <Dropdown.Item
+                                eventKey="tasks"
+                                onClick={() => openTasksList(g)}
+                            >
+                                <HiOutlineClipboardList className="text-base" />
+                                <span>Tasks ({g.tasks.length})</span>
+                            </Dropdown.Item>
+                        ) : null}
+                        {first && canConfirm ? (
+                            <Dropdown.Item
+                                eventKey="confirm"
+                                onClick={() => openConfirm(first)}
+                            >
+                                <HiOutlineCheckCircle className="text-base" />
+                                <span>Confirm Pick</span>
+                            </Dropdown.Item>
+                        ) : null}
+                        {canCancel ? (
+                            <Dropdown.Item
+                                eventKey="cancel"
+                                onClick={() => {
+                                    void Promise.all(
+                                        g.tasks.map((t) =>
+                                            pickingService.cancel(t.id),
+                                        ),
+                                    )
+                                        .then(() => {
+                                            pushToast(
+                                                'success',
+                                                'Cancelled',
+                                                `${g.tasks.length} task(s) cancelled.`,
+                                            )
+                                            fetchTasks()
+                                        })
+                                        .catch(() =>
+                                            pushToast(
+                                                'danger',
+                                                'Error',
+                                                'Some cancellations failed',
+                                            ),
+                                        )
+                                }}
+                            >
+                                <HiOutlineXCircle className="text-base text-red-500" />
+                                <span className="text-red-500">Cancel</span>
+                            </Dropdown.Item>
+                        ) : null}
+                    </Dropdown>
+                )
             },
-            {
-                header: 'Required Qty',
-                accessorKey: 'requiredQty',
-                size: 110,
-                minSize: 90,
-                cell: ({ row }) => <span className="text-sm font-medium">{row.original.requiredQty.toLocaleString()}</span>,
-            },
-            {
-                header: 'Picked Qty',
-                accessorKey: 'pickedQty',
-                size: 110,
-                minSize: 90,
-                cell: ({ row }) => <span className="text-sm font-medium">{row.original.pickedQty.toLocaleString()}</span>,
-            },
-            {
-                header: 'Worker',
-                accessorKey: 'assignedUser',
-                size: 140,
-                minSize: 110,
-                cell: ({ row }) => (
-                    <span className="text-sm">{row.original.assignedUser || <span className="text-gray-400">Unassigned</span>}</span>
-                ),
-            },
-            {
-                header: 'Priority',
-                accessorKey: 'priority',
-                size: 90,
-                minSize: 80,
-                cell: ({ row }) => {
-                    const p = row.original.priority
-                    const cls = PRIORITY_COLOR[p] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                    return <Tag className={cls}>{p === 1 ? 'High' : p === 2 ? 'Medium' : 'Low'}</Tag>
-                },
-            },
-            {
-                header: 'Status',
-                accessorKey: 'status',
-                size: 130,
-                minSize: 110,
-                cell: ({ row }) => <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status.replace(/_/g, ' ')}</StatusBadge>,
-            },
-            {
-                id: 'actions',
-                header: '',
-                enableSorting: false,
-                size: 56,
-                cell: ({ row }) => {
-                    const t = row.original
-                    const canAssign = t.status === 'OPEN' || t.status === 'ASSIGNED'
-                    const canConfirm = t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS' || t.status === 'PARTIALLY_PICKED'
-                    const canCancel = t.status !== 'COMPLETED' && t.status !== 'CANCELLED'
-                    return (
-                        <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                            {canAssign && <Dropdown.Item eventKey="assign" onClick={() => openAssign(t)}><HiOutlineUserAdd className="text-base" /><span>Assign</span></Dropdown.Item>}
-                            {canConfirm && <Dropdown.Item eventKey="confirm" onClick={() => openConfirm(t)}><HiOutlineCheckCircle className="text-base" /><span>Confirm Pick</span></Dropdown.Item>}
-                            {canCancel && <Dropdown.Item eventKey="cancel" onClick={() => handleCancel(t)}><HiOutlineXCircle className="text-base text-red-500" /><span className="text-red-500">Cancel</span></Dropdown.Item>}
-                        </Dropdown>
-                    )
-                },
-            },
-        ],
-        [openAssign, openConfirm, handleCancel],
-    )
+        },
+    ],
+    [openAssign, openConfirm, fetchTasks, pushToast],
+)
 
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Picking"
-                description="Reservation → pick task → bin strategy (FIFO/FEFO/Wave/Zone/Nearest) → scan confirm. Partial picks stay PARTIALLY_PICKED. Stock posts on Goods Issue."
+                description="Reservation â†’ pick task â†’ bin strategy (FIFO/FEFO/Wave/Zone/Nearest) â†’ scan confirm. Partial picks stay PARTIALLY_PICKED. Stock posts on Goods Issue."
                 actions={
                     <div className="flex gap-2">
                         <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Create Pick Task</Button>
@@ -436,7 +672,7 @@ const PickingPage = () => {
 
             <AdaptiveCard className="mt-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <Input prefix={<HiOutlineSearch className="text-lg" />} placeholder="Search task #, material…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+                    <Input prefix={<HiOutlineSearch className="text-lg" />} placeholder="Search task #, materialâ€¦" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
                     <Select<FilterOption> placeholder="Warehouse" options={warehouseOptions} value={warehouseOptions.find((o) => o.value === warehouseFilter)} onChange={(opt) => { setWarehouseFilter(opt?.value ?? ''); setPage(1) }} />
                 </div>
 
@@ -451,16 +687,16 @@ const PickingPage = () => {
                 )}
 
                 <div className="mt-4">
-                    <DataTable<PickingTask>
+                    <DataTable<PickGroupRow>
                         columns={columns}
-                        data={tasks}
+                        data={groupRows}
                         compact
                         loading={loading}
                         selectable
-                        checkboxChecked={(row) => selectedRows.has(row.id)}
-                        onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
-                        noData={!loading && tasks.length === 0}
+                        checkboxChecked={(row) => row.tasks.some((t) => selectedRows.has(t.id))}
+                        onCheckBoxChange={handleGroupCheckBoxChange}
+                        onIndeterminateCheckBoxChange={(checked, rows) => handleGroupSelectAllChange(checked, rows as any)}
+                        noData={!loading && groupRows.length === 0}
                         pagingData={{ total: meta.total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
@@ -485,8 +721,8 @@ const PickingPage = () => {
                 <FormItem label="Warehouse" asterisk>
                     <Select<FilterOption>
                         placeholder="Select warehouse"
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))}
-                        value={warehouses.filter((w) => w.id === createForm.warehouseId).map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))[0]}
+                        options={warehouses.map((w) => ({ value: w.id, label: `${w.code} â€” ${w.name}` }))}
+                        value={warehouses.filter((w) => w.id === createForm.warehouseId).map((w) => ({ value: w.id, label: `${w.code} â€” ${w.name}` }))[0]}
                         onChange={(opt) => { setCreateForm({ ...createForm, warehouseId: opt?.value ?? '' }); loadBins(opt?.value ?? '') }}
                     />
                 </FormItem>
@@ -542,8 +778,8 @@ const PickingPage = () => {
                 <FormItem label="Warehouse" asterisk>
                     <Select<FilterOption>
                         placeholder="Select warehouse"
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))}
-                        value={warehouses.filter((w) => w.id === waveForm.warehouseId).map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))[0]}
+                        options={warehouses.map((w) => ({ value: w.id, label: `${w.code} â€” ${w.name}` }))}
+                        value={warehouses.filter((w) => w.id === waveForm.warehouseId).map((w) => ({ value: w.id, label: `${w.code} â€” ${w.name}` }))[0]}
                         onChange={(opt) => { setWaveForm({ ...waveForm, warehouseId: opt?.value ?? '', taskIds: [] }); loadWaveTasks(opt?.value ?? '') }}
                     />
                 </FormItem>
@@ -559,7 +795,7 @@ const PickingPage = () => {
                     <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                         Select tasks to include ({waveForm.taskIds?.length || 0} selected)
                     </p>
-                    {waveTasksLoading && <p className="text-sm text-gray-400">Loading tasks…</p>}
+                    {waveTasksLoading && <p className="text-sm text-gray-400">Loading tasksâ€¦</p>}
                     {!waveTasksLoading && waveTasks.length === 0 && waveForm.warehouseId && (
                         <p className="text-sm text-gray-400">No open or assigned tasks found for this warehouse.</p>
                     )}
@@ -592,16 +828,92 @@ const PickingPage = () => {
                 footer={
                     <>
                         <Button size="sm" onClick={() => setAssignOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleAssign} disabled={!assignUser.trim()}>Assign</Button>
+                        <Button size="sm" variant="solid" onClick={handleAssign} disabled={!assignUserId.trim()}>Assign</Button>
                     </>
                 }
             >
                 <FormItem label="Assigned User" asterisk>
-                    <Input value={assignUser} onChange={(e) => setAssignUser(e.target.value)} placeholder="Enter username or worker ID" />
+                    <Select
+                        isSearchable
+                        placeholder="Search worker (name, email)…"
+                        options={assignWorkerOptions}
+                        value={
+                            assignWorkerOptions.find(
+                                (o) => o.value === assignUserId,
+                            ) ?? null
+                        }
+                        onChange={(option) =>
+                            setAssignUserId(option?.value ?? '')
+                        }
+                    />
                 </FormItem>
             </FormDialog>
 
-            {/* Confirm Pick Dialog — scan bin → material → batch/serial → qty */}
+            {/* Group tasks dialog (serial-managed stock: one task per serial) */}
+            <Dialog
+                isOpen={tasksListOpen}
+                width={560}
+                onClose={() => setTasksListOpen(false)}
+                onRequestClose={() => setTasksListOpen(false)}
+            >
+                <h5 className="mb-1 font-semibold text-gray-900 dark:text-gray-100">
+                    Pick tasks
+                </h5>
+                <p className="mb-3 text-sm text-gray-500">
+                    Serial-managed stock creates one picking task per serial.
+                    Confirm and cancel are per task (scan flow).
+                </p>
+                <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
+                    {tasksListGroup.map((t) => (
+                        <li
+                            key={t.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-gray-700"
+                        >
+                            <span className="min-w-0">
+                                <span className="font-mono text-xs font-semibold">
+                                    {t.taskNumber}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-500">
+                                    serial{' '}
+                                    {t.serialId
+                                        ? `…${t.serialId.slice(-6)}`
+                                        : 'n/a'}{' '}
+                                    · req {t.requiredQty} · {t.status}
+                                </span>
+                            </span>
+                            <span className="flex shrink-0 gap-1">
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    onClick={() => openAssign(t)}
+                                >
+                                    Assign
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    onClick={() => {
+                                        setTasksListOpen(false)
+                                        openConfirm(t)
+                                    }}
+                                >
+                                    Confirm
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    className="!text-red-500"
+                                    onClick={() => handleCancel(t)}
+                                >
+                                    Cancel
+                                </Button>
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            </Dialog>
+
+            {/* Confirm Pick Dialog â€” scan bin â†’ material â†’ batch/serial â†’ qty */}
             <FormDialog
                 isOpen={confirmOpen}
                 onClose={() => setConfirmOpen(false)}

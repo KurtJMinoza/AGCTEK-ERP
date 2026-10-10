@@ -38,7 +38,24 @@ export class PackingService {
     private readonly detailIncludes = {
         items: { include: { material: true } },
         warehouse: true,
-        pickingTask: true,
+        pickingTask: {
+            include: {
+                salesOrder: {
+                    select: {
+                        orderNumber: true,
+                        customerName: true,
+                        customerEmail: true,
+                        shipToName: true,
+                        shipToPhone: true,
+                        shipToAddressLine1: true,
+                        shipToCity: true,
+                        shipToRegion: true,
+                        shipToPostalCode: true,
+                        shipToCountry: true,
+                    },
+                },
+            },
+        },
         reservation: true,
         packingSession: true,
     }
@@ -178,15 +195,114 @@ export class PackingService {
             include: this.detailIncludes,
         })
         if (!pkg) throw new NotFoundException('Package not found')
-        return pkg
+        return {
+            ...pkg,
+            // Weight / dimensions prefilled from the Material Master (Physical
+            // fields). Non-persisted suggestion — the packer can override and
+            // values are saved on Seal.
+            suggestedMeasurements: this.suggestMeasurements(
+                pkg.items as unknown as Array<{
+                    expectedQty: unknown
+                    material?: {
+                        weight?: unknown
+                        weightUom?: string | null
+                        length?: unknown
+                        width?: unknown
+                        height?: unknown
+                        dimensionUom?: string | null
+                    } | null
+                }>,
+            ),
+        }
+    }
+
+    private static readonly WEIGHT_TO_KG: Record<string, number> = {
+        KG: 1, KGS: 1, KILOGRAM: 1, KILOGRAMS: 1,
+        G: 0.001, GRAM: 0.001, GRAMS: 0.001,
+        MG: 0.000001,
+        LB: 0.45359237, LBS: 0.45359237, POUND: 0.45359237, POUNDS: 0.45359237,
+        OZ: 0.028349523125, OUNCE: 0.028349523125, OUNCES: 0.028349523125,
+        T: 1000, TON: 1000, TONNE: 1000, TONNES: 1000,
+    }
+
+    private static readonly DIM_TO_CM: Record<string, number> = {
+        MM: 0.1, MILLIMETER: 0.1, MILLIMETERS: 0.1,
+        CM: 1, CENTIMETER: 1, CENTIMETERS: 1,
+        M: 100, METER: 100, METERS: 100,
+        IN: 2.54, INCH: 2.54, INCHES: 2.54,
+        FT: 30.48, FOOT: 30.48, FEET: 30.48,
+    }
+
+    /**
+     * Package measurement suggestion from Material Master physical fields.
+     * Weight = Σ(unit weight × qty) normalized to kg; L/W = largest unit
+     * footprint; H = stacked height. Returns nulls when materials have no
+     * physical data — the packer then enters values manually.
+     */
+    private suggestMeasurements(
+        items: Array<{
+            expectedQty: unknown
+            material?: {
+                weight?: unknown
+                weightUom?: string | null
+                length?: unknown
+                width?: unknown
+                height?: unknown
+                dimensionUom?: string | null
+            } | null
+        }>,
+    ) {
+        let weightKg = 0
+        let weightSeen = false
+        let length = 0
+        let width = 0
+        let height = 0
+        let dimSeen = false
+
+        for (const item of items) {
+            const m = item.material
+            if (!m) continue
+            const qty = Number(item.expectedQty) || 0
+
+            const unitWeight = Number(m.weight ?? 0)
+            if (unitWeight > 0) {
+                const unit = (m.weightUom ?? 'KG').toUpperCase()
+                weightKg +=
+                    unitWeight * (PackingService.WEIGHT_TO_KG[unit] ?? 1) * qty
+                weightSeen = true
+            }
+
+            const dimUnit = (m.dimensionUom ?? 'CM').toUpperCase()
+            const f = PackingService.DIM_TO_CM[dimUnit] ?? 1
+            const l = Number(m.length ?? 0)
+            const w = Number(m.width ?? 0)
+            const h = Number(m.height ?? 0)
+            if (l > 0 || w > 0 || h > 0) dimSeen = true
+            if (l > 0) length = Math.max(length, l * f)
+            if (w > 0) width = Math.max(width, w * f)
+            if (h > 0) height += h * f * qty
+        }
+
+        const round = (v: number, d = 2) =>
+            Math.round(v * 10 ** d) / 10 ** d
+
+        return {
+            weightKg: weightSeen ? round(weightKg, 3) : null,
+            length: dimSeen && length > 0 ? round(length) : null,
+            width: dimSeen && width > 0 ? round(width) : null,
+            height: dimSeen && height > 0 ? round(height) : null,
+            source: 'MATERIAL_MASTER' as const,
+        }
     }
 
     async create(dto: CreatePackageDto) {
         const packageNumber = await this.generateNextCode()
+        const companyId = await this.resolvePackageCompanyId(dto)
 
         return this.prisma.wmPackage.create({
             data: {
                 packageNumber,
+                companyId,
                 warehouseId: dto.warehouseId,
                 orderNumber: dto.orderNumber ?? null,
                 pickingTaskId: dto.pickingTaskId ?? null,
@@ -214,6 +330,41 @@ export class PackingService {
         })
     }
 
+    /**
+     * Every package carries the Sales Order companyId (Organization / MM
+     * company). It is resolved from the picking task, reservation or order
+     * number the package belongs to — never accepted from the client — so a
+     * package can never be created for a different company than its order.
+     */
+    private async resolvePackageCompanyId(
+        dto: CreatePackageDto,
+    ): Promise<string | null> {
+        if (dto.pickingTaskId) {
+            const pick = await this.prisma.wmPickingTask.findUnique({
+                where: { id: dto.pickingTaskId },
+                select: { companyId: true },
+            })
+            if (pick?.companyId) return pick.companyId
+        }
+        if (dto.reservationId) {
+            const reservation = await this.prisma.mmInventoryReservation.findUnique(
+                {
+                    where: { id: dto.reservationId },
+                    select: { companyId: true },
+                },
+            )
+            if (reservation?.companyId) return reservation.companyId
+        }
+        if (dto.orderNumber) {
+            const order = await this.prisma.sdSalesOrder.findUnique({
+                where: { orderNumber: dto.orderNumber },
+                select: { companyId: true },
+            })
+            return order?.companyId ?? null
+        }
+        return null
+    }
+
     async createFromPickingTask(pickingTaskId: string) {
         const task = await this.prisma.wmPickingTask.findUnique({
             where: { id: pickingTaskId },
@@ -226,9 +377,20 @@ export class PackingService {
 
         const session = await this.openSessionFromPicking(pickingTaskId)
 
+        // Sales orders win over reservation/source numbers so the Package
+        // "Order" column always shows the commercial order (SO-00000X).
+        let orderNumber = task.sourceDocument ?? task.taskNumber
+        if (task.salesOrderId) {
+            const so = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: task.salesOrderId },
+                select: { orderNumber: true },
+            })
+            if (so?.orderNumber) orderNumber = so.orderNumber
+        }
+
         return this.create({
             warehouseId: task.warehouseId,
-            orderNumber: task.sourceDocument ?? task.taskNumber,
+            orderNumber,
             pickingTaskId: task.id,
             packingSessionId: session.id,
             reservationId: task.reservationId ?? undefined,
@@ -250,6 +412,7 @@ export class PackingService {
         batchId?: string | null,
         serialId?: string | null,
         idempotencyKey?: string,
+        user?: { id: string; userName: string } | null,
     ) {
         const pkg = await this.findOne(packageId)
         if (['SEALED', 'READY_FOR_DISPATCH', 'DISPATCHED'].includes(pkg.status)) {
@@ -289,6 +452,23 @@ export class PackingService {
             throw new BadRequestException('Serial is required when packing serial-managed material')
         }
 
+        // Packer tracking — stamped once, from the first scan (dropdown, QR or
+        // barcode); the name is a snapshot so it survives user renames.
+        let packedById: string | null = null
+        let packedByName: string | null = null
+        if (user?.id && !item.packedById) {
+            const packer = await this.prisma.user.findUnique({
+                where: { id: user.id },
+                select: { firstName: true, lastName: true, userName: true },
+            })
+            packedById = user.id
+            packedByName =
+                [packer?.firstName, packer?.lastName]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim() || packer?.userName || user.userName
+        }
+
         const newScanned = new Decimal(item.scannedQty).plus(quantity)
         if (newScanned.gt(item.expectedQty)) {
             throw new BadRequestException(
@@ -304,6 +484,9 @@ export class PackingService {
                 status: newStatus,
                 ...(batchId && !item.batchId ? { batchId } : {}),
                 ...(serialId && !item.serialId ? { serialId } : {}),
+                ...(packedById
+                    ? { packedById, packedByName }
+                    : {}),
             },
             include: { material: true },
         })
@@ -335,7 +518,15 @@ export class PackingService {
         })
     }
 
-    async seal(id: string) {
+    async seal(
+        id: string,
+        measurements?: {
+            weight?: number
+            length?: number
+            width?: number
+            height?: number
+        },
+    ) {
         const pkg = await this.findOne(id)
         if (pkg.status !== 'VERIFIED') {
             throw new BadRequestException('Only VERIFIED packages can be sealed')
@@ -354,7 +545,21 @@ export class PackingService {
         }
         return this.prisma.wmPackage.update({
             where: { id },
-            data: { status: 'SEALED' },
+            data: {
+                status: 'SEALED',
+                ...(measurements?.weight !== undefined
+                    ? { weight: measurements.weight }
+                    : {}),
+                ...(measurements?.length !== undefined
+                    ? { length: measurements.length }
+                    : {}),
+                ...(measurements?.width !== undefined
+                    ? { width: measurements.width }
+                    : {}),
+                ...(measurements?.height !== undefined
+                    ? { height: measurements.height }
+                    : {}),
+            },
             include: this.detailIncludes,
         })
     }

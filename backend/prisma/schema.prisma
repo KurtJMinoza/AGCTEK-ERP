@@ -279,6 +279,7 @@ model Company {
   sdProductMaterialAssignments SdProductMaterialAssignment[]
   sdBranchFulfillments         SdBranchFulfillment[]
   sdFulfillments               SdFulfillment[]
+  sdSalesOrderPayments         SdSalesOrderPayment[]
   ppBillOfMaterials            PpBillOfMaterial[]
   ppProductionOrders           PpProductionOrder[]
   plants                       Plant[]
@@ -845,6 +846,10 @@ model WmPackageItem {
   scannedQty  Decimal    @default(0)
   batchId     String?
   serialId    String?
+  /// User who packed this item (stamped on first scan — whichever way it was
+  /// scanned: dropdown or QR/barcode). Name is a snapshot for display.
+  packedById   String?
+  packedByName String?
   status      String     @default("PENDING")
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -3911,6 +3916,13 @@ model SdSalesOrder {
   /// POS cash tendered / change given
   paymentReceived    Decimal?
   changeAmount       Decimal?
+  /// Payment method selected at checkout (e.g. COD, CARD_DEMO, WALLET_DEMO …)
+  paymentMethod      String?
+  /// Mirror of the payment record status for list/display.
+  paymentStatus      String?
+  paymentReference   String?
+  paymentProvider    String?
+  isDemoPayment      Boolean            @default(false)
   /// DRAFT | CONFIRMED | COMPLETED | CANCELLED
   status             String             @default("DRAFT")
   correlationId      String
@@ -3928,6 +3940,7 @@ model SdSalesOrder {
   pickingTasks       WmPickingTask[]  @relation("SdOrderPickingTasks")
   invoices           SdSalesInvoice[]
   returnRequests     SdReturnRequest[]
+  payments           SdSalesOrderPayment[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -3952,6 +3965,12 @@ model SdSalesOrderLine {
   material            MmMaterial?         @relation(fields: [materialId], references: [id], onDelete: Restrict)
   sku                 String?
   description         String?
+  /// Stamped at MM enrichment: the Organization / Materials Management company.
+  companyId           String?
+  /// Commercial snapshots so order history keeps showing the right name/photo
+  /// even when the catalog product or its image changes later.
+  productNameSnapshot String?
+  productImageSnapshot String?
   unitPrice           Decimal?
   lineTotal           Decimal?
   /// Commercial sales quantity (sales UOM).
@@ -4224,6 +4243,33 @@ model SdReturnRequestLine {
   @@unique([returnRequestId, salesOrderLineId])
   @@index([salesOrderLineId])
   @@map("sd_return_request_lines")
+}
+
+/** Demo-mode checkout payment record. Real gateways are NOT connected. */
+model SdSalesOrderPayment {
+  id              String        @id @default(cuid())
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrderId    String
+  salesOrder      SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  customerId      String
+  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO
+  paymentMethod   String
+  paymentProvider String?
+  amount          Decimal
+  currency        String        @default("PHP")
+  /// Pending | Pending Collection | Pending Verification | Authorized | Paid | Failed | Cancelled | Refunded
+  status          String        @default("Pending")
+  referenceNumber String?
+  isDemo          Boolean       @default(true)
+  paidAt          DateTime?
+  createdBy       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([companyId, status])
+  @@index([salesOrderId])
+  @@map("sd_sales_order_payments")
 }
 
 model SdEventOutbox {

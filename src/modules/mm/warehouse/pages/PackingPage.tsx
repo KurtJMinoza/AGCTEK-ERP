@@ -98,6 +98,8 @@ const PackingPage = () => {
     const [detailLoading, setDetailLoading] = useState(false)
     const [scanMaterialId, setScanMaterialId] = useState('')
     const [scanLoading, setScanLoading] = useState(false)
+    const [qrCode, setQrCode] = useState('')
+    const [qrLoading, setQrLoading] = useState(false)
 
     const [sealWeight, setSealWeight] = useState('')
     const [sealLength, setSealLength] = useState('')
@@ -192,6 +194,7 @@ const PackingPage = () => {
         setDetailOpen(true)
         setDetailLoading(true)
         setScanMaterialId('')
+        setQrCode('')
         setSealWeight('')
         setSealLength('')
         setSealWidth('')
@@ -200,18 +203,40 @@ const PackingPage = () => {
         setDispatchTracking('')
         setShipToName(pkg.shipToName ?? '')
         setShipToAddress(pkg.shipToAddress ?? '')
+        // The Scan Item dropdown needs the material master loaded.
+        void ensureMaterials()
         try {
             const full = await packingService.get(pkg.id)
             setDetailPkg(full)
-            setShipToName(full.shipToName ?? '')
-            setShipToAddress(full.shipToAddress ?? '')
+            // Ship-to comes from the customer's order (via the picking task);
+            // fall back to whatever is already stored on the package.
+            const so = full.pickingTask?.salesOrder
+            const composedAddress = [
+                so?.shipToAddressLine1,
+                so?.shipToCity,
+                so?.shipToRegion,
+                so?.shipToPostalCode,
+                so?.shipToCountry,
+            ]
+                .filter(Boolean)
+                .join(', ')
+            setShipToName(
+                full.shipToName ?? so?.shipToName ?? so?.customerName ?? '',
+            )
+            setShipToAddress(full.shipToAddress ?? composedAddress ?? '')
+            // Weight / L × W × H prefilled from the Material Master physical fields.
+            const sm = full.suggestedMeasurements
+            setSealWeight(sm?.weightKg ? String(sm.weightKg) : '')
+            setSealLength(sm?.length ? String(sm.length) : '')
+            setSealWidth(sm?.width ? String(sm.width) : '')
+            setSealHeight(sm?.height ? String(sm.height) : '')
         } catch {
             pushToast('danger', 'Error', 'Failed to load package details')
             setDetailOpen(false)
         } finally {
             setDetailLoading(false)
         }
-    }, [])
+    }, [ensureMaterials])
 
     const refreshDetail = useCallback(async () => {
         if (!detailPkg) return
@@ -227,16 +252,63 @@ const PackingPage = () => {
         if (!detailPkg || !scanMaterialId) return
         setScanLoading(true)
         try {
-            await packingService.scanItem(detailPkg.id, { materialId: scanMaterialId })
-            pushToast('success', 'Scanned', 'Item scanned successfully.')
+            const result = await packingService.scanItem(detailPkg.id, { materialId: scanMaterialId })
+            pushToast(
+                'success',
+                'Scanned',
+                result.packedByName
+                    ? `Packed by ${result.packedByName}.`
+                    : 'Item scanned successfully.',
+            )
             setScanMaterialId('')
             await refreshDetail()
+            fetchPackages()
         } catch (err: any) {
             pushToast('danger', 'Scan error', err?.response?.data?.message || 'Scan failed')
         } finally {
             setScanLoading(false)
         }
-    }, [detailPkg, scanMaterialId, refreshDetail])
+    }, [detailPkg, scanMaterialId, refreshDetail, fetchPackages])
+
+    const handleQrScan = useCallback(async () => {
+        if (!detailPkg || !qrCode.trim()) return
+        setQrLoading(true)
+        try {
+            const hit = await packingService.resolveCode(qrCode.trim())
+            const materialId = hit.materialId ?? hit.serial?.materialId ?? hit.batch?.materialId
+            if (!materialId) {
+                pushToast(
+                    'danger',
+                    'QR scan',
+                    `Code resolved to ${hit.type} — scan a material, batch or serial code.`,
+                )
+                return
+            }
+            const result = await packingService.scanItem(detailPkg.id, {
+                materialId,
+                batchId: hit.batchId,
+                serialId: hit.serialNumberId,
+            })
+            pushToast(
+                'success',
+                'QR scanned',
+                result.packedByName
+                    ? `${result.material?.materialCode ?? 'Item'} packed by ${result.packedByName}.`
+                    : `${result.material?.materialCode ?? 'Item'} scanned.`,
+            )
+            setQrCode('')
+            await refreshDetail()
+            fetchPackages()
+        } catch (err: any) {
+            pushToast(
+                'danger',
+                'QR scan failed',
+                err?.response?.data?.message || 'Could not resolve / scan this code',
+            )
+        } finally {
+            setQrLoading(false)
+        }
+    }, [detailPkg, qrCode, refreshDetail, fetchPackages])
 
     const handleVerify = useCallback(async () => {
         if (!detailPkg) return
@@ -257,14 +329,19 @@ const PackingPage = () => {
     const handleSeal = useCallback(async () => {
         if (!detailPkg) return
         try {
-            await packingService.seal(detailPkg.id)
+            await packingService.seal(detailPkg.id, {
+                weight: sealWeight.trim() ? Number(sealWeight) : undefined,
+                length: sealLength.trim() ? Number(sealLength) : undefined,
+                width: sealWidth.trim() ? Number(sealWidth) : undefined,
+                height: sealHeight.trim() ? Number(sealHeight) : undefined,
+            })
             pushToast('success', 'Sealed', `Package ${detailPkg.packageNumber} sealed.`)
             await refreshDetail()
             fetchPackages()
         } catch (err: any) {
             pushToast('danger', 'Error', err?.response?.data?.message || 'Seal failed')
         }
-    }, [detailPkg, refreshDetail, fetchPackages])
+    }, [detailPkg, sealWeight, sealLength, sealWidth, sealHeight, refreshDetail, fetchPackages])
 
     const handleReadyForDispatch = useCallback(async () => {
         if (!detailPkg) return
@@ -629,6 +706,7 @@ const PackingPage = () => {
                                         <th className="px-3 py-2 text-left font-medium text-gray-500">Material</th>
                                         <th className="px-3 py-2 text-right font-medium text-gray-500">Expected</th>
                                         <th className="px-3 py-2 text-right font-medium text-gray-500">Scanned</th>
+                                        <th className="px-3 py-2 text-left font-medium text-gray-500">Packed By</th>
                                         <th className="px-3 py-2 text-left font-medium text-gray-500">Status</th>
                                     </tr>
                                 </thead>
@@ -646,6 +724,9 @@ const PackingPage = () => {
                                                 <td className={`px-3 py-2 text-right font-medium ${shortfall ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                                     {item.scannedQty}
                                                 </td>
+                                                <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                                                    {item.packedByName || '—'}
+                                                </td>
                                                 <td className="px-3 py-2">
                                                     {shortfall
                                                         ? <Tag className="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300">Pending</Tag>
@@ -656,7 +737,7 @@ const PackingPage = () => {
                                         )
                                     })}
                                     {(!detailPkg.items || detailPkg.items.length === 0) && (
-                                        <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No items</td></tr>
+                                        <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400">No items</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -664,19 +745,42 @@ const PackingPage = () => {
                         </div>
 
                         {(detailPkg.status === 'OPEN' || detailPkg.status === 'PACKING') && (
-                            <div className="mt-4 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
-                                <div className="flex-1">
-                                    <FormItem label="Scan Item">
-                                        <Select<FilterOption>
-                                            size="sm"
-                                            placeholder="Select material to scan"
-                                            options={materialOptions}
-                                            value={materialOptions.find((o) => o.value === scanMaterialId)}
-                                            onChange={(opt) => setScanMaterialId(opt?.value ?? '')}
-                                        />
-                                    </FormItem>
+                            <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <FormItem label="Scan QR / barcode">
+                                            <Input
+                                                size="sm"
+                                                placeholder="Scan or paste a QR / barcode, then press Enter"
+                                                value={qrCode}
+                                                onChange={(e) => setQrCode(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        void handleQrScan()
+                                                    }
+                                                }}
+                                            />
+                                        </FormItem>
+                                    </div>
+                                    <Button size="sm" variant="solid" icon={<HiOutlineQrcode />} loading={qrLoading} onClick={handleQrScan} disabled={!qrCode.trim()}>
+                                        Scan QR
+                                    </Button>
                                 </div>
-                                <Button size="sm" variant="solid" icon={<HiOutlineQrcode />} loading={scanLoading} onClick={handleScan} disabled={!scanMaterialId}>Scan</Button>
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <FormItem label="Or select material">
+                                            <Select<FilterOption>
+                                                size="sm"
+                                                placeholder="Select material to scan"
+                                                options={materialOptions}
+                                                value={materialOptions.find((o) => o.value === scanMaterialId)}
+                                                onChange={(opt) => setScanMaterialId(opt?.value ?? '')}
+                                            />
+                                        </FormItem>
+                                    </div>
+                                    <Button size="sm" variant="solid" icon={<HiOutlineCheckCircle />} loading={scanLoading} onClick={handleScan} disabled={!scanMaterialId}>Scan</Button>
+                                </div>
                             </div>
                         )}
 

@@ -1,5 +1,4 @@
-import {
-    Injectable,
+import { Injectable,
     NotFoundException,
     BadRequestException,
     Inject,
@@ -9,6 +8,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service'
 import { WarehouseTaskService } from '../tasks/warehouse-task.service'
 import { PackingService } from '../packing/packing.service'
+import { AllocationEngineService } from '../../inventory/reservation-allocation/allocation-engine.service'
 import { CreatePickingDto } from './dto/create-picking.dto'
 import { PickingQueryDto } from './dto/picking-query.dto'
 import { ConfirmPickingDto } from './dto/confirm-picking.dto'
@@ -26,6 +26,10 @@ export class PickingService {
         private warehouseTasks: WarehouseTaskService,
         /** Auto packing on pick completion (ecommerce flow) — optional to keep manual use intact. */
         @Optional() private packing?: PackingService,
+        /** Reservation/allocation pick-progress echo (header → FULLY_PICKED). */
+        @Inject(forwardRef(() => AllocationEngineService))
+        @Optional()
+        private allocations?: AllocationEngineService,
     ) {}
 
     private readonly includes = {
@@ -34,6 +38,8 @@ export class PickingService {
         wave: true,
         warehouse: true,
         reservation: true,
+        salesOrder: { select: { orderNumber: true, status: true } },
+        salesOrderLine: { select: { id: true, sku: true } },
     }
 
     async findAll(query: PickingQueryDto) {
@@ -246,6 +252,16 @@ export class PickingService {
         if (task.status !== 'OPEN' && task.status !== 'ASSIGNED') {
             throw new BadRequestException('Only OPEN tasks can be assigned')
         }
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            include: { companies: { select: { companyId: true } } },
+        })
+        if (!user || !user.isActive) {
+            throw new BadRequestException(
+                'The assigned worker must be an active user account',
+            )
+        }
+        this.assertUserCompanyAllowed(task.companyId, user.companies)
         if (task.warehouseTaskId) {
             await this.warehouseTasks.assign(task.warehouseTaskId, userId)
             return this.findOne(id)
@@ -255,6 +271,88 @@ export class PickingService {
             data: { assignedUser: userId, status: 'ASSIGNED' },
             include: this.includes,
         })
+    }
+
+    /**
+     * Workers that may be assigned to picking tasks: active user accounts,
+     * company-scoped when Organization user-company links exist (cross-company
+     * assignment is never allowed). With no links (single-company org) every
+     * active worker is assignable.
+     */
+    async assignableUsers(
+        companyId?: string,
+        _warehouseId?: string,
+    ): Promise<
+        Array<{
+            id: string
+            userId: string
+            employeeId: string | null
+            displayName: string
+            email: string
+            role: string
+            companyId: string | null
+            warehouseId: string | null
+            isActive: boolean
+        }>
+    > {
+        const links = companyId
+            ? await this.prisma.userCompany.findMany({
+                  where: { companyId },
+                  select: { userId: true },
+              })
+            : await this.prisma.userCompany.findMany({
+                  select: { userId: true, companyId: true },
+                  take: 1,
+              })
+
+        const linkedUserIds = new Set(links.map((l) => l.userId))
+        const users = await this.prisma.user.findMany({
+            where: {
+                isActive: true,
+                ...(links.length && linkedUserIds.size > 0
+                    ? { id: { in: [...linkedUserIds] } }
+                    : {}),
+            },
+            orderBy: { firstName: 'asc' },
+            select: {
+                id: true,
+                email: true,
+                userName: true,
+                firstName: true,
+                lastName: true,
+                jobPosition: true,
+                role: true,
+                isActive: true,
+                companies: { select: { companyId: true } },
+            },
+        })
+
+        return users.map((u) => ({
+            id: u.id,
+            userId: u.id,
+            employeeId: null,
+            displayName: [u.firstName, u.lastName].filter(Boolean).join(' '),
+            email: u.email,
+            role: u.role,
+            companyId: u.companies[0]?.companyId ?? null,
+            warehouseId: null,
+            isActive: u.isActive,
+        }))
+    }
+
+    private assertUserCompanyAllowed(
+        taskCompanyId: string | null,
+        userCompanies: Array<{ companyId: string }>,
+    ) {
+        // No task company (internal manual tasks) — no cross-company risk.
+        if (!taskCompanyId) return
+        // No user-company links exist anywhere (single-company org) — allow.
+        if (userCompanies.length === 0) return
+        if (!userCompanies.some((uc) => uc.companyId === taskCompanyId)) {
+            throw new BadRequestException(
+                'Cannot assign a worker from another company',
+            )
+        }
     }
 
     async confirmPick(id: string, dto: ConfirmPickingDto) {
@@ -271,7 +369,20 @@ export class PickingService {
                 performedBy: task.assignedUser ?? undefined,
                 idempotencyKey: dto.idempotencyKey,
             })
-            return this.findOne(id)
+            const completed = await this.findOne(id)
+            // Echo pick progress into reservation/allocation state.
+            if (completed.allocationLineId) {
+                await this.allocations?.recordPick(
+                    completed.allocationLineId,
+                    new Decimal(dto.pickedQty),
+                )
+            }
+            // Warehouse-task-bridged picks returned early before — ensure the
+            // ecommerce chain (packing session + package) opens on completion.
+            if (completed.status === 'COMPLETED') {
+                await this.autoOpenPacking(id)
+            }
+            return completed
         }
 
         if (dto.idempotencyKey) {
@@ -359,6 +470,15 @@ export class PickingService {
 
         if (task.waveId) {
             await this.syncWaveProgress(task.waveId)
+        }
+
+        // Echo pick progress into reservation/allocation state (allocation
+        // line → COMPLETED, reservation line pickedQuantity, header status).
+        if (task.allocationLineId) {
+            await this.allocations?.recordPick(
+                task.allocationLineId,
+                new Decimal(dto.pickedQty),
+            )
         }
 
         // Ecommerce chain: a fully picked task auto-creates its packing session.

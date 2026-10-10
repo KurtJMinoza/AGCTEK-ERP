@@ -28,6 +28,8 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import {
+    PAYMENT_METHOD_LABEL,
+    markOrderPaymentPaid,
     summarizeSalesOrders,
     type RetailStatusTarget,
     type SalesOrderChannel,
@@ -36,23 +38,12 @@ import {
 } from '../services/salesOrderDashboardService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
+import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const { TabList, TabNav } = Tabs
 
 type ChannelFilter = 'all' | SalesOrderChannel
-
-const DIVISION_LABEL: Record<string, string> = {
-    DIV_RETAIL: 'AWIC',
-    DIV_LPG: 'LPG',
-    DIV_APPLIANCES: 'MCONPINCO',
-}
-
-const divisionLabel = (divisionId: string | null) =>
-    divisionId ? (DIVISION_LABEL[divisionId] ?? divisionId) : '—'
-
-const divisionsLabel = (divisionIds: string[]) =>
-    divisionIds.length ? divisionIds.map(divisionLabel).join(', ') : '—'
 
 const ROUTE_PATH = '/modules/sd/sales-orders'
 const REFRESH_INTERVAL_MS = 30_000
@@ -68,6 +59,8 @@ const DATE_RANGE_OPTIONS: DateRangeOption[] = [
 ]
 
 type BranchFilterOption = { value: string; label: string }
+
+type CompanyFilterOption = { value: string; label: string }
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -129,11 +122,6 @@ const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
                 <div className="text-xs text-gray-500">{row.original.name}</div>
             </div>
         ),
-    },
-    {
-        header: 'Division',
-        id: 'division',
-        cell: ({ row }) => divisionLabel(row.original.divisionId),
     },
     { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
     {
@@ -207,6 +195,33 @@ const SalesOrdersDashboard = () => {
         [branches],
     )
 
+    /** Organization / MM companies for the company scope filter. */
+    const [companyOptions, setCompanyOptions] = useState<CompanyFilterOption[]>(
+        [],
+    )
+    useEffect(() => {
+        let alive = true
+        orgService
+            .companies()
+            .then((rows: { id: string; name: string }[]) => {
+                if (!alive) return
+                setCompanyOptions(
+                    rows.map((company) => ({
+                        value: company.id,
+                        label: company.name,
+                    })),
+                )
+            })
+            .catch(() => undefined)
+        return () => {
+            alive = false
+        }
+    }, [])
+    const companyFilterOptions = useMemo<CompanyFilterOption[]>(
+        () => [{ value: 'all', label: 'All companies' }, ...companyOptions],
+        [companyOptions],
+    )
+
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const [channel, setChannel] = useState<ChannelFilter>('all')
     const [selectedSnapshot, setSelectedSnapshot] =
@@ -248,10 +263,38 @@ const SalesOrdersDashboard = () => {
         }
     }
 
+    const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(
+        null,
+    )
+
+    /** Admin: verify a bank transfer / collect COD — then picking may start. */
+    const markPaid = async (order: SalesOrderRecord) => {
+        setPaymentUpdatingId(order.id)
+        try {
+            const updated = await markOrderPaymentPaid(order.id)
+            setSelectedSnapshot(updated)
+            await fetchOrders({ force: true })
+            notify(
+                'success',
+                'Payment recorded',
+                `${updated.orderId} is now Paid — the warehouse pipeline can proceed.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Payment not updated',
+                error instanceof Error ? error.message : 'Please try again.',
+            )
+        } finally {
+            setPaymentUpdatingId(null)
+        }
+    }
+
     const hasActiveFilters =
         filters.search.trim() !== '' ||
         filters.dateRange !== 'all' ||
-        filters.branchId !== 'all'
+        filters.branchId !== 'all' ||
+        filters.companyId !== 'all'
 
     useEffect(() => {
         void fetchOrders({ force: true })
@@ -298,11 +341,16 @@ const SalesOrdersDashboard = () => {
                 cell: ({ row }) => <ChannelBadge channel={row.original.channel} />,
             },
             {
-                header: 'Division',
-                id: 'division',
-                cell: ({ row }) => divisionsLabel(row.original.divisionIds),
+                header: 'Company',
+                id: 'company',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap">
+                        {row.original.company?.name ?? '—'}
+                    </span>
+                ),
             },
             {
+                // Organization / MM branch master (created per company).
                 header: 'Branch',
                 id: 'branch',
                 cell: ({ row }) => (
@@ -312,17 +360,21 @@ const SalesOrdersDashboard = () => {
                 ),
             },
             {
-                header: 'Customer / Cashier',
+                header: 'Customer',
                 id: 'customer',
                 cell: ({ row }) => {
                     const { channel: orderChannel, customer } = row.original
+                    const name =
+                        (customer.name.trim() || '') === ''
+                            ? orderChannel === 'POS'
+                                ? 'Walk-in Customer'
+                                : '—'
+                            : customer.name
                     return (
                         <div className="min-w-[10rem]">
-                            <div className="font-semibold">{customer.name}</div>
+                            <div className="font-semibold">{name}</div>
                             <div className="text-xs text-gray-500">
-                                {orderChannel === 'POS'
-                                    ? 'Counter sale · POS terminal'
-                                    : customer.email}
+                                {customer.email ?? '—'}
                             </div>
                         </div>
                     )
@@ -338,9 +390,55 @@ const SalesOrdersDashboard = () => {
                 ),
             },
             {
-                header: 'Status',
-                id: 'status',
+                header: 'Order Status',
+                id: 'orderStatus',
                 cell: ({ row }) => <StatusCell status={row.original.status} />,
+            },
+            {
+                header: 'Payment Method',
+                id: 'paymentMethod',
+                cell: ({ row }) => {
+                    const payment = row.original.payment
+                    if (!payment) return <span className="text-gray-400">—</span>
+                    return (
+                        <div className="whitespace-nowrap">
+                            <span>
+                                {payment.method &&
+                                payment.method in PAYMENT_METHOD_LABEL
+                                    ? PAYMENT_METHOD_LABEL[
+                                          payment.method as keyof typeof PAYMENT_METHOD_LABEL
+                                      ]
+                                    : payment.method}
+                            </span>
+                            {payment.isDemo ? (
+                                <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
+                                    Demo
+                                </span>
+                            ) : null}
+                        </div>
+                    )
+                },
+            },
+            {
+                header: 'Payment Status',
+                id: 'paymentStatus',
+                cell: ({ row }) => {
+                    const payment = row.original.payment
+                    if (!payment) return <span className="text-gray-400">—</span>
+                    return (
+                        <StatusBadge
+                            tone={
+                                payment.status === 'Paid'
+                                    ? 'success'
+                                    : payment.status === 'Failed'
+                                      ? 'danger'
+                                      : 'warning'
+                            }
+                        >
+                            {payment.status ?? '—'}
+                        </StatusBadge>
+                    )
+                },
             },
             {
                 header: '',
@@ -438,6 +536,20 @@ const SalesOrdersDashboard = () => {
                         }
                     />
                 </div>
+                <div className="md:w-56">
+                    <Select<CompanyFilterOption>
+                        isSearchable={false}
+                        options={companyFilterOptions}
+                        value={companyFilterOptions.find(
+                            (option) => option.value === filters.companyId,
+                        )}
+                        onChange={(option) =>
+                            void setFilters({
+                                companyId: option?.value ?? 'all',
+                            })
+                        }
+                    />
+                </div>
                 {hasActiveFilters ? (
                     <Button
                         size="sm"
@@ -449,6 +561,7 @@ const SalesOrdersDashboard = () => {
                                 search: '',
                                 dateRange: 'all',
                                 branchId: 'all',
+                                companyId: 'all',
                             })
                         }}
                     >
@@ -503,8 +616,8 @@ const SalesOrdersDashboard = () => {
                                 {selected.customer.email ?? '—'}
                             </div>
                             <div>
-                                <span className="text-gray-500">Division: </span>
-                                {divisionsLabel(selected.divisionIds)}
+                                <span className="text-gray-500">Company: </span>
+                                {selected.company?.name ?? '—'}
                             </div>
                             <div>
                                 <span className="text-gray-500">Branch: </span>
@@ -556,7 +669,76 @@ const SalesOrdersDashboard = () => {
                                 </>
                             ) : null}
                         </div>
+                        {selected.payment ? (
+                            <div className="mt-3 flex flex-col gap-0.5 text-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-gray-500">
+                                        Payment Method
+                                    </span>
+                                    <span className="flex items-center gap-2 font-medium">
+                                        {selected.payment.method &&
+                                        selected.payment.method in PAYMENT_METHOD_LABEL
+                                            ? PAYMENT_METHOD_LABEL[
+                                                  selected.payment.method as keyof typeof PAYMENT_METHOD_LABEL
+                                              ]
+                                            : selected.payment.method}
+                                        {selected.payment.isDemo ? (
+                                            <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
+                                                Demo
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-gray-500">
+                                        Payment Status
+                                    </span>
+                                    <StatusBadge
+                                        tone={
+                                            selected.payment.status === 'Paid'
+                                                ? 'success'
+                                                : selected.payment.status ===
+                                                      'Failed'
+                                                  ? 'danger'
+                                                  : 'warning'
+                                        }
+                                    >
+                                        {selected.payment.status ?? '—'}
+                                    </StatusBadge>
+                                </div>
+                                {selected.payment.reference ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-gray-500">
+                                            Reference
+                                        </span>
+                                        <span className="font-mono text-xs">
+                                            {selected.payment.reference}
+                                        </span>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+                            {canUpdate &&
+                            selected.channel === 'E-commerce' &&
+                            selected.payment &&
+                            !['Paid', 'Failed', 'Refunded'].includes(
+                                selected.payment.status ?? '',
+                            ) ? (
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    className="flex-1 sm:flex-none"
+                                    icon={<HiOutlineCheck />}
+                                    loading={paymentUpdatingId === selected.id}
+                                    onClick={() => void markPaid(selected)}
+                                >
+                                    {selected.payment.status ===
+                                    'Pending Verification'
+                                        ? 'Verify & Mark Paid'
+                                        : 'Mark Paid'}
+                                </Button>
+                            ) : null}
                             {canUpdate && selected.status === 'Pending Delivery' ? (
                                 <>
                                     <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
