@@ -1,7 +1,6 @@
 'use client'
 
-import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -30,7 +29,6 @@ import {
     HiOutlineTruck,
     HiOutlineTrash,
     HiOutlineQrcode,
-    HiOutlineCamera,
 } from 'react-icons/hi'
 import { packingService } from '../services/packingService'
 import {
@@ -48,11 +46,6 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 
 const ROUTE = '/modules/mm/warehouse-management/packing'
-
-const CameraBarcodeScanner = dynamic(
-    () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
-    { ssr: false },
-)
 
 const STATUS_TONE: Record<
     string,
@@ -136,8 +129,6 @@ const PackingPage = () => {
     const [scanLoading, setScanLoading] = useState(false)
     const [qrCode, setQrCode] = useState('')
     const [qrLoading, setQrLoading] = useState(false)
-    const [cameraScanOpen, setCameraScanOpen] = useState(false)
-    const scanInputRef = useRef<HTMLInputElement>(null)
 
     const [sealWeight, setSealWeight] = useState('')
     const [sealLength, setSealLength] = useState('')
@@ -268,7 +259,6 @@ const PackingPage = () => {
             setDetailLoading(true)
             setScanMaterialId('')
             setQrCode('')
-            setCameraScanOpen(false)
             setSealWeight('')
             setSealLength('')
             setSealWidth('')
@@ -324,15 +314,6 @@ const PackingPage = () => {
         }
     }, [detailPkg])
 
-    const canScanPackage =
-        detailPkg?.status === 'OPEN' || detailPkg?.status === 'PACKING'
-
-    useEffect(() => {
-        if (!detailOpen || !canScanPackage) return
-        const frame = requestAnimationFrame(() => scanInputRef.current?.focus())
-        return () => cancelAnimationFrame(frame)
-    }, [detailOpen, detailPkg?.id, canScanPackage])
-
     const handleScan = useCallback(async () => {
         if (!detailPkg || !scanMaterialId) return
         setScanLoading(true)
@@ -361,12 +342,11 @@ const PackingPage = () => {
         }
     }, [detailPkg, scanMaterialId, refreshDetail, fetchPackages])
 
-    const handleQrScan = useCallback(async (barcodeOverride?: string) => {
-        const barcode = (barcodeOverride ?? qrCode).trim()
-        if (!detailPkg || !barcode) return
+    const handleQrScan = useCallback(async () => {
+        if (!detailPkg || !qrCode.trim()) return
         setQrLoading(true)
         try {
-            const hit = await packingService.resolveCode(barcode)
+            const hit = await packingService.resolveCode(qrCode.trim())
             const materialId =
                 hit.materialId ??
                 hit.serial?.materialId ??
@@ -1280,44 +1260,13 @@ const PackingPage = () => {
 
                         {(detailPkg.status === 'OPEN' ||
                             detailPkg.status === 'PACKING') && (
-                            <div className="mt-4 space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/50">
-                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-sm font-semibold heading-text">
-                                            Scan package contents
-                                        </p>
-                                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                            Use a handheld barcode scanner or camera. Each successful scan is recorded by the packing service.
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Button
-                                            size="sm"
-                                            icon={<HiOutlineCamera />}
-                                            disabled={qrLoading || scanLoading}
-                                            onClick={() => setCameraScanOpen(true)}
-                                        >
-                                            Scan with camera
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="solid"
-                                            icon={<HiOutlineQrcode />}
-                                            disabled={qrLoading || scanLoading}
-                                            onClick={() => scanInputRef.current?.focus()}
-                                        >
-                                            Use hardware scanner
-                                        </Button>
-                                    </div>
-                                </div>
-
+                            <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
                                 <div className="flex items-end gap-2">
                                     <div className="flex-1">
-                                        <FormItem label="Barcode or QR code">
+                                        <FormItem label="Scan QR / barcode">
                                             <Input
-                                                ref={scanInputRef}
                                                 size="sm"
-                                                placeholder="Click Use hardware scanner, scan the label, then press Enter"
+                                                placeholder="Scan or paste a QR / barcode, then press Enter"
                                                 value={qrCode}
                                                 onChange={(e) =>
                                                     setQrCode(e.target.value)
@@ -1336,59 +1285,43 @@ const PackingPage = () => {
                                         variant="solid"
                                         icon={<HiOutlineQrcode />}
                                         loading={qrLoading}
-                                        onClick={() => void handleQrScan()}
+                                        onClick={handleQrScan}
                                         disabled={!qrCode.trim()}
                                     >
-                                        Process scan
+                                        Scan QR
                                     </Button>
                                 </div>
-                                <details className="rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800">
-                                    <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        Manual fallback — select a material
-                                    </summary>
-                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                                        Use only when the item label cannot be scanned. Barcode, QR, batch and serial scans are preferred for traceability.
-                                    </p>
-                                    <div className="mt-3 flex items-end gap-2">
-                                        <div className="flex-1">
-                                            <FormItem label="Material">
-                                                <Select<FilterOption>
-                                                    size="sm"
-                                                    placeholder="Select material to record"
-                                                    options={materialOptions}
-                                                    value={materialOptions.find(
-                                                        (o) =>
-                                                            o.value ===
-                                                            scanMaterialId,
-                                                    )}
-                                                    onChange={(opt) =>
-                                                        setScanMaterialId(
-                                                            opt?.value ?? '',
-                                                        )
-                                                    }
-                                                />
-                                            </FormItem>
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            icon={<HiOutlineCheckCircle />}
-                                            loading={scanLoading}
-                                            onClick={handleScan}
-                                            disabled={!scanMaterialId}
-                                        >
-                                            Record manual scan
-                                        </Button>
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <FormItem label="Or select material">
+                                            <Select<FilterOption>
+                                                size="sm"
+                                                placeholder="Select material to scan"
+                                                options={materialOptions}
+                                                value={materialOptions.find(
+                                                    (o) =>
+                                                        o.value ===
+                                                        scanMaterialId,
+                                                )}
+                                                onChange={(opt) =>
+                                                    setScanMaterialId(
+                                                        opt?.value ?? '',
+                                                    )
+                                                }
+                                            />
+                                        </FormItem>
                                     </div>
-                                </details>
-                            </div>
-                        )}
-
-                        {!['OPEN', 'PACKING'].includes(detailPkg.status) && (
-                            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                                <p className="font-semibold">Scanning is locked</p>
-                                <p className="mt-1 text-xs">
-                                    This package is {detailPkg.status.replace(/_/g, ' ').toLowerCase()}. Package contents can only be scanned while the package is Open or Packing; after verification, sealing, ready-for-dispatch or dispatch, the audit record cannot be changed.
-                                </p>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineCheckCircle />}
+                                        loading={scanLoading}
+                                        onClick={handleScan}
+                                        disabled={!scanMaterialId}
+                                    >
+                                        Scan
+                                    </Button>
+                                </div>
                             </div>
                         )}
 
@@ -1552,12 +1485,6 @@ const PackingPage = () => {
                     </div>
                 )}
             </FormDialog>
-
-            <CameraBarcodeScanner
-                isOpen={cameraScanOpen}
-                onClose={() => setCameraScanOpen(false)}
-                onDetected={(barcode) => void handleQrScan(barcode)}
-            />
 
             {/* Bulk delete confirm */}
             <ConfirmDialog

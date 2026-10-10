@@ -60,9 +60,6 @@ function setup() {
             .mockResolvedValue({ integrated: false }),
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
-    const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest.fn().mockResolvedValue(undefined),
-    }
     const prisma = {
         sdSalesOrder: {
             findUnique: jest.fn((args: { where: Record<string, string> }) => {
@@ -138,9 +135,8 @@ function setup() {
         products as never,
         mmPipeline as never,
         {} as never,
-        commercialAvailability as never,
     )
-    return { prisma, mmPipeline, commercialAvailability, payments, service }
+    return { prisma, mmPipeline, payments, service }
 }
 
 describe('SalesOrderService demo checkout payments', () => {
@@ -372,30 +368,6 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
     })
 
-    it('rejects an out-of-stock checkout before creating a sales order', async () => {
-        const { prisma, commercialAvailability, service } = setup()
-        commercialAvailability.assertMarketplaceCheckoutAvailability.mockRejectedValue(
-            new Error('KIRKLAND Vitamin E is out of stock'),
-        )
-
-        await expect(
-            service.createMarketplaceCheckout(checkoutDto(), 'client-1'),
-        ).rejects.toThrow('out of stock')
-
-        expect(
-            commercialAvailability.assertMarketplaceCheckoutAvailability,
-        ).toHaveBeenCalledWith(
-            expect.objectContaining({
-                companyId: 'company-1',
-                channel: 'ECOMMERCE',
-                lines: expect.arrayContaining([
-                    expect.objectContaining({ sku: 'SKU-1', quantity: 2 }),
-                ]),
-            }),
-        )
-        expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
-    })
-
     it('admin verification of a pending payment triggers reservation + picking', async () => {
         const paymentRow = {
             id: 'pay-1',
@@ -449,7 +421,6 @@ describe('SalesOrderService demo checkout payments', () => {
             {} as never,
             {} as never,
             mmPipeline as never,
-            {} as never,
             {} as never,
         )
 
@@ -513,7 +484,6 @@ describe('SalesOrderService demo checkout payments', () => {
             {} as never,
             mmPipeline as never,
             {} as never,
-            {} as never,
         )
         await service.updateOrderPaymentStatus('so-1', { status: 'Paid' })
         expect(
@@ -554,7 +524,6 @@ describe('SalesOrderService demo checkout payments', () => {
             }
             const service = new SalesOrderService(
                 prismaState as unknown as PrismaService,
-                {} as never,
                 {} as never,
                 {} as never,
                 {} as never,

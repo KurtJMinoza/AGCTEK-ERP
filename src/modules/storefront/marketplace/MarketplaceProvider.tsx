@@ -75,11 +75,6 @@ type PendingAdd = {
     buyNow: boolean
 }
 
-type PendingCheckout = {
-    shipping: SalesOrderShippingDetails
-    payment: CheckoutPaymentSelection
-}
-
 type MarketplaceContextValue = {
     catalog: ReturnType<typeof useMarketplaceProducts>
     /** Persisted stores (cart, session, favourites) have loaded on the client. */
@@ -95,7 +90,7 @@ type MarketplaceContextValue = {
         product: SdProductRecord,
         quantity?: number,
         buyNow?: boolean,
-    ) => Promise<void>
+    ) => void | Promise<void>
     openCart: () => void
     openOrders: () => void
     openAccount: () => void
@@ -165,8 +160,10 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const [hydrated, setHydrated] = useState(false)
     const [checkoutOpen, setCheckoutOpen] = useState(false)
     const [promoCode, setPromoCode] = useState<string | null>(null)
-    const [pendingShipping, setPendingShipping] =
-        useState<PendingCheckout | null>(null)
+    const [pendingCheckout, setPendingCheckout] = useState<{
+        shipping: SalesOrderShippingDetails
+        payment: CheckoutPaymentSelection
+    } | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [checkoutError, setCheckoutError] = useState<string | null>(null)
     const [placedOrder, setPlacedOrder] = useState<EcommerceOrderResult | null>(
@@ -365,15 +362,18 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             return
         }
         openAuth('orders')
-    }, [signedInClient, router, openAuth])
+    }, [signedInClient, openAuth, router])
 
     const openAccount = useCallback(() => {
         if (signedInClient) router.push(MARKETPLACE_ACCOUNT_PATH)
         else openAuth(null)
     }, [signedInClient, router, openAuth])
 
-    const placeOrder = async (pendingCheckout: PendingCheckout) => {
-        setPendingShipping(null)
+    const placeOrder = async (
+        shipping: SalesOrderShippingDetails,
+        payment: CheckoutPaymentSelection,
+    ) => {
+        setPendingCheckout(null)
         setCheckoutError(null)
         if (!signedInClient || !sessionToken) {
             setCheckoutOpen(false)
@@ -387,12 +387,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                     checkoutId: checkoutIdRef.current ?? undefined,
                     customerId: signedInClient.customerId,
                     items: pricingItems,
-                    shipping: pendingCheckout.shipping,
+                    shipping,
                     discountCode: promoCode ?? undefined,
-                    paymentMethod: pendingCheckout.payment.method,
-                    paymentProvider: pendingCheckout.payment.provider,
-                    cardDemoSimulateFailure:
-                        pendingCheckout.payment.cardDemoSimulateFailure,
+                    paymentMethod: payment.method,
+                    paymentProvider: payment.provider,
+                    cardDemoSimulateFailure: payment.cardDemoSimulateFailure,
                 },
                 sessionToken,
             )
@@ -620,43 +619,48 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                     setCheckoutOpen(false)
                 }}
                 onSubmit={(shipping, payment) =>
-                    setPendingShipping({ shipping, payment })
+                    setPendingCheckout({ shipping, payment })
                 }
                 onOpenAccount={openAccount}
             />
 
             <ConfirmDialog
-                isOpen={pendingShipping !== null}
+                isOpen={pendingCheckout !== null}
                 type="warning"
                 title="Place this order?"
                 confirmText="Place order"
                 cancelText="Review again"
                 confirmButtonProps={{ customColorClass: PRIMARY_BUTTON }}
-                onClose={() => setPendingShipping(null)}
-                onRequestClose={() => setPendingShipping(null)}
-                onCancel={() => setPendingShipping(null)}
+                onClose={() => setPendingCheckout(null)}
+                onRequestClose={() => setPendingCheckout(null)}
+                onCancel={() => setPendingCheckout(null)}
                 onConfirm={() => {
-                    if (pendingShipping) void placeOrder(pendingShipping)
+                    if (pendingCheckout) {
+                        void placeOrder(
+                            pendingCheckout.shipping,
+                            pendingCheckout.payment,
+                        )
+                    }
                 }}
             >
-                {pendingShipping && pricing ? (
+                {pendingCheckout && pricing ? (
                     <div className="flex flex-col gap-1 text-sm">
                         <p>
                             {itemCount} item{itemCount === 1 ? '' : 's'} from{' '}
                             {pricing.divisions.length} store
                             {pricing.divisions.length === 1 ? '' : 's'}
-                            {pendingShipping.shipping.addressLine1 ||
-                            pendingShipping.shipping.city ? (
+                            {pendingCheckout.shipping.addressLine1 ||
+                            pendingCheckout.shipping.city ? (
                                 <>
                                     {' '}
                                     for delivery to{' '}
                                     <span className="font-semibold">
-                                        {pendingShipping.shipping.addressLine1}
-                                        {pendingShipping.shipping.addressLine1 &&
-                                        pendingShipping.shipping.city
+                                        {pendingCheckout.shipping.addressLine1}
+                                        {pendingCheckout.shipping.addressLine1 &&
+                                        pendingCheckout.shipping.city
                                             ? ', '
                                             : ''}
-                                        {pendingShipping.shipping.city}
+                                        {pendingCheckout.shipping.city}
                                     </span>
                                 </>
                             ) : null}

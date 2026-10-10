@@ -11,7 +11,7 @@ import Checkbox from '@/components/ui/Checkbox'
 import { Form, FormItem } from '@/components/ui/Form'
 import type { CartPricing } from '@/modules/sd/services/ecommerceService'
 import {
-    CHECKOUT_PAYMENT_OPTIONS,
+    PAYMENT_METHOD_LABEL,
     type CheckoutPaymentMethod,
     type CheckoutPaymentSelection,
 } from '@/modules/sd/services/salesOrderDashboardService'
@@ -25,6 +25,39 @@ import {
 } from '../marketplaceUi'
 
 const FORM_ID = 'marketplace-checkout-form'
+
+/** Demo-only payment methods shown at checkout (no real gateways). */
+const PAYMENT_OPTIONS: Array<{
+    value: CheckoutPaymentMethod
+    label: string
+    hint: string
+}> = [
+    {
+        value: 'COD',
+        label: PAYMENT_METHOD_LABEL.COD,
+        hint: 'Pay the courier when the order arrives.',
+    },
+    {
+        value: 'CARD_DEMO',
+        label: PAYMENT_METHOD_LABEL.CARD_DEMO,
+        hint: 'Simulated approval — no real card is charged or stored.',
+    },
+    {
+        value: 'WALLET_DEMO',
+        label: PAYMENT_METHOD_LABEL.WALLET_DEMO,
+        hint: 'Demo wallet confirmation at review.',
+    },
+    {
+        value: 'QR_DEMO',
+        label: PAYMENT_METHOD_LABEL.QR_DEMO,
+        hint: 'Scan the demo QR to confirm payment.',
+    },
+    {
+        value: 'BANK_TRANSFER_DEMO',
+        label: PAYMENT_METHOD_LABEL.BANK_TRANSFER_DEMO,
+        hint: 'Your order waits for admin verification before warehouse processing.',
+    },
+]
 
 type MarketplaceCheckoutDialogProps = {
     isOpen: boolean
@@ -251,7 +284,7 @@ const MarketplaceCheckoutDialog = ({
                         role="radiogroup"
                         aria-label="Mode of payment"
                     >
-                        {CHECKOUT_PAYMENT_OPTIONS.map((option) => {
+                        {PAYMENT_OPTIONS.map((option) => {
                             const active = paymentMethod === option.value
                             return (
                                 <button

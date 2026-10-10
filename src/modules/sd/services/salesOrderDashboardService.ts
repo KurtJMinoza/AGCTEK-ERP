@@ -35,39 +35,6 @@ export const PAYMENT_METHOD_LABEL: Record<CheckoutPaymentMethod, string> = {
     BANK_TRANSFER_DEMO: 'Bank Transfer (Demo Only)',
 }
 
-/** Shared storefront copy for each supported checkout payment method. */
-export const CHECKOUT_PAYMENT_OPTIONS: ReadonlyArray<{
-    value: CheckoutPaymentMethod
-    label: string
-    hint: string
-}> = [
-    {
-        value: 'COD',
-        label: PAYMENT_METHOD_LABEL.COD,
-        hint: 'Pay the courier when the order arrives.',
-    },
-    {
-        value: 'CARD_DEMO',
-        label: PAYMENT_METHOD_LABEL.CARD_DEMO,
-        hint: 'Simulated approval; no real card is charged or stored.',
-    },
-    {
-        value: 'WALLET_DEMO',
-        label: PAYMENT_METHOD_LABEL.WALLET_DEMO,
-        hint: 'Demo wallet confirmation at review.',
-    },
-    {
-        value: 'QR_DEMO',
-        label: PAYMENT_METHOD_LABEL.QR_DEMO,
-        hint: 'Scan the demo QR to confirm payment.',
-    },
-    {
-        value: 'BANK_TRANSFER_DEMO',
-        label: PAYMENT_METHOD_LABEL.BANK_TRANSFER_DEMO,
-        hint: 'Your order waits for admin verification before warehouse processing.',
-    },
-]
-
 /** Customer's checkout selection, sent to the backend with the order. */
 export type CheckoutPaymentSelection = {
     method: CheckoutPaymentMethod
