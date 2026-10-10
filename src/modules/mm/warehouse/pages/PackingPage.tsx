@@ -47,21 +47,43 @@ import InfoCard from '../../shared/InfoCard'
 
 const ROUTE = '/modules/mm/warehouse-management/packing'
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
+const STATUS_TONE: Record<
+    string,
+    'success' | 'default' | 'warning' | 'danger'
+> = {
     OPEN: 'default',
     PACKING: 'warning',
     VERIFIED: 'success',
     SEALED: 'success',
     READY_FOR_DISPATCH: 'success',
     DISPATCHED: 'success',
+    CANCELLED: 'danger',
 }
 
-const STATUS_TABS = ['All', 'OPEN', 'PACKING', 'VERIFIED', 'SEALED', 'READY_FOR_DISPATCH', 'DISPATCHED'] as const
+const STATUS_TABS = [
+    'All',
+    'OPEN',
+    'PACKING',
+    'VERIFIED',
+    'SEALED',
+    'READY_FOR_DISPATCH',
+    'DISPATCHED',
+    'CANCELLED',
+] as const
 
 type FilterOption = { value: string; label: string }
 
-function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: string) {
-    toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
+function pushToast(
+    type: 'success' | 'danger' | 'warning',
+    title: string,
+    msg: string,
+) {
+    toast.push(
+        <Notification type={type} title={title} closable duration={3500}>
+            {msg}
+        </Notification>,
+        { placement: 'top-end' },
+    )
 }
 
 const PackingPage = () => {
@@ -74,12 +96,19 @@ const PackingPage = () => {
     const [pageSize, setPageSize] = useState(20)
 
     const [packages, setPackages] = useState<WmPackage[]>([])
-    const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20, totalPages: 0 })
+    const [meta, setMeta] = useState({
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0,
+    })
     const [loading, setLoading] = useState(true)
 
     const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
-    const { ensure: ensureWarehouses, rows: warehouses } = useLazyWarehouseEntities()
-    const { ensure: ensureMaterials, rows: materials } = useLazyMaterialEntities()
+    const { ensure: ensureWarehouses, rows: warehouses } =
+        useLazyWarehouseEntities()
+    const { ensure: ensureMaterials, rows: materials } =
+        useLazyMaterialEntities()
 
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
@@ -98,6 +127,8 @@ const PackingPage = () => {
     const [detailLoading, setDetailLoading] = useState(false)
     const [scanMaterialId, setScanMaterialId] = useState('')
     const [scanLoading, setScanLoading] = useState(false)
+    const [qrCode, setQrCode] = useState('')
+    const [qrLoading, setQrLoading] = useState(false)
 
     const [sealWeight, setSealWeight] = useState('')
     const [sealLength, setSealLength] = useState('')
@@ -145,30 +176,54 @@ const PackingPage = () => {
     )
 
     const materialOptions = useMemo<FilterOption[]>(
-        () => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })),
+        () =>
+            materials.map((m) => ({
+                value: m.id,
+                label: `${m.materialCode} — ${m.materialName}`,
+            })),
         [materials],
     )
 
     const openCreate = useCallback(async () => {
         await Promise.all([ensureWarehouses(), ensureMaterials()])
-        setCreateForm({ warehouseId: '', orderNumber: '', packageType: '', items: [] })
+        setCreateForm({
+            warehouseId: '',
+            orderNumber: '',
+            packageType: '',
+            items: [],
+        })
         setCreateOpen(true)
     }, [ensureWarehouses, ensureMaterials])
 
     const addItem = useCallback(() => {
-        setCreateForm((prev) => ({ ...prev, items: [...prev.items, { materialId: '', expectedQty: 1 }] }))
+        setCreateForm((prev) => ({
+            ...prev,
+            items: [...prev.items, { materialId: '', expectedQty: 1 }],
+        }))
     }, [])
 
     const removeItem = useCallback((idx: number) => {
-        setCreateForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))
-    }, [])
-
-    const updateItem = useCallback((idx: number, field: 'materialId' | 'expectedQty', value: string | number) => {
         setCreateForm((prev) => ({
             ...prev,
-            items: prev.items.map((item, i) => i === idx ? { ...item, [field]: value } : item),
+            items: prev.items.filter((_, i) => i !== idx),
         }))
     }, [])
+
+    const updateItem = useCallback(
+        (
+            idx: number,
+            field: 'materialId' | 'expectedQty',
+            value: string | number,
+        ) => {
+            setCreateForm((prev) => ({
+                ...prev,
+                items: prev.items.map((item, i) =>
+                    i === idx ? { ...item, [field]: value } : item,
+                ),
+            }))
+        },
+        [],
+    )
 
     const handleCreateSave = useCallback(async () => {
         try {
@@ -176,42 +231,78 @@ const PackingPage = () => {
                 warehouseId: createForm.warehouseId,
                 orderNumber: createForm.orderNumber || undefined,
                 packageType: createForm.packageType || undefined,
-                items: createForm.items.filter((it) => it.materialId && it.expectedQty > 0),
+                items: createForm.items.filter(
+                    (it) => it.materialId && it.expectedQty > 0,
+                ),
             }
             const pkg = await packingService.create(payload)
-            pushToast('success', 'Package created', `Package ${pkg.packageNumber} created.`)
+            pushToast(
+                'success',
+                'Package created',
+                `Package ${pkg.packageNumber} created.`,
+            )
             setCreateOpen(false)
             fetchPackages()
         } catch (err: any) {
             const msg = err?.response?.data?.message || 'An error occurred'
-            pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
+            pushToast(
+                'danger',
+                'Error',
+                Array.isArray(msg) ? msg.join(', ') : msg,
+            )
         }
     }, [createForm, fetchPackages])
 
-    const openDetail = useCallback(async (pkg: WmPackage) => {
-        setDetailOpen(true)
-        setDetailLoading(true)
-        setScanMaterialId('')
-        setSealWeight('')
-        setSealLength('')
-        setSealWidth('')
-        setSealHeight('')
-        setDispatchCarrier('')
-        setDispatchTracking('')
-        setShipToName(pkg.shipToName ?? '')
-        setShipToAddress(pkg.shipToAddress ?? '')
-        try {
-            const full = await packingService.get(pkg.id)
-            setDetailPkg(full)
-            setShipToName(full.shipToName ?? '')
-            setShipToAddress(full.shipToAddress ?? '')
-        } catch {
-            pushToast('danger', 'Error', 'Failed to load package details')
-            setDetailOpen(false)
-        } finally {
-            setDetailLoading(false)
-        }
-    }, [])
+    const openDetail = useCallback(
+        async (pkg: WmPackage) => {
+            setDetailOpen(true)
+            setDetailLoading(true)
+            setScanMaterialId('')
+            setQrCode('')
+            setSealWeight('')
+            setSealLength('')
+            setSealWidth('')
+            setSealHeight('')
+            setDispatchCarrier('')
+            setDispatchTracking('')
+            setShipToName(pkg.shipToName ?? '')
+            setShipToAddress(pkg.shipToAddress ?? '')
+            // The Scan Item dropdown needs the material master loaded.
+            void ensureMaterials()
+            try {
+                const full = await packingService.get(pkg.id)
+                setDetailPkg(full)
+                // Ship-to comes from the customer's order (via the picking task);
+                // fall back to whatever is already stored on the package.
+                const so = full.salesOrder ?? full.pickingTask?.salesOrder
+                const composedAddress = [
+                    so?.shipToAddressLine1,
+                    so?.shipToCity,
+                    so?.shipToRegion,
+                    so?.shipToPostalCode,
+                    so?.shipToCountry,
+                ]
+                    .filter(Boolean)
+                    .join(', ')
+                setShipToName(
+                    full.shipToName ?? so?.shipToName ?? so?.customerName ?? '',
+                )
+                setShipToAddress(full.shipToAddress ?? composedAddress ?? '')
+                // Weight / L × W × H prefilled from the Material Master physical fields.
+                const sm = full.suggestedMeasurements
+                setSealWeight(sm?.weightKg ? String(sm.weightKg) : '')
+                setSealLength(sm?.length ? String(sm.length) : '')
+                setSealWidth(sm?.width ? String(sm.width) : '')
+                setSealHeight(sm?.height ? String(sm.height) : '')
+            } catch {
+                pushToast('danger', 'Error', 'Failed to load package details')
+                setDetailOpen(false)
+            } finally {
+                setDetailLoading(false)
+            }
+        },
+        [ensureMaterials],
+    )
 
     const refreshDetail = useCallback(async () => {
         if (!detailPkg) return
@@ -227,44 +318,134 @@ const PackingPage = () => {
         if (!detailPkg || !scanMaterialId) return
         setScanLoading(true)
         try {
-            await packingService.scanItem(detailPkg.id, { materialId: scanMaterialId })
-            pushToast('success', 'Scanned', 'Item scanned successfully.')
+            const result = await packingService.scanItem(detailPkg.id, {
+                materialId: scanMaterialId,
+            })
+            pushToast(
+                'success',
+                'Scanned',
+                result.packedByName
+                    ? `Packed by ${result.packedByName}.`
+                    : 'Item scanned successfully.',
+            )
             setScanMaterialId('')
             await refreshDetail()
+            fetchPackages()
         } catch (err: any) {
-            pushToast('danger', 'Scan error', err?.response?.data?.message || 'Scan failed')
+            pushToast(
+                'danger',
+                'Scan error',
+                err?.response?.data?.message || 'Scan failed',
+            )
         } finally {
             setScanLoading(false)
         }
-    }, [detailPkg, scanMaterialId, refreshDetail])
+    }, [detailPkg, scanMaterialId, refreshDetail, fetchPackages])
+
+    const handleQrScan = useCallback(async () => {
+        if (!detailPkg || !qrCode.trim()) return
+        setQrLoading(true)
+        try {
+            const hit = await packingService.resolveCode(qrCode.trim())
+            const materialId =
+                hit.materialId ??
+                hit.serial?.materialId ??
+                hit.batch?.materialId
+            if (!materialId) {
+                pushToast(
+                    'danger',
+                    'QR scan',
+                    `Code resolved to ${hit.type} — scan a material, batch or serial code.`,
+                )
+                return
+            }
+            const result = await packingService.scanItem(detailPkg.id, {
+                materialId,
+                batchId: hit.batchId,
+                serialId: hit.serialNumberId,
+            })
+            pushToast(
+                'success',
+                'QR scanned',
+                result.packedByName
+                    ? `${result.material?.materialCode ?? 'Item'} packed by ${result.packedByName}.`
+                    : `${result.material?.materialCode ?? 'Item'} scanned.`,
+            )
+            setQrCode('')
+            await refreshDetail()
+            fetchPackages()
+        } catch (err: any) {
+            pushToast(
+                'danger',
+                'QR scan failed',
+                err?.response?.data?.message ||
+                    'Could not resolve / scan this code',
+            )
+        } finally {
+            setQrLoading(false)
+        }
+    }, [detailPkg, qrCode, refreshDetail, fetchPackages])
 
     const handleVerify = useCallback(async () => {
         if (!detailPkg) return
         try {
             const result = await packingService.verify(detailPkg.id)
             if ((result as any).verified === false) {
-                pushToast('danger', 'Verification failed', 'Some items have exceptions — check scanned quantities.')
+                pushToast(
+                    'danger',
+                    'Verification failed',
+                    'Some items have exceptions — check scanned quantities.',
+                )
             } else {
-                pushToast('success', 'Verified', `Package ${detailPkg.packageNumber} verified.`)
+                pushToast(
+                    'success',
+                    'Verified',
+                    `Package ${detailPkg.packageNumber} verified.`,
+                )
             }
             await refreshDetail()
             fetchPackages()
         } catch (err: any) {
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Verification failed')
+            pushToast(
+                'danger',
+                'Error',
+                err?.response?.data?.message || 'Verification failed',
+            )
         }
     }, [detailPkg, refreshDetail, fetchPackages])
 
     const handleSeal = useCallback(async () => {
         if (!detailPkg) return
         try {
-            await packingService.seal(detailPkg.id)
-            pushToast('success', 'Sealed', `Package ${detailPkg.packageNumber} sealed.`)
+            await packingService.seal(detailPkg.id, {
+                weight: sealWeight.trim() ? Number(sealWeight) : undefined,
+                length: sealLength.trim() ? Number(sealLength) : undefined,
+                width: sealWidth.trim() ? Number(sealWidth) : undefined,
+                height: sealHeight.trim() ? Number(sealHeight) : undefined,
+            })
+            pushToast(
+                'success',
+                'Sealed',
+                `Package ${detailPkg.packageNumber} sealed.`,
+            )
             await refreshDetail()
             fetchPackages()
         } catch (err: any) {
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Seal failed')
+            pushToast(
+                'danger',
+                'Error',
+                err?.response?.data?.message || 'Seal failed',
+            )
         }
-    }, [detailPkg, refreshDetail, fetchPackages])
+    }, [
+        detailPkg,
+        sealWeight,
+        sealLength,
+        sealWidth,
+        sealHeight,
+        refreshDetail,
+        fetchPackages,
+    ])
 
     const handleReadyForDispatch = useCallback(async () => {
         if (!detailPkg) return
@@ -309,13 +490,7 @@ const PackingPage = () => {
                 err?.response?.data?.message || 'Ready-for-dispatch failed',
             )
         }
-    }, [
-        detailPkg,
-        shipToName,
-        shipToAddress,
-        refreshDetail,
-        fetchPackages,
-    ])
+    }, [detailPkg, shipToName, shipToAddress, refreshDetail, fetchPackages])
 
     const handleRetryScmRelease = useCallback(async () => {
         if (!detailPkg) return
@@ -343,85 +518,188 @@ const PackingPage = () => {
         if (!detailPkg) return
         try {
             await packingService.dispatch(detailPkg.id)
-            pushToast('success', 'Dispatched', `Package ${detailPkg.packageNumber} dispatched.`)
+            pushToast(
+                'success',
+                'Dispatched',
+                `Package ${detailPkg.packageNumber} dispatched.`,
+            )
             await refreshDetail()
             fetchPackages()
         } catch (err: any) {
-            pushToast('danger', 'Error', err?.response?.data?.message || 'Dispatch failed')
+            pushToast(
+                'danger',
+                'Error',
+                err?.response?.data?.message || 'Dispatch failed',
+            )
         }
     }, [detailPkg, refreshDetail, fetchPackages])
 
-    const handleCheckBoxChange = useCallback((checked: boolean, row: WmPackage) => {
-        setSelectedRows((prev) => { const next = new Set(prev); checked ? next.add(row.id) : next.delete(row.id); return next })
-    }, [])
-    const handleSelectAllChange = useCallback((checked: boolean, rows: { original: WmPackage }[]) => {
-        setSelectedRows((prev) => { const next = new Set(prev); for (const r of rows) { checked ? next.add(r.original.id) : next.delete(r.original.id) } return next })
-    }, [])
+    const handleCheckBoxChange = useCallback(
+        (checked: boolean, row: WmPackage) => {
+            setSelectedRows((prev) => {
+                const next = new Set(prev)
+                checked ? next.add(row.id) : next.delete(row.id)
+                return next
+            })
+        },
+        [],
+    )
+    const handleSelectAllChange = useCallback(
+        (checked: boolean, rows: { original: WmPackage }[]) => {
+            setSelectedRows((prev) => {
+                const next = new Set(prev)
+                for (const r of rows) {
+                    checked
+                        ? next.add(r.original.id)
+                        : next.delete(r.original.id)
+                }
+                return next
+            })
+        },
+        [],
+    )
     const handleBulkDelete = useCallback(async () => {
         setBulkDeleting(true)
         try {
-            await Promise.all(Array.from(selectedRows).map((id) => packingService.get(id)))
-            pushToast('success', 'Bulk delete', `${selectedRows.size} package(s) deleted.`)
-            setSelectedRows(new Set()); setBulkDeleteOpen(false); fetchPackages()
-        } catch { pushToast('danger', 'Error', 'Some deletions failed') }
-        finally { setBulkDeleting(false) }
+            await Promise.all(
+                Array.from(selectedRows).map((id) => packingService.get(id)),
+            )
+            pushToast(
+                'success',
+                'Bulk delete',
+                `${selectedRows.size} package(s) deleted.`,
+            )
+            setSelectedRows(new Set())
+            setBulkDeleteOpen(false)
+            fetchPackages()
+        } catch {
+            pushToast('danger', 'Error', 'Some deletions failed')
+        } finally {
+            setBulkDeleting(false)
+        }
     }, [selectedRows, fetchPackages])
 
     const scannedSummary = useMemo(() => {
         if (!detailPkg?.items) return { scanned: 0, total: 0 }
-        const total = detailPkg.items.length
-        const scanned = detailPkg.items.filter((it) => it.scannedQty >= it.expectedQty).length
+        const total = detailPkg.items.reduce(
+            (sum, item) => sum + (Number(item.expectedQty) || 0),
+            0,
+        )
+        const scanned = detailPkg.items.reduce(
+            (sum, item) => sum + (Number(item.scannedQty) || 0),
+            0,
+        )
         return { scanned, total }
     }, [detailPkg])
 
     const columns = useMemo<ColumnDef<WmPackage>[]>(
         () => [
             {
-                header: 'Package #',
+                header: 'Package Number',
                 accessorKey: 'packageNumber',
                 size: 140,
                 minSize: 120,
                 cell: ({ row }) => (
-                    <button type="button" onClick={() => openDetail(row.original)} className="whitespace-nowrap font-mono text-xs font-semibold text-primary hover:underline">
+                    <button
+                        type="button"
+                        onClick={() => openDetail(row.original)}
+                        className="whitespace-nowrap font-mono text-xs font-semibold text-primary hover:underline"
+                    >
                         {row.original.packageNumber}
                     </button>
                 ),
             },
             {
-                header: 'Order',
+                header: 'Sales Order Number',
                 accessorKey: 'orderNumber',
                 size: 130,
                 minSize: 110,
-                cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.orderNumber || '—'}</span>,
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-sm">
+                        {row.original.salesOrder?.orderNumber ||
+                            row.original.pickingTask?.salesOrder?.orderNumber ||
+                            row.original.orderNumber ||
+                            '—'}
+                    </span>
+                ),
             },
             {
-                header: 'Items',
-                id: 'itemCount',
+                header: 'Total Items',
+                id: 'totalItems',
                 size: 90,
                 minSize: 80,
-                cell: ({ row }) => <span className="text-sm">{row.original.items?.length ?? 0} items</span>,
+                cell: ({ row }) => {
+                    const total =
+                        row.original.totalItemQuantity ??
+                        (row.original.items ?? []).reduce(
+                            (sum, item) =>
+                                sum + (Number(item.expectedQty) || 0),
+                            0,
+                        )
+                    return <span className="text-sm">{total} items</span>
+                },
             },
             {
-                header: 'Weight',
-                accessorKey: 'weight',
-                size: 100,
-                minSize: 80,
-                cell: ({ row }) => <span className="text-sm">{row.original.weight ? `${row.original.weight} kg` : '—'}</span>,
+                header: 'Customer',
+                id: 'customer',
+                size: 180,
+                minSize: 140,
+                cell: ({ row }) => {
+                    const order =
+                        row.original.salesOrder ??
+                        row.original.pickingTask?.salesOrder
+                    return (
+                        <span className="text-sm">
+                            {order?.customerName ||
+                                order?.shipToName ||
+                                row.original.shipToName ||
+                                '—'}
+                        </span>
+                    )
+                },
             },
             {
-                header: 'Carrier',
-                accessorKey: 'carrier',
-                size: 120,
-                minSize: 100,
-                cell: ({ row }) => <span className="text-sm">{row.original.carrier || '—'}</span>,
-            },
-            {
-                header: 'Tracking #',
-                accessorKey: 'trackingNumber',
+                header: 'Packed By',
+                id: 'packedBy',
                 size: 150,
                 minSize: 120,
+                cell: ({ row }) => {
+                    const names = Array.from(
+                        new Set(
+                            (row.original.items ?? [])
+                                .map((it) => it.packedByName)
+                                .filter((n): n is string => Boolean(n)),
+                        ),
+                    )
+                    return (
+                        <span className="text-sm">
+                            {names.length ? names.join(', ') : '—'}
+                        </span>
+                    )
+                },
+            },
+            {
+                header: 'Warehouse',
+                id: 'warehouse',
+                size: 180,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap font-mono text-xs text-gray-500">{row.original.trackingNumber || '—'}</span>
+                    <span className="text-sm">
+                        {row.original.warehouse
+                            ? `${row.original.warehouse.code} — ${row.original.warehouse.name}`
+                            : '—'}
+                    </span>
+                ),
+            },
+            {
+                header: 'Shipment Reference',
+                id: 'shipmentReference',
+                size: 160,
+                minSize: 130,
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap font-mono text-xs text-gray-500">
+                        {row.original.shipment?.reference || '—'}
+                    </span>
                 ),
             },
             {
@@ -429,7 +707,13 @@ const PackingPage = () => {
                 accessorKey: 'status',
                 size: 140,
                 minSize: 120,
-                cell: ({ row }) => <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status.replace(/_/g, ' ')}</StatusBadge>,
+                cell: ({ row }) => (
+                    <StatusBadge
+                        tone={STATUS_TONE[row.original.status] ?? 'default'}
+                    >
+                        {row.original.status.replace(/_/g, ' ')}
+                    </StatusBadge>
+                ),
             },
             {
                 id: 'actions',
@@ -439,16 +723,50 @@ const PackingPage = () => {
                 cell: ({ row }) => {
                     const p = row.original
                     return (
-                        <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                            <Dropdown.Item eventKey="view" onClick={() => openDetail(p)}><HiOutlineEye className="text-base" /><span>View</span></Dropdown.Item>
-                            {(p.status === 'OPEN' || p.status === 'PACKING') && (
-                                <Dropdown.Item eventKey="verify" onClick={() => { openDetail(p) }}><HiOutlineCheckCircle className="text-base" /><span>Verify</span></Dropdown.Item>
+                        <Dropdown
+                            renderTitle={<EllipsisButton />}
+                            placement="bottom-end"
+                        >
+                            <Dropdown.Item
+                                eventKey="view"
+                                onClick={() => openDetail(p)}
+                            >
+                                <HiOutlineEye className="text-base" />
+                                <span>View</span>
+                            </Dropdown.Item>
+                            {(p.status === 'OPEN' ||
+                                p.status === 'PACKING') && (
+                                <Dropdown.Item
+                                    eventKey="verify"
+                                    onClick={() => {
+                                        openDetail(p)
+                                    }}
+                                >
+                                    <HiOutlineCheckCircle className="text-base" />
+                                    <span>Verify</span>
+                                </Dropdown.Item>
                             )}
                             {p.status === 'VERIFIED' && (
-                                <Dropdown.Item eventKey="seal" onClick={() => { openDetail(p) }}><HiOutlineLockClosed className="text-base" /><span>Seal</span></Dropdown.Item>
+                                <Dropdown.Item
+                                    eventKey="seal"
+                                    onClick={() => {
+                                        openDetail(p)
+                                    }}
+                                >
+                                    <HiOutlineLockClosed className="text-base" />
+                                    <span>Seal</span>
+                                </Dropdown.Item>
                             )}
                             {p.status === 'SEALED' && (
-                                <Dropdown.Item eventKey="dispatch" onClick={() => { openDetail(p) }}><HiOutlineTruck className="text-base" /><span>Dispatch</span></Dropdown.Item>
+                                <Dropdown.Item
+                                    eventKey="dispatch"
+                                    onClick={() => {
+                                        openDetail(p)
+                                    }}
+                                >
+                                    <HiOutlineTruck className="text-base" />
+                                    <span>Dispatch</span>
+                                </Dropdown.Item>
                             )}
                         </Dropdown>
                     )
@@ -463,15 +781,32 @@ const PackingPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Packing"
-                description="Manage packages (packing sessions) — scan, verify, seal. Qty mismatch blocks finalization."
-                actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Create Package</Button>}
+                description="Manage order-level packages — scan, verify, seal. Quantity mismatch blocks finalization."
+                actions={
+                    <Button
+                        variant="solid"
+                        size="sm"
+                        icon={<HiOutlinePlus />}
+                        onClick={openCreate}
+                    >
+                        Add Package
+                    </Button>
+                }
             />
 
             <AdaptiveCard className="mt-4">
-                <Tabs value={statusTab} onChange={(val) => { setStatusTab(val as string); setPage(1) }}>
+                <Tabs
+                    value={statusTab}
+                    onChange={(val) => {
+                        setStatusTab(val as string)
+                        setPage(1)
+                    }}
+                >
                     <Tabs.TabList>
                         {STATUS_TABS.map((t) => (
-                            <Tabs.TabNav key={t} value={t}>{t === 'All' ? 'All' : t.replace(/_/g, ' ')}</Tabs.TabNav>
+                            <Tabs.TabNav key={t} value={t}>
+                                {t === 'All' ? 'All' : t.replace(/_/g, ' ')}
+                            </Tabs.TabNav>
                         ))}
                     </Tabs.TabList>
                 </Tabs>
@@ -479,16 +814,52 @@ const PackingPage = () => {
 
             <AdaptiveCard className="mt-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <Input prefix={<HiOutlineSearch className="text-lg" />} placeholder="Search package #, order…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
-                    <Select<FilterOption> placeholder="Warehouse" options={warehouseOptions} value={warehouseOptions.find((o) => o.value === warehouseFilter)} onChange={(opt) => { setWarehouseFilter(opt?.value ?? ''); setPage(1) }} />
+                    <Input
+                        prefix={<HiOutlineSearch className="text-lg" />}
+                        placeholder="Search package #, order…"
+                        value={search}
+                        onChange={(e) => {
+                            setSearch(e.target.value)
+                            setPage(1)
+                        }}
+                    />
+                    <Select<FilterOption>
+                        placeholder="Warehouse"
+                        options={warehouseOptions}
+                        value={warehouseOptions.find(
+                            (o) => o.value === warehouseFilter,
+                        )}
+                        onChange={(opt) => {
+                            setWarehouseFilter(opt?.value ?? '')
+                            setPage(1)
+                        }}
+                    />
                 </div>
 
                 {selectedRows.size > 0 && (
                     <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
-                        <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
+                        <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                            {selectedRows.size} item
+                            {selectedRows.size > 1 ? 's' : ''} selected
+                        </span>
                         <div className="ml-auto flex items-center gap-2">
-                            <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
-                            <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>Delete selected</Button>
+                            <Button
+                                size="xs"
+                                onClick={() => setSelectedRows(new Set())}
+                            >
+                                Clear
+                            </Button>
+                            <Button
+                                size="xs"
+                                variant="solid"
+                                customColorClass={() =>
+                                    'bg-red-500 hover:bg-red-600 text-white'
+                                }
+                                icon={<HiOutlineTrash />}
+                                onClick={() => setBulkDeleteOpen(true)}
+                            >
+                                Delete selected
+                            </Button>
                         </div>
                     </div>
                 )}
@@ -502,11 +873,20 @@ const PackingPage = () => {
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
                         noData={!loading && packages.length === 0}
-                        pagingData={{ total: meta.total, pageIndex: page, pageSize }}
+                        pagingData={{
+                            total: meta.total,
+                            pageIndex: page,
+                            pageSize,
+                        }}
                         onPaginationChange={setPage}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        onSelectChange={(size) => {
+                            setPageSize(size)
+                            setPage(1)
+                        }}
                     />
                 </div>
             </AdaptiveCard>
@@ -516,53 +896,140 @@ const PackingPage = () => {
                 isOpen={createOpen}
                 onClose={() => setCreateOpen(false)}
                 size="lg"
-                title="New Package"
+                title="Add Manual Package"
                 icon={<HiOutlineCube />}
                 footer={
                     <>
-                        <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleCreateSave} disabled={!createForm.warehouseId || createForm.items.length === 0}>Create</Button>
+                        <Button size="sm" onClick={() => setCreateOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            onClick={handleCreateSave}
+                            disabled={
+                                !createForm.warehouseId ||
+                                createForm.items.length === 0
+                            }
+                        >
+                            Create
+                        </Button>
                     </>
                 }
             >
                 <FormItem label="Warehouse" asterisk>
                     <Select<FilterOption>
                         placeholder="Select warehouse"
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))}
-                        value={warehouses.filter((w) => w.id === createForm.warehouseId).map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` }))[0]}
-                        onChange={(opt) => setCreateForm({ ...createForm, warehouseId: opt?.value ?? '' })}
+                        options={warehouses.map((w) => ({
+                            value: w.id,
+                            label: `${w.code} — ${w.name}`,
+                        }))}
+                        value={
+                            warehouses
+                                .filter((w) => w.id === createForm.warehouseId)
+                                .map((w) => ({
+                                    value: w.id,
+                                    label: `${w.code} — ${w.name}`,
+                                }))[0]
+                        }
+                        onChange={(opt) =>
+                            setCreateForm({
+                                ...createForm,
+                                warehouseId: opt?.value ?? '',
+                            })
+                        }
                     />
                 </FormItem>
                 <div className="grid grid-cols-2 gap-3">
-                    <FormItem label="Order Number"><Input value={createForm.orderNumber} onChange={(e) => setCreateForm({ ...createForm, orderNumber: e.target.value })} placeholder="Optional" /></FormItem>
-                    <FormItem label="Package Type"><Input value={createForm.packageType} onChange={(e) => setCreateForm({ ...createForm, packageType: e.target.value })} placeholder="e.g. BOX, PALLET" /></FormItem>
+                    <FormItem label="Order Number">
+                        <Input
+                            value={createForm.orderNumber}
+                            onChange={(e) =>
+                                setCreateForm({
+                                    ...createForm,
+                                    orderNumber: e.target.value,
+                                })
+                            }
+                            placeholder="Optional"
+                        />
+                    </FormItem>
+                    <FormItem label="Package Type">
+                        <Input
+                            value={createForm.packageType}
+                            onChange={(e) =>
+                                setCreateForm({
+                                    ...createForm,
+                                    packageType: e.target.value,
+                                })
+                            }
+                            placeholder="e.g. BOX, PALLET"
+                        />
+                    </FormItem>
                 </div>
                 <div className="mt-3">
                     <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Items ({createForm.items.length})</p>
-                        <Button size="xs" icon={<HiOutlinePlus />} onClick={addItem}>Add item</Button>
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Items ({createForm.items.length})
+                        </p>
+                        <Button
+                            size="xs"
+                            icon={<HiOutlinePlus />}
+                            onClick={addItem}
+                        >
+                            Add item
+                        </Button>
                     </div>
                     {createForm.items.length > 0 && (
                         <div className="mt-2 space-y-2">
                             {createForm.items.map((item, idx) => (
-                                <div key={idx} className="flex items-end gap-2 rounded-lg border border-gray-200 p-2 dark:border-gray-600">
+                                <div
+                                    key={idx}
+                                    className="flex items-end gap-2 rounded-lg border border-gray-200 p-2 dark:border-gray-600"
+                                >
                                     <div className="flex-1">
                                         <FormItem label="Material" asterisk>
                                             <Select<FilterOption>
                                                 size="sm"
                                                 placeholder="Select material"
                                                 options={materialOptions}
-                                                value={materialOptions.find((o) => o.value === item.materialId)}
-                                                onChange={(opt) => updateItem(idx, 'materialId', opt?.value ?? '')}
+                                                value={materialOptions.find(
+                                                    (o) =>
+                                                        o.value ===
+                                                        item.materialId,
+                                                )}
+                                                onChange={(opt) =>
+                                                    updateItem(
+                                                        idx,
+                                                        'materialId',
+                                                        opt?.value ?? '',
+                                                    )
+                                                }
                                             />
                                         </FormItem>
                                     </div>
                                     <div className="w-28">
                                         <FormItem label="Qty" asterisk>
-                                            <Input size="sm" type="number" min={1} value={item.expectedQty} onChange={(e) => updateItem(idx, 'expectedQty', Number(e.target.value))} />
+                                            <Input
+                                                size="sm"
+                                                type="number"
+                                                min={1}
+                                                value={item.expectedQty}
+                                                onChange={(e) =>
+                                                    updateItem(
+                                                        idx,
+                                                        'expectedQty',
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                            />
                                         </FormItem>
                                     </div>
-                                    <Button size="xs" shape="circle" icon={<HiOutlineTrash />} onClick={() => removeItem(idx)} />
+                                    <Button
+                                        size="xs"
+                                        shape="circle"
+                                        icon={<HiOutlineTrash />}
+                                        onClick={() => removeItem(idx)}
+                                    />
                                 </div>
                             ))}
                         </div>
@@ -573,7 +1040,10 @@ const PackingPage = () => {
             {/* Package Detail Modal */}
             <FormDialog
                 isOpen={detailOpen}
-                onClose={() => { setDetailOpen(false); setDetailPkg(null) }}
+                onClose={() => {
+                    setDetailOpen(false)
+                    setDetailPkg(null)
+                }}
                 size="xl"
                 title={detailPkg?.packageNumber ?? 'Package detail'}
                 description={
@@ -582,139 +1052,422 @@ const PackingPage = () => {
                         : undefined
                 }
                 icon={<HiOutlineCube />}
-                headerExtra={detailPkg ? <StatusBadge tone={STATUS_TONE[detailPkg.status] ?? 'default'}>{detailPkg.status.replace(/_/g, ' ')}</StatusBadge> : undefined}
+                headerExtra={
+                    detailPkg ? (
+                        <StatusBadge
+                            tone={STATUS_TONE[detailPkg.status] ?? 'default'}
+                        >
+                            {detailPkg.status.replace(/_/g, ' ')}
+                        </StatusBadge>
+                    ) : undefined
+                }
                 bodyClassName="overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={
                     detailPkg && !detailLoading ? (
                         <>
                             <div className="flex flex-wrap items-center gap-2">
-                                {(detailPkg.status === 'OPEN' || detailPkg.status === 'PACKING') && (
-                                    <Button size="sm" variant="solid" icon={<HiOutlineCheckCircle />} onClick={handleVerify}>Verify</Button>
+                                {(detailPkg.status === 'OPEN' ||
+                                    detailPkg.status === 'PACKING') && (
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineCheckCircle />}
+                                        onClick={handleVerify}
+                                    >
+                                        Verify
+                                    </Button>
                                 )}
                                 {detailPkg.status === 'VERIFIED' && (
-                                    <Button size="sm" variant="solid" icon={<HiOutlineLockClosed />} onClick={handleSeal}>Seal</Button>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineLockClosed />}
+                                        onClick={handleSeal}
+                                    >
+                                        Seal
+                                    </Button>
                                 )}
                                 {detailPkg.status === 'SEALED' && (
-                                    <Button size="sm" variant="solid" icon={<HiOutlineTruck />} onClick={handleDispatch}>Dispatch</Button>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineTruck />}
+                                        onClick={handleDispatch}
+                                    >
+                                        Dispatch
+                                    </Button>
                                 )}
                             </div>
-                            <Button size="sm" onClick={() => { setDetailOpen(false); setDetailPkg(null) }}>Close</Button>
+                            <Button
+                                size="sm"
+                                onClick={() => {
+                                    setDetailOpen(false)
+                                    setDetailPkg(null)
+                                }}
+                            >
+                                Close
+                            </Button>
                         </>
                     ) : (
-                        <Button size="sm" onClick={() => { setDetailOpen(false); setDetailPkg(null) }}>Close</Button>
+                        <Button
+                            size="sm"
+                            onClick={() => {
+                                setDetailOpen(false)
+                                setDetailPkg(null)
+                            }}
+                        >
+                            Close
+                        </Button>
                     )
                 }
             >
-                {detailLoading && <p className="py-8 text-center text-sm text-gray-400">Loading…</p>}
+                {detailLoading && (
+                    <p className="py-8 text-center text-sm text-gray-400">
+                        Loading…
+                    </p>
+                )}
                 {detailPkg && !detailLoading && (
                     <div className="space-y-5">
-                        {(detailPkg.weight || detailPkg.carrier || detailPkg.trackingNumber) ? (
+                        {detailPkg.weight ||
+                        detailPkg.carrier ||
+                        detailPkg.trackingNumber ? (
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                                {detailPkg.weight ? <InfoCard label="Weight" value={`${detailPkg.weight} kg`} /> : null}
-                                {detailPkg.length ? <InfoCard label="Dimensions" value={`${detailPkg.length}×${detailPkg.width}×${detailPkg.height}`} /> : null}
-                                {detailPkg.carrier ? <InfoCard label="Carrier" value={detailPkg.carrier} /> : null}
-                                {detailPkg.trackingNumber ? <InfoCard label="Tracking" value={detailPkg.trackingNumber} /> : null}
+                                {detailPkg.weight ? (
+                                    <InfoCard
+                                        label="Weight"
+                                        value={`${detailPkg.weight} kg`}
+                                    />
+                                ) : null}
+                                {detailPkg.length ? (
+                                    <InfoCard
+                                        label="Dimensions"
+                                        value={`${detailPkg.length}×${detailPkg.width}×${detailPkg.height}`}
+                                    />
+                                ) : null}
+                                {detailPkg.carrier ? (
+                                    <InfoCard
+                                        label="Carrier"
+                                        value={detailPkg.carrier}
+                                    />
+                                ) : null}
+                                {detailPkg.trackingNumber ? (
+                                    <InfoCard
+                                        label="Tracking"
+                                        value={detailPkg.trackingNumber}
+                                    />
+                                ) : null}
                             </div>
                         ) : null}
 
                         <div>
                             <p className="mb-3 text-sm font-semibold heading-text">
-                                Items — {scannedSummary.scanned} of {scannedSummary.total} scanned
+                                Items — {scannedSummary.scanned} of{' '}
+                                {scannedSummary.total} scanned
                             </p>
                             <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600">
-                            <table className="w-full table-fixed text-sm">
-                                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700">
-                                    <tr>
-                                        <th className="px-3 py-2 text-left font-medium text-gray-500">Material</th>
-                                        <th className="px-3 py-2 text-right font-medium text-gray-500">Expected</th>
-                                        <th className="px-3 py-2 text-right font-medium text-gray-500">Scanned</th>
-                                        <th className="px-3 py-2 text-left font-medium text-gray-500">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(detailPkg.items || []).map((item: WmPackageItem) => {
-                                        const shortfall = item.scannedQty < item.expectedQty
-                                        return (
-                                            <tr key={item.id} className={shortfall ? 'bg-red-50 dark:bg-red-500/10' : ''}>
-                                                <td className="px-3 py-2">
-                                                    <span className="block truncate" title={item.material ? `${item.material.materialCode} — ${item.material.materialName}` : item.materialId}>
-                                                        {item.material ? `${item.material.materialCode} — ${item.material.materialName}` : item.materialId}
-                                                    </span>
-                                                </td>
-                                                <td className="px-3 py-2 text-right font-medium">{item.expectedQty}</td>
-                                                <td className={`px-3 py-2 text-right font-medium ${shortfall ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                                    {item.scannedQty}
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    {shortfall
-                                                        ? <Tag className="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300">Pending</Tag>
-                                                        : <Tag className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Complete</Tag>
-                                                    }
+                                <table className="w-full table-fixed text-sm">
+                                    <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700">
+                                        <tr>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
+                                                Material
+                                            </th>
+                                            <th className="px-3 py-2 text-right font-medium text-gray-500">
+                                                Expected
+                                            </th>
+                                            <th className="px-3 py-2 text-right font-medium text-gray-500">
+                                                Scanned
+                                            </th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
+                                                Packed By
+                                            </th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
+                                                Status
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(detailPkg.items || []).map(
+                                            (item: WmPackageItem) => {
+                                                const shortfall =
+                                                    item.scannedQty <
+                                                    item.expectedQty
+                                                return (
+                                                    <tr
+                                                        key={item.id}
+                                                        className={
+                                                            shortfall
+                                                                ? 'bg-red-50 dark:bg-red-500/10'
+                                                                : ''
+                                                        }
+                                                    >
+                                                        <td className="px-3 py-2">
+                                                            <span
+                                                                className="block truncate"
+                                                                title={
+                                                                    item.material
+                                                                        ? `${item.material.materialCode} — ${item.material.materialName}`
+                                                                        : item.materialId
+                                                                }
+                                                            >
+                                                                {item.material
+                                                                    ? `${item.material.materialCode} — ${item.material.materialName}`
+                                                                    : item.materialId}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-medium">
+                                                            {item.expectedQty}
+                                                        </td>
+                                                        <td
+                                                            className={`px-3 py-2 text-right font-medium ${shortfall ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
+                                                        >
+                                                            {item.scannedQty}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                                                            {item.packedByName ||
+                                                                '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            {shortfall ? (
+                                                                <Tag className="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300">
+                                                                    Pending
+                                                                </Tag>
+                                                            ) : (
+                                                                <Tag className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                                                    Complete
+                                                                </Tag>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            },
+                                        )}
+                                        {(!detailPkg.items ||
+                                            detailPkg.items.length === 0) && (
+                                            <tr>
+                                                <td
+                                                    colSpan={5}
+                                                    className="px-3 py-4 text-center text-gray-400"
+                                                >
+                                                    No items
                                                 </td>
                                             </tr>
-                                        )
-                                    })}
-                                    {(!detailPkg.items || detailPkg.items.length === 0) && (
-                                        <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No items</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
-                        {(detailPkg.status === 'OPEN' || detailPkg.status === 'PACKING') && (
-                            <div className="mt-4 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
-                                <div className="flex-1">
-                                    <FormItem label="Scan Item">
-                                        <Select<FilterOption>
-                                            size="sm"
-                                            placeholder="Select material to scan"
-                                            options={materialOptions}
-                                            value={materialOptions.find((o) => o.value === scanMaterialId)}
-                                            onChange={(opt) => setScanMaterialId(opt?.value ?? '')}
-                                        />
-                                    </FormItem>
+                        {(detailPkg.status === 'OPEN' ||
+                            detailPkg.status === 'PACKING') && (
+                            <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <FormItem label="Scan QR / barcode">
+                                            <Input
+                                                size="sm"
+                                                placeholder="Scan or paste a QR / barcode, then press Enter"
+                                                value={qrCode}
+                                                onChange={(e) =>
+                                                    setQrCode(e.target.value)
+                                                }
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        void handleQrScan()
+                                                    }
+                                                }}
+                                            />
+                                        </FormItem>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineQrcode />}
+                                        loading={qrLoading}
+                                        onClick={handleQrScan}
+                                        disabled={!qrCode.trim()}
+                                    >
+                                        Scan QR
+                                    </Button>
                                 </div>
-                                <Button size="sm" variant="solid" icon={<HiOutlineQrcode />} loading={scanLoading} onClick={handleScan} disabled={!scanMaterialId}>Scan</Button>
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <FormItem label="Or select material">
+                                            <Select<FilterOption>
+                                                size="sm"
+                                                placeholder="Select material to scan"
+                                                options={materialOptions}
+                                                value={materialOptions.find(
+                                                    (o) =>
+                                                        o.value ===
+                                                        scanMaterialId,
+                                                )}
+                                                onChange={(opt) =>
+                                                    setScanMaterialId(
+                                                        opt?.value ?? '',
+                                                    )
+                                                }
+                                            />
+                                        </FormItem>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineCheckCircle />}
+                                        loading={scanLoading}
+                                        onClick={handleScan}
+                                        disabled={!scanMaterialId}
+                                    >
+                                        Scan
+                                    </Button>
+                                </div>
                             </div>
                         )}
 
                         {detailPkg.status === 'VERIFIED' && (
                             <div className="mt-4 space-y-2">
                                 <div className="flex flex-wrap gap-2 items-center">
-                                    <Input size="sm" placeholder="Weight (kg)" value={sealWeight} onChange={(e) => setSealWeight(e.target.value)} className="w-24" />
-                                    <Input size="sm" placeholder="L" value={sealLength} onChange={(e) => setSealLength(e.target.value)} className="w-16" />
-                                    <Input size="sm" placeholder="W" value={sealWidth} onChange={(e) => setSealWidth(e.target.value)} className="w-16" />
-                                    <Input size="sm" placeholder="H" value={sealHeight} onChange={(e) => setSealHeight(e.target.value)} className="w-16" />
-                                    <Button size="sm" variant="solid" onClick={handleSeal}>Seal</Button>
+                                    <Input
+                                        size="sm"
+                                        placeholder="Weight (kg)"
+                                        value={sealWeight}
+                                        onChange={(e) =>
+                                            setSealWeight(e.target.value)
+                                        }
+                                        className="w-24"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="L"
+                                        value={sealLength}
+                                        onChange={(e) =>
+                                            setSealLength(e.target.value)
+                                        }
+                                        className="w-16"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="W"
+                                        value={sealWidth}
+                                        onChange={(e) =>
+                                            setSealWidth(e.target.value)
+                                        }
+                                        className="w-16"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="H"
+                                        value={sealHeight}
+                                        onChange={(e) =>
+                                            setSealHeight(e.target.value)
+                                        }
+                                        className="w-16"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        onClick={handleSeal}
+                                    >
+                                        Seal
+                                    </Button>
                                 </div>
                                 <div className="flex flex-wrap gap-2 items-center">
-                                    <Input size="sm" placeholder="Ship-to name" value={shipToName} onChange={(e) => setShipToName(e.target.value)} className="w-40" />
-                                    <Input size="sm" placeholder="Ship-to address (required for SCM)" value={shipToAddress} onChange={(e) => setShipToAddress(e.target.value)} className="min-w-[220px] flex-1" />
-                                    <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
+                                    <Input
+                                        size="sm"
+                                        placeholder="Ship-to name"
+                                        value={shipToName}
+                                        onChange={(e) =>
+                                            setShipToName(e.target.value)
+                                        }
+                                        className="w-40"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="Ship-to address (required for SCM)"
+                                        value={shipToAddress}
+                                        onChange={(e) =>
+                                            setShipToAddress(e.target.value)
+                                        }
+                                        className="min-w-[220px] flex-1"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        onClick={handleReadyForDispatch}
+                                    >
+                                        Ready for Dispatch
+                                    </Button>
                                 </div>
                             </div>
                         )}
 
-                        {(detailPkg.status === 'SEALED' || detailPkg.status === 'READY_FOR_DISPATCH') && (
+                        {(detailPkg.status === 'SEALED' ||
+                            detailPkg.status === 'READY_FOR_DISPATCH') && (
                             <div className="mt-4 space-y-2">
                                 <div className="flex flex-wrap gap-2 items-center">
-                                    <Input size="sm" placeholder="Ship-to name" value={shipToName} onChange={(e) => setShipToName(e.target.value)} className="w-40" />
-                                    <Input size="sm" placeholder="Ship-to address (required for SCM)" value={shipToAddress} onChange={(e) => setShipToAddress(e.target.value)} className="min-w-[220px] flex-1" />
+                                    <Input
+                                        size="sm"
+                                        placeholder="Ship-to name"
+                                        value={shipToName}
+                                        onChange={(e) =>
+                                            setShipToName(e.target.value)
+                                        }
+                                        className="w-40"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="Ship-to address (required for SCM)"
+                                        value={shipToAddress}
+                                        onChange={(e) =>
+                                            setShipToAddress(e.target.value)
+                                        }
+                                        className="min-w-[220px] flex-1"
+                                    />
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-2 items-center">
-                                    <Input size="sm" placeholder="Carrier" value={dispatchCarrier} onChange={(e) => setDispatchCarrier(e.target.value)} className="w-32" />
-                                    <Input size="sm" placeholder="Tracking #" value={dispatchTracking} onChange={(e) => setDispatchTracking(e.target.value)} className="w-40" />
+                                    <Input
+                                        size="sm"
+                                        placeholder="Carrier"
+                                        value={dispatchCarrier}
+                                        onChange={(e) =>
+                                            setDispatchCarrier(e.target.value)
+                                        }
+                                        className="w-32"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        placeholder="Tracking #"
+                                        value={dispatchTracking}
+                                        onChange={(e) =>
+                                            setDispatchTracking(e.target.value)
+                                        }
+                                        className="w-40"
+                                    />
                                     {detailPkg.status === 'SEALED' && (
-                                        <Button size="sm" onClick={handleReadyForDispatch}>Ready for Dispatch</Button>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleReadyForDispatch}
+                                        >
+                                            Ready for Dispatch
+                                        </Button>
                                     )}
-                                    {detailPkg.status === 'READY_FOR_DISPATCH' && (
-                                        <Button size="sm" onClick={handleRetryScmRelease}>
+                                    {detailPkg.status ===
+                                        'READY_FOR_DISPATCH' && (
+                                        <Button
+                                            size="sm"
+                                            onClick={handleRetryScmRelease}
+                                        >
                                             Retry SCM release
                                         </Button>
                                     )}
-                                    <Button size="sm" variant="solid" icon={<HiOutlineTruck />} onClick={handleDispatch}>Dispatch</Button>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        icon={<HiOutlineTruck />}
+                                        onClick={handleDispatch}
+                                    >
+                                        Dispatch
+                                    </Button>
                                 </div>
                                 {detailPkg.scmShipment ? (
                                     <p className="text-xs text-gray-500">
@@ -734,8 +1487,25 @@ const PackingPage = () => {
             </FormDialog>
 
             {/* Bulk delete confirm */}
-            <ConfirmDialog isOpen={bulkDeleteOpen} type="danger" title={`Delete ${selectedRows.size} package(s)?`} confirmText={`Delete ${selectedRows.size}`} onRequestClose={() => setBulkDeleteOpen(false)} onCancel={() => setBulkDeleteOpen(false)} onConfirm={handleBulkDelete} confirmButtonProps={{ loading: bulkDeleting, customColorClass: () => 'bg-red-500 hover:bg-red-500/90 text-white' }}>
-                <p>Are you sure you want to delete <span className="font-semibold">{selectedRows.size}</span> selected package{selectedRows.size > 1 ? 's' : ''}?</p>
+            <ConfirmDialog
+                isOpen={bulkDeleteOpen}
+                type="danger"
+                title={`Delete ${selectedRows.size} package(s)?`}
+                confirmText={`Delete ${selectedRows.size}`}
+                onRequestClose={() => setBulkDeleteOpen(false)}
+                onCancel={() => setBulkDeleteOpen(false)}
+                onConfirm={handleBulkDelete}
+                confirmButtonProps={{
+                    loading: bulkDeleting,
+                    customColorClass: () =>
+                        'bg-red-500 hover:bg-red-500/90 text-white',
+                }}
+            >
+                <p>
+                    Are you sure you want to delete{' '}
+                    <span className="font-semibold">{selectedRows.size}</span>{' '}
+                    selected package{selectedRows.size > 1 ? 's' : ''}?
+                </p>
             </ConfirmDialog>
         </PageContainer>
     )

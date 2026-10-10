@@ -11,9 +11,47 @@ import {
 export type SalesOrderChannel = 'POS' | 'E-commerce' | 'Standard'
 export type SalesOrderStatus =
     | 'Completed'
+    | 'Delivered'
+    | 'Dispatched'
     | 'Pending Delivery'
     | 'Draft'
     | 'Cancelled'
+
+/** Demo-only checkout payment methods (no real gateways are connected). */
+export const CHECKOUT_PAYMENT_METHODS = [
+    'COD',
+    'CARD_DEMO',
+    'WALLET_DEMO',
+    'QR_DEMO',
+    'BANK_TRANSFER_DEMO',
+] as const
+export type CheckoutPaymentMethod = (typeof CHECKOUT_PAYMENT_METHODS)[number]
+
+export const PAYMENT_METHOD_LABEL: Record<CheckoutPaymentMethod, string> = {
+    COD: 'Cash on Delivery',
+    CARD_DEMO: 'Credit/Debit Card (Demo Only)',
+    WALLET_DEMO: 'Digital Wallet (Demo Only)',
+    QR_DEMO: 'QR Payment (Demo Only)',
+    BANK_TRANSFER_DEMO: 'Bank Transfer (Demo Only)',
+}
+
+/** Customer's checkout selection, sent to the backend with the order. */
+export type CheckoutPaymentSelection = {
+    method: CheckoutPaymentMethod
+    provider?: string
+    /** Demo card: simulate a failed authorization (no picking afterwards). */
+    cardDemoSimulateFailure?: boolean
+}
+
+/** Customer-facing reasons offered in the cancel-order dialog. */
+export const CUSTOMER_CANCEL_REASONS = [
+    'Changed my mind',
+    'Wrong item',
+    'Wrong address',
+    'Payment issue',
+    'Other',
+] as const
+export type CustomerCancelReason = (typeof CUSTOMER_CANCEL_REASONS)[number]
 
 export type SalesOrderRecord = {
     /** Database id */
@@ -27,15 +65,46 @@ export type SalesOrderRecord = {
     divisionIds: string[]
     branchId: string | null
     customer: { id: string; name: string; email: string | null }
-    lines: (PricedLine & { lineId: string; divisionId: string | null })[]
+    /** Organization / MM company joined from salesOrder.companyId. */
+    company: { id: string; name: string } | null
+    lines: (PricedLine & {
+        lineId: string
+        divisionId: string | null
+        /** Commercial snapshot for order history (image may change later). */
+        productImage: string | null
+        productName: string | null
+        variantName?: string
+        /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
+        integrationStatus: string | null
+    })[]
     subtotal: number
     promoCode: string | null
     discountAmount: number
     shipping: number
     totalAmount: number
+    /** Server-computed customer cancellation eligibility. */
+    customerCancel: { canCancel: boolean; reason: string | null } | null
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
+    /** Demo payment snapshot (null for non-checkout orders). */
+    payment: {
+        method: string | null
+        provider: string | null
+        status: string | null
+        reference: string | null
+        isDemo: boolean
+    } | null
+    /** Snapshot of the delivery address taken at checkout. */
+    shippingAddress: {
+        name: string | null
+        phone: string | null
+        line1: string | null
+        city: string | null
+        region: string | null
+        postalCode: string | null
+        country: string | null
+    } | null
     status: SalesOrderStatus
     createdAt: string
 }
@@ -73,6 +142,10 @@ type ApiSalesOrderLine = {
     divisionId: string | null
     sku: string | null
     description: string | null
+    productNameSnapshot: string | null
+    productImageSnapshot: string | null
+    variantName: string | null
+    integrationStatus: string | null
     quantity: DecimalString
     unitPrice: DecimalString
     lineTotal: DecimalString
@@ -82,6 +155,8 @@ type ApiSalesOrder = {
     id: string
     orderNumber: string
     channel: 'STANDARD' | 'POS' | 'ECOMMERCE'
+    companyId: string | null
+    company: { id: string; name: string } | null
     divisionId: string | null
     branchId: string | null
     customerId: string
@@ -94,6 +169,22 @@ type ApiSalesOrder = {
     totalAmount: DecimalString
     paymentReceived: DecimalString
     changeAmount: DecimalString
+    paymentMethod: string | null
+    paymentStatus: string | null
+    paymentReference: string | null
+    paymentProvider: string | null
+    isDemoPayment: boolean | null
+    shipToName: string | null
+    shipToPhone: string | null
+    shipToAddressLine1: string | null
+    shipToCity: string | null
+    shipToRegion: string | null
+    shipToPostalCode: string | null
+    shipToCountry: string | null
+    customerCancel: {
+        canCancel: boolean
+        reason: string | null
+    } | null
     status: string
     createdAt: string
     lines: ApiSalesOrderLine[]
@@ -101,6 +192,23 @@ type ApiSalesOrder = {
 
 /** Fired after this tab persists an order so cached dashboard data refetches. */
 export const SALES_ORDER_RECORDED_EVENT = 'sd:sales-order-recorded'
+
+/**
+ * Cross-tab sync: when an order is created/cancelled in ANY tab (storefront,
+ * POS, admin), Mission Control refreshes immediately instead of waiting up to
+ * 30 s for its polling interval.
+ */
+export function broadcastSalesOrderChanged(): void {
+    try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+            const channel = new BroadcastChannel('agc-erp')
+            channel.postMessage({ type: 'sales-order-recorded' })
+            channel.close()
+        }
+    } catch {
+        // Best-effort cross-tab notification.
+    }
+}
 
 const CHANNEL_LABEL: Record<ApiSalesOrder['channel'], SalesOrderChannel> = {
     STANDARD: 'Standard',
@@ -110,6 +218,8 @@ const CHANNEL_LABEL: Record<ApiSalesOrder['channel'], SalesOrderChannel> = {
 
 const STATUS_LABEL: Record<string, SalesOrderStatus> = {
     COMPLETED: 'Completed',
+    DELIVERED: 'Delivered',
+    SHIPPED: 'Dispatched',
     CONFIRMED: 'Pending Delivery',
     DRAFT: 'Draft',
     CANCELLED: 'Cancelled',
@@ -137,11 +247,19 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             name: order.customerName ?? order.customerId,
             email: order.customerEmail,
         },
+        company: order.company
+            ? { id: order.company.id, name: order.company.name }
+            : null,
         lines: order.lines.map((line) => ({
             lineId: line.id,
             divisionId: line.divisionId ?? order.divisionId,
             sku: line.sku ?? '—',
-            name: line.description ?? line.sku ?? '—',
+            name:
+                line.productNameSnapshot ?? line.description ?? line.sku ?? '—',
+            productImage: line.productImageSnapshot,
+            productName: line.productNameSnapshot,
+            variantName: line.variantName ?? undefined,
+            integrationStatus: line.integrationStatus ?? null,
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),
             lineTotal: num(line.lineTotal),
@@ -151,8 +269,31 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
         discountAmount: num(order.discountAmount),
         shipping: num(order.shippingAmount),
         totalAmount: num(order.totalAmount),
+        customerCancel: order.customerCancel ?? null,
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
+        payment:
+            order.paymentMethod !== undefined && order.paymentMethod !== null
+                ? {
+                      method: order.paymentMethod,
+                      provider: order.paymentProvider,
+                      status: order.paymentStatus,
+                      reference: order.paymentReference,
+                      isDemo: Boolean(order.isDemoPayment),
+                  }
+                : null,
+        shippingAddress:
+            order.shipToName !== undefined && order.shipToName !== null
+                ? {
+                      name: order.shipToName,
+                      phone: order.shipToPhone,
+                      line1: order.shipToAddressLine1,
+                      city: order.shipToCity,
+                      region: order.shipToRegion,
+                      postalCode: order.shipToPostalCode,
+                      country: order.shipToCountry,
+                  }
+                : null,
         status: STATUS_LABEL[order.status] ?? 'Draft',
         createdAt: order.createdAt,
     }
@@ -188,6 +329,7 @@ export async function createRetailSalesOrder(
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event(SALES_ORDER_RECORDED_EVENT))
         }
+        broadcastSalesOrderChanged()
         return toRecord(data)
     } catch (error) {
         throw toError(error, 'Unable to save sales order')
@@ -209,6 +351,11 @@ export type MarketplaceCheckoutInput = {
     promoCode?: string | null
     shippingAmount: number
     totalAmount: number
+    /** Mode of payment selected at checkout (demo mode — no real gateways). */
+    paymentMethod: CheckoutPaymentMethod
+    paymentProvider?: string
+    /** Demo card: simulate a failed authorization. */
+    cardDemoSimulateFailure?: boolean
 }
 
 /**
@@ -226,6 +373,9 @@ export async function createMarketplaceCheckout(
             {
                 ...input,
                 promoCode: input.promoCode ?? undefined,
+                paymentProvider: input.paymentProvider ?? undefined,
+                cardDemoSimulateFailure:
+                    input.cardDemoSimulateFailure ?? undefined,
                 cartItems: input.cartItems.map((line) => ({
                     divisionId: line.divisionId,
                     sku: line.sku,
@@ -240,10 +390,35 @@ export async function createMarketplaceCheckout(
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event(SALES_ORDER_RECORDED_EVENT))
         }
+        broadcastSalesOrderChanged()
         return toRecord(data.order)
     } catch (error) {
         if (isSessionRejected(error)) throw new RetailSessionExpiredError()
         throw toError(error, 'Unable to place your order')
+    }
+}
+
+/**
+ * Customer self-service cancellation before warehouse processing
+ * (POST /sd/sales-orders/retail/:id/cancel). The reservation is released by
+ * the backend; an already-cancelled order returns success without re-release.
+ */
+export async function cancelCustomerOrder(
+    id: string,
+    reason: string,
+    sessionToken: string,
+): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
+            `/sd/sales-orders/retail/${encodeURIComponent(id)}/cancel`,
+            { reason },
+            { headers: bearer(sessionToken) },
+        )
+        broadcastSalesOrderChanged()
+        return toRecord(data)
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to cancel this order')
     }
 }
 
@@ -258,9 +433,11 @@ export type SalesOrderListParams = {
     divisionId?: string
     /** Selling branch code; `'all'` or empty means every branch. */
     branchId?: string
+    /** Organization / MM company scope (admin list filter). */
+    companyId?: string
 }
 
-/** Retail statuses an admin can move a Pending Delivery order to. */
+/** Back-office may cancel before fulfillment or close an already delivered order. */
 export type RetailStatusTarget = 'Completed' | 'Cancelled'
 
 const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> =
@@ -281,6 +458,10 @@ export async function getSalesOrders(
                 params: {
                     search: search || undefined,
                     customerId: params.customerId,
+                    companyId:
+                        params.companyId && params.companyId !== 'all'
+                            ? params.companyId
+                            : undefined,
                     divisionId: params.divisionId,
                     branchId:
                         params.branchId && params.branchId !== 'all'
@@ -299,42 +480,7 @@ export async function getSalesOrders(
     }
 }
 
-/**
- * POST /sd/sales-orders/:id/confirm — DRAFT → CONFIRMED.
- *
- * This is the canonical SD→MM handoff and must stay server-side: the backend
- * resolves product→material + UOM→base + warehouse, emits `SALES_ORDER_CONFIRMED`,
- * and the MM demand listener performs the ATP check + reservation (the "soft
- * deduction" against the division warehouse) and demand sync. No inventory is
- * posted here — physical stock only moves later on goods issue.
- */
-export async function confirmSalesOrder(id: string): Promise<SalesOrderRecord> {
-    try {
-        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
-            `/sd/sales-orders/${encodeURIComponent(id)}/confirm`,
-        )
-        return toRecord(data)
-    } catch (error) {
-        throw toError(error, 'Unable to confirm sales order')
-    }
-}
-
-/**
- * POST /sd/sales-orders/:id/cancel — customer "request cancellation" while an
- * order is still waiting for approval. Releases any MM reservation server-side.
- */
-export async function cancelSalesOrder(id: string): Promise<SalesOrderRecord> {
-    try {
-        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
-            `/sd/sales-orders/${encodeURIComponent(id)}/cancel`,
-        )
-        return toRecord(data)
-    } catch (error) {
-        throw toError(error, 'Unable to cancel order')
-    }
-}
-
-/** PATCH /sd/sales-orders/retail/:id/status — only Pending Delivery orders may move. */
+/** PATCH /sd/sales-orders/retail/:id/status — cancel before fulfillment or complete after delivery. */
 export async function updateRetailSalesOrderStatus(
     id: string,
     status: RetailStatusTarget,
@@ -344,9 +490,43 @@ export async function updateRetailSalesOrderStatus(
             `/sd/sales-orders/retail/${encodeURIComponent(id)}/status`,
             { status: STATUS_TARGET_API[status] },
         )
+        broadcastSalesOrderChanged()
         return toRecord(data)
     } catch (error) {
         throw toError(error, 'Unable to update order status')
+    }
+}
+
+/** Confirms a Draft sales order through SD's canonical MM fulfillment handoff. */
+export async function confirmSalesOrder(id: string): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/confirm`,
+        )
+        broadcastSalesOrderChanged()
+        return toRecord(data)
+    } catch (error) {
+        throw toError(error, 'Unable to confirm sales order')
+    }
+}
+
+/**
+ * Admin: mark an order's demo payment Paid (bank transfer verified, COD
+ * collected). When the payment allows fulfillment, the backend triggers
+ * reservation + auto picking if they were never created.
+ */
+export async function markOrderPaymentPaid(
+    id: string,
+): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.patch<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/payment`,
+            { status: 'Paid' },
+        )
+        broadcastSalesOrderChanged()
+        return toRecord(data)
+    } catch (error) {
+        throw toError(error, 'Unable to update payment status')
     }
 }
 
@@ -403,9 +583,7 @@ export async function createCustomerReturnRequest(
 }
 
 /** Uploads return evidence photo (POST /sd/returns/photos); returns the public URL. */
-export async function uploadReturnPhoto(
-    file: File,
-): Promise<string> {
+export async function uploadReturnPhoto(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
     try {

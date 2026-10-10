@@ -1,6 +1,7 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
     WmPackage,
+    WmPackageItem,
     PackageListResponse,
     PackageQueryParams,
     CreatePackagePayload,
@@ -26,7 +27,26 @@ export const packingService = {
         id: string,
         data: { materialId: string; batchId?: string; serialId?: string },
     ) =>
-        ErpAxiosBase.post<WmPackage>(`${BASE}/${id}/scan`, data).then(
+        ErpAxiosBase.post<WmPackageItem>(`${BASE}/${id}/scan`, data).then(
+            (r) => r.data,
+        ),
+
+    /** Resolve a QR/barcode to a material (+batch/serial) before packing. */
+    resolveCode: (barcode: string) =>
+        ErpAxiosBase.get<{
+            type: string
+            barcode: string
+            materialId?: string
+            material?: {
+                id: string
+                materialCode: string
+                materialName: string
+            }
+            batchId?: string
+            batch?: { id: string; batchNumber: string; materialId: string }
+            serialNumberId?: string
+            serial?: { id: string; serialNumber: string; materialId: string }
+        }>('/mm/scanner/resolve', { params: { barcode } }).then(
             (r) => r.data,
         ),
 
@@ -35,8 +55,11 @@ export const packingService = {
             (r) => r.data,
         ),
 
-    seal: (id: string) =>
-        ErpAxiosBase.post<WmPackage>(`${BASE}/${id}/seal`).then(
+    seal: (
+        id: string,
+        data?: { weight?: number; length?: number; width?: number; height?: number },
+    ) =>
+        ErpAxiosBase.post<WmPackage>(`${BASE}/${id}/seal`, data ?? {}).then(
             (r) => r.data,
         ),
 

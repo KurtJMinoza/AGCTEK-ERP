@@ -888,7 +888,7 @@ export class TripsService {
                 },
                 data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
             })
-            // SD marks the linked sales orders delivered/completed + finalizes invoices.
+            // SD marks the linked sales orders delivered and finalizes invoices.
             this.events?.emit('shipment.delivered', { shipmentIds })
             if (trip.vehicleId) {
                 await this.prisma.vehicle.update({

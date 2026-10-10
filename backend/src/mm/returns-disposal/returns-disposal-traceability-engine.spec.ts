@@ -162,6 +162,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             configService,
             disposalService,
             events,
+            { assertPermission: jest.fn() } as any,
         )
         damagedExpired = new DamagedExpiredQueryService(
             prisma,

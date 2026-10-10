@@ -31,6 +31,16 @@ export class PickingController {
         return this.service.findAll(query)
     }
 
+    /** Active workers selectable for picking assignment (company-scoped). */
+    @Get('assignable-users')
+    @MmRead(READERS)
+    assignableUsers(
+        @Query('companyId') companyId?: string,
+        @Query('warehouseId') warehouseId?: string,
+    ) {
+        return this.service.assignableUsers(companyId, warehouseId)
+    }
+
     @Get(':id')
     @MmRead(READERS)
     findOne(@Param('id') id: string) {

@@ -11,6 +11,7 @@ import type { PermissionsService } from '../../permissions/permissions.service'
 import type { PrismaService } from '../../prisma/prisma.service'
 import type { QuotationService } from '../../sd/quotation.service'
 import type { SalesOrderService } from '../../sd/sales-order.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmOpportunitiesController } from './opportunities.controller'
 import type { CrmOpportunitiesService } from './opportunities.service'
 import { CrmOpportunityHandoffService } from './opportunity-handoff.service'
@@ -71,6 +72,7 @@ function setup(opp = opportunity()) {
             findUnique: jest.fn().mockResolvedValue(opp),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
+        crmMessage: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
         $transaction: jest.fn(),
         $queryRaw: jest.fn().mockResolvedValue([{ id: opp.id }]),
     }
@@ -92,14 +94,16 @@ function setup(opp = opportunity()) {
         ),
     }
     const permissions = { assertPermission: jest.fn().mockResolvedValue(undefined) }
+    const messages = { recordSystem: jest.fn().mockResolvedValue({ count: 0 }) } as unknown as CrmMessagesService
     const service = new CrmOpportunityHandoffService(
         prisma as unknown as PrismaService,
         opportunities as unknown as CrmOpportunitiesService,
         salesOrders as unknown as SalesOrderService,
         permissions as unknown as PermissionsService,
         quotations as unknown as QuotationService,
+        messages,
     )
-    return { prisma, opportunities, salesOrders, permissions, quotations, service }
+    return { prisma, opportunities, salesOrders, permissions, quotations, messages, service }
 }
 
 const linkCall = (prisma: ReturnType<typeof setup>['prisma'], idx = 0) =>
@@ -160,6 +164,32 @@ describe('CrmOpportunityHandoffService.win', () => {
         expect(result.salesOrder.id).toBe('so-1')
         expect(salesOrders.createFromCrmOpportunity).not.toHaveBeenCalled()
         expect(prisma.crmOpportunity.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('writes a SYSTEM stage-change message in the same transaction as Closed Won', async () => {
+        const { prisma, messages, service } = setup()
+
+        await service.win('opp-1', dto, user)
+
+        expect(messages.recordSystem).toHaveBeenCalledWith(
+            prisma,
+            'opp-1',
+            [{ field: 'stage', from: 'NEGOTIATION', to: 'CLOSED_WON' }],
+            'user-1',
+        )
+    })
+
+    it('writes the stage message when re-winning a reopened opportunity', async () => {
+        const { prisma, messages, service } = setup(opportunity({ sdSalesOrderId: 'so-1' }))
+
+        await service.win('opp-1', {}, user)
+
+        expect(messages.recordSystem).toHaveBeenCalledWith(
+            prisma,
+            'opp-1',
+            [{ field: 'stage', from: 'NEGOTIATION', to: 'CLOSED_WON' }],
+            'user-1',
+        )
     })
 
     it('points Closed Won without an order to Retry ERP handoff', async () => {

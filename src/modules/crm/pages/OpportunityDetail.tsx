@@ -15,30 +15,42 @@ import OpportunitySalesOrderDialog, {
     type SalesOrderDialogMode,
 } from '../components/OpportunitySalesOrderDialog'
 import OpportunityActivityPanel from '../components/opportunity/OpportunityActivityPanel'
+import OpportunityChatter from '../components/opportunity/OpportunityChatter'
 import OpportunityDetailsPanel from '../components/opportunity/OpportunityDetailsPanel'
 import OpportunityHeader from '../components/opportunity/OpportunityHeader'
 import OpportunityKpiChips from '../components/opportunity/OpportunityKpiChips'
-import OpportunityTimeline from '../components/opportunity/OpportunityTimeline'
 import OpportunityQuotationsPanel, {
     QUOTATIONS_ANCHOR,
 } from '../components/opportunity/OpportunityQuotationsPanel'
 import { useActivities } from '../hooks/useOpportunityActivities'
 import { useOpportunityQuotations } from '../hooks/useOpportunityQuotations'
 import { useLinkedSalesOrder, useOpportunity } from '../hooks/useOpportunity'
-import { apiCreateOpportunitySalesOrder, apiWinOpportunity } from '../services/crmApi'
+import {
+    apiCreateOpportunitySalesOrder,
+    apiWinOpportunity,
+} from '../services/crmApi'
 import { crmPageBreadcrumbs } from '../utils/breadcrumbs'
-import type { ActivityParent, CreateOpportunitySalesOrderResult } from '../types'
+import type {
+    ActivityParent,
+    CreateOpportunitySalesOrderResult,
+} from '../types'
 
 const Skeleton = ({ className }: { className: string }) => (
-    <div className={`animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700 ${className}`} />
+    <div
+        className={`animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700 ${className}`}
+    />
 )
 
 /** Odoo-style record workspace: board/table scan, this page is where the deal is worked. */
 export default function OpportunityDetailPage() {
     const params = useParams<{ id: string }>()
     const id = params?.id ?? ''
-    const { opportunity, loading, error, notFound, reload, update } = useOpportunity(id)
-    const parent = useMemo<ActivityParent | null>(() => (id ? { kind: 'opportunity', id } : null), [id])
+    const { opportunity, loading, error, notFound, reload, update } =
+        useOpportunity(id)
+    const parent = useMemo<ActivityParent | null>(
+        () => (id ? { kind: 'opportunity', id } : null),
+        [id],
+    )
     const activities = useActivities(parent)
     const { order: salesOrder, error: salesOrderError } = useLinkedSalesOrder(
         id,
@@ -48,26 +60,43 @@ export default function OpportunityDetailPage() {
     const { can } = usePermissions()
     const canCreate = can('crm.opportunities', 'create')
     const canUpdate = can('crm.opportunities', 'update')
-    const [handoffMode, setHandoffMode] = useState<SalesOrderDialogMode | null>(null)
-    const [handoffResult, setHandoffResult] = useState<CreateOpportunitySalesOrderResult | null>(
+    const canDelete = can('crm.opportunities', 'delete')
+    const [handoffMode, setHandoffMode] = useState<SalesOrderDialogMode | null>(
         null,
     )
+    const [handoffResult, setHandoffResult] =
+        useState<CreateOpportunitySalesOrderResult | null>(null)
 
     if (!opportunity) {
         return (
             <PageContainer>
-                <PageHeader title="Opportunity" breadcrumbs={crmPageBreadcrumbs('Opportunities')} />
+                <PageHeader
+                    title="Opportunity"
+                    breadcrumbs={crmPageBreadcrumbs('Opportunities')}
+                />
                 {notFound ? (
-                    <Alert showIcon type="warning" title="Opportunity not found">
+                    <Alert
+                        showIcon
+                        type="warning"
+                        title="Opportunity not found"
+                    >
                         It may have been removed.{' '}
                         <Link href="/crm/opportunities" className="underline">
                             Back to opportunities
                         </Link>
                     </Alert>
                 ) : error ? (
-                    <Alert showIcon type="danger" title="Unable to load opportunity">
+                    <Alert
+                        showIcon
+                        type="danger"
+                        title="Unable to load opportunity"
+                    >
                         <span className="mr-2">{error}</span>
-                        <Button size="xs" onClick={() => void reload()} loading={loading}>
+                        <Button
+                            size="xs"
+                            onClick={() => void reload()}
+                            loading={loading}
+                        >
                             Retry
                         </Button>
                     </Alert>
@@ -99,10 +128,14 @@ export default function OpportunityDetailPage() {
     }
     const openQuotations = () => {
         setHandoffMode(null)
-        document.getElementById(QUOTATIONS_ANCHOR)?.scrollIntoView({ behavior: 'smooth' })
+        document
+            .getElementById(QUOTATIONS_ANCHOR)
+            ?.scrollIntoView({ behavior: 'smooth' })
     }
     const needsRetry =
-        canUpdate && opportunity.stage === 'CLOSED_WON' && !opportunity.sdSalesOrderId
+        canUpdate &&
+        opportunity.stage === 'CLOSED_WON' &&
+        !opportunity.sdSalesOrderId
 
     return (
         <PageContainer>
@@ -118,7 +151,10 @@ export default function OpportunityDetailPage() {
                 actions={
                     <div className="flex gap-2">
                         {needsRetry ? (
-                            <Button variant="solid" onClick={() => setHandoffMode('retry')}>
+                            <Button
+                                variant="solid"
+                                onClick={() => setHandoffMode('retry')}
+                            >
                                 Retry ERP handoff
                             </Button>
                         ) : null}
@@ -159,8 +195,13 @@ export default function OpportunityDetailPage() {
                         <span className="font-mono font-semibold">
                             {handoffResult.salesOrder.orderNumber}
                         </span>
-                        <SalesOrderOriginBadges order={handoffResult.salesOrder} />
-                        <span>SD now owns pricing, confirmation, stock and delivery.</span>
+                        <SalesOrderOriginBadges
+                            order={handoffResult.salesOrder}
+                        />
+                        <span>
+                            SD now owns pricing, confirmation, stock and
+                            delivery.
+                        </span>
                         <Link href={SD_SALES_ORDERS_PATH} className="underline">
                             Open SD sales orders
                         </Link>
@@ -188,9 +229,7 @@ export default function OpportunityDetailPage() {
                         quotations={quotations.quotations}
                         loading={quotations.loading}
                         error={quotations.error}
-                        reload={quotations.reload}
                         canCreate={canUpdate && can('sd.quotations', 'create')}
-                        canManage={can('sd.quotations', 'update')}
                     />
                 </div>
                 <div className="flex flex-col gap-4 lg:col-span-2">
@@ -205,10 +244,10 @@ export default function OpportunityDetailPage() {
                         complete={activities.complete}
                         onChanged={refreshBadge}
                     />
-                    <OpportunityTimeline
+                    <OpportunityChatter
                         opportunity={opportunity}
-                        activities={activities.activities}
-                        salesOrder={salesOrder}
+                        canCreate={canCreate}
+                        canDelete={canDelete}
                     />
                 </div>
             </div>
@@ -216,9 +255,10 @@ export default function OpportunityDetailPage() {
             {needsRetry ? (
                 <AdaptiveCard className="mt-4">
                     <p className="text-sm text-gray-500">
-                        This deal is Closed Won but has no SD sales order (it was won before the ERP
-                        handoff ran). Use Retry ERP handoff to create it; SD then owns pricing, stock
-                        and delivery.
+                        This deal is Closed Won but has no SD sales order (it
+                        was won before the ERP handoff ran). Use Retry ERP
+                        handoff to create it; SD then owns pricing, stock and
+                        delivery.
                     </p>
                 </AdaptiveCard>
             ) : null}
@@ -229,7 +269,11 @@ export default function OpportunityDetailPage() {
                 canCreateOrder={can('sd.sales-orders', 'create')}
                 onClose={() => setHandoffMode(null)}
                 onOpenQuotation={openQuotations}
-                onSubmit={handoffMode === 'retry' ? apiCreateOpportunitySalesOrder : apiWinOpportunity}
+                onSubmit={
+                    handoffMode === 'retry'
+                        ? apiCreateOpportunitySalesOrder
+                        : apiWinOpportunity
+                }
                 onCreated={(result) => {
                     setHandoffMode(null)
                     setHandoffResult(result)

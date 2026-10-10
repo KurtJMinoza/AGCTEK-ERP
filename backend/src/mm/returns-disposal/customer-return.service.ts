@@ -6,7 +6,9 @@ import {
     forwardRef,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { PermissionsService } from '../../permissions/permissions.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
@@ -26,6 +28,19 @@ const DETAIL_INCLUDE = {
     lines: { include: LINE_INCLUDE },
     warehouse: true,
     audits: { orderBy: { performedAt: 'desc' as const } },
+    /** SD sales return that opened this intake (Phase 5 traceability). */
+    sdSalesReturn: {
+        select: {
+            id: true,
+            returnNumber: true,
+            status: true,
+            salesOrderId: true,
+        },
+    },
+    /** Originating SCM damage report (Phase 5 traceability). */
+    damageReport: {
+        select: { id: true, reference: true, shipmentId: true, status: true },
+    },
 }
 
 const DISPOSITION_STOCK: Record<string, string> = {
@@ -33,6 +48,30 @@ const DISPOSITION_STOCK: Record<string, string> = {
     REPAIR: 'QUALITY_INSPECTION',
     BLOCK: 'BLOCKED',
     SCRAP: 'BLOCKED',
+}
+
+/** SD → MM handoff input (Phase 4): references + expected quantities only, never full SD records. */
+export type CreateCustomerReturnFromSalesReturnInput = {
+    salesReturnId: string
+    companyId: string
+    warehouseId: string
+    /** Originating SCM damage report, when the return came from a damage report. */
+    damageReportId?: string | null
+    customerRef?: string | null
+    customerName?: string | null
+    reason?: string | null
+    remarks?: string | null
+    createdBy?: string | null
+    lines: Array<{
+        materialId: string
+        uomId?: string | null
+        quantity: number
+        unitCost?: number
+        batchId?: string | null
+        serialNumberId?: string | null
+        storageBinId?: string | null
+        remarks?: string | null
+    }>
 }
 
 @Injectable()
@@ -44,6 +83,7 @@ export class CustomerReturnService {
         @Inject(forwardRef(() => DisposalService))
         private disposalService: DisposalService,
         private events: EventEmitter2,
+        private permissions: PermissionsService,
     ) {}
 
     async create(dto: CreateCustomerReturnDto) {
@@ -93,6 +133,117 @@ export class CustomerReturnService {
 
         await this.audit(doc.id, 'CREATED', undefined, undefined, undefined, dto.createdBy)
         return doc
+    }
+
+    /**
+     * Phase 4 — open an MM customer return intake from an authorized SD sales return.
+     *
+     * This is the SD→MM handoff seam. SD owns the commercial return; MM owns the physical intake.
+     * The method reuses the same persistence as `create`, enforces the MM intake permission itself
+     * (the SD caller bypasses this module's controller), is idempotent on the unique
+     * `sdSalesReturnId`, and never posts inventory (that stays in `complete`). The intake carries
+     * both the SD return reference and the originating SCM damage report reference.
+     */
+    async createFromSalesReturn(
+        input: CreateCustomerReturnFromSalesReturnInput,
+        actor: { id?: string; role: string },
+    ) {
+        await this.permissions.assertPermission(
+            { role: actor.role },
+            'mm.returns-disposal.customer-return-intake',
+            'create',
+        )
+        if (!input.lines?.length) {
+            throw new BadRequestException('A customer return requires at least one line')
+        }
+        const createdBy = input.createdBy ?? actor.id ?? null
+
+        // Idempotency: one intake per SD return (unique sdSalesReturnId).
+        const existing = await this.prisma.mmCustomerReturn.findUnique({
+            where: { sdSalesReturnId: input.salesReturnId },
+            include: DETAIL_INCLUDE,
+        })
+        if (existing) return { created: false, customerReturn: existing }
+
+        // Default the UoM from the material master when the SD line did not carry one.
+        const materials = await this.prisma.mmMaterial.findMany({
+            where: { id: { in: [...new Set(input.lines.map((l) => l.materialId))] } },
+            select: { id: true, baseUomId: true },
+        })
+        const uomByMaterial = new Map(materials.map((m) => [m.id, m.baseUomId]))
+
+        const lines = input.lines.map((l, i) => {
+            const uomId = l.uomId ?? uomByMaterial.get(l.materialId)
+            if (!uomId) {
+                throw new BadRequestException(`Material ${l.materialId} has no unit of measure`)
+            }
+            return {
+                lineNumber: i + 1,
+                materialId: l.materialId,
+                uomId,
+                batchId: l.batchId ?? null,
+                serialNumberId: l.serialNumberId ?? null,
+                storageBinId: l.storageBinId ?? null,
+                quantity: new Decimal(l.quantity),
+                unitCost: new Decimal(l.unitCost ?? 0),
+                disposition: null,
+                dispositionStatus: 'PENDING',
+                remarks: l.remarks ?? null,
+            }
+        })
+        await this.assertLineTracking(
+            lines.map((l) => ({
+                materialId: l.materialId,
+                batchId: l.batchId ?? undefined,
+                serialNumberId: l.serialNumberId ?? undefined,
+                quantity: Number(l.quantity),
+                unitCost: Number(l.unitCost),
+            })),
+        )
+
+        const estimatedValue = lines.reduce(
+            (s, l) => s.plus(l.quantity.mul(l.unitCost)),
+            new Decimal(0),
+        )
+        const totalQuantity = lines.reduce((s, l) => s.plus(l.quantity), new Decimal(0))
+        const returnNumber = await this.generateDocNumber('CRT')
+
+        try {
+            const doc = await this.prisma.mmCustomerReturn.create({
+                data: {
+                    returnNumber,
+                    companyId: input.companyId,
+                    warehouseId: input.warehouseId,
+                    sdSalesReturnId: input.salesReturnId,
+                    damageReportId: input.damageReportId ?? null,
+                    customerRef: input.customerRef ?? null,
+                    customerName: input.customerName ?? null,
+                    reason: input.reason ?? null,
+                    remarks: input.remarks ?? null,
+                    status: 'DRAFT',
+                    estimatedValue,
+                    totalQuantity,
+                    createdBy,
+                    lines: { create: lines },
+                },
+                include: DETAIL_INCLUDE,
+            })
+            await this.audit(doc.id, 'CREATED', undefined, undefined, undefined, createdBy ?? undefined, {
+                salesReturnId: input.salesReturnId,
+                damageReportId: input.damageReportId ?? null,
+            })
+            return { created: true, customerReturn: doc }
+        } catch (error) {
+            // Concurrent handoff: the unique sdSalesReturnId constraint wins once; return the winner.
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                const winner = await this.prisma.mmCustomerReturn.findUnique({
+                    where: { sdSalesReturnId: input.salesReturnId },
+                    include: DETAIL_INCLUDE,
+                })
+                if (winner) return { created: false, customerReturn: winner }
+            }
+            throw error
+        }
     }
 
     async update(id: string, dto: UpdateCustomerReturnDto) {

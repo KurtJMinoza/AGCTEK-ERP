@@ -6,6 +6,7 @@ import {
     IsArray,
     ValidateNested,
     Min,
+    IsIn,
 } from 'class-validator'
 import { Type } from 'class-transformer'
 
@@ -38,6 +39,10 @@ export class CreatePackageDto {
 
     @IsOptional()
     @IsString()
+    salesOrderId?: string
+
+    @IsOptional()
+    @IsString()
     pickingTaskId?: string
 
     @IsOptional()
@@ -51,6 +56,11 @@ export class CreatePackageDto {
     @IsOptional()
     @IsString()
     packageType?: string
+
+    /** Explicit user-created secondary package; automatic packages are internal. */
+    @IsOptional()
+    @IsIn(['SPLIT', 'MANUAL'])
+    packageRole?: 'SPLIT' | 'MANUAL'
 
     @IsOptional()
     @IsNumber()

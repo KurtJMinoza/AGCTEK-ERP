@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -19,6 +19,7 @@ import { pickingService } from '../services/pickingService'
 import { packingService } from '../services/packingService'
 import { warehouseTaskService } from '../services/warehouseTaskService'
 import type { PickingTask } from '../types'
+import { assignedWorkerName } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/warehouse-management/overview'
@@ -113,7 +114,7 @@ const OverviewPage = () => {
                     const m = row.original.material
                     return (
                         <span className="truncate text-sm">
-                            {m ? `${m.materialCode} — ${m.materialName}` : '—'}
+                            {m ? `${m.materialCode} â€” ${m.materialName}` : 'â€”'}
                         </span>
                     )
                 },
@@ -134,7 +135,11 @@ const OverviewPage = () => {
                 size: 140,
                 cell: ({ row }) => (
                     <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {row.original.assignedUser || 'Unassigned'}
+                        {assignedWorkerName(
+                            row.original.assignedUser,
+                            undefined,
+                            row.original.assignedWorker,
+                        ) || 'Unassigned'}
                     </span>
                 ),
             },
