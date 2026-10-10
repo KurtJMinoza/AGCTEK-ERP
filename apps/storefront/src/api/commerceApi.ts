@@ -35,6 +35,8 @@ export interface CommerceApi {
     /** Places one order per store in a single checkout. */
     checkout(input: CheckoutInput): Promise<CheckoutResult>
     getOrders(customerId: string): Promise<Order[]>
+    /** Customer "request cancellation" while an order awaits approval. */
+    cancelOrder(orderId: string): Promise<void>
 }
 
 export class CommerceApiError extends Error {

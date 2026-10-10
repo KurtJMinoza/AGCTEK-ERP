@@ -3,15 +3,15 @@ import type { OrderStatus } from '../types'
 
 /** Same wording as the web "My orders". */
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-    PROCESSING: 'Processing',
-    TO_BE_DELIVERED: 'To be delivered',
+    PENDING_APPROVAL: 'Waiting for Approval',
+    PREPARING_TO_SHIP: 'Preparing to Ship',
     DELIVERED: 'Delivered',
     CANCELLED: 'Cancelled',
 }
 
 const TONES: Record<OrderStatus, { bg: string; fg: string }> = {
-    PROCESSING: { bg: '#f3f4f6', fg: '#374151' },
-    TO_BE_DELIVERED: { bg: '#fffbeb', fg: '#b45309' },
+    PENDING_APPROVAL: { bg: '#fef3c7', fg: '#b45309' },
+    PREPARING_TO_SHIP: { bg: '#ffedd5', fg: '#c2410c' },
     DELIVERED: { bg: '#ecfdf5', fg: '#047857' },
     CANCELLED: { bg: '#fef2f2', fg: '#b91c1c' },
 }

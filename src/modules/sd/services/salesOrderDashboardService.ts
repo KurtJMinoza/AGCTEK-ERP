@@ -299,6 +299,41 @@ export async function getSalesOrders(
     }
 }
 
+/**
+ * POST /sd/sales-orders/:id/confirm — DRAFT → CONFIRMED.
+ *
+ * This is the canonical SD→MM handoff and must stay server-side: the backend
+ * resolves product→material + UOM→base + warehouse, emits `SALES_ORDER_CONFIRMED`,
+ * and the MM demand listener performs the ATP check + reservation (the "soft
+ * deduction" against the division warehouse) and demand sync. No inventory is
+ * posted here — physical stock only moves later on goods issue.
+ */
+export async function confirmSalesOrder(id: string): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/confirm`,
+        )
+        return toRecord(data)
+    } catch (error) {
+        throw toError(error, 'Unable to confirm sales order')
+    }
+}
+
+/**
+ * POST /sd/sales-orders/:id/cancel — customer "request cancellation" while an
+ * order is still waiting for approval. Releases any MM reservation server-side.
+ */
+export async function cancelSalesOrder(id: string): Promise<SalesOrderRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiSalesOrder>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/cancel`,
+        )
+        return toRecord(data)
+    } catch (error) {
+        throw toError(error, 'Unable to cancel order')
+    }
+}
+
 /** PATCH /sd/sales-orders/retail/:id/status — only Pending Delivery orders may move. */
 export async function updateRetailSalesOrderStatus(
     id: string,

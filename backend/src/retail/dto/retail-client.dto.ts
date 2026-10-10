@@ -90,3 +90,81 @@ export class RetailReplaceCartDto {
     @Type(() => RetailCartItemDto)
     items!: RetailCartItemDto[]
 }
+
+/** Saved-address payload — same delivery fields as registration. */
+export class RetailAddressDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    label?: string
+
+    @IsString()
+    @MinLength(1)
+    fullName!: string
+
+    @IsString()
+    @MinLength(1)
+    phone!: string
+
+    @IsString()
+    @MinLength(1)
+    addressLine1!: string
+
+    @IsString()
+    @MinLength(1)
+    city!: string
+
+    @IsString()
+    @MinLength(1)
+    region!: string
+
+    @IsString()
+    @MinLength(1)
+    postalCode!: string
+
+    @IsOptional()
+    @IsString()
+    country?: string
+}
+
+/** Partial edit of a saved address (never touches `isDefault`). */
+export class RetailUpdateAddressDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    label?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    fullName?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    phone?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    addressLine1?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    city?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    region?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    postalCode?: string
+
+    @IsOptional()
+    @IsString()
+    country?: string
+}

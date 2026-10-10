@@ -1,9 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { storeName } from '@/src/catalog'
+import { commerceApi } from '@/src/api/client'
+import { ConfirmDialog } from '@/src/components/ConfirmDialog'
 import { OrderCard } from '@/src/components/OrderCard'
 import { OrderTimeline } from '@/src/components/OrderTimeline'
+import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { ScreenState } from '@/src/components/ScreenState'
 import { SignInPrompt } from '@/src/components/SignInPrompt'
 import { useAuth } from '@/src/context/AuthContext'
@@ -16,6 +20,9 @@ export default function OrderDetailScreen() {
     const router = useRouter()
     const { customer } = useAuth()
     const { data, loading, refreshing, error, refresh } = useOrders(customer?.customerId ?? null)
+    const [cancelOpen, setCancelOpen] = useState(false)
+    const [cancelling, setCancelling] = useState(false)
+    const [cancelError, setCancelError] = useState<string | null>(null)
 
     if (!customer) return <SignInPrompt message="Sign in to view this order." />
     if (loading && !data) return <ScreenState kind="loading" />
@@ -33,6 +40,20 @@ export default function OrderDetailScreen() {
         )
     }
 
+    const requestCancel = async () => {
+        setCancelling(true)
+        setCancelError(null)
+        try {
+            await commerceApi.cancelOrder(order.id)
+            setCancelOpen(false)
+            await refresh()
+        } catch (e) {
+            setCancelError(e instanceof Error ? e.message : 'Unable to cancel order')
+        } finally {
+            setCancelling(false)
+        }
+    }
+
     return (
         <>
             <Stack.Screen options={{ title: order.orderNumber }} />
@@ -44,6 +65,22 @@ export default function OrderDetailScreen() {
                     <Text style={styles.title}>Order status</Text>
                     <OrderTimeline order={order} />
                 </View>
+
+                {order.status === 'PENDING_APPROVAL' ? (
+                    <View style={styles.card}>
+                        <Text style={styles.title}>Waiting for approval</Text>
+                        <Text style={styles.muted}>
+                            Our team is reviewing your order. It cannot be changed while it
+                            waits, but you can cancel it now if you change your mind.
+                        </Text>
+                        {cancelError ? <Text style={styles.error}>{cancelError}</Text> : null}
+                        <PrimaryButton
+                            title="Request cancellation"
+                            variant="secondary"
+                            onPress={() => setCancelOpen(true)}
+                        />
+                    </View>
+                ) : null}
 
                 {order.shipTo ? (
                     <View style={styles.card}>
@@ -70,6 +107,20 @@ export default function OrderDetailScreen() {
 
                 <OrderCard order={order} />
             </ScrollView>
+            <ConfirmDialog
+                visible={cancelOpen}
+                tone="danger"
+                title="Request cancellation?"
+                confirmText="Request cancellation"
+                cancelText="Keep order"
+                loading={cancelling}
+                onConfirm={() => void requestCancel()}
+                onCancel={() => setCancelOpen(false)}
+            >
+                <Text style={styles.muted}>
+                    {order.orderNumber} will be cancelled. You can place a new order any time.
+                </Text>
+            </ConfirmDialog>
         </>
     )
 }
@@ -90,4 +141,5 @@ const styles = StyleSheet.create({
     info: { flexDirection: 'row', gap: 10 },
     strong: { fontSize: 14, fontWeight: '600', color: colors.text },
     muted: { fontSize: 14, color: colors.textMuted, lineHeight: 20 },
+    error: { fontSize: 14, color: colors.danger },
 })

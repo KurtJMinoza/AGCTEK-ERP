@@ -77,8 +77,8 @@ export type ProfileUpdate = Omit<ShippingDetails, 'email'>
 
 /** Customer-facing order status, same wording as the web "My orders". */
 export type OrderStatus =
-    | 'PROCESSING'
-    | 'TO_BE_DELIVERED'
+    | 'PENDING_APPROVAL'
+    | 'PREPARING_TO_SHIP'
     | 'DELIVERED'
     | 'CANCELLED'
 

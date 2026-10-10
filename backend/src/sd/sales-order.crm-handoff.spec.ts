@@ -70,7 +70,6 @@ function setup() {
         {} as never,
         {} as never,
         quotations as unknown as QuotationService,
-        optionVariants as never,
     )
     return { prisma, service, quotations }
 }

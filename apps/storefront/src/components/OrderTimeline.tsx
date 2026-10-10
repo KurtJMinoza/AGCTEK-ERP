@@ -12,15 +12,16 @@ function stepsFor(order: Order): Step[] {
     if (order.status === 'CANCELLED') {
         return [placed, { label: 'Cancelled', done: true, current: true, danger: true, at: order.updatedAt }]
     }
-    const rank = { PROCESSING: 0, TO_BE_DELIVERED: 1, DELIVERED: 2 }[order.status]
+    const rank = { PENDING_APPROVAL: 0, PREPARING_TO_SHIP: 1, DELIVERED: 2 }[order.status]
     return [
-        { ...placed, current: rank === 0 },
-        { label: 'Confirmed · to be delivered', done: rank >= 1, current: rank === 1 },
+        placed,
+        { label: 'Waiting for approval', done: true, current: rank === 0 },
+        { label: 'Preparing to ship', done: rank >= 1, current: rank === 1 },
         {
             label: 'Delivered',
             done: rank >= 2,
             current: rank === 2,
-            at: rank === 2 ? order.updatedAt : undefined,
+            at: rank >= 2 ? order.updatedAt : undefined,
         },
     ]
 }
