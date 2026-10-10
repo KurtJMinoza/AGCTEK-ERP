@@ -62,6 +62,28 @@ describe('MaterialsService', () => {
         await prisma.mmMaterial.delete({ where: { id: created.id } })
     })
 
+    it('should restore a soft-deleted material when the same code and SKU are created', async () => {
+        const dto = { ...baseDto(), sku: `SKU-RESTORE-${Date.now()}` }
+        const created = await service.create(dto)
+        await service.softDelete(created.id)
+
+        const restored = await service.create({
+            ...dto,
+            materialName: 'Restored Material',
+        })
+
+        expect(restored.id).toBe(created.id)
+        expect(restored.deletedAt).toBeNull()
+        expect(restored.materialName).toBe('Restored Material')
+        const restoreAudit = await prisma.mmMaterialAudit.findFirst({
+            where: { materialId: created.id, action: 'RESTORE' },
+        })
+        expect(restoreAudit).not.toBeNull()
+
+        await prisma.mmMaterialAudit.deleteMany({ where: { materialId: created.id } })
+        await prisma.mmMaterial.delete({ where: { id: created.id } })
+    })
+
     it('should reject invalid thresholds (min > max)', async () => {
         const dto = { ...baseDto(), minimumStock: 100, maximumStock: 10 }
         await expect(service.create(dto)).rejects.toThrow(BadRequestException)
