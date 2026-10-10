@@ -14,7 +14,7 @@ import {
 } from 'class-validator'
 import { Transform, Type } from 'class-transformer'
 
-const PHILIPPINE_MOBILE = /^(?:\+63|0)9\d{9}$/
+const OPTIONAL_PHILIPPINE_MOBILE = /^(?:$|(?:\+63|0)9\d{9})$/
 const normalizeMobile = (value: unknown) =>
     typeof value === 'string' ? value.trim().replace(/[\s()-]/g, '') : value
 
@@ -65,7 +65,7 @@ export class RetailUpdateProfileDto {
     @IsOptional()
     @Transform(({ value }) => normalizeMobile(value))
     @IsString()
-    @Matches(PHILIPPINE_MOBILE, {
+    @Matches(OPTIONAL_PHILIPPINE_MOBILE, {
         message: 'Enter a valid Philippine mobile number.',
     })
     phone?: string
@@ -89,4 +89,82 @@ export class RetailReplaceCartDto {
     @ValidateNested({ each: true })
     @Type(() => RetailCartItemDto)
     items!: RetailCartItemDto[]
+}
+
+/** Saved-address payload — same delivery fields as registration. */
+export class RetailAddressDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    label?: string
+
+    @IsString()
+    @MinLength(1)
+    fullName!: string
+
+    @IsString()
+    @MinLength(1)
+    phone!: string
+
+    @IsString()
+    @MinLength(1)
+    addressLine1!: string
+
+    @IsString()
+    @MinLength(1)
+    city!: string
+
+    @IsString()
+    @MinLength(1)
+    region!: string
+
+    @IsString()
+    @MinLength(1)
+    postalCode!: string
+
+    @IsOptional()
+    @IsString()
+    country?: string
+}
+
+/** Partial edit of a saved address (never touches `isDefault`). */
+export class RetailUpdateAddressDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    label?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    fullName?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    phone?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    addressLine1?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    city?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    region?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    postalCode?: string
+
+    @IsOptional()
+    @IsString()
+    country?: string
 }

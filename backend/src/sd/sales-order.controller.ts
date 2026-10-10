@@ -1,4 +1,5 @@
 import {
+    UnauthorizedException,
     Body,
     Controller,
     Get,
@@ -21,6 +22,10 @@ import { SalesOrderService } from './sales-order.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
 import { RequirePermission } from '../permissions/permission.guard'
 import { RetailSessionService } from '../retail/retail-session.service'
+import { ReturnRequestService } from './return-request.service'
+import {
+    CreateCustomerReturnRequestDto,
+} from './dto/sales-order.dto'
 
 @Controller('sd/sales-orders')
 export class SalesOrderController {
@@ -28,6 +33,7 @@ export class SalesOrderController {
         private salesOrders: SalesOrderService,
         private orchestration: SdMmOrchestrationService,
         private retailSessions: RetailSessionService,
+        private returnRequests: ReturnRequestService,
     ) {}
 
     @Get()
@@ -72,6 +78,27 @@ export class SalesOrderController {
         @Body() dto: UpdateRetailSalesOrderStatusDto,
     ) {
         return this.salesOrders.updateRetailStatus(id, dto)
+    }
+
+    /**
+     * Storefront return request for a delivered order. The shopper must be
+     * signed in and own the order; company scope is resolved server-side.
+     */
+    @Post('retail/:id/returns')
+    requestReturn(
+        @Param('id') id: string,
+        @Body() dto: CreateCustomerReturnRequestDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        const clientId = this.retailSessions.clientIdFromAuthorization(
+            authorization,
+        )
+        if (!clientId) {
+            throw new UnauthorizedException(
+                'Please sign in to request a return',
+            )
+        }
+        return this.returnRequests.createForCustomer(clientId, id, dto)
     }
 
     @Get(':id')

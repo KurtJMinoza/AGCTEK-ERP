@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import {
+    confirmSalesOrder,
     getSalesOrders,
     updateRetailSalesOrderStatus,
     SALES_ORDER_RECORDED_EVENT,
@@ -32,6 +33,8 @@ type SalesOrdersState = {
         id: string,
         status: RetailStatusTarget,
     ) => Promise<SalesOrderRecord>
+    /** Confirms a DRAFT order (SD→MM handoff), patches the cached row, then refetches. */
+    confirmOrder: (id: string) => Promise<SalesOrderRecord>
 }
 
 let latestRequest = 0
@@ -72,6 +75,21 @@ export const useSalesOrdersStore = create<SalesOrdersState>((set, get) => ({
         set({ updatingId: id })
         try {
             const updated = await updateRetailSalesOrderStatus(id, status)
+            set((state) => ({
+                orders: state.orders.map((order) =>
+                    order.id === id ? updated : order,
+                ),
+            }))
+            void get().fetchOrders({ force: true })
+            return updated
+        } finally {
+            set({ updatingId: null })
+        }
+    },
+    confirmOrder: async (id) => {
+        set({ updatingId: id })
+        try {
+            const updated = await confirmSalesOrder(id)
             set((state) => ({
                 orders: state.orders.map((order) =>
                     order.id === id ? updated : order,

@@ -29,6 +29,8 @@ type DefaultAddress = {
     postalCode: string | null
     country: string | null
     additionalInfo: string | null
+    latitude: number
+    longitude: number
 }
 
 const hasValidPassword = (password: string) =>
@@ -57,11 +59,18 @@ export class RetailClientService {
         addresses?: DefaultAddress[]
     }) {
         const defaultAddress = client.addresses?.[0]
+        // A pin-only address (reverse geocode found no text) is still a valid
+        // delivery point: label it with the exact coordinates instead of
+        // pretending the account has no address at all.
+        const pinnedLabel = defaultAddress
+            ? `Pinned location (${defaultAddress.latitude.toFixed(5)}, ${defaultAddress.longitude.toFixed(5)})`
+            : null
         const addressLine1 = defaultAddress
             ? [defaultAddress.addressLine, defaultAddress.additionalInfo]
                   .filter(Boolean)
                   .join(', ') ||
               defaultAddress.formattedAddress ||
+              pinnedLabel ||
               client.addressLine1
             : client.addressLine1
         return {
@@ -149,6 +158,8 @@ export class RetailClientService {
                         postalCode: true,
                         country: true,
                         additionalInfo: true,
+                        latitude: true,
+                        longitude: true,
                     },
                 },
             },
@@ -183,6 +194,8 @@ export class RetailClientService {
                         postalCode: true,
                         country: true,
                         additionalInfo: true,
+                        latitude: true,
+                        longitude: true,
                     },
                 },
             },
@@ -221,6 +234,8 @@ export class RetailClientService {
                         postalCode: true,
                         country: true,
                         additionalInfo: true,
+                        latitude: true,
+                        longitude: true,
                     },
                 },
             },

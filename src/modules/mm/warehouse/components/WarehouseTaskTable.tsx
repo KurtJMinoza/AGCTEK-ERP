@@ -293,18 +293,21 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 />
             </AdaptiveCard>
 
-            <FormDialog isOpen={assignOpen} title="Assign Task" onClose={() => setAssignOpen(false)} onSubmit={() => activeTask && runAction(() => warehouseTaskService.assign(activeTask.id, assignUserId), 'Task assigned')} confirmLoading={actionLoading}>
+            <FormDialog isOpen={assignOpen} title="Assign Task" onClose={() => setAssignOpen(false)} onSubmit={() => { if (activeTask) return runAction(() => warehouseTaskService.assign(activeTask.id, assignUserId), 'Task assigned') }} confirmLoading={actionLoading}>
                 <FormItem label="User ID">
                     <Input value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)} placeholder="Worker user ID" />
                 </FormItem>
             </FormDialog>
 
-            <FormDialog isOpen={completeOpen} title="Complete Task" onClose={() => setCompleteOpen(false)} onSubmit={() => activeTask && runAction(() => warehouseTaskService.complete(activeTask.id, {
-                quantity: Number(completeQty),
-                destinationBinId: activeTask.taskType === 'RELOCATION' ? completeBinId : undefined,
-                sourceBinId: activeTask.taskType === 'PICK' ? completeBinId : undefined,
-                scannedBinId: completeBinId || undefined,
-            }), 'Task completed')} confirmLoading={actionLoading}>
+            <FormDialog isOpen={completeOpen} title="Complete Task" onClose={() => setCompleteOpen(false)} onSubmit={() => {
+                if (!activeTask) return
+                return runAction(() => warehouseTaskService.complete(activeTask.id, {
+                    quantity: Number(completeQty),
+                    destinationBinId: activeTask.taskType === 'RELOCATION' ? completeBinId : undefined,
+                    sourceBinId: activeTask.taskType === 'PICK' ? completeBinId : undefined,
+                    scannedBinId: completeBinId || undefined,
+                }), 'Task completed')
+            }} confirmLoading={actionLoading}>
                 <FormItem label="Quantity">
                     <Input type="number" value={completeQty} onChange={(e) => setCompleteQty(e.target.value)} />
                 </FormItem>
@@ -315,7 +318,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 )}
             </FormDialog>
 
-            <FormDialog isOpen={exceptionOpen} title="Report Exception" onClose={() => setExceptionOpen(false)} onSubmit={() => activeTask && runAction(() => warehouseTaskService.reportException(activeTask.id, { exceptionCode, details: exceptionDetails }), 'Exception reported')} confirmLoading={actionLoading}>
+            <FormDialog isOpen={exceptionOpen} title="Report Exception" onClose={() => setExceptionOpen(false)} onSubmit={() => { if (activeTask) return runAction(() => warehouseTaskService.reportException(activeTask.id, { exceptionCode, details: exceptionDetails }), 'Exception reported') }} confirmLoading={actionLoading}>
                 <FormItem label="Code">
                     <Select
                         options={['WRONG_BIN', 'WRONG_MATERIAL', 'WRONG_BATCH', 'WRONG_SERIAL', 'QUANTITY_MISMATCH', 'INSUFFICIENT_STOCK', 'DAMAGED_STOCK', 'BLOCKED_LOCATION'].map((c) => ({ value: c, label: c }))}

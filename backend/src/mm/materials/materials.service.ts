@@ -38,8 +38,8 @@ function toNumber(value: unknown): number {
 }
 
 /** JSON-friendly material (Prisma Decimal → number). */
-function serializeMaterial<T extends Record<string, unknown>>(row: T): T {
-    const out = { ...row } as Record<string, unknown>
+function serializeMaterial<T extends object>(row: T): T {
+    const out = { ...row } as unknown as Record<string, unknown>
     for (const key of [
         'onHandQty',
         'reservedQty',
@@ -292,12 +292,23 @@ export class MaterialsService {
             status = 'DRAFT'
         }
 
+        // Materials default to the PHP currency. The New/Edit Material form no
+        // longer exposes a currency picker; the API remains the authority.
+        const currencyId =
+            dto.currencyId && dto.currencyId.trim() !== ''
+                ? dto.currencyId
+                : ((await this.prisma.mmCurrency.findFirst({
+                      where: { code: 'PHP' },
+                      select: { id: true },
+                  }))?.id ?? null)
+
         const material = await this.prisma.mmMaterial.create({
             data: {
                 ...(dto as Prisma.MmMaterialUncheckedCreateInput),
                 materialCode,
                 sku,
                 status,
+                currencyId,
                 onHandQty: new Decimal(dto.onHandQty ?? 0),
                 reservedQty: new Decimal(dto.reservedQty ?? 0),
             },
@@ -305,7 +316,7 @@ export class MaterialsService {
         })
 
         await this.writeAudit(material.id, 'CREATE', null, material)
-        return serializeMaterial(material as Record<string, unknown>)
+        return serializeMaterial(material)
     }
 
     private async generateNextCode(): Promise<string> {
@@ -379,7 +390,7 @@ export class MaterialsService {
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'UPDATE', changes, null)
         }
-        return serializeMaterial(updated as Record<string, unknown>)
+        return serializeMaterial(updated)
     }
 
     async activate(id: string) {

@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { MmModule } from '../mm/mm.module'
 import { RetailModule } from '../retail/retail.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { CustomerController } from './customer.controller'
 import { CustomerService } from './customer.service'
 import { ProductController } from './product.controller'
@@ -13,6 +14,7 @@ import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
 import { ProductMaterialAssignmentService } from './product-material-assignment.service'
 import { ProductMaterialAssignmentController } from './product-material-assignment.controller'
 import { MaterialResolutionService } from './material-resolution.service'
+import { ProductOptionVariantsService } from './product-option-variants.service'
 import { FulfillmentDeterminationService } from './fulfillment-determination.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { SdFulfillmentService } from './sd-fulfillment.service'
@@ -24,9 +26,13 @@ import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
 import { SalesReturnService } from './sales-return.service'
 import { SalesReturnController } from './sales-return.controller'
+import { SalesInvoiceService } from './sales-invoice.service'
+import { SdFulfillmentEventsListener } from './sd-fulfillment-events.listener'
+import { ReturnRequestService } from './return-request.service'
+import { ReturnRequestController } from './return-request.controller'
 
 @Module({
-    imports: [forwardRef(() => MmModule), RetailModule],
+    imports: [forwardRef(() => MmModule), RetailModule, NotificationsModule],
     controllers: [
         SalesOrderController,
         CustomerController,
@@ -35,6 +41,7 @@ import { SalesReturnController } from './sales-return.controller'
         SdMaterialReferenceController,
         QuotationController,
         SalesReturnController,
+        ReturnRequestController,
     ],
     providers: [
         CustomerService,
@@ -45,6 +52,7 @@ import { SalesReturnController } from './sales-return.controller'
         SdMmOrchestrationService,
         ProductMaterialAssignmentService,
         MaterialResolutionService,
+        ProductOptionVariantsService,
         FulfillmentDeterminationService,
         CommercialAvailabilityService,
         SdFulfillmentService,
@@ -53,6 +61,9 @@ import { SalesReturnController } from './sales-return.controller'
         QuotationService,
         QuotationPdfService,
         SalesReturnService,
+        SalesInvoiceService,
+        SdFulfillmentEventsListener,
+        ReturnRequestService,
     ],
     exports: [
         SalesOrderService,

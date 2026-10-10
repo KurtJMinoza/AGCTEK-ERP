@@ -92,16 +92,6 @@ export const RETAIL_SALES_DIVISIONS = [
     'DIV_LPG',
     'DIV_APPLIANCES',
 ] as const
-/**
- * Selling branch codes (mirrors `src/modules/sd/catalogs/branchCatalog.ts`).
- * Plain codes until stores are modelled in the MM `Branch` master.
- */
-export const RETAIL_BRANCH_IDS = [
-    'BR_AWIC_DAVAO_MAIN',
-    'BR_MCONPINCO_01',
-    'BR_LPG_01',
-] as const
-
 export const SALES_ORDER_DATE_RANGES = [
     'today',
     'last7days',
@@ -135,8 +125,10 @@ export class ListSalesOrdersQueryDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId?: string
 
+    /** MM Organization Branch id (created per company). */
     @IsOptional()
-    @IsIn(RETAIL_BRANCH_IDS)
+    @IsString()
+    @MaxLength(64)
     branchId?: string
 
     @IsOptional()
@@ -154,6 +146,12 @@ export class CreateRetailSalesOrderLineDto {
     @IsString()
     @IsNotEmpty()
     sku!: string
+
+    /** Selected variant of the product (required once the product has variants). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    variantId?: string
 
     @IsString()
     @IsNotEmpty()
@@ -174,47 +172,47 @@ export class CreateRetailSalesOrderLineDto {
 
 /** Where an e-commerce order is delivered; stored on the order as a snapshot. */
 export class SalesOrderShippingAddressDto {
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(120)
-    fullName!: string
+    fullName?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(40)
-    phone!: string
+    phone?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(300)
-    addressLine1!: string
+    addressLine1?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(120)
-    city!: string
+    city?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(120)
-    region!: string
+    region?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(20)
-    postalCode!: string
+    postalCode?: string
 
+    @IsOptional()
     @Transform(trim)
     @IsString()
-    @IsNotEmpty()
     @MaxLength(60)
-    country!: string
+    country?: string
 }
 
 /** Priced retail capture (POS fast-track / e-commerce standard) from SD pricing. */
@@ -229,10 +227,11 @@ export class CreateRetailSalesOrderDto {
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId!: (typeof RETAIL_SALES_DIVISIONS)[number]
 
-    /** Required for POS sales; optional for e-commerce. */
+    /** Required for POS sales; optional for e-commerce (MM Branch id). */
     @IsOptional()
-    @IsIn(RETAIL_BRANCH_IDS)
-    branchId?: (typeof RETAIL_BRANCH_IDS)[number]
+    @IsString()
+    @MaxLength(64)
+    branchId?: string
 
     @IsString()
     @IsNotEmpty()
@@ -364,6 +363,44 @@ export class UpdateRetailSalesOrderStatusDto {
     @IsOptional()
     @IsString()
     updatedBy?: string
+}
+
+export class CustomerReturnLineDto {
+    @IsString()
+    @IsNotEmpty()
+    salesOrderLineId!: string
+
+    @IsNumber()
+    @Min(0.01)
+    quantity!: number
+
+    @IsOptional()
+    @IsString()
+    reason?: string
+
+    @IsOptional()
+    @IsString()
+    conditionNote?: string
+}
+
+/** Storefront return request body; ownership and company scope are server-side. */
+export class CreateCustomerReturnRequestDto {
+    @IsOptional()
+    @IsString()
+    reason?: string
+
+    @IsOptional()
+    @IsString()
+    conditionNote?: string
+
+    @IsOptional()
+    photos?: unknown
+
+    @IsArray()
+    @ArrayMinSize(1)
+    @ValidateNested({ each: true })
+    @Type(() => CustomerReturnLineDto)
+    lines!: CustomerReturnLineDto[]
 }
 
 export class IssueSalesOrderDto {

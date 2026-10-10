@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -82,7 +82,6 @@ const baseMaterialSchema = z
         minimumOrderQuantity: z.number().min(0),
         valuationMethod: z.string().optional().or(z.literal('')),
         standardCost: z.number().min(0),
-        currencyId: z.string().optional().or(z.literal('')),
         valuationClassId: z.string().optional().or(z.literal('')),
         companyId: z.string().optional().or(z.literal('')),
         defaultWarehouseId: z.string().optional().or(z.literal('')),
@@ -108,6 +107,8 @@ type MaterialFormDialogProps = {
     isOpen: boolean
     mode: 'create' | 'edit'
     material?: Material | null
+    /** When set (create mode), the New Material form is pre-filled from this source. */
+    template?: Material | null
     existingCodes?: Set<string>
     onClose: () => void
     onSubmit: (values: CreateMaterialPayload) => void
@@ -153,7 +154,6 @@ const blankValues: FormShape = {
     minimumOrderQuantity: 0,
     valuationMethod: '',
     standardCost: 0,
-    currencyId: '',
     valuationClassId: '',
     companyId: '',
     defaultWarehouseId: '',
@@ -202,7 +202,6 @@ function toFormValues(material?: Material | null): FormShape {
         minimumOrderQuantity: Number(material.minimumOrderQuantity),
         valuationMethod: material.valuationMethod ?? '',
         standardCost: Number(material.standardCost),
-        currencyId: material.currencyId ?? '',
         valuationClassId: material.valuationClassId ?? '',
         companyId: material.companyId ?? '',
         defaultWarehouseId: material.defaultWarehouseId ?? '',
@@ -218,7 +217,7 @@ const TABS: TabDef[] = [
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
     { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'reservedQty', 'maximumStock', 'safetyStock'] },
-    { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'currencyId', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
+    { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
 ]
 
 const FORM_ID = 'material-master-form'
@@ -245,10 +244,141 @@ const VALUATION_METHOD_OPTIONS: SelectOption[] = [
 
 type SkuMode = 'auto' | 'custom'
 
-const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: MaterialFormDialogProps) => {
+/**
+ * Auto-saved New-Material draft. Written on every form change (debounced) and
+ * restored when the dialog reopens, so an accidentally closed tab or dialog
+ * does not lose the in-progress material. Cleared once the material saves.
+ */
+const MATERIAL_DRAFT_KEY = 'mm-material-draft:v1'
+
+type MaterialFormDraft = {
+    savedAt: number
+    tab: string
+    skuMode: SkuMode
+    values: Partial<FormShape>
+}
+
+const readMaterialFormDraft = (): MaterialFormDraft | null => {
+    if (typeof window === 'undefined') return null
+    try {
+        const raw = window.localStorage.getItem(MATERIAL_DRAFT_KEY)
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as MaterialFormDraft
+        return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+        return null
+    }
+}
+
+const writeMaterialFormDraft = (draft: MaterialFormDraft) => {
+    if (typeof window === 'undefined') return
+    try {
+        window.localStorage.setItem(MATERIAL_DRAFT_KEY, JSON.stringify(draft))
+    } catch {
+        /* storage full / unavailable — draft is best-effort */
+    }
+}
+
+const clearMaterialFormDraft = () => {
+    if (typeof window === 'undefined') return
+    try {
+        window.localStorage.removeItem(MATERIAL_DRAFT_KEY)
+    } catch {
+        /* ignore */
+    }
+}
+
+const DIMENSION_TO_CM: Record<string, number> = {
+    MM: 0.1,
+    CM: 1,
+    M: 100,
+    KM: 100_000,
+    IN: 2.54,
+    FT: 30.48,
+    YD: 91.44,
+}
+
+const WEIGHT_TO_KG: Record<string, number> = {
+    MG: 0.000001,
+    G: 0.001,
+    KG: 1,
+    TON: 1000,
+    LB: 0.45359237,
+    OZ: 0.028349523125,
+}
+
+const fmtPhysical = (value: number) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return '0'
+    return parseFloat(n.toFixed(2)).toLocaleString('en-US', {
+        maximumFractionDigits: 2,
+    })
+}
+
+/** Live "11 × 3 × 16 in (27.9 × 7.6 × 40.6 cm) · 6.4 lb (2.9 kg)" summary. */
+const PhysicalSummary = ({
+    length,
+    width,
+    height,
+    dimensionUom,
+    weight,
+    weightUom,
+}: {
+    length: number
+    width: number
+    height: number
+    dimensionUom: string
+    weight: number
+    weightUom: string
+}) => {
+    const dimUnit = dimensionUom.trim()
+    const weightUnit = weightUom.trim()
+    const parts: string[] = []
+
+    if ((length > 0 || width > 0 || height > 0) && dimUnit) {
+        const dims = [length, width, height].map((v) => fmtPhysical(v))
+        parts.push(`${dims.join(' × ')} ${dimUnit.toLowerCase()}`)
+        const cmFactor = DIMENSION_TO_CM[dimUnit.toUpperCase()] ?? 0
+        if (cmFactor > 0 && cmFactor !== 1) {
+            parts.push(
+                `${[length, width, height]
+                    .map((v) => fmtPhysical(v * cmFactor))
+                    .join(' × ')} cm`,
+            )
+        }
+    }
+
+    if (weight > 0 && weightUnit) {
+        const kgFactor = WEIGHT_TO_KG[weightUnit.toUpperCase()] ?? 0
+        if (kgFactor > 0 && kgFactor !== 1) {
+            parts.push(
+                `${fmtPhysical(weight)} ${weightUnit.toLowerCase()} (${fmtPhysical(
+                    weight * kgFactor,
+                )} kg)`,
+            )
+        } else {
+            parts.push(`${fmtPhysical(weight)} ${weightUnit.toLowerCase()}`)
+        }
+    }
+
+    if (parts.length === 0) return null
+
+    return (
+        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+            <span className="font-semibold text-slate-500 dark:text-slate-400">
+                Physical summary:{' '}
+            </span>
+            {parts.join(' · ')}
+        </div>
+    )
+}
+
+const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmit }: MaterialFormDialogProps) => {
     const [tab, setTab] = useState('general')
     const [skuMode, setSkuMode] = useState<SkuMode>('auto')
-    const { materialTypes, materialCategories, uoms, uomConversions, valuationClasses, currencies, companies, warehouses } = useReferenceData()
+    const [draftRestored, setDraftRestored] = useState(false)
+    const draftTimer = useRef<number | null>(null)
+    const { materialTypes, materialCategories, uoms, uomConversions, valuationClasses, companies, warehouses } = useReferenceData()
     const { options: supplierOptions } = useSupplierOptions({ enabled: isOpen })
 
     const typeOptions = useMemo<SelectOption[]>(() => materialTypes.map((t) => ({ value: t.id, label: `${t.code} — ${t.name}` })), [materialTypes])
@@ -265,16 +395,30 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
                 .map((c) => ({ fromUomId: c.fromUomId, toUomId: c.toUomId })),
         [uomConversions, material?.id],
     )
-    const currencyOptions = useMemo<SelectOption[]>(() => currencies.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })), [currencies])
     const valClassOptions = useMemo<SelectOption[]>(() => valuationClasses.map((v) => ({ value: v.id, label: v.name })), [valuationClasses])
     const companyOptions = useMemo<SelectOption[]>(() => companies.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })), [companies])
     const warehouseOptions = useMemo<SelectOption[]>(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
 
-    const initialValues = useMemo(() => toFormValues(material), [material])
+    const isDuplicate = mode === 'create' && !!template
+
+    const initialValues = useMemo(() => {
+        if (isDuplicate && template) {
+            const base = toFormValues(template)
+            return {
+                ...base,
+                materialCode: '',
+                sku: '',
+                status: 'DRAFT',
+                onHandQty: 0,
+                reservedQty: 0,
+            }
+        }
+        return toFormValues(material)
+    }, [material, template, isDuplicate])
 
     const schema = useMemo(() => baseMaterialSchema, [])
 
-    const { control, handleSubmit, reset, setValue, setError, clearErrors, formState: { errors, isSubmitting, isDirty, isValid, submitCount, touchedFields } } = useForm<FormShape>({
+    const { control, handleSubmit, reset, setValue, watch, setError, clearErrors, formState: { errors, isSubmitting, isDirty, isValid, submitCount, touchedFields } } = useForm<FormShape>({
         defaultValues: initialValues,
         resolver: zodResolver(schema),
         mode: 'onChange',
@@ -290,6 +434,13 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
     const purchaseUomId = useWatch({ control, name: 'purchaseUomId' }) ?? ''
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
+
+    const weight = useWatch({ control, name: 'weight' }) ?? 0
+    const weightUom = useWatch({ control, name: 'weightUom' }) ?? ''
+    const length = useWatch({ control, name: 'length' }) ?? 0
+    const width = useWatch({ control, name: 'width' }) ?? 0
+    const height = useWatch({ control, name: 'height' }) ?? 0
+    const dimensionUom = useWatch({ control, name: 'dimensionUom' }) ?? ''
 
     const alternateUomOptions = useMemo(
         () => buildAlternateUomOptions(uoms, baseUomId, conversionEdges, [purchaseUomId, salesUomId]),
@@ -339,6 +490,41 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
         }
     }, [isOpen, initialValues, reset, mode, material?.sku])
 
+    /** Restore an auto-saved draft when the create dialog reopens. */
+    useEffect(() => {
+        if (!isOpen || mode !== 'create' || template) return
+        const draft = readMaterialFormDraft()
+        if (!draft) return
+        reset({ ...initialValues, ...draft.values })
+        setTab(draft.tab || 'general')
+        if (draft.skuMode) setSkuMode(draft.skuMode)
+        setDraftRestored(true)
+    }, [isOpen, mode, template, reset, initialValues])
+
+    /** Persist the in-progress material draft (debounced) on every change. */
+    useEffect(() => {
+        if (!isOpen || mode !== 'create' || template) return
+        const subscription = watch((values) => {
+            if (draftTimer.current) {
+                window.clearTimeout(draftTimer.current)
+            }
+            draftTimer.current = window.setTimeout(() => {
+                writeMaterialFormDraft({
+                    savedAt: Date.now(),
+                    tab,
+                    skuMode,
+                    values: values as Partial<FormShape>,
+                })
+            }, 400)
+        })
+        return () => {
+            subscription.unsubscribe()
+            if (draftTimer.current) {
+                window.clearTimeout(draftTimer.current)
+            }
+        }
+    }, [isOpen, mode, template, watch, tab, skuMode])
+
     const handleSkuModeChange = (next: SkuMode) => {
         setSkuMode(next)
         clearErrors('sku')
@@ -347,7 +533,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
         }
     }
 
-    const onValid = (values: FormShape) => {
+    const onValid = async (values: FormShape) => {
         const customSku = values.sku?.trim() ?? ''
         if (skuMode === 'custom' && !customSku) {
             setError('sku', { type: 'manual', message: 'Enter a SKU or switch to auto-generate' })
@@ -395,13 +581,23 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
             minimumOrderQuantity: values.minimumOrderQuantity,
             valuationMethod: values.valuationMethod || undefined,
             standardCost: values.standardCost,
-            currencyId: values.currencyId || undefined,
             valuationClassId: values.valuationClassId || undefined,
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
         }
-        onSubmit(payload)
+        await onSubmit(payload)
+        clearMaterialFormDraft()
+        setDraftRestored(false)
+    }
+
+    /** Discard the auto-saved draft and start from a blank material. */
+    const discardMaterialDraft = () => {
+        clearMaterialFormDraft()
+        reset(blankValues)
+        setTab('general')
+        setSkuMode('auto')
+        setDraftRestored(false)
     }
 
     return (
@@ -409,13 +605,21 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
             isOpen={isOpen}
             onClose={onClose}
             width={760}
-            title={mode === 'create' ? 'New material' : 'Edit material'}
+            title={
+                mode === 'edit'
+                    ? 'Edit material'
+                    : template
+                      ? 'Duplicate material'
+                      : 'New material'
+            }
             description={
-                mode === 'create'
-                    ? 'Register a new material in the Material Master.'
-                    : material
+                mode === 'edit'
+                    ? material
                       ? `${material.materialCode} · ${material.materialName}`
                       : ''
+                    : template
+                      ? `Copy of ${template.materialCode} · ${template.materialName} — code and SKU will be regenerated.`
+                      : 'Register a new material in the Material Master.'
             }
             icon={<HiOutlineCube />}
             headerExtra={
@@ -452,13 +656,30 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
                     <div className="flex shrink-0 items-center gap-2">
                         <Button type="button" size="sm" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
                         <Button size="sm" variant="solid" type="submit" form={FORM_ID} loading={isSubmitting}>
-                            {mode === 'create' ? 'Create material' : 'Save changes'}
+                            {mode === 'create' ? (template ? 'Create copy' : 'Create material') : 'Save changes'}
                         </Button>
                     </div>
                 </>
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
+                    {draftRestored ? (
+                        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                            <span className="font-semibold">
+                                Unsaved draft restored.
+                            </span>
+                            <span>
+                                Your in-progress material was auto-saved.
+                            </span>
+                            <button
+                                type="button"
+                                className="font-medium underline"
+                                onClick={discardMaterialDraft}
+                            >
+                                Discard draft
+                            </button>
+                        </div>
+                    ) : null}
                     <TabPanel active={tab === 'general'}>
                         <SectionHeader title="Identification" />
                         <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
@@ -588,6 +809,14 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
                                 )} />
                             </FormItem>
                         </div>
+                        <PhysicalSummary
+                            length={length}
+                            width={width}
+                            height={height}
+                            dimensionUom={dimensionUom}
+                            weight={weight}
+                            weightUom={weightUom}
+                        />
                         <SectionHeader title="Identifiers" className="mt-2" />
                         <FormItem
                             label="SKU"
@@ -761,11 +990,6 @@ const MaterialFormDialog = ({ isOpen, mode, material, onClose, onSubmit }: Mater
                             </FormItem>
                             <FormItem label="Standard cost">
                                 <Controller name="standardCost" control={control} render={({ field }) => <NumericInput placeholder="0.00" thousandSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
-                            </FormItem>
-                            <FormItem label="Currency">
-                                <Controller name="currencyId" control={control} render={({ field }) => (
-                                    <Select<SelectOption> {...selectPortal} isClearable placeholder="Currency" options={currencyOptions} value={currencyOptions.find((o) => o.value === field.value) ?? null} onChange={(opt) => field.onChange(opt?.value ?? '')} />
-                                )} />
                             </FormItem>
                             <FormItem label="Valuation class">
                                 <Controller name="valuationClassId" control={control} render={({ field }) => (

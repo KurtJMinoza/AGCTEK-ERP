@@ -57,7 +57,12 @@ const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' |
     REJECTED: 'danger',
 }
 
-type FilterOption = { value: string; label: string }
+type FilterOption = {
+    value: string
+    label: string
+    /** Material rows carry the full entity so line defaults (e.g. UOM) can resolve. */
+    meta?: Record<string, unknown>
+}
 
 const STATUS_FILTER_OPTIONS: FilterOption[] = [
     { value: '', label: 'All statuses' },

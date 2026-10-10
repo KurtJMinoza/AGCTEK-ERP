@@ -36,6 +36,8 @@ export class SdMmPipelineService {
         const companyId =
             order.companyId ??
             (await this.fulfillmentDetermination.defaultCompanyId())
+        /** Mutable: a variant's linked company overrides the fallback per line. */
+        let effectiveCompanyId = companyId
 
         const linesByWarehouse = new Map<
             string,
@@ -54,6 +56,27 @@ export class SdMmPipelineService {
             let productId = line.productId
             let materialId = line.materialId
             const divisionId = line.divisionId ?? order.divisionId
+            let variantSalesUomId: string | null = null
+
+            // Variants are the stock item: their linked material supplies ATP,
+            // reservation and goods issue — never the parent product's material.
+            if (line.variantId) {
+                const variant = await this.prisma.sdProductVariant.findUnique({
+                    where: { id: line.variantId },
+                    select: {
+                        materialId: true,
+                        companyId: true,
+                        salesUomId: true,
+                        materialUomId: true,
+                    },
+                })
+                if (variant?.materialId) {
+                    materialId = variant.materialId
+                    if (variant.companyId) effectiveCompanyId = variant.companyId
+                    variantSalesUomId =
+                        variant.salesUomId ?? variant.materialUomId ?? null
+                }
+            }
 
             if (!materialId && line.sku && divisionId) {
                 const product =
@@ -95,7 +118,10 @@ export class SdMmPipelineService {
                 productSalesUom = p?.salesUomId ?? null
             }
             const salesUomId =
-                line.salesUomId ?? productSalesUom ?? material.baseUomId
+                line.salesUomId ??
+                variantSalesUomId ??
+                productSalesUom ??
+                material.baseUomId
 
             let baseQty: Decimal
             let baseUomId = material.baseUomId
@@ -127,7 +153,7 @@ export class SdMmPipelineService {
 
             const { warehouseId } =
                 await this.fulfillmentDetermination.determineWarehouse({
-                    companyId,
+                    companyId: effectiveCompanyId,
                     channel: order.channel,
                     branchId: order.branchId,
                     divisionId,
@@ -156,7 +182,7 @@ export class SdMmPipelineService {
         await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
-                companyId,
+                companyId: effectiveCompanyId,
                 ...(primaryWarehouse ? { warehouseId: primaryWarehouse } : {}),
             },
         })
@@ -164,7 +190,7 @@ export class SdMmPipelineService {
         for (const [warehouseId, lines] of linesByWarehouse) {
             await this.fulfillment.syncFulfillmentsForOrder({
                 salesOrderId: order.id,
-                companyId,
+                companyId: effectiveCompanyId,
                 warehouseId,
                 lines,
             })

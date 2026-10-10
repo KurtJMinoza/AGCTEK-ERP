@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack -p 3000",
     "build": "next build",
     "start": "next start -p 3020",
-    "lint": "next lint",
+    "lint": "eslint src scripts eslint.config.mjs next.config.mjs",
     "prettier": "npx prettier src --check",
     "prettier:fix": "npm run prettier -- --write",
     "driver": "npm --prefix apps/driver start",

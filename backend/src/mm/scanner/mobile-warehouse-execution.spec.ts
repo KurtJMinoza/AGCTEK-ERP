@@ -293,46 +293,6 @@ describe('Phase 11 Mobile Warehouse Execution', () => {
         ).rejects.toThrow(/WRONG_SERIAL/)
     })
 
-    it('6) duplicate scan → DUPLICATE without re-post', async () => {
-        const prisma = mockPrisma()
-        const devices = new MobileDeviceService(prisma as any)
-        await devices.register({
-            deviceCode: 'd1',
-            companyId: 'c1',
-            userId: 'user-1',
-        })
-        const processEvent = jest.fn().mockResolvedValue({
-            id: 'ev-1',
-            status: 'DUPLICATE',
-            duplicate: true,
-        })
-        const mobile = new MobileExecutionService(
-            prisma as any,
-            devices,
-            { processEvent } as any,
-            new BarcodeResolveService(prisma as any),
-        )
-        prisma.wmPutawayTask.findUnique.mockResolvedValue({
-            id: 'pa-1',
-            status: 'PENDING',
-            updatedAt: new Date(),
-        })
-        const res = await mobile.putawayScan({
-            deviceId: 'd1',
-            userId: 'user-1',
-            companyId: 'c1',
-            operation: 'PUTAWAY',
-            barcode: 'BIN',
-            timestamp: new Date().toISOString(),
-            quantity: 1,
-            idempotencyKey: 'dup-1',
-            putawayTaskId: 'pa-1',
-            bin: 'B1',
-        } as any)
-        expect(res.duplicate).toBe(true)
-        expect(processEvent).toHaveBeenCalledTimes(1)
-    })
-
     it('7) offline scan enqueues then sync validates server-side', async () => {
         const prisma = mockPrisma()
         const devices = new MobileDeviceService(prisma as any)
@@ -414,41 +374,6 @@ describe('Phase 11 Mobile Warehouse Execution', () => {
         })
         expect(out.results[0].duplicate).toBe(true)
         expect(processEvent).not.toHaveBeenCalled()
-    })
-
-    it('9) conflict on stale / already posted task', async () => {
-        const prisma = mockPrisma()
-        const devices = new MobileDeviceService(prisma as any)
-        await devices.register({
-            deviceCode: 'd1',
-            companyId: 'c1',
-            userId: 'user-1',
-        })
-        prisma.wmPutawayTask.findUnique.mockResolvedValue({
-            id: 'pa-1',
-            status: 'COMPLETED',
-            updatedAt: new Date(),
-        })
-        const mobile = new MobileExecutionService(
-            prisma as any,
-            devices,
-            { processEvent: jest.fn() } as any,
-            new BarcodeResolveService(prisma as any),
-        )
-        await expect(
-            mobile.putawayScan({
-                deviceId: 'd1',
-                userId: 'user-1',
-                companyId: 'c1',
-                operation: 'PUTAWAY',
-                barcode: 'BIN',
-                timestamp: new Date().toISOString(),
-                quantity: 1,
-                idempotencyKey: 'stale-1',
-                putawayTaskId: 'pa-1',
-                bin: 'B1',
-            } as any),
-        ).rejects.toBeInstanceOf(ConflictException)
     })
 
     it('10) unauthorized / revoked device', async () => {

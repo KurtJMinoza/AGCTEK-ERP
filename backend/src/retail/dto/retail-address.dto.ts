@@ -63,12 +63,13 @@ export class RetailAddressUpsertDto {
     @MaxLength(120)
     country?: string
 
-    @IsNumber({ maxDecimalPlaces: 8 })
+    /** Leaflet pins carry full float precision; range guards stay, decimal count is not bounded. */
+    @IsNumber()
     @Min(-90)
     @Max(90)
     latitude!: number
 
-    @IsNumber({ maxDecimalPlaces: 8 })
+    @IsNumber()
     @Min(-180)
     @Max(180)
     longitude!: number
@@ -134,13 +135,13 @@ export class RetailUpdateAddressDto {
     country?: string
 
     @IsOptional()
-    @IsNumber({ maxDecimalPlaces: 8 })
+    @IsNumber()
     @Min(-90)
     @Max(90)
     latitude?: number
 
     @IsOptional()
-    @IsNumber({ maxDecimalPlaces: 8 })
+    @IsNumber()
     @Min(-180)
     @Max(180)
     longitude?: number

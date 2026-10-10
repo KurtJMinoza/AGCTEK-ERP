@@ -41,7 +41,12 @@ import MarketplaceAuthDialog, {
 } from './components/MarketplaceAuthDialog'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
-import { MARKETPLACE_ACCOUNT_PATH, productHref, safeReturnPath } from './host'
+import {
+    CHECKOUT_PATH,
+    MARKETPLACE_ACCOUNT_PATH,
+    productHref,
+    safeReturnPath,
+} from './host'
 import {
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
@@ -132,6 +137,10 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const removeItem = useMarketplaceCartStore((s) => s.removeItem)
     const clearCart = useMarketplaceCartStore((s) => s.clearCart)
     const syncCatalog = useMarketplaceCartStore((s) => s.syncCatalog)
+    const selectedKeys = useMarketplaceCartStore((s) => s.selectedKeys)
+    const toggleSelect = useMarketplaceCartStore((s) => s.toggleSelect)
+    const setSelectAll = useMarketplaceCartStore((s) => s.setSelectAll)
+    const removeItems = useMarketplaceCartStore((s) => s.removeItems)
 
     const client = useMarketplaceClientStore((s) => s.client)
     const token = useMarketplaceClientStore((s) => s.token)
@@ -147,6 +156,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const [pendingShipping, setPendingShipping] =
         useState<SalesOrderShippingDetails | null>(null)
     const [submitting, setSubmitting] = useState(false)
+    const [checkoutError, setCheckoutError] = useState<string | null>(null)
     const [placedOrder, setPlacedOrder] = useState<EcommerceOrderResult | null>(
         null,
     )
@@ -213,11 +223,12 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         if (!afterSignIn || !signedInClient) return
-        if (afterSignIn === 'checkout') setCheckoutOpen(true)
+        // Checkout is a full page now; the modal shown after sign-in was removed.
+        if (afterSignIn === 'checkout') router.push(CHECKOUT_PATH)
         else setOrdersOpen(true)
         setAfterSignIn(null)
         setAuthReturnPath(null)
-    }, [afterSignIn, signedInClient])
+    }, [afterSignIn, signedInClient, router])
 
     const handleAuthenticated = useCallback(
         (mode: MarketplaceAuthMode) => {
@@ -262,14 +273,19 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     )
     const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
+    // Selective checkout: only checked items are priced and ordered.
     const pricingItems = useMemo(
         () =>
-            items.map((item) => ({
-                divisionId: item.product.divisionId as SalesDivisionId,
-                sku: item.product.sku,
-                quantity: item.quantity,
-            })),
-        [items],
+            items
+                .filter((item) =>
+                    selectedKeys.includes(productKey(item.product)),
+                )
+                .map((item) => ({
+                    divisionId: item.product.divisionId as SalesDivisionId,
+                    sku: item.product.sku,
+                    quantity: item.quantity,
+                })),
+        [items, selectedKeys],
     )
 
     const pricing = useMemo<CartPricing | null>(() => {
@@ -317,7 +333,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     )
 
     const startCheckout = () => {
-        const lpgItems = items.filter(
+        const selected = items.filter((item) =>
+            selectedKeys.includes(productKey(item.product)),
+        )
+        if (selected.length === 0) return
+        const lpgItems = selected.filter(
             (item) => item.product.divisionId === LPG_DIVISION_ID,
         )
         if (
@@ -333,7 +353,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         }
         checkoutIdRef.current ??= newIdempotencyKey('web')
         if (signedInClient) {
-            setCheckoutOpen(true)
+            router.push(CHECKOUT_PATH)
             return
         }
         openAuth('checkout')
@@ -354,6 +374,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const placeOrder = async (shipping: SalesOrderShippingDetails) => {
         setPendingShipping(null)
+        setCheckoutError(null)
         if (!signedInClient || !sessionToken) {
             setCheckoutOpen(false)
             openAuth('checkout')
@@ -381,15 +402,15 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             if (error instanceof RetailSessionExpiredError) {
                 logout()
                 setCheckoutOpen(false)
+                setCheckoutError(null)
                 notify('danger', 'Please sign in again', error.message)
                 openAuth('checkout')
                 return
             }
-            notify(
-                'danger',
-                'Order not placed',
-                error instanceof Error ? error.message : 'Please try again.',
-            )
+            const message =
+                error instanceof Error ? error.message : 'Please try again.'
+            setCheckoutError(message)
+            notify('danger', 'Order not placed', message)
         } finally {
             setSubmitting(false)
         }
@@ -406,12 +427,22 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const confirmAdd = () => {
         if (!requestedAdd) return
         const { product, quantity, buyNow } = requestedAdd
-        addItem(product, quantity)
-        cancelAdd()
         if (buyNow) {
-            openCart()
+            // Buy Now is fully detached from the cart: hand the item straight
+            // to the checkout page via query params (it resolves the product
+            // from the catalogue). Nothing is added to the cart.
+            const params = new URLSearchParams({
+                buyNow: '1',
+                division: product.divisionId,
+                sku: product.sku,
+                qty: String(quantity),
+            })
+            cancelAdd()
+            router.push(`${CHECKOUT_PATH}?${params.toString()}`)
             return
         }
+        addItem(product, quantity)
+        cancelAdd()
         notify('success', 'Added to cart', `${quantity} × ${product.name}`)
     }
 
@@ -494,7 +525,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 type="info"
                 title={requestedAdd?.buyNow ? 'Buy this now?' : 'Add to cart?'}
                 confirmText={
-                    requestedAdd?.buyNow ? 'Add & view cart' : 'Add to cart'
+                    requestedAdd?.buyNow ? 'Buy Now' : 'Add to cart'
                 }
                 cancelText="Cancel"
                 confirmButtonProps={{ customColorClass: PRIMARY_BUTTON }}
@@ -530,13 +561,17 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             <MarketplaceCartDrawer
                 isOpen={isCartOpen}
                 isMobile={isMobile}
+                items={items}
                 pricing={pricing}
-                productsByKey={productsByKey}
                 signedIn={Boolean(signedInClient)}
+                selectedKeys={selectedKeys}
                 onClose={closeCart}
                 onIncrease={updateQuantity}
                 onDecrease={decreaseItem}
                 onRemove={(key, name) => setPendingRemoval({ key, name })}
+                onToggleSelect={toggleSelect}
+                onSelectAll={setSelectAll}
+                onRemoveSelected={() => removeItems(selectedKeys)}
                 onCheckout={startCheckout}
                 onClear={() => setConfirmClearOpen(true)}
             />
@@ -547,9 +582,14 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 pricing={pricing}
                 promoCode={promoCode}
                 submitting={submitting}
+                checkoutError={checkoutError}
                 onApplyPromo={applyPromo}
-                onClose={() => setCheckoutOpen(false)}
+                onClose={() => {
+                    setCheckoutError(null)
+                    setCheckoutOpen(false)
+                }}
                 onSubmit={setPendingShipping}
+                onOpenAccount={openAccount}
             />
 
             <ConfirmDialog
@@ -571,12 +611,23 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                         <p>
                             {itemCount} item{itemCount === 1 ? '' : 's'} from{' '}
                             {pricing.divisions.length} store
-                            {pricing.divisions.length === 1 ? '' : 's'} for
-                            delivery to{' '}
-                            <span className="font-semibold">
-                                {pendingShipping.addressLine1},{' '}
-                                {pendingShipping.city}
-                            </span>
+                            {pricing.divisions.length === 1 ? '' : 's'}
+                            {pendingShipping.addressLine1 ||
+                            pendingShipping.city ? (
+                                <>
+                                    {' '}
+                                    for delivery to{' '}
+                                    <span className="font-semibold">
+                                        {pendingShipping.addressLine1}
+                                        {pendingShipping.addressLine1 &&
+                                        pendingShipping.city
+                                            ? ', '
+                                            : ''}
+                                        {pendingShipping.city}
+                                    </span>
+                                    .
+                                </>
+                            ) : null}
                             .
                         </p>
                         <p>
@@ -703,6 +754,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             <StorefrontOrdersDrawer
                 isOpen={ordersOpen}
                 customerId={signedInClient?.customerId ?? null}
+                clientToken={sessionToken}
                 isMobile={isMobile}
                 accentTextClass="text-emerald-700"
                 renderOrderTag={(order) => (

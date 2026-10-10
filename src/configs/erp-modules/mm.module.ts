@@ -430,6 +430,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         icon: 'gitBranch',
                     },
                     {
+                        code: 'storage-shelves',
+                        title: 'Storage Shelves',
+                        icon: 'layers',
+                    },
+                    {
                         code: 'storage-bins',
                         title: 'Storage Bins',
                         icon: 'boxes',

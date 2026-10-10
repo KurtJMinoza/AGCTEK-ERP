@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
     HiOutlineCheck,
     HiOutlineDesktopComputer,
@@ -35,7 +35,7 @@ import {
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
-import { SALES_BRANCHES, branchLabel } from '../catalogs/branchCatalog'
+import { useSalesBranches } from '../hooks/useSalesBranches'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const { TabList, TabNav } = Tabs
@@ -68,11 +68,6 @@ const DATE_RANGE_OPTIONS: DateRangeOption[] = [
 ]
 
 type BranchFilterOption = { value: string; label: string }
-
-const BRANCH_FILTER_OPTIONS: BranchFilterOption[] = [
-    { value: 'all', label: 'All branches' },
-    ...SALES_BRANCHES.map((branch) => ({ value: branch.id, label: branch.label })),
-]
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -191,6 +186,27 @@ const SalesOrdersDashboard = () => {
     const updateOrderStatus = useSalesOrdersStore((s) => s.updateOrderStatus)
     const { canUpdate } = useResourceAccess('sd.sales-orders')
 
+    /** Branch filter + labels come from the MM Organization Branch master. */
+    const { branches } = useSalesBranches()
+    const branchFilterOptions = useMemo<BranchFilterOption[]>(
+        () => [
+            { value: 'all', label: 'All branches' },
+            ...branches.map((branch) => ({
+                value: branch.id,
+                label: branch.label,
+            })),
+        ],
+        [branches],
+    )
+    const branchNameOf = useCallback(
+        (branchId: string | null | undefined) =>
+            branchId
+                ? (branches.find((branch) => branch.id === branchId)?.label ??
+                  branchId)
+                : '—',
+        [branches],
+    )
+
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const [channel, setChannel] = useState<ChannelFilter>('all')
     const [selectedSnapshot, setSelectedSnapshot] =
@@ -291,7 +307,7 @@ const SalesOrdersDashboard = () => {
                 id: 'branch',
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap">
-                        {branchLabel(row.original.branchId)}
+                        {branchNameOf(row.original.branchId)}
                     </span>
                 ),
             },
@@ -413,8 +429,8 @@ const SalesOrdersDashboard = () => {
                 <div className="md:w-56">
                     <Select<BranchFilterOption>
                         isSearchable={false}
-                        options={BRANCH_FILTER_OPTIONS}
-                        value={BRANCH_FILTER_OPTIONS.find(
+                        options={branchFilterOptions}
+                        value={branchFilterOptions.find(
                             (option) => option.value === filters.branchId,
                         )}
                         onChange={(option) =>
@@ -492,7 +508,7 @@ const SalesOrdersDashboard = () => {
                             </div>
                             <div>
                                 <span className="text-gray-500">Branch: </span>
-                                {branchLabel(selected.branchId)}
+                                {branchNameOf(selected.branchId)}
                             </div>
                             <div>
                                 <span className="text-gray-500">Created: </span>

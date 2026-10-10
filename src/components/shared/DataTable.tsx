@@ -1,4 +1,5 @@
 import {
+    Fragment,
     useMemo,
     useRef,
     useEffect,
@@ -27,7 +28,7 @@ import {
 } from '@tanstack/react-table'
 import type { TableProps } from '@/components/ui/Table'
 import type { SkeletonProps } from '@/components/ui/Skeleton'
-import type { Ref, ChangeEvent, ReactNode } from 'react'
+import type { Ref, ChangeEvent, MouseEvent, ReactNode } from 'react'
 import type { CheckboxProps } from '@/components/ui/Checkbox'
 
 export type OnSortParam = { order: 'asc' | 'desc' | ''; key: string | number }
@@ -59,6 +60,18 @@ type DataTableProps<T> = {
     fit?: boolean
     /** Hide pagination controls (e.g. embedded line tables in modals) */
     hidePagination?: boolean
+    /**
+     * Stable row identity, used as the React key and to keep row state (such as
+     * expansion) attached to the same record across refetches. Defaults to the
+     * row index, which drifts when a list is reordered by a refresh.
+     */
+    getRowId?: (row: T, index: number) => string
+    /**
+     * Renders a nested detail row beneath its parent row. When provided, the
+     * whole row becomes clickable and toggles that detail row open/closed;
+     * clicks on embedded controls (buttons, links, inputs) are left alone.
+     */
+    renderSubRow?: (row: T) => ReactNode
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -138,6 +151,8 @@ function DataTable<T>(props: DataTableProps<T>) {
         instanceId = 'data-table',
         fit = false,
         hidePagination = false,
+        getRowId,
+        renderSubRow,
         ref,
         ...rest
     } = props
@@ -145,6 +160,7 @@ function DataTable<T>(props: DataTableProps<T>) {
     const { pageSize, pageIndex, total } = pagingData
 
     const [sorting, setSorting] = useState<ColumnSort[] | null>(null)
+    const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
 
     const pageSizeOption = useMemo(
         () =>
@@ -238,6 +254,11 @@ function DataTable<T>(props: DataTableProps<T>) {
         data,
         // eslint-disable-next-line  @typescript-eslint/no-explicit-any
         columns: finalColumns as ColumnDef<unknown | object | any[], any>[],
+        // Widened to `unknown` so the row type stays driven by `data`/`columns`
+        // rather than being pinned to the page's own generic.
+        getRowId: getRowId as
+            | ((row: unknown, index: number) => string)
+            | undefined,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
@@ -276,6 +297,22 @@ function DataTable<T>(props: DataTableProps<T>) {
         if (!loading) {
             onSelectChange?.(Number(value))
         }
+    }
+
+    const handleRowExpansion = (
+        event: MouseEvent<HTMLTableRowElement>,
+        rowId: string,
+    ) => {
+        if (loading) return
+        // Controls living inside a cell own their click; do not toggle on them.
+        if (
+            (event.target as HTMLElement).closest(
+                'button, a, input, select, textarea, label',
+            )
+        ) {
+            return
+        }
+        setExpandedRowId((current) => (current === rowId ? null : rowId))
     }
 
     const totalSize = table.getTotalSize() || 1
@@ -378,29 +415,74 @@ function DataTable<T>(props: DataTableProps<T>) {
                                 .rows.slice(0, pageSize)
                                 .map((row) => {
                                     return (
-                                        <Tr key={row.id}>
-                                            {row
-                                                .getVisibleCells()
-                                                .map((cell) => {
-                                                    return (
-                                                        <Td
-                                                            key={cell.id}
-                                                            style={columnStyle(
-                                                                cell.column.getSize(),
-                                                                cell.column.columnDef.minSize,
+                                        <Fragment key={row.id}>
+                                            <Tr
+                                                className={
+                                                    renderSubRow
+                                                        ? 'cursor-pointer'
+                                                        : undefined
+                                                }
+                                                onClick={
+                                                    renderSubRow
+                                                        ? (event) =>
+                                                              handleRowExpansion(
+                                                                  event,
+                                                                  row.id,
+                                                              )
+                                                        : undefined
+                                                }
+                                            >
+                                                {row
+                                                    .getVisibleCells()
+                                                    .map((cell) => {
+                                                        return (
+                                                            <Td
+                                                                key={cell.id}
+                                                                style={columnStyle(
+                                                                    cell.column.getSize(),
+                                                                    cell.column.columnDef.minSize,
+                                                                )}
+                                                                className={
+                                                                    fit
+                                                                        ? 'overflow-hidden'
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                {flexRender(
+                                                                    cell.column
+                                                                        .columnDef
+                                                                        .cell,
+                                                                    cell.getContext(),
+                                                                )}
+                                                            </Td>
+                                                        )
+                                                    })}
+                                            </Tr>
+                                            {renderSubRow &&
+                                            expandedRowId === row.id ? (
+                                                <Tr
+                                                    onClick={(event) =>
+                                                        event.stopPropagation()
+                                                    }
+                                                >
+                                                    {/* Inline padding wins over
+                                                        `.table-default > td`
+                                                        so the panel spans full width. */}
+                                                    <Td
+                                                        colSpan={
+                                                            finalColumns.length
+                                                        }
+                                                        style={{ padding: 0 }}
+                                                    >
+                                                        <div className="border-l-2 border-sky-500 bg-gray-50 px-4 py-3 dark:bg-gray-900/40">
+                                                            {renderSubRow(
+                                                                row.original as T,
                                                             )}
-                                                            className={fit ? 'overflow-hidden' : undefined}
-                                                        >
-                                                            {flexRender(
-                                                                cell.column
-                                                                    .columnDef
-                                                                    .cell,
-                                                                cell.getContext(),
-                                                            )}
-                                                        </Td>
-                                                    )
-                                                })}
-                                        </Tr>
+                                                        </div>
+                                                    </Td>
+                                                </Tr>
+                                            ) : null}
+                                        </Fragment>
                                     )
                                 })
                         )}

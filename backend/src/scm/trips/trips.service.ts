@@ -4,8 +4,10 @@ import {
     Inject,
     Injectable,
     Logger,
+    Optional,
     forwardRef,
 } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import {
     DeliveryFailureReason,
     LoadPlanStatus,
@@ -167,6 +169,8 @@ export class TripsService {
         private readonly maintenanceService: MaintenanceService,
         @Inject(forwardRef(() => GoodsIssueService))
         private readonly goodsIssueService: GoodsIssueService,
+        /** Optional — used to notify SD when the trip delivers (order completion). */
+        @Optional() private readonly events?: EventEmitter2,
     ) {}
 
     async findAll(
@@ -884,6 +888,8 @@ export class TripsService {
                 },
                 data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
             })
+            // SD marks the linked sales orders delivered/completed + finalizes invoices.
+            this.events?.emit('shipment.delivered', { shipmentIds })
             if (trip.vehicleId) {
                 await this.prisma.vehicle.update({
                     where: { id: trip.vehicleId },

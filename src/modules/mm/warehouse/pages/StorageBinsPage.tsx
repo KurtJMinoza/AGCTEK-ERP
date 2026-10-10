@@ -22,9 +22,10 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineViewBoards, HiOutlineSearch } from 'react-icons/hi'
 import { storageBinService } from '../services/storageBinService'
 import { storageSectionService } from '../services/storageSectionService'
+import { storageShelfService } from '../services/storageShelfService'
 import UomCodeSelect from '@/modules/mm/shared/UomCodeSelect'
 import { useUoms } from '@/modules/mm/shared/useUoms'
-import type { StorageBin, StorageSection } from '../types'
+import type { StorageBin, StorageShelf, StorageSection } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 
@@ -42,6 +43,7 @@ const StorageBinsPage = () => {
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<StorageBin[]>([])
     const [sections, setSections] = useState<StorageSection[]>([])
+    const [shelves, setShelves] = useState<StorageShelf[]>([])
     const [loading, setLoading] = useState(true)
     const [formOpen, setFormOpen] = useState(false)
     const [editing, setEditing] = useState<StorageBin | null>(null)
@@ -51,7 +53,7 @@ const StorageBinsPage = () => {
     const [bulkDeleting, setBulkDeleting] = useState(false)
 
     const [formData, setFormData] = useState({
-        code: '', storageSectionId: '', barcode: '',
+        code: '', storageSectionId: '', shelfId: '', barcode: '',
         capacityQuantity: 0, capacityWeight: 0, capacityVolume: 0,
         weightUom: '', volumeUom: '',
         pickingAllowed: true, putawayAllowed: true,
@@ -63,6 +65,16 @@ const StorageBinsPage = () => {
             label: `${s.code} — ${s.name}${s.storageType?.warehouse ? ` (${s.storageType.warehouse.name})` : ''}`,
         })),
         [sections],
+    )
+
+    const shelfOptions = useMemo<FilterOption[]>(
+        () => [
+            { value: '', label: 'No shelf' },
+            ...shelves
+                .filter((s) => s.storageSectionId === formData.storageSectionId)
+                .map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })),
+        ],
+        [shelves, formData.storageSectionId],
     )
 
     const load = useCallback(async () => {
@@ -82,10 +94,16 @@ const StorageBinsPage = () => {
         }).catch(() => {})
     }, [])
 
+    useEffect(() => {
+        storageShelfService.list().then((r) => {
+            setShelves(Array.isArray(r) ? r : ((r as any)?.data ?? []))
+        }).catch(() => {})
+    }, [])
+
     const openCreate = () => {
         setEditing(null)
         setFormData({
-            code: '', storageSectionId: sections[0]?.id ?? '', barcode: '',
+            code: '', storageSectionId: sections[0]?.id ?? '', shelfId: '', barcode: '',
             capacityQuantity: 0, capacityWeight: 0, capacityVolume: 0,
             weightUom: 'KG', volumeUom: 'L', pickingAllowed: true, putawayAllowed: true,
         })
@@ -95,7 +113,7 @@ const StorageBinsPage = () => {
     const openEdit = (item: StorageBin) => {
         setEditing(item)
         setFormData({
-            code: item.code, storageSectionId: item.storageSectionId, barcode: item.barcode || '',
+            code: item.code, storageSectionId: item.storageSectionId, shelfId: item.shelfId ?? '', barcode: item.barcode || '',
             capacityQuantity: Number(item.capacityQuantity), capacityWeight: Number(item.capacityWeight), capacityVolume: Number(item.capacityVolume),
             weightUom: item.weightUom || '', volumeUom: item.volumeUom || '',
             pickingAllowed: item.pickingAllowed, putawayAllowed: item.putawayAllowed,
@@ -104,9 +122,10 @@ const StorageBinsPage = () => {
     }
 
     const handleSave = async () => {
+        const payload = { ...formData, shelfId: formData.shelfId || null }
         try {
-            if (editing) { await storageBinService.update(editing.id, formData); pushToast('success', 'Updated', 'Bin updated.') }
-            else { await storageBinService.create(formData); pushToast('success', 'Created', 'Bin created.') }
+            if (editing) { await storageBinService.update(editing.id, payload); pushToast('success', 'Updated', 'Bin updated.') }
+            else { await storageBinService.create(payload); pushToast('success', 'Created', 'Bin created.') }
             setFormOpen(false); load()
         } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
     }
@@ -137,6 +156,7 @@ const StorageBinsPage = () => {
         { header: 'Bin Code', accessorKey: 'code', size: 140, cell: ({ row }) => <span className="font-mono text-xs font-semibold text-primary">{row.original.code}</span> },
         { header: 'Barcode', accessorKey: 'barcode', size: 160, cell: ({ row }) => row.original.barcode ? <Tag className="font-mono text-xs">{row.original.barcode}</Tag> : <span className="text-gray-400 text-xs">—</span> },
         { header: 'Section', id: 'section', size: 130, cell: ({ row }) => row.original.storageSection?.code ?? '—' },
+        { header: 'Shelf', id: 'shelf', size: 110, cell: ({ row }) => row.original.shelf?.code ?? '—' },
         { header: 'Storage Type', id: 'type', size: 140, cell: ({ row }) => row.original.storageSection?.storageType?.name ?? '—' },
         { header: 'Warehouse', id: 'warehouse', size: 150, cell: ({ row }) => row.original.storageSection?.storageType?.warehouse?.name ?? '—' },
         {
@@ -223,9 +243,17 @@ const StorageBinsPage = () => {
                             placeholder="Select storage section"
                             options={sectionOptions}
                             value={sectionOptions.find((o) => o.value === formData.storageSectionId) ?? null}
-                            onChange={(opt) => setFormData({ ...formData, storageSectionId: opt?.value ?? '' })}
+                            onChange={(opt) => setFormData({ ...formData, storageSectionId: opt?.value ?? '', shelfId: '' })}
                         />
                     )}
+                </FormItem>
+                <FormItem label="Shelf (optional)">
+                    <Select<FilterOption>
+                        placeholder="Select shelf (optional)"
+                        options={shelfOptions}
+                        value={shelfOptions.find((o) => o.value === formData.shelfId) ?? null}
+                        onChange={(opt) => setFormData({ ...formData, shelfId: opt?.value ?? '' })}
+                    />
                 </FormItem>
                 <div className="grid grid-cols-3 gap-3">
                     <FormItem label="Capacity (qty)"><Input type="number" value={String(formData.capacityQuantity)} onChange={(e) => setFormData({ ...formData, capacityQuantity: Number(e.target.value) })} /></FormItem>

@@ -14,6 +14,7 @@ import ProductFormDialog from '../components/ProductFormDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import { productSellerLabel } from '../utils/productSellerLabel'
+import { productOptionVariantsService } from '../services/productOptionVariantsService'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import {
     createProduct,
@@ -123,6 +124,27 @@ const ProductCatalogDashboard = () => {
         try {
             if (dialog.mode === 'create') {
                 const created = await createProduct(values)
+                if (values.optionsVariants) {
+                    try {
+                        await productOptionVariantsService.saveForProduct(
+                            created.id,
+                            values.optionsVariants,
+                        )
+                    } catch (optionErr) {
+                        // The product exists — report separately so the user
+                        // doesn't retry the create and end up with a duplicate.
+                        afterChange(created.divisionId)
+                        setDialog(null)
+                        notify(
+                            'danger',
+                            'Product added, but options & variants failed',
+                            optionErr instanceof Error
+                                ? optionErr.message
+                                : 'Open the product and retry the Options & Variants step.',
+                        )
+                        return
+                    }
+                }
                 notify(
                     'success',
                     'Product added',
@@ -132,6 +154,12 @@ const ProductCatalogDashboard = () => {
             } else {
                 const { divisionId: _divisionId, sku: _sku, ...changes } = values
                 const updated = await updateProduct(dialog.product.id, changes)
+                if (values.optionsVariants) {
+                    await productOptionVariantsService.saveForProduct(
+                        dialog.product.id,
+                        values.optionsVariants,
+                    )
+                }
                 notify('success', 'Product updated', `${updated.name} saved.`)
                 afterChange(updated.divisionId)
             }

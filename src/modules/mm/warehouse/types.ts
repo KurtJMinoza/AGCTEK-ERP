@@ -57,6 +57,22 @@ export interface StorageSection {
     status: string
     createdAt: string
     updatedAt: string
+    shelves?: StorageShelf[]
+    bins?: StorageBin[]
+}
+
+export interface StorageShelf {
+    id: string
+    code: string
+    name: string
+    description?: string
+    storageSectionId: string
+    storageSection?: StorageSection & {
+        storageType?: StorageType & { warehouse?: Warehouse }
+    }
+    status: string
+    createdAt: string
+    updatedAt: string
     bins?: StorageBin[]
 }
 
@@ -71,6 +87,8 @@ export interface StorageBin {
     storageSection?: StorageSection & {
         storageType?: StorageType & { warehouse?: Warehouse }
     }
+    shelfId?: string | null
+    shelf?: StorageShelf | null
     barcode?: string
     capacityQuantity: number
     capacityWeight: number
@@ -113,6 +131,11 @@ export interface StorageSectionListResponse {
     meta: { total: number; page: number; limit: number; totalPages: number }
 }
 
+export interface StorageShelfListResponse {
+    data: StorageShelf[]
+    meta: { total: number; page: number; limit: number; totalPages: number }
+}
+
 export interface StorageBinListResponse {
     data: StorageBin[]
     meta: { total: number; page: number; limit: number; totalPages: number }
@@ -143,6 +166,16 @@ export interface StorageSectionQueryParams {
     limit?: number
     search?: string
     storageTypeId?: string
+    status?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
+}
+
+export interface StorageShelfQueryParams {
+    page?: number
+    limit?: number
+    search?: string
+    storageSectionId?: string
     status?: string
     sortBy?: string
     sortOrder?: 'asc' | 'desc'
@@ -200,9 +233,19 @@ export interface CreateStorageSectionPayload {
 
 export type UpdateStorageSectionPayload = Partial<CreateStorageSectionPayload>
 
+export interface CreateStorageShelfPayload {
+    code: string
+    name: string
+    storageSectionId: string
+    description?: string
+}
+
+export type UpdateStorageShelfPayload = Partial<CreateStorageShelfPayload>
+
 export interface CreateStorageBinPayload {
     code: string
     storageSectionId: string
+    shelfId?: string | null
     barcode?: string
     capacityQuantity?: number
     capacityWeight?: number

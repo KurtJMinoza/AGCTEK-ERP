@@ -1,5 +1,6 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError as toError } from './apiError'
+import type { OptionsVariantsDraft } from './productOptionVariantsService'
 
 export type ProductAttributes = Record<string, unknown>
 
@@ -66,6 +67,8 @@ export type ProductInput = {
     imageGallery?: string[]
     /** Existing gallery photos to keep, in order; new ones are uploaded as files. */
     galleryImages?: string[]
+    /** Options + variants draft; saved via the product options endpoint after the product row exists. */
+    optionsVariants?: OptionsVariantsDraft | null
 }
 
 /** Matches the server's PRODUCT_GALLERY_MAX. */
