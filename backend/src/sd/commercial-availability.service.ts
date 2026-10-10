@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
+import { Decimal } from '@prisma/client/runtime/library'
 import {
     atpPairKey,
     InventoryAvailabilityService,
 } from '../mm/inventory/inventory-availability.service'
+import { UomConversionsService } from '../mm/uom-conversions/uom-conversions.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { SdIntegrationService } from '../mm/integration/sd/sd-integration.service'
 import { MaterialResolutionService } from './material-resolution.service'
 import { FulfillmentDeterminationService } from './fulfillment-determination.service'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
+import type { MarketplaceCheckoutLineDto } from './dto/sales-order.dto'
 
 export type CommercialAvailability = {
     productId: string
@@ -31,6 +34,7 @@ export class CommercialAvailabilityService {
         private fulfillmentDetermination: FulfillmentDeterminationService,
         private sdIntegration: SdIntegrationService,
         private inventoryAtp: InventoryAvailabilityService,
+        private uom: UomConversionsService,
         private prisma: PrismaService,
     ) {}
 
@@ -47,6 +51,169 @@ export class CommercialAvailabilityService {
             onHandQty: totals.onHandQty,
             availableQty: totals.availableQty,
             reservedQty: totals.reservedQty,
+        }
+    }
+
+    /**
+     * Checkout is the last commercial gate before an SO is persisted. Resolve
+     * sellable stock lines to their MM material/base quantity, combine duplicate
+     * material requirements, then ask MM ATP for the fulfillment warehouse.
+     *
+     * This is a preflight only. The SD→MM reservation remains the concurrency
+     * authority and rechecks ATP before it reserves stock.
+     */
+    async assertMarketplaceCheckoutAvailability(args: {
+        companyId: string
+        lines: ReadonlyArray<MarketplaceCheckoutLineDto>
+        channel?: string
+        branchId?: string | null
+    }): Promise<void> {
+        const requiredByMaterialWarehouse = new Map<
+            string,
+            {
+                materialId: string
+                warehouseId: string
+                requiredQty: Decimal
+                description: string
+            }
+        >()
+
+        for (const line of args.lines) {
+            const product = await this.materialResolution.findProductByDivisionSku(
+                line.divisionId,
+                line.sku,
+            )
+            if (!product) {
+                throw new BadRequestException(
+                    `Product ${line.sku} is no longer available. Please refresh your cart.`,
+                )
+            }
+            if (product.productType !== 'STOCK_ITEM') continue
+
+            let materialId: string | null = null
+            let salesUomId: string | null = null
+
+            if (line.variantId) {
+                const variant = await this.prisma.sdProductVariant.findFirst({
+                    where: {
+                        id: line.variantId,
+                        productId: product.id,
+                        isActive: true,
+                    },
+                    select: {
+                        materialId: true,
+                        companyId: true,
+                        salesUomId: true,
+                        materialUomId: true,
+                    },
+                })
+                if (!variant) {
+                    throw new BadRequestException(
+                        `Selected variant for ${product.name} is no longer available. Please refresh your cart.`,
+                    )
+                }
+                if (variant.companyId && variant.companyId !== args.companyId) {
+                    throw new BadRequestException(
+                        `Selected variant for ${product.name} is unavailable for this store.`,
+                    )
+                }
+                materialId = variant.materialId
+                salesUomId = variant.salesUomId ?? variant.materialUomId
+            }
+
+            if (!materialId) {
+                const resolved =
+                    await this.materialResolution.resolveMaterialForProduct({
+                        productId: product.id,
+                        companyId: args.companyId,
+                        divisionId: line.divisionId,
+                        channel: args.channel ?? 'ECOMMERCE',
+                    })
+                if (!resolved.atpRelevant) continue
+                materialId = resolved.materialId
+                salesUomId =
+                    resolved.salesUomId ??
+                    resolved.materialUomId ??
+                    resolved.baseUomId
+            }
+
+            const material = await this.prisma.mmMaterial.findUnique({
+                where: { id: materialId },
+                select: { baseUomId: true },
+            })
+            if (!material) {
+                throw new BadRequestException(
+                    `${product.name} is unavailable because its stock item is no longer configured.`,
+                )
+            }
+
+            const baseQty = await this.toBaseQuantity(
+                materialId,
+                salesUomId ?? material.baseUomId,
+                line.quantity,
+            )
+            const { warehouseId } =
+                await this.fulfillmentDetermination.determineWarehouse({
+                    companyId: args.companyId,
+                    channel: args.channel ?? 'ECOMMERCE',
+                    branchId: args.branchId,
+                    divisionId: line.divisionId,
+                    materialId,
+                })
+            const key = atpPairKey(warehouseId, materialId)
+            const existing = requiredByMaterialWarehouse.get(key)
+            if (existing) {
+                existing.requiredQty = existing.requiredQty.plus(baseQty)
+            } else {
+                requiredByMaterialWarehouse.set(key, {
+                    materialId,
+                    warehouseId,
+                    requiredQty: baseQty,
+                    description: product.name,
+                })
+            }
+        }
+
+        const requirements = [...requiredByMaterialWarehouse.values()]
+        const availabilityByPair = await this.inventoryAtp.getAvailabilityBatch(
+            args.companyId,
+            requirements.map(({ warehouseId, materialId }) => ({
+                warehouseId,
+                materialId,
+            })),
+        )
+
+        for (const requirement of requirements) {
+            const available =
+                availabilityByPair.get(
+                    atpPairKey(requirement.warehouseId, requirement.materialId),
+                )?.available ?? 0
+            if (requirement.requiredQty.gt(available)) {
+                throw new BadRequestException(
+                    `${requirement.description} is out of stock. Available: ${available}; requested: ${requirement.requiredQty.toString()}. Please update your cart.`,
+                )
+            }
+        }
+    }
+
+    private async toBaseQuantity(
+        materialId: string,
+        salesUomId: string,
+        quantity: number,
+    ): Promise<Decimal> {
+        try {
+            return (await this.uom.toBaseUom(materialId, salesUomId, quantity))
+                .quantity
+        } catch (error) {
+            // Match the SD→MM pipeline's legacy retail fallback until every
+            // catalog assignment has an explicit UOM conversion.
+            if (
+                error instanceof Error &&
+                /No UOM conversion found/i.test(error.message)
+            ) {
+                return new Decimal(quantity)
+            }
+            throw error
         }
     }
 

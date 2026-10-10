@@ -227,6 +227,7 @@ function setup() {
         {} as never,
         {} as never,
         quotations,
+        {} as never,
     )
     const activities = { withNextActivity: async (rows: unknown[]) => rows } as unknown as CrmActivitiesService
     const messages = { recordSystem: jest.fn().mockResolvedValue({ count: 0 }) } as unknown as CrmMessagesService

@@ -27,7 +27,10 @@ import {
     type EcommerceOrderResult,
 } from '@/modules/sd/services/ecommerceService'
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
-import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
+import {
+    fetchStorefrontAvailability,
+    type SdProductRecord,
+} from '@/modules/sd/services/productCatalogService'
 import {
     newIdempotencyKey,
     type CheckoutPaymentSelection,
@@ -92,7 +95,7 @@ type MarketplaceContextValue = {
         product: SdProductRecord,
         quantity?: number,
         buyNow?: boolean,
-    ) => void
+    ) => Promise<void>
     openCart: () => void
     openOrders: () => void
     openAccount: () => void
@@ -418,8 +421,34 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const requestAdd = useCallback(
-        (product: SdProductRecord, quantity = 1, buyNow = false) =>
-            setRequestedAdd({ product, quantity, buyNow }),
+        async (product: SdProductRecord, quantity = 1, buyNow = false) => {
+            // Product cards do not load ATP individually (to avoid an N+1
+            // catalog request), so check just-in-time when a shopper adds an
+            // item. Checkout repeats the check on the server before an SO can
+            // be created.
+            try {
+                const stock = await fetchStorefrontAvailability(
+                    product.divisionId,
+                    product.sku,
+                )
+                const available = Math.max(
+                    0,
+                    Math.floor(stock.availableQuantity),
+                )
+                if (stock.state !== 'NON_INVENTORY' && available < quantity) {
+                    notify(
+                        'danger',
+                        'Out of stock',
+                        `${product.name} is no longer available in the requested quantity.`,
+                    )
+                    return
+                }
+            } catch {
+                // The server checkout gate remains authoritative. Let shoppers
+                // keep browsing if this optional convenience check is offline.
+            }
+            setRequestedAdd({ product, quantity, buyNow })
+        },
         [],
     )
 

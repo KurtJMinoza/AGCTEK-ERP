@@ -37,6 +37,7 @@ import {
     priceCatalogLines,
 } from './sd-catalog-pricing'
 import { QuotationService } from './quotation.service'
+import { CommercialAvailabilityService } from './commercial-availability.service'
 
 /** Retail order to persist: single-division (header `divisionId`) or a marketplace master (lines tagged). */
 type RetailOrderInput = Omit<
@@ -127,6 +128,7 @@ export class SalesOrderService {
         private products: ProductService,
         private mmPipeline: SdMmPipelineService,
         private quotations: QuotationService,
+        private commercialAvailability: CommercialAvailabilityService,
     ) {}
 
     private readonly includes = {
@@ -556,6 +558,16 @@ export class SalesOrderService {
                 'No company is configured for this store. Please contact your administrator before placing an order.',
             )
         }
+
+        // A storefront quantity is only a request. Before creating an SO,
+        // resolve the product-to-material assignments and require current MM
+        // ATP for the actual fulfillment warehouse. This prevents an
+        // out-of-stock cart from becoming an order that cannot be reserved.
+        await this.commercialAvailability.assertMarketplaceCheckoutAvailability({
+            companyId: checkoutCompanyId,
+            lines: dto.cartItems,
+            channel: 'ECOMMERCE',
+        })
 
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber('SO', attempt)

@@ -40,6 +40,7 @@ function setup() {
         products as never,
         mmPipeline as never,
         {} as never,
+        {} as never,
     )
     return { prisma, service }
 }

@@ -96,6 +96,7 @@ function setup() {
         {} as never,
         mmPipeline as never,
         {} as never,
+        {} as never,
     )
     return { prisma, mmPipeline, sdEvents, service }
 }
