@@ -8,6 +8,7 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
     const prisma: any = {
         mmMaterial: {
             findFirst: jest.fn(),
+            findMany: jest.fn(),
             findUnique: jest.fn(),
             create: jest.fn(),
             update: jest.fn(),
@@ -15,6 +16,7 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         mmMaterialType: { findFirst: jest.fn() },
         mmMaterialCategory: { findFirst: jest.fn() },
         mmUom: { findFirst: jest.fn() },
+        mmCurrency: { findFirst: jest.fn() },
         mmMaterialAudit: { create: jest.fn() },
         mmBatch: { count: jest.fn() },
         mmSerialNumber: { count: jest.fn() },
@@ -50,7 +52,9 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         prisma.mmMaterialType.findFirst.mockResolvedValue({ id: 't1', isActive: true })
         prisma.mmMaterialCategory.findFirst.mockResolvedValue({ id: 'c1', isActive: true })
         prisma.mmUom.findFirst.mockResolvedValue({ id: 'u1', isActive: true })
+        prisma.mmCurrency.findFirst.mockResolvedValue({ id: 'php' })
         prisma.mmMaterialAudit.create.mockResolvedValue({})
+        prisma.mmMaterial.findMany.mockResolvedValue([])
     })
 
     it('rejects duplicate SKU on create', async () => {
@@ -72,9 +76,7 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
 
     it('auto-generates SKU when omitted on create', async () => {
         prisma.mmMaterial.findFirst
-            .mockResolvedValueOnce(null) // last MAT- for code sequence
             .mockResolvedValueOnce(null) // code unique
-            .mockResolvedValueOnce(null) // last SKU- for sku sequence
             .mockResolvedValueOnce(null) // sku unique
         prisma.mmMaterial.create.mockResolvedValue({
             ...draftMaterial,
@@ -91,6 +93,80 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         expect(prisma.mmMaterial.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({ sku: 'SKU-000001' }),
+            }),
+        )
+    })
+
+    it('restores a soft-deleted material when its code and SKU are reused', async () => {
+        const deleted = {
+            ...draftMaterial,
+            sku: 'SKU-1',
+            deletedAt: new Date(),
+        }
+        prisma.mmMaterial.findFirst
+            .mockResolvedValueOnce(null) // active code conflict
+            .mockResolvedValueOnce(null) // active SKU conflict
+            .mockResolvedValueOnce(deleted) // deleted code match
+            .mockResolvedValueOnce(deleted) // deleted SKU match
+        prisma.mmMaterial.update.mockResolvedValue({
+            ...deleted,
+            materialName: 'Restored widget',
+            deletedAt: null,
+        })
+
+        const result = await service.create({
+            materialCode: deleted.materialCode,
+            materialName: 'Restored widget',
+            materialTypeId: 't1',
+            materialCategoryId: 'c1',
+            baseUomId: 'u1',
+            sku: deleted.sku,
+        })
+
+        expect(result.id).toBe(deleted.id)
+        expect(result.deletedAt).toBeNull()
+        expect(prisma.mmMaterial.create).not.toHaveBeenCalled()
+        expect(prisma.mmMaterial.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id: deleted.id },
+                data: expect.objectContaining({ deletedAt: null }),
+            }),
+        )
+        expect(prisma.mmMaterialAudit.create).toHaveBeenCalledWith(
+            expect.objectContaining({ data: expect.objectContaining({ action: 'RESTORE' }) }),
+        )
+    })
+
+    it('generates codes after soft-deleted rows and ignores malformed suffixes', async () => {
+        prisma.mmMaterial.findMany
+            .mockResolvedValueOnce([
+                { materialCode: 'MAT-000009' },
+                { materialCode: 'MAT-DELETED' },
+            ])
+            .mockResolvedValueOnce([
+                { sku: 'SKU-000014' },
+                { sku: 'SKU-OLD' },
+            ])
+        prisma.mmMaterial.findFirst.mockResolvedValue(null)
+        prisma.mmMaterial.create.mockResolvedValue({
+            ...draftMaterial,
+            materialCode: 'MAT-000010',
+            sku: 'SKU-000015',
+        })
+
+        await service.create({
+            materialName: 'Generated identifiers',
+            materialTypeId: 't1',
+            materialCategoryId: 'c1',
+            baseUomId: 'u1',
+        })
+
+        expect(prisma.mmMaterial.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    materialCode: 'MAT-000010',
+                    sku: 'SKU-000015',
+                }),
             }),
         )
     })

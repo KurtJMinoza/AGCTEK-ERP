@@ -283,6 +283,27 @@ export class MaterialsService {
         await this.assertUniqueSku(sku)
         this.validateThresholds(dto)
 
+        const [deletedByCode, deletedBySku] = await Promise.all([
+            this.prisma.mmMaterial.findFirst({
+                where: {
+                    materialCode: { equals: materialCode, mode: 'insensitive' },
+                    deletedAt: { not: null },
+                },
+            }),
+            this.prisma.mmMaterial.findFirst({
+                where: {
+                    sku: { equals: sku, mode: 'insensitive' },
+                    deletedAt: { not: null },
+                },
+            }),
+        ])
+
+        if (deletedByCode && deletedBySku && deletedByCode.id !== deletedBySku.id) {
+            throw new ConflictException(
+                'Material code and SKU belong to different deleted materials; use a different code or SKU',
+            )
+        }
+
         // Never create directly as ACTIVE without activation checks
         let status = dto.status || 'DRAFT'
         if (status === 'ACTIVE') {
@@ -302,49 +323,90 @@ export class MaterialsService {
                       select: { id: true },
                   }))?.id ?? null)
 
-        const material = await this.prisma.mmMaterial.create({
-            data: {
-                ...(dto as Prisma.MmMaterialUncheckedCreateInput),
-                materialCode,
-                sku,
-                status,
-                currencyId,
-                onHandQty: new Decimal(dto.onHandQty ?? 0),
-                reservedQty: new Decimal(dto.reservedQty ?? 0),
-            },
-            include: this.includes,
-        })
+        const data = {
+            ...(dto as Prisma.MmMaterialUncheckedCreateInput),
+            materialCode,
+            sku,
+            status,
+            currencyId,
+            onHandQty: new Decimal(dto.onHandQty ?? 0),
+            reservedQty: new Decimal(dto.reservedQty ?? 0),
+        }
 
-        await this.writeAudit(material.id, 'CREATE', null, material)
-        return serializeMaterial(material)
+        const deletedMaterial = deletedByCode ?? deletedBySku
+        try {
+            const material = deletedMaterial
+                ? await this.prisma.mmMaterial.update({
+                      where: { id: deletedMaterial.id },
+                      data: {
+                          ...data,
+                          deletedAt: null,
+                      } as Prisma.MmMaterialUncheckedUpdateInput,
+                      include: this.includes,
+                  })
+                : await this.prisma.mmMaterial.create({
+                      data,
+                      include: this.includes,
+                  })
+
+            await this.writeAudit(
+                material.id,
+                deletedMaterial ? 'RESTORE' : 'CREATE',
+                deletedMaterial ? this.diffChanges(deletedMaterial, material) : null,
+                material,
+            )
+            return serializeMaterial(material)
+        } catch (error) {
+            this.rethrowUniqueConflict(error)
+            throw error
+        }
     }
 
     private async generateNextCode(): Promise<string> {
-        const last = await this.prisma.mmMaterial.findFirst({
+        const materials = await this.prisma.mmMaterial.findMany({
             where: { materialCode: { startsWith: 'MAT-' } },
-            orderBy: { materialCode: 'desc' },
             select: { materialCode: true },
         })
-        let seq = 1
-        if (last) {
-            const num = parseInt(last.materialCode.replace('MAT-', ''), 10)
-            if (!isNaN(num)) seq = num + 1
-        }
+        const seq = this.nextNumericSuffix(materials.map(({ materialCode }) => materialCode), 'MAT-')
         return `MAT-${String(seq).padStart(6, '0')}`
     }
 
     private async generateNextSku(): Promise<string> {
-        const last = await this.prisma.mmMaterial.findFirst({
+        const materials = await this.prisma.mmMaterial.findMany({
             where: { sku: { startsWith: 'SKU-' } },
-            orderBy: { sku: 'desc' },
             select: { sku: true },
         })
-        let seq = 1
-        if (last?.sku) {
-            const num = parseInt(last.sku.replace('SKU-', ''), 10)
-            if (!isNaN(num)) seq = num + 1
-        }
+        const seq = this.nextNumericSuffix(
+            materials.flatMap(({ sku }) => sku ? [sku] : []),
+            'SKU-',
+        )
         return `SKU-${String(seq).padStart(6, '0')}`
+    }
+
+    private nextNumericSuffix(values: string[], prefix: string): number {
+        const max = values.reduce((currentMax, value) => {
+            const suffix = value.slice(prefix.length)
+            if (!/^\d+$/.test(suffix)) return currentMax
+            return Math.max(currentMax, Number(suffix))
+        }, 0)
+        return max + 1
+    }
+
+    private rethrowUniqueConflict(error: unknown): void {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+            return
+        }
+
+        const target = Array.isArray(error.meta?.target)
+            ? error.meta.target.join(',')
+            : String(error.meta?.target ?? '')
+        if (target.includes('materialCode')) {
+            throw new ConflictException('Material code already exists')
+        }
+        if (target.includes('sku')) {
+            throw new ConflictException('SKU already exists')
+        }
+        throw new ConflictException('Material code or SKU already exists')
     }
 
     async update(id: string, dto: UpdateMaterialDto) {
