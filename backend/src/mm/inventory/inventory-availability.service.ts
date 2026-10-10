@@ -253,28 +253,16 @@ export class InventoryAvailabilityService {
     }
 
     /**
-     * Commercial stock for SD Product Catalog / ecommerce (material master thresholds).
-     * WM ledger totals live in getCompanyMaterialTotals(); GR sync pushes ledger → master.
+     * Commercial stock for SD Product Catalog / ecommerce.
+     * Computed from the LIVE ledger — the ATP authority. The material master
+     * onHand/reserved cache only re-syncs on stock postings and drifts after
+     * reservation releases, so it must never feed the storefront.
      */
     async getCommercialMaterialTotals(
         companyId: string,
         materialId: string,
     ): Promise<CompanyMaterialTotals> {
-        void companyId
-        const material = await this.prisma.mmMaterial.findFirst({
-            where: { id: materialId, deletedAt: null },
-            select: { onHandQty: true, reservedQty: true },
-        })
-        if (!material) {
-            return { onHandQty: 0, reservedQty: 0, availableQty: 0 }
-        }
-        const onHandQty = Number(material.onHandQty)
-        const reservedQty = Number(material.reservedQty)
-        return {
-            onHandQty,
-            reservedQty,
-            availableQty: Math.max(0, onHandQty - reservedQty),
-        }
+        return this.getCompanyMaterialTotals(companyId, materialId)
     }
 
     async getCompanyMaterialTotalsBatch(

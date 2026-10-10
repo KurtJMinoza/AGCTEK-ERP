@@ -406,6 +406,12 @@ export class CreateMarketplaceCheckoutDto {
     createdBy?: string
 }
 
+/**
+ * Back-office retail status changes are limited to safe pre-fulfillment
+ * cancellation and final closure after SCM has recorded delivery. The service
+ * enforces DELIVERED → COMPLETED so callers cannot bypass pick, pack, shipment
+ * or goods issue.
+ */
 export const RETAIL_STATUS_TARGETS = ['COMPLETED', 'CANCELLED'] as const
 
 export class UpdateRetailSalesOrderStatusDto {

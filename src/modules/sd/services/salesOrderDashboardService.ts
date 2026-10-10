@@ -11,6 +11,8 @@ import {
 export type SalesOrderChannel = 'POS' | 'E-commerce' | 'Standard'
 export type SalesOrderStatus =
     | 'Completed'
+    | 'Delivered'
+    | 'Dispatched'
     | 'Pending Delivery'
     | 'Draft'
     | 'Cancelled'
@@ -216,6 +218,8 @@ const CHANNEL_LABEL: Record<ApiSalesOrder['channel'], SalesOrderChannel> = {
 
 const STATUS_LABEL: Record<string, SalesOrderStatus> = {
     COMPLETED: 'Completed',
+    DELIVERED: 'Delivered',
+    SHIPPED: 'Dispatched',
     CONFIRMED: 'Pending Delivery',
     DRAFT: 'Draft',
     CANCELLED: 'Cancelled',
@@ -250,7 +254,8 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             lineId: line.id,
             divisionId: line.divisionId ?? order.divisionId,
             sku: line.sku ?? '—',
-            name: line.productNameSnapshot ?? line.description ?? line.sku ?? '—',
+            name:
+                line.productNameSnapshot ?? line.description ?? line.sku ?? '—',
             productImage: line.productImageSnapshot,
             productName: line.productNameSnapshot,
             variantName: line.variantName ?? undefined,
@@ -268,8 +273,7 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
         payment:
-            order.paymentMethod !== undefined &&
-            order.paymentMethod !== null
+            order.paymentMethod !== undefined && order.paymentMethod !== null
                 ? {
                       method: order.paymentMethod,
                       provider: order.paymentProvider,
@@ -433,7 +437,7 @@ export type SalesOrderListParams = {
     companyId?: string
 }
 
-/** Retail statuses an admin can move a Pending Delivery order to. */
+/** Back-office may cancel before fulfillment or close an already delivered order. */
 export type RetailStatusTarget = 'Completed' | 'Cancelled'
 
 const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> =
@@ -476,7 +480,7 @@ export async function getSalesOrders(
     }
 }
 
-/** PATCH /sd/sales-orders/retail/:id/status — only Pending Delivery orders may move. */
+/** PATCH /sd/sales-orders/retail/:id/status — cancel before fulfillment or complete after delivery. */
 export async function updateRetailSalesOrderStatus(
     id: string,
     status: RetailStatusTarget,
@@ -566,9 +570,7 @@ export async function createCustomerReturnRequest(
 }
 
 /** Uploads return evidence photo (POST /sd/returns/photos); returns the public URL. */
-export async function uploadReturnPhoto(
-    file: File,
-): Promise<string> {
+export async function uploadReturnPhoto(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
     try {

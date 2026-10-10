@@ -666,6 +666,10 @@ model WmPackingSession {
   warehouseId     String
   warehouse       Warehouse        @relation(fields: [warehouseId], references: [id])
   companyId       String?
+  /// Commercial order being packed. One open session per order + warehouse is
+  /// enforced by a partial unique index in the corresponding migration.
+  salesOrderId    String?
+  salesOrder      SdSalesOrder?    @relation("SdOrderPackingSessions", fields: [salesOrderId], references: [id], onDelete: SetNull)
   warehouseTaskId String?
   warehouseTask   WmWarehouseTask? @relation(fields: [warehouseTaskId], references: [id])
   pickingTaskId   String?
@@ -679,6 +683,7 @@ model WmPackingSession {
 
   @@index([warehouseId, status])
   @@index([companyId, status])
+  @@index([salesOrderId, warehouseId, status])
   @@map("wm_packing_sessions")
 }
 
@@ -802,6 +807,10 @@ model WmPackage {
   id               String                  @id @default(cuid())
   packageNumber    String                  @unique
   orderNumber      String?
+  /// Direct commercial-order link for order-level packing and list displays.
+  /// `pickingTaskId` remains the task that initiated the package for traceability.
+  salesOrderId     String?
+  salesOrder       SdSalesOrder?           @relation("SdOrderPackages", fields: [salesOrderId], references: [id], onDelete: SetNull)
   warehouseId      String
   warehouse        Warehouse               @relation(fields: [warehouseId], references: [id])
   companyId        String?
@@ -811,6 +820,9 @@ model WmPackage {
   packingSession   WmPackingSession?       @relation(fields: [packingSessionId], references: [id])
   reservationId    String?
   reservation      MmInventoryReservation? @relation(fields: [reservationId], references: [id])
+  /// DEFAULT is the single automatic package for a packing session. SPLIT and
+  /// MANUAL are created only through an explicit user action.
+  packageRole      String                  @default("MANUAL")
   packageType      String?
   weight           Decimal?
   length           Decimal?
@@ -832,27 +844,29 @@ model WmPackage {
 
   @@index([warehouseId, status])
   @@index([pickingTaskId])
+  @@index([packingSessionId])
+  @@index([salesOrderId, status])
   @@index([companyId, status])
   @@map("wm_packages")
 }
 
 model WmPackageItem {
-  id          String     @id @default(cuid())
-  packageId   String
-  package     WmPackage  @relation(fields: [packageId], references: [id])
-  materialId  String
-  material    MmMaterial @relation(fields: [materialId], references: [id])
-  expectedQty Decimal
-  scannedQty  Decimal    @default(0)
-  batchId     String?
-  serialId    String?
+  id           String     @id @default(cuid())
+  packageId    String
+  package      WmPackage  @relation(fields: [packageId], references: [id])
+  materialId   String
+  material     MmMaterial @relation(fields: [materialId], references: [id])
+  expectedQty  Decimal
+  scannedQty   Decimal    @default(0)
+  batchId      String?
+  serialId     String?
   /// User who packed this item (stamped on first scan — whichever way it was
   /// scanned: dropdown or QR/barcode). Name is a snapshot for display.
   packedById   String?
   packedByName String?
-  status      String     @default("PENDING")
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  status       String     @default("PENDING")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@index([packageId])
   @@map("wm_package_items")
@@ -3742,17 +3756,17 @@ model SdProduct {
 
 /// Generic selectable option group on a product (Size, Color, Bottle Size, Flavor, Pack…).
 model SdProductOption {
-  id         String                 @id @default(cuid())
-  productId  String
-  product    SdProduct              @relation("ProductOptions", fields: [productId], references: [id], onDelete: Cascade)
+  id           String                 @id @default(cuid())
+  productId    String
+  product      SdProduct              @relation("ProductOptions", fields: [productId], references: [id], onDelete: Cascade)
   name         String
   sortOrder    Int                    @default(0)
   isRequired   Boolean                @default(true)
   /// Storefront control style: BUTTON | DROPDOWN | SWATCH | IMAGE | TILE
   displayStyle String                 @default("BUTTON")
   createdAt    DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
-  values     SdProductOptionValue[]
+  updatedAt    DateTime               @updatedAt
+  values       SdProductOptionValue[]
 
   @@unique([productId, name])
   @@index([productId, sortOrder])
@@ -3876,23 +3890,23 @@ model SdBranchFulfillment {
 }
 
 model SdSalesOrder {
-  id                 String             @id @default(cuid())
-  orderNumber        String             @unique
+  id                 String                @id @default(cuid())
+  orderNumber        String                @unique
   /// Required for STANDARD orders; retail channel orders may omit until org/warehouse mapping exists.
   companyId          String?
-  company            Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company            Company?              @relation(fields: [companyId], references: [id], onDelete: Restrict)
   warehouseId        String?
-  warehouse          Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse?            @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   customerId         String
   /// STANDARD | POS | ECOMMERCE
-  channel            String             @default("STANDARD")
+  channel            String                @default("STANDARD")
   /// Originating system: POS | WEBSITE | CRM | ERP (back-office / API).
-  source             String             @default("ERP")
+  source             String                @default("ERP")
   /// CRM opportunity that produced this order (Closed Won handoff); at most one order per opportunity.
-  crmOpportunityId   String?            @unique
+  crmOpportunityId   String?               @unique
   /// Quotation converted into this order; null for orders created without a quotation.
-  quotationId        String?            @unique
-  quotation          SdQuotation?       @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  quotationId        String?               @unique
+  quotation          SdQuotation?          @relation(fields: [quotationId], references: [id], onDelete: Restrict)
   /// Sales division, e.g. DIV_RETAIL
   divisionId         String?
   /// Selling branch / store location code, e.g. BR_AWIC_DAVAO_MAIN (POS required).
@@ -3907,11 +3921,11 @@ model SdSalesOrder {
   shipToRegion       String?
   shipToPostalCode   String?
   shipToCountry      String?
-  currency           String             @default("PHP")
+  currency           String                @default("PHP")
   subtotal           Decimal?
-  discountAmount     Decimal            @default(0)
+  discountAmount     Decimal               @default(0)
   promoCode          String?
-  shippingAmount     Decimal            @default(0)
+  shippingAmount     Decimal               @default(0)
   totalAmount        Decimal?
   /// POS cash tendered / change given
   paymentReceived    Decimal?
@@ -3922,22 +3936,24 @@ model SdSalesOrder {
   paymentStatus      String?
   paymentReference   String?
   paymentProvider    String?
-  isDemoPayment      Boolean            @default(false)
+  isDemoPayment      Boolean               @default(false)
   /// DRAFT | CONFIRMED | COMPLETED | CANCELLED
-  status             String             @default("DRAFT")
+  status             String                @default("DRAFT")
   correlationId      String
-  idempotencyKey     String?            @unique
+  idempotencyKey     String?               @unique
   /// Free-text commercial notes (e.g. handoff context from a CRM opportunity).
   notes              String?
   /// Sales owner (User id) responsible for the order; may differ from createdBy.
   salesOwnerId       String?
   createdBy          String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]
-  pickingTasks       WmPickingTask[]  @relation("SdOrderPickingTasks")
+  pickingTasks       WmPickingTask[]       @relation("SdOrderPickingTasks")
+  packingSessions    WmPackingSession[]    @relation("SdOrderPackingSessions")
+  packages           WmPackage[]           @relation("SdOrderPackages")
   invoices           SdSalesInvoice[]
   returnRequests     SdReturnRequest[]
   payments           SdSalesOrderPayment[]
@@ -3952,51 +3968,51 @@ model SdSalesOrder {
 }
 
 model SdSalesOrderLine {
-  id                  String              @id @default(cuid())
-  salesOrderId        String
-  salesOrder          SdSalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
-  lineNumber          Int
+  id                   String                @id @default(cuid())
+  salesOrderId         String
+  salesOrder           SdSalesOrder          @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  lineNumber           Int
   /// Selling division of this line (DIV_RETAIL · DIV_LPG · DIV_APPLIANCES); marketplace
   /// orders span divisions, so the header divisionId stays null and MM splits on this.
-  divisionId          String?
-  productId           String?
+  divisionId           String?
+  productId            String?
   /// Required for MM-integrated orders; retail lines carry sku until mapped to MM-01.
-  materialId          String?
-  material            MmMaterial?         @relation(fields: [materialId], references: [id], onDelete: Restrict)
-  sku                 String?
-  description         String?
+  materialId           String?
+  material             MmMaterial?           @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  sku                  String?
+  description          String?
   /// Stamped at MM enrichment: the Organization / Materials Management company.
-  companyId           String?
+  companyId            String?
   /// Commercial snapshots so order history keeps showing the right name/photo
   /// even when the catalog product or its image changes later.
-  productNameSnapshot String?
+  productNameSnapshot  String?
   productImageSnapshot String?
-  unitPrice           Decimal?
-  lineTotal           Decimal?
+  unitPrice            Decimal?
+  lineTotal            Decimal?
   /// Commercial sales quantity (sales UOM).
-  quantity            Decimal
-  salesUomId          String?
-  salesUom            MmUom?              @relation("SdOrderLineSalesUom", fields: [salesUomId], references: [id])
+  quantity             Decimal
+  salesUomId           String?
+  salesUom             MmUom?                @relation("SdOrderLineSalesUom", fields: [salesUomId], references: [id])
   /// MM base quantity for ATP / reservation / demand.
-  baseQuantity        Decimal?
-  baseUomId           String?
-  baseUom             MmUom?              @relation("SdOrderLineBaseUom", fields: [baseUomId], references: [id])
+  baseQuantity         Decimal?
+  baseUomId            String?
+  baseUom              MmUom?                @relation("SdOrderLineBaseUom", fields: [baseUomId], references: [id])
   /// Sold variant (products with options always select one); snapshots for orders.
-  variantId           String?
-  variantName         String?
-  variantSku          String?
-  variantBarcode      String?
-  reservedQuantity    Decimal             @default(0)
-  issuedQuantity      Decimal             @default(0)
-  reservationHeaderId String?
+  variantId            String?
+  variantName          String?
+  variantSku           String?
+  variantBarcode       String?
+  reservedQuantity     Decimal               @default(0)
+  issuedQuantity       Decimal               @default(0)
+  reservationHeaderId  String?
   /// OPEN | RESERVED | SHORT | FULFILLED | CANCELLED
-  integrationStatus   String              @default("OPEN")
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  fulfillmentLines    SdFulfillmentLine[]
-  pickingTasks        WmPickingTask[]      @relation("SdOrderLinePickingTasks")
-  invoiceLines        SdSalesInvoiceLine[]
-  returnRequestLines  SdReturnRequestLine[]
+  integrationStatus    String                @default("OPEN")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  fulfillmentLines     SdFulfillmentLine[]
+  pickingTasks         WmPickingTask[]       @relation("SdOrderLinePickingTasks")
+  invoiceLines         SdSalesInvoiceLine[]
+  returnRequestLines   SdReturnRequestLine[]
 
   @@unique([salesOrderId, lineNumber])
   @@index([materialId])
@@ -4148,27 +4164,27 @@ model SdShipment {
 
 /// Customer sales invoice (AR) — auto-created for fulfilled ecommerce orders.
 model SdSalesInvoice {
-  id             String   @id @default(cuid())
-  invoiceNumber  String   @unique
+  id             String       @id @default(cuid())
+  invoiceNumber  String       @unique
   companyId      String
   salesOrderId   String
-  salesOrder     SdSalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  salesOrder     SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   shipmentId     String?
   /// DRAFT | ISSUED | PAID | CANCELLED | REFUNDED
-  status         String   @default("DRAFT")
-  currency       String   @default("PHP")
-  subtotal       Decimal  @default(0)
-  discountAmount Decimal  @default(0)
-  shippingAmount Decimal  @default(0)
-  totalAmount    Decimal  @default(0)
+  status         String       @default("DRAFT")
+  currency       String       @default("PHP")
+  subtotal       Decimal      @default(0)
+  discountAmount Decimal      @default(0)
+  shippingAmount Decimal      @default(0)
+  totalAmount    Decimal      @default(0)
   issuedAt       DateTime?
   paidAt         DateTime?
   cancelledAt    DateTime?
-  refundedAmount Decimal  @default(0)
+  refundedAmount Decimal      @default(0)
   notes          String?
   createdBy      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   lines SdSalesInvoiceLine[]
 
@@ -4199,14 +4215,14 @@ model SdSalesInvoiceLine {
 
 /// Customer return request raised from a delivered order (storefront or admin).
 model SdReturnRequest {
-  id                 String           @id @default(cuid())
-  requestNumber      String           @unique
+  id                 String       @id @default(cuid())
+  requestNumber      String       @unique
   companyId          String
   salesOrderId       String
-  salesOrder         SdSalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  salesOrder         SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   customerId         String
   /// REQUESTED | APPROVED | REJECTED | RECEIVED | INSPECTED | COMPLETED | CANCELLED
-  status             String           @default("REQUESTED")
+  status             String       @default("REQUESTED")
   reason             String?
   conditionNote      String?
   photos             Json?
@@ -4216,8 +4232,8 @@ model SdReturnRequest {
   approvedBy         String?
   approvedAt         DateTime?
   completedAt        DateTime?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   lines SdReturnRequestLine[]
 
@@ -4245,27 +4261,29 @@ model SdReturnRequestLine {
   @@map("sd_return_request_lines")
 }
 
-/** Demo-mode checkout payment record. Real gateways are NOT connected. */
+/**
+ * Demo-mode checkout payment record. Real gateways are NOT connected.
+ */
 model SdSalesOrderPayment {
-  id              String        @id @default(cuid())
+  id              String       @id @default(cuid())
   companyId       String
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   salesOrderId    String
-  salesOrder      SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  salesOrder      SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   customerId      String
   /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO
   paymentMethod   String
   paymentProvider String?
   amount          Decimal
-  currency        String        @default("PHP")
+  currency        String       @default("PHP")
   /// Pending | Pending Collection | Pending Verification | Authorized | Paid | Failed | Cancelled | Refunded
-  status          String        @default("Pending")
+  status          String       @default("Pending")
   referenceNumber String?
-  isDemo          Boolean       @default(true)
+  isDemo          Boolean      @default(true)
   paidAt          DateTime?
   createdBy       String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@index([companyId, status])
   @@index([salesOrderId])

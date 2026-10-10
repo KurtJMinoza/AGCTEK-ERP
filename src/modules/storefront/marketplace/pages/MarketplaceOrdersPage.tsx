@@ -37,7 +37,9 @@ const STATUS_COPY: Record<
     { label: string; tone: StatusTone }
 > = {
     'Pending Delivery': { label: 'To be delivered', tone: 'warning' },
-    Completed: { label: 'Delivered', tone: 'success' },
+    Dispatched: { label: 'Dispatched', tone: 'info' },
+    Delivered: { label: 'Delivered', tone: 'success' },
+    Completed: { label: 'Completed', tone: 'success' },
     Cancelled: { label: 'Cancelled', tone: 'danger' },
     Draft: { label: 'Processing', tone: 'default' },
 }
@@ -56,7 +58,7 @@ const PAYMENT_TONE: Record<string, StatusTone> = {
 const paymentLabel = (method: string | null) =>
     method && method in PAYMENT_METHOD_LABEL
         ? PAYMENT_METHOD_LABEL[method as keyof typeof PAYMENT_METHOD_LABEL]
-        : method ?? '—'
+        : (method ?? '—')
 
 const formatDate = (iso: string) =>
     new Intl.DateTimeFormat('en-PH', {
@@ -64,18 +66,28 @@ const formatDate = (iso: string) =>
         timeStyle: 'short',
     }).format(new Date(iso))
 
-type OrdersFilter = 'all' | 'Pending Delivery' | 'Completed' | 'Cancelled'
+type OrdersFilter =
+    | 'all'
+    | 'Pending Delivery'
+    | 'Dispatched'
+    | 'Delivered'
+    | 'Completed'
+    | 'Cancelled'
 
 const FILTER_LABEL: Record<OrdersFilter, string> = {
     all: 'All orders',
     'Pending Delivery': 'To be delivered',
-    Completed: 'Delivered',
+    Dispatched: 'Dispatched',
+    Delivered: 'Delivered',
+    Completed: 'Completed',
     Cancelled: 'Cancelled',
 }
 
 const FILTERS: OrdersFilter[] = [
     'all',
     'Pending Delivery',
+    'Dispatched',
+    'Delivered',
     'Completed',
     'Cancelled',
 ]
@@ -132,7 +144,10 @@ const MarketplaceOrdersPage = () => {
         CUSTOMER_CANCEL_REASONS[0],
     )
     const [cancelReasonOptions] = useState(
-        CUSTOMER_CANCEL_REASONS.map((reason) => ({ value: reason, label: reason })),
+        CUSTOMER_CANCEL_REASONS.map((reason) => ({
+            value: reason,
+            label: reason,
+        })),
     )
     const [cancelError, setCancelError] = useState<string | null>(null)
     const [cancelling, setCancelling] = useState(false)
@@ -206,7 +221,9 @@ const MarketplaceOrdersPage = () => {
         return {
             total: rows.length,
             pending: rows.filter((o) => o.status === 'Pending Delivery').length,
-            delivered: rows.filter((o) => o.status === 'Completed').length,
+            dispatched: rows.filter((o) => o.status === 'Dispatched').length,
+            delivered: rows.filter((o) => o.status === 'Delivered').length,
+            completed: rows.filter((o) => o.status === 'Completed').length,
             spent: rows
                 .filter((o) => o.status !== 'Cancelled')
                 .reduce((sum, o) => sum + o.totalAmount, 0),
@@ -226,9 +243,17 @@ const MarketplaceOrdersPage = () => {
             ? summary.total
             : value === 'Pending Delivery'
               ? summary.pending
-              : value === 'Completed'
-                ? summary.delivered
-                : summary.total - summary.pending - summary.delivered
+              : value === 'Dispatched'
+                ? summary.dispatched
+                : value === 'Delivered'
+                  ? summary.delivered
+                  : value === 'Completed'
+                    ? summary.completed
+                    : summary.total -
+                      summary.pending -
+                      summary.dispatched -
+                      summary.delivered -
+                      summary.completed
 
     if (!signedInClient) {
         return (
@@ -376,8 +401,7 @@ const MarketplaceOrdersPage = () => {
                                             <div className="mt-1.5 text-xs text-gray-500">
                                                 Sold by{' '}
                                                 <span className="font-medium text-gray-900 dark:text-gray-100">
-                                                    {order.company?.name ??
-                                                        '—'}
+                                                    {order.company?.name ?? '—'}
                                                 </span>
                                             </div>
                                         </div>
@@ -433,9 +457,13 @@ const MarketplaceOrdersPage = () => {
                                                                 line.name}
                                                         </div>
                                                         {line.variantName &&
-                                                        line.variantName.trim().toLowerCase() !==
-                                                            (line.productName ??
-                                                                line.name)
+                                                        line.variantName
+                                                            .trim()
+                                                            .toLowerCase() !==
+                                                            (
+                                                                line.productName ??
+                                                                line.name
+                                                            )
                                                                 .trim()
                                                                 .toLowerCase() ? (
                                                             <div className="text-xs text-gray-500">
@@ -523,8 +551,8 @@ const MarketplaceOrdersPage = () => {
                                             {order.discountAmount > 0 ? (
                                                 <div className="text-xs text-emerald-600 dark:text-emerald-400">
                                                     Discount (
-                                                    {order.promoCode ?? 'promo'})
-                                                    −
+                                                    {order.promoCode ?? 'promo'}
+                                                    ) −
                                                     {formatPrice(
                                                         order.discountAmount,
                                                     )}
@@ -533,7 +561,9 @@ const MarketplaceOrdersPage = () => {
                                             {order.shipping > 0 ? (
                                                 <div className="text-xs text-gray-500">
                                                     Delivery{' '}
-                                                    {formatPrice(order.shipping)}
+                                                    {formatPrice(
+                                                        order.shipping,
+                                                    )}
                                                 </div>
                                             ) : null}
                                             <div className="border-t border-gray-100 pt-1 text-base font-bold text-gray-900 dark:border-gray-700 dark:text-gray-100">

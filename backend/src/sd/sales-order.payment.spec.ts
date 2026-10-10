@@ -3,9 +3,7 @@ import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { PrismaService } from '../prisma/prisma.service'
-import {
-    CreateMarketplaceCheckoutDto,
-} from './dto/sales-order.dto'
+import { CreateMarketplaceCheckoutDto } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 
 function checkoutDto(
@@ -56,10 +54,10 @@ function setup() {
             lines: [{ materialId: 'm-1', baseQuantity: new Decimal(2) }],
         }),
         isMmLinked: jest.fn().mockReturnValue(true),
-        emitSalesOrderConfirmedIntegration: jest
+        emitSalesOrderConfirmedIntegration: jest.fn().mockResolvedValue(true),
+        integrateConfirmedOrder: jest
             .fn()
-            .mockResolvedValue(true),
-        integrateConfirmedOrder: jest.fn().mockResolvedValue({ integrated: false }),
+            .mockResolvedValue({ integrated: false }),
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const prisma = {
@@ -72,7 +70,9 @@ function setup() {
             count: jest.fn().mockResolvedValue(0),
             create: jest.fn((args: { data: Record<string, unknown> }) => {
                 const nestedLines = (
-                    args.data.lines as { create: Array<Record<string, unknown>> }
+                    args.data.lines as {
+                        create: Array<Record<string, unknown>>
+                    }
                 ).create
                 const order = {
                     id: 'so-1',
@@ -178,8 +178,10 @@ describe('SalesOrderService demo checkout payments', () => {
             checkoutDto({ paymentMethod: 'COD' }),
             'client-1',
         )
-        const data = prisma.sdSalesOrder.create.mock.calls[0][0]
-            .data as Record<string, unknown>
+        const data = prisma.sdSalesOrder.create.mock.calls[0][0].data as Record<
+            string,
+            unknown
+        >
         expect(data).toMatchObject({
             paymentMethod: 'COD',
             paymentStatus: 'Pending Collection',
@@ -223,10 +225,15 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(result.order.paymentStatus).toBe('Failed')
         expect(prisma.sdSalesOrderPayment.create).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({ status: 'Failed', paidAt: null }),
+                data: expect.objectContaining({
+                    status: 'Failed',
+                    paidAt: null,
+                }),
             }),
         )
-        expect(mmPipeline.emitSalesOrderConfirmedIntegration).not.toHaveBeenCalled()
+        expect(
+            mmPipeline.emitSalesOrderConfirmedIntegration,
+        ).not.toHaveBeenCalled()
     })
 
     it('bank transfer demo: stays Pending Verification and does NOT trigger picking', async () => {
@@ -243,7 +250,9 @@ describe('SalesOrderService demo checkout payments', () => {
                 }),
             }),
         )
-        expect(mmPipeline.emitSalesOrderConfirmedIntegration).not.toHaveBeenCalled()
+        expect(
+            mmPipeline.emitSalesOrderConfirmedIntegration,
+        ).not.toHaveBeenCalled()
     })
 
     it('wallet and QR demos: confirm Paid and proceed to fulfillment', async () => {
@@ -253,7 +262,9 @@ describe('SalesOrderService demo checkout payments', () => {
                 checkoutDto({ paymentMethod: method }),
                 'client-1',
             )
-            expect(mmPipeline.emitSalesOrderConfirmedIntegration).toHaveBeenCalled()
+            expect(
+                mmPipeline.emitSalesOrderConfirmedIntegration,
+            ).toHaveBeenCalled()
         }
     })
 
@@ -271,8 +282,9 @@ describe('SalesOrderService demo checkout payments', () => {
             checkoutDto({ paymentMethod: 'COD' }),
             'client-1',
         )
-        const data = prisma.sdSalesOrder.create.mock.calls[0][0]
-            .data as { lines: { create: Array<Record<string, unknown>> } }
+        const data = prisma.sdSalesOrder.create.mock.calls[0][0].data as {
+            lines: { create: Array<Record<string, unknown>> }
+        }
         expect(data.lines.create[0]).toMatchObject({
             productNameSnapshot: 'Catalog Product',
             productImageSnapshot: '/uploads/products/1.png',
@@ -293,8 +305,9 @@ describe('SalesOrderService demo checkout payments', () => {
         const dto = checkoutDto({ paymentMethod: 'COD' })
         dto.cartItems = [{ ...dto.cartItems[0], variantId: 'var-1' }]
         await service.createMarketplaceCheckout(dto, 'client-1')
-        const data = prisma.sdSalesOrder.create.mock.calls[0][0]
-            .data as { lines: { create: Array<Record<string, unknown>> } }
+        const data = prisma.sdSalesOrder.create.mock.calls[0][0].data as {
+            lines: { create: Array<Record<string, unknown>> }
+        }
         expect(data.lines.create[0]).toMatchObject({
             variantId: 'var-1',
             variantName: '500ml Bottle',
@@ -315,8 +328,9 @@ describe('SalesOrderService demo checkout payments', () => {
             checkoutDto({ paymentMethod: 'COD' }),
             'client-1',
         )
-        const data = prisma.sdSalesOrder.create.mock.calls[0][0]
-            .data as { orderNumber: string }
+        const data = prisma.sdSalesOrder.create.mock.calls[0][0].data as {
+            orderNumber: string
+        }
         expect(data.orderNumber).toBe('SO-000005')
     })
 
@@ -326,12 +340,16 @@ describe('SalesOrderService demo checkout payments', () => {
             checkoutDto({ paymentMethod: 'COD' }),
             'client-1',
         )
-        const data = prisma.sdSalesOrder.create.mock.calls[0][0]
-            .data as Record<string, unknown>
+        const data = prisma.sdSalesOrder.create.mock.calls[0][0].data as Record<
+            string,
+            unknown
+        >
         expect(data.companyId).toBe('company-1')
-        const lines = (data.lines as {
-            create: Array<Record<string, unknown>>
-        }).create
+        const lines = (
+            data.lines as {
+                create: Array<Record<string, unknown>>
+            }
+        ).create
         expect(lines[0].companyId).toBe('company-1')
     })
 
@@ -393,7 +411,9 @@ describe('SalesOrderService demo checkout payments', () => {
                 lines: [{ materialId: 'm-1', baseQuantity: new Decimal(2) }],
             }),
             isMmLinked: jest.fn().mockReturnValue(true),
-            emitSalesOrderConfirmedIntegration: jest.fn().mockResolvedValue(true),
+            emitSalesOrderConfirmedIntegration: jest
+                .fn()
+                .mockResolvedValue(true),
         }
         const service = new SalesOrderService(
             prismaState as unknown as PrismaService,
@@ -429,7 +449,9 @@ describe('SalesOrderService demo checkout payments', () => {
             status: 'CONFIRMED',
             totalAmount: new Decimal(200),
             lines: [{ integrationStatus: 'RESERVED' }],
-            payments: [{ id: 'pay-1', status: 'Pending Collection', paidAt: null }],
+            payments: [
+                { id: 'pay-1', status: 'Pending Collection', paidAt: null },
+            ],
         }
         const prismaState = {
             sdSalesOrder: {
@@ -464,6 +486,55 @@ describe('SalesOrderService demo checkout payments', () => {
             {} as never,
         )
         await service.updateOrderPaymentStatus('so-1', { status: 'Paid' })
-        expect(mmPipeline.emitSalesOrderConfirmedIntegration).not.toHaveBeenCalled()
+        expect(
+            mmPipeline.emitSalesOrderConfirmedIntegration,
+        ).not.toHaveBeenCalled()
     })
+
+    it.each([
+        ['CANCELLED', 'COD', 'Cannot record payment for a cancelled order'],
+        ['COMPLETED', 'COD', 'Cannot record payment for a completed order'],
+        [
+            'DELIVERED',
+            'CARD_DEMO',
+            'Only an unpaid Cash on Delivery order can be collected after delivery',
+        ],
+    ])(
+        'does not collect payment when an order is %s',
+        async (status, paymentMethod, message) => {
+            const prismaState = {
+                sdSalesOrder: {
+                    findUnique: jest.fn().mockResolvedValue({
+                        id: 'so-1',
+                        orderNumber: 'SO-000001',
+                        channel: 'ECOMMERCE',
+                        status,
+                        lines: [{ integrationStatus: 'RESERVED' }],
+                        payments: [
+                            {
+                                id: 'pay-1',
+                                status: 'Pending Collection',
+                                paymentMethod,
+                                paidAt: null,
+                            },
+                        ],
+                    }),
+                },
+                $transaction: jest.fn(),
+            }
+            const service = new SalesOrderService(
+                prismaState as unknown as PrismaService,
+                {} as never,
+                {} as never,
+                {} as never,
+                {} as never,
+                {} as never,
+            )
+
+            await expect(
+                service.updateOrderPaymentStatus('so-1', { status: 'Paid' }),
+            ).rejects.toThrow(message)
+            expect(prismaState.$transaction).not.toHaveBeenCalled()
+        },
+    )
 })

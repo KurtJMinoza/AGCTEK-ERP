@@ -405,7 +405,9 @@ export const assignedWorkerName = (
     workers?: AssignableWorker[],
 ): string | null => {
     if (!assigned) return null
-    const worker = workers?.find((w) => w.id === assigned || w.userId === assigned)
+    const worker = workers?.find(
+        (w) => w.id === assigned || w.userId === assigned,
+    )
     return worker ? worker.displayName : assigned
 }
 
@@ -446,8 +448,11 @@ export interface WmPackage {
     id: string
     packageNumber: string
     orderNumber?: string
+    salesOrderId?: string | null
     warehouseId: string
     warehouse?: Warehouse
+    /** DEFAULT is automatic; SPLIT/MANUAL require an explicit user action. */
+    packageRole?: 'DEFAULT' | 'SPLIT' | 'MANUAL'
     packageType?: string
     weight?: number
     length?: number
@@ -463,6 +468,21 @@ export interface WmPackage {
     createdAt: string
     updatedAt: string
     items?: WmPackageItem[]
+    /** API-calculated sum of package item quantities, not the number of lines. */
+    totalItemQuantity?: number
+    salesOrder?: {
+        orderNumber: string
+        customerName?: string | null
+        customerEmail?: string | null
+        shipToName?: string | null
+        shipToPhone?: string | null
+        shipToAddressLine1?: string | null
+        shipToCity?: string | null
+        shipToRegion?: string | null
+        shipToPostalCode?: string | null
+        shipToCountry?: string | null
+    } | null
+    shipment?: { id: string; reference: string; status: string } | null
     /** Detail responses only — source picking task + its sales order (ship-to). */
     pickingTask?: {
         id: string
@@ -530,6 +550,9 @@ export interface PackageQueryParams {
 export interface CreatePackagePayload {
     warehouseId: string
     orderNumber?: string
+    salesOrderId?: string
+    /** Manual package creation is explicit; automatic defaults are server-owned. */
+    packageRole?: 'SPLIT' | 'MANUAL'
     packageType?: string
     items: {
         materialId: string
@@ -679,6 +702,12 @@ export interface PackingSession {
     warehouse?: Warehouse
     warehouseTaskId?: string
     pickingTaskId?: string
+    salesOrderId?: string
+    salesOrder?: {
+        id: string
+        orderNumber: string
+        customerName?: string | null
+    }
     status: string
     createdBy?: string
     completedAt?: string

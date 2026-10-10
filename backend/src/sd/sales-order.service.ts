@@ -39,9 +39,14 @@ import {
 import { QuotationService } from './quotation.service'
 
 /** Retail order to persist: single-division (header `divisionId`) or a marketplace master (lines tagged). */
-type RetailOrderInput = Omit<CreateRetailSalesOrderDto, 'divisionId' | 'lines'> & {
+type RetailOrderInput = Omit<
+    CreateRetailSalesOrderDto,
+    'divisionId' | 'lines'
+> & {
     divisionId: string | null
-    lines: ReadonlyArray<CreateRetailSalesOrderLineDto & { divisionId?: string }>
+    lines: ReadonlyArray<
+        CreateRetailSalesOrderLineDto & { divisionId?: string }
+    >
     paymentMethod?: CheckoutPaymentMethod
     paymentProvider?: string
     cardDemoSimulateFailure?: boolean
@@ -208,7 +213,8 @@ export class SalesOrderService {
      */
     isRetryableCrmHandoffConflict(error: unknown) {
         const target = this.uniqueViolationTarget(error)
-        const model = (error as Prisma.PrismaClientKnownRequestError).meta?.modelName
+        const model = (error as Prisma.PrismaClientKnownRequestError).meta
+            ?.modelName
         return (
             !!target &&
             (model === undefined || model === 'SdSalesOrder') &&
@@ -293,7 +299,9 @@ export class SalesOrderService {
                 divisionId,
                 subtotal: pricing.subtotal,
                 totalAmount: pricing.subtotal,
-                lines: pricing.lines.map(({ inactive: _inactive, ...line }) => line),
+                lines: pricing.lines.map(
+                    ({ inactive: _inactive, ...line }) => line,
+                ),
             }
         }
         const { lines } = commercial
@@ -349,7 +357,12 @@ export class SalesOrderService {
                 OR: [
                     { orderNumber: { contains: search, mode: 'insensitive' } },
                     { customerName: { contains: search, mode: 'insensitive' } },
-                    { customerEmail: { contains: search, mode: 'insensitive' } },
+                    {
+                        customerEmail: {
+                            contains: search,
+                            mode: 'insensitive',
+                        },
+                    },
                 ],
             })
         }
@@ -441,9 +454,8 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                const { integrated } = await this.mmPipeline.integrateConfirmedOrder(
-                    created.id,
-                )
+                const { integrated } =
+                    await this.mmPipeline.integrateConfirmedOrder(created.id)
                 if (isPos && integrated) {
                     return this.prisma.sdSalesOrder.update({
                         where: { id: created.id },
@@ -458,7 +470,9 @@ export class SalesOrderService {
                     const existing =
                         await this.prisma.sdSalesOrder.findUniqueOrThrow({
                             where: { idempotencyKey: dto.idempotencyKey },
-                            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                            include: {
+                                lines: { orderBy: { lineNumber: 'asc' } },
+                            },
                         })
                     return existing
                 }
@@ -511,7 +525,10 @@ export class SalesOrderService {
         }
 
         for (const [divisionId, items] of groupLinesByDivision(
-            dto.cartItems.map((line, idx) => ({ ...line, lineNumber: idx + 1 })),
+            dto.cartItems.map((line, idx) => ({
+                ...line,
+                lineNumber: idx + 1,
+            })),
         )) {
             await this.verifyCatalogPrices(divisionId, items)
         }
@@ -530,8 +547,7 @@ export class SalesOrderService {
         // one (no division/branch/fallback guessing).
         let checkoutCompanyId: string | null = null
         try {
-            checkoutCompanyId =
-                await this.mmPipeline.resolveCheckoutCompanyId()
+            checkoutCompanyId = await this.mmPipeline.resolveCheckoutCompanyId()
         } catch {
             checkoutCompanyId = null
         }
@@ -580,7 +596,9 @@ export class SalesOrderService {
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {
-                    const recorded = await this.findCheckoutOrder(dto.checkoutId)
+                    const recorded = await this.findCheckoutOrder(
+                        dto.checkoutId,
+                    )
                     if (recorded) {
                         await this.recordPaymentForOrder(
                             recorded,
@@ -604,7 +622,9 @@ export class SalesOrderService {
      * COD is recorded pending collection, demo cards may simulate failure,
      * wallets/QR confirm as paid, bank transfers wait for admin verification.
      */
-    private demoPaymentPlan(dto: CreateMarketplaceCheckoutDto): DemoPaymentPlan {
+    private demoPaymentPlan(
+        dto: CreateMarketplaceCheckoutDto,
+    ): DemoPaymentPlan {
         const reference = `DEMO-${dto.checkoutId
             .replace(/[^a-zA-Z0-9]/g, '')
             .slice(-10)
@@ -790,7 +810,9 @@ export class SalesOrderService {
                     product,
                 ]),
             ),
-            variantById: new Map(variants.map((variant) => [variant.id, variant])),
+            variantById: new Map(
+                variants.map((variant) => [variant.id, variant]),
+            ),
         }
     }
 
@@ -805,7 +827,9 @@ export class SalesOrderService {
             ReturnType<SalesOrderService['retailLineSnapshots']>
         >,
         companyId?: string | null,
-    ): Prisma.SdSalesOrderCreateInput | Prisma.SdSalesOrderUncheckedCreateInput {
+    ):
+        | Prisma.SdSalesOrderCreateInput
+        | Prisma.SdSalesOrderUncheckedCreateInput {
         const isPos = dto.channel === 'POS'
         const shipTo = isPos ? undefined : dto.shippingAddress
         return {
@@ -845,7 +869,9 @@ export class SalesOrderService {
                 create: dto.lines.map((line, idx) => {
                     const divisionId = line.divisionId ?? dto.divisionId
                     const key =
-                        line.sku && divisionId ? `${divisionId}:${line.sku}` : null
+                        line.sku && divisionId
+                            ? `${divisionId}:${line.sku}`
+                            : null
                     const product = key
                         ? snapshots?.productByKey.get(key)
                         : undefined
@@ -859,9 +885,7 @@ export class SalesOrderService {
                         sku: line.sku,
                         description: line.description,
                         productNameSnapshot:
-                            product?.name ??
-                            line.description ??
-                            undefined,
+                            product?.name ?? line.description ?? undefined,
                         productImageSnapshot: product?.imageUrl?.trim()
                             ? product.imageUrl
                             : undefined,
@@ -881,58 +905,34 @@ export class SalesOrderService {
     }
 
     /**
-     * Retail back-office transitions. Only e-commerce orders awaiting delivery
-     * (CONFIRMED) may move; POS sales are completed at the counter and need a
-     * return flow, not a status change. Re-applying the current status is a no-op.
+     * Retail back-office lifecycle actions. Cancellation is allowed only
+     * before warehouse work; completion is allowed only after SCM marks the
+     * shipment delivered.
      */
     async updateRetailStatus(id: string, dto: UpdateRetailSalesOrderStatusDto) {
-        const order = await this.prisma.sdSalesOrder.findUnique({
-            where: { id },
-            include: { lines: { orderBy: { lineNumber: 'asc' } } },
-        })
-        if (!order) throw new NotFoundException('Sales order not found')
-        if (order.channel !== 'POS' && order.channel !== 'ECOMMERCE') {
+        const order = await this.findOne(id)
+        if (order.channel !== 'ECOMMERCE') {
             throw new BadRequestException(
-                'Only POS / e-commerce orders can be updated through this endpoint',
+                'Only e-commerce orders can be updated through this endpoint',
             )
         }
         if (order.status === dto.status) return order
 
-        const allowed: Record<string, readonly string[]> = {
-            CONFIRMED: ['COMPLETED', 'CANCELLED'],
-        }
-        if (!allowed[order.status]?.includes(dto.status)) {
-            throw new ConflictException(
-                `Cannot change ${order.orderNumber} from ${order.status} to ${dto.status}`,
-            )
-        }
-
-        const lineStatus =
-            dto.status === 'COMPLETED' ? 'FULFILLED' : 'CANCELLED'
-        try {
-            const [, updated] = await this.prisma.$transaction([
-                this.prisma.sdSalesOrderLine.updateMany({
-                    where: { salesOrderId: id },
-                    data: { integrationStatus: lineStatus },
-                }),
-                this.prisma.sdSalesOrder.update({
-                    where: { id, status: order.status },
-                    data: { status: dto.status },
-                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
-                }),
-            ])
-            return updated
-        } catch (error) {
-            if (
-                error instanceof Prisma.PrismaClientKnownRequestError &&
-                error.code === 'P2025'
-            ) {
+        if (dto.status === 'CANCELLED') {
+            const gate = await this.customerCancellationState(order)
+            if (!gate.canCancel) {
                 throw new ConflictException(
-                    `${order.orderNumber} was changed by someone else; refresh and retry`,
+                    gate.reason ?? 'This order can no longer be cancelled',
                 )
             }
-            throw error
+            return this.cancelRetailOrderBeforeFulfillment(order)
         }
+
+        if (dto.status === 'COMPLETED') {
+            return this.completeDeliveredRetailOrder(order)
+        }
+
+        throw new BadRequestException('Unsupported sales order status change')
     }
 
     /**
@@ -959,10 +959,21 @@ export class SalesOrderService {
                 'This order has no payment record to update',
             )
         }
+        if (order.status === 'CANCELLED' || order.status === 'COMPLETED') {
+            throw new ConflictException(
+                `Cannot record payment for a ${order.status.toLowerCase()} order`,
+            )
+        }
+        if (order.status === 'DELIVERED' && payment.paymentMethod !== 'COD') {
+            throw new ConflictException(
+                'Only an unpaid Cash on Delivery order can be collected after delivery',
+            )
+        }
         if (payment.status === dto.status) return this.findOne(id)
 
         const target = dto.status
-        const settled = payment.status === 'Paid' || payment.status === 'Refunded'
+        const settled =
+            payment.status === 'Paid' || payment.status === 'Refunded'
         if (target === 'Refunded' && payment.status !== 'Paid') {
             throw new ConflictException(
                 `Only a Paid payment can be refunded (current: ${payment.status})`,
@@ -975,7 +986,7 @@ export class SalesOrderService {
         }
 
         const paidAt =
-            target === 'Paid' ? payment.paidAt ?? new Date() : payment.paidAt
+            target === 'Paid' ? (payment.paidAt ?? new Date()) : payment.paidAt
         await this.prisma.$transaction([
             this.prisma.sdSalesOrderPayment.update({
                 where: { id: payment.id },
@@ -997,8 +1008,7 @@ export class SalesOrderService {
             order.channel === 'ECOMMERCE' &&
             !order.lines.some(
                 (line) =>
-                    line.integrationStatus &&
-                    line.integrationStatus !== 'OPEN',
+                    line.integrationStatus && line.integrationStatus !== 'OPEN',
             )
         ) {
             const enriched =
@@ -1026,9 +1036,12 @@ export class SalesOrderService {
     }): Promise<{ canCancel: boolean; reason: string | null }> {
         const blocked = (reason: string) => ({ canCancel: false, reason })
         if (order.channel !== 'ECOMMERCE') {
-            return blocked('Only online orders can be cancelled by the customer')
+            return blocked(
+                'Only online orders can be cancelled by the customer',
+            )
         }
-        if (order.status === 'CANCELLED') return blocked('Order is already cancelled')
+        if (order.status === 'CANCELLED')
+            return blocked('Order is already cancelled')
         if (order.status === 'COMPLETED') {
             return blocked(
                 'Order is already delivered — please request a return instead',
@@ -1135,9 +1148,7 @@ export class SalesOrderService {
         const issued = new Set(goodsIssues.map((g) => g.sourceDocumentId))
         const shipped = new Set(shipments.map((s) => s.salesOrderId))
         const invoiced = new Set(invoices.map((i) => i.salesOrderId))
-        const pickingStarted = new Set(
-            startedPicks.map((p) => p.salesOrderId),
-        )
+        const pickingStarted = new Set(startedPicks.map((p) => p.salesOrderId))
         const packed = new Set(packing.map((p) => p.orderNumber))
 
         for (const order of orders) {
@@ -1221,6 +1232,25 @@ export class SalesOrderService {
             )
         }
 
+        return this.cancelRetailOrderBeforeFulfillment(order, dto.reason)
+    }
+
+    /**
+     * Shared cancellation command for customer and back-office flows. This is
+     * the sole retail cancellation path: it releases the MM reservation by
+     * event and only cancels warehouse work that has not started.
+     */
+    private async cancelRetailOrderBeforeFulfillment(
+        order: {
+            id: string
+            status: string
+            notes: string | null
+            payments?: Array<{ id: string; status: string | null }>
+        },
+        reason?: string,
+    ) {
+        if (order.status === 'CANCELLED') return order
+
         const payment = order.payments?.[0]
         const demoPaid =
             payment !== undefined &&
@@ -1234,25 +1264,25 @@ export class SalesOrderService {
         // Optimistic lock: a concurrent cancel loses this update and simply
         // returns the already-cancelled order.
         const locked = await this.prisma.sdSalesOrder.updateMany({
-            where: { id, status: { not: 'CANCELLED' } },
+            where: { id: order.id, status: { not: 'CANCELLED' } },
             data: {
                 status: 'CANCELLED',
                 ...(nextPaymentStatus
                     ? { paymentStatus: nextPaymentStatus }
                     : {}),
-                ...(dto.reason
+                ...(reason
                     ? {
                           notes: order.notes
-                              ? `${order.notes}\nCancelled: ${dto.reason}`
-                              : `Cancelled: ${dto.reason}`,
+                              ? `${order.notes}\nCancelled: ${reason}`
+                              : `Cancelled: ${reason}`,
                       }
                     : {}),
             },
         })
-        if (locked.count === 0) return this.findOne(id)
+        if (locked.count === 0) return this.findOne(order.id)
 
         await this.prisma.sdSalesOrderLine.updateMany({
-            where: { salesOrderId: id },
+            where: { salesOrderId: order.id },
             data: { integrationStatus: 'CANCELLED' },
         })
         if (payment && nextPaymentStatus) {
@@ -1265,7 +1295,10 @@ export class SalesOrderService {
         // Cancel only tasks that were never started (the gate guarantees all
         // picks are OPEN/ASSIGNED when we get here).
         const picks = await this.prisma.wmPickingTask.findMany({
-            where: { salesOrderId: id, status: { in: ['OPEN', 'ASSIGNED'] } },
+            where: {
+                salesOrderId: order.id,
+                status: { in: ['OPEN', 'ASSIGNED'] },
+            },
             select: { id: true, warehouseTaskId: true },
         })
         if (picks.length) {
@@ -1290,7 +1323,7 @@ export class SalesOrderService {
         // Standard SD→MM cancellation: releases reserved quantity (available
         // stock rises again; on-hand is untouched) and cancels planning
         // demand. The consumer is idempotent per order.
-        const updated = await this.findOne(id)
+        const updated = await this.findOne(order.id)
         if (this.mmPipeline.isMmLinked(updated)) {
             await this.sdEvents.emit(
                 SD_EVENTS.SALES_ORDER_CANCELLED,
@@ -1298,6 +1331,30 @@ export class SalesOrderService {
             )
         }
         return updated
+    }
+
+    /** Final commercial close, permitted only after SCM delivery evidence. */
+    private async completeDeliveredRetailOrder(order: {
+        id: string
+        orderNumber: string
+        status: string
+    }) {
+        if (order.status !== 'DELIVERED') {
+            throw new ConflictException(
+                `${order.orderNumber} can be completed only after its shipment is delivered`,
+            )
+        }
+
+        const completed = await this.prisma.sdSalesOrder.updateMany({
+            where: { id: order.id, status: 'DELIVERED' },
+            data: { status: 'COMPLETED' },
+        })
+        if (completed.count === 0) {
+            throw new ConflictException(
+                `${order.orderNumber} was changed by someone else; refresh and retry`,
+            )
+        }
+        return this.findOne(order.id)
     }
 
     private dateRangeStart(
@@ -1314,7 +1371,9 @@ export class SalesOrderService {
     /** Each line must be an active SdProduct of `divisionId`, at its current price. */
     private async verifyCatalogPrices(
         divisionId: string,
-        lines: ReadonlyArray<CreateRetailSalesOrderLineDto & { lineNumber?: number }>,
+        lines: ReadonlyArray<
+            CreateRetailSalesOrderLineDto & { lineNumber?: number }
+        >,
     ) {
         const prices = await this.products.activePriceMap(
             divisionId,

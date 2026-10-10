@@ -1,10 +1,10 @@
-import {
-    ConflictException,
-    UnauthorizedException,
-} from '@nestjs/common'
+import { ConflictException, UnauthorizedException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { PrismaService } from '../prisma/prisma.service'
-import { CustomerCancelOrderDto } from './dto/sales-order.dto'
+import {
+    CustomerCancelOrderDto,
+    UpdateRetailSalesOrderStatusDto,
+} from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 import { SD_EVENTS } from './sd-event.types'
 
@@ -32,9 +32,7 @@ function makeOrder(
                 integrationStatus: 'RESERVED',
             },
         ],
-        payments: [
-            { id: 'pay-1', status: 'Pending Collection', isDemo: true },
-        ],
+        payments: [{ id: 'pay-1', status: 'Pending Collection', isDemo: true }],
         ...overrides,
     }
 }
@@ -45,9 +43,7 @@ function setup() {
         sdSalesOrder: {
             findUnique: jest.fn(({ where }: { where: { id: string } }) =>
                 Promise.resolve(
-                    cancelledOrders.includes(where.id)
-                        ? makeOrder()
-                        : null,
+                    cancelledOrders.includes(where.id) ? makeOrder() : null,
                 ),
             ),
             updateMany: jest.fn((args) => {
@@ -108,7 +104,7 @@ const cancelDto = (overrides: Partial<CustomerCancelOrderDto> = {}) =>
     ({ reason: 'Changed my mind', ...overrides }) as CustomerCancelOrderDto
 
 describe('SalesOrderService customer cancellation', () => {
-    it('cancels the customer\'s own order before picking and releases reservation via the cancel event', async () => {
+    it("cancels the customer's own order before picking and releases reservation via the cancel event", async () => {
         const { prisma, sdEvents, service } = setup()
         const updated = await service.cancelRetailOrderForCustomer(
             'so-1',
@@ -154,10 +150,14 @@ describe('SalesOrderService customer cancellation', () => {
         expect(true).toBe(true) // covered by the next test with a paid fixture
     })
 
-    it('rejects cancelling another customer\'s order', async () => {
+    it("rejects cancelling another customer's order", async () => {
         const { service } = setup()
         await expect(
-            service.cancelRetailOrderForCustomer('so-1', 'client-2', cancelDto()),
+            service.cancelRetailOrderForCustomer(
+                'so-1',
+                'client-2',
+                cancelDto(),
+            ),
         ).rejects.toBeInstanceOf(UnauthorizedException)
     })
 
@@ -172,7 +172,11 @@ describe('SalesOrderService customer cancellation', () => {
         const { prisma, service } = setup()
         prisma.wmPickingTask.findFirst.mockResolvedValue({ id: 'pk-1' })
         await expect(
-            service.cancelRetailOrderForCustomer('so-1', 'client-1', cancelDto()),
+            service.cancelRetailOrderForCustomer(
+                'so-1',
+                'client-1',
+                cancelDto(),
+            ),
         ).rejects.toThrow('Picking has already started')
         expect(prisma.sdSalesOrder.updateMany).not.toHaveBeenCalled()
     })
@@ -181,7 +185,11 @@ describe('SalesOrderService customer cancellation', () => {
         const { prisma, service } = setup()
         prisma.sdShipment.findFirst.mockResolvedValue({ id: 'shp-1' })
         await expect(
-            service.cancelRetailOrderForCustomer('so-1', 'client-1', cancelDto()),
+            service.cancelRetailOrderForCustomer(
+                'so-1',
+                'client-1',
+                cancelDto(),
+            ),
         ).rejects.toBeInstanceOf(ConflictException)
         expect(prisma.sdSalesOrder.updateMany).not.toHaveBeenCalled()
     })
@@ -190,7 +198,11 @@ describe('SalesOrderService customer cancellation', () => {
         const { prisma, service } = setup()
         prisma.mmGoodsIssue.findFirst.mockResolvedValue({ id: 'gi-1' })
         await expect(
-            service.cancelRetailOrderForCustomer('so-1', 'client-1', cancelDto()),
+            service.cancelRetailOrderForCustomer(
+                'so-1',
+                'client-1',
+                cancelDto(),
+            ),
         ).rejects.toThrow('Goods issue already posted')
         expect(prisma.sdSalesOrder.updateMany).not.toHaveBeenCalled()
     })
@@ -201,7 +213,11 @@ describe('SalesOrderService customer cancellation', () => {
             makeOrder({ status: 'COMPLETED' }),
         )
         await expect(
-            service.cancelRetailOrderForCustomer('so-1', 'client-1', cancelDto()),
+            service.cancelRetailOrderForCustomer(
+                'so-1',
+                'client-1',
+                cancelDto(),
+            ),
         ).rejects.toThrow('already delivered')
     })
 
@@ -246,5 +262,54 @@ describe('SalesOrderService customer cancellation', () => {
                 data: expect.objectContaining({ status: 'CANCELLED' }),
             }),
         )
+    })
+
+    it('uses the same guarded release flow for a back-office cancellation', async () => {
+        const { prisma, sdEvents, service } = setup()
+
+        await service.updateRetailStatus('so-1', {
+            status: 'CANCELLED',
+        } as UpdateRetailSalesOrderStatusDto)
+
+        expect(prisma.sdSalesOrderLine.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { salesOrderId: 'so-1' },
+                data: { integrationStatus: 'CANCELLED' },
+            }),
+        )
+        expect(sdEvents.emit).toHaveBeenCalledWith(
+            SD_EVENTS.SALES_ORDER_CANCELLED,
+            expect.objectContaining({ salesOrderId: 'so-1' }),
+        )
+    })
+
+    it('rejects a manual completion attempt before delivery', async () => {
+        const { prisma, service } = setup()
+
+        await expect(
+            service.updateRetailStatus('so-1', {
+                status: 'COMPLETED',
+            } as unknown as UpdateRetailSalesOrderStatusDto),
+        ).rejects.toThrow(
+            'can be completed only after its shipment is delivered',
+        )
+        expect(prisma.sdSalesOrder.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('allows completion only from the delivered state', async () => {
+        const { prisma, service } = setup()
+        prisma.sdSalesOrder.findUnique.mockResolvedValue(
+            makeOrder({ status: 'DELIVERED' }),
+        )
+        prisma.sdSalesOrder.updateMany.mockResolvedValue({ count: 1 })
+
+        await service.updateRetailStatus('so-1', {
+            status: 'COMPLETED',
+        } as UpdateRetailSalesOrderStatusDto)
+
+        expect(prisma.sdSalesOrder.updateMany).toHaveBeenCalledWith({
+            where: { id: 'so-1', status: 'DELIVERED' },
+            data: { status: 'COMPLETED' },
+        })
     })
 })

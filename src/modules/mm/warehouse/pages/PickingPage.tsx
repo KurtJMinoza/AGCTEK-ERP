@@ -79,7 +79,7 @@ const STRATEGY_OPTIONS: FilterOption[] = [
     { value: 'PRIORITY', label: 'Priority' },
 ]
 
-function pushToast(type: 'success' | 'danger', title: string, msg: string) {
+function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 
@@ -119,7 +119,17 @@ const PickingPage = () => {
     const [assignUserId, setAssignUserId] = useState('')
     const [assignWorkers, setAssignWorkers] = useState<AssignableWorker[]>([])
     const [tasksListOpen, setTasksListOpen] = useState(false)
-    const [tasksListGroup, setTasksListGroup] = useState<PickingTask[]>([])
+    /**
+     * Live tasks shown in the modal, derived from the grouped table rows by a
+     * stable group key — assign/confirm/cancel refreshes reflect instantly
+     * instead of showing a stale snapshot of the dialog.
+     */
+    const [tasksListKey, setTasksListKey] = useState('')
+    /** Multi-select inside the tasks dialog + shared worker for batch assign. */
+    const [tasksSelectedIds, setTasksSelectedIds] = useState<Set<string>>(new Set())
+    const [batchAssignUserId, setBatchAssignUserId] = useState('')
+    const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
+    const [batchConfirmLoading, setBatchConfirmLoading] = useState(false)
 
     /** Active workers for the assign dropdown (company-scoped by the API). */
     useEffect(() => {
@@ -143,6 +153,12 @@ const PickingPage = () => {
      * one pick task per serial (qty 1 each), so the table shows the summed
      * quantity with the Sales Order reference instead of 18 tiny rows.
      */
+    /** Stable group key: same SO + material + bin = one aggregated row. */
+    const groupKeyOf = (t: PickingTask | undefined) =>
+        t
+            ? `${t.salesOrderId ?? 'no-so'}:${t.materialId}:${t.sourceBinId}`
+            : 'no-so::'
+
     const groupedTasks = useMemo(() => {
         const STATUS_RANK: Record<string, number> = {
             OPEN: 0,
@@ -165,7 +181,7 @@ const PickingPage = () => {
             }
         >()
         for (const t of tasks) {
-            const key = `${t.salesOrderId ?? 'no-so'}:${t.materialId}:${t.sourceBinId}`
+            const key = groupKeyOf(t)
             let g = groups.get(key)
             if (!g) {
                 g = {
@@ -417,7 +433,7 @@ const PickingPage = () => {
 const groupRows = useMemo<PickGroupRow[]>(
     () =>
         groupedTasks.map((g) => ({
-            key: g.tasks[0]?.id ?? `${g.tasks.length}`,
+            key: groupKeyOf(g.tasks[0]),
             tasks: g.tasks,
             orderNumber: g.orderNumber,
             material: g.tasks[0]?.material,
@@ -431,10 +447,148 @@ const groupRows = useMemo<PickGroupRow[]>(
     [groupedTasks],
 )
 
+/** Live task rows for the open modal — follows table refreshes by group key. */
+const tasksListGroup = useMemo(
+    () => groupRows.find((g) => g.key === tasksListKey)?.tasks ?? [],
+    [groupRows, tasksListKey],
+)
+
 const openTasksList = (group: PickGroupRow) => {
-    setTasksListGroup(group.tasks)
+    setTasksListKey(group.key)
+    setTasksSelectedIds(new Set())
+    setBatchAssignUserId('')
     setTasksListOpen(true)
 }
+
+    /** OPEN/ASSIGNED tasks can be (re)assigned. */
+    const isTaskAssignable = (t: PickingTask) =>
+        t.status === 'OPEN' || t.status === 'ASSIGNED'
+
+    /** Assign every selected task to one worker (partial failures reported). */
+    const handleBatchAssign = useCallback(async () => {
+        const ids = Array.from(tasksSelectedIds)
+        if (!ids.length || !batchAssignUserId) return
+        const results = await Promise.allSettled(
+            ids.map((id) =>
+                pickingService.assign(id, { userId: batchAssignUserId }),
+            ),
+        )
+        const okIds = new Set<string>()
+        results.forEach((r, i) => {
+            if (r.status === 'fulfilled') okIds.add(ids[i])
+        })
+        const ok = okIds.size
+        const failed = ids.length - ok
+        const worker = assignWorkers.find((w) => w.id === batchAssignUserId)
+        if (failed === 0) {
+            pushToast(
+                'success',
+                'Assigned',
+                `${ok} task(s) assigned to ${worker?.displayName ?? 'worker'}.`,
+            )
+        } else {
+            pushToast(
+                'warning',
+                'Partially assigned',
+                `${ok} of ${ids.length} task(s) assigned to ${
+                    worker?.displayName ?? 'worker'
+                }; ${failed} failed.`,
+            )
+        }
+        // The modal list is derived from the refreshed table — the new
+        // assignee/status appears immediately after fetchTasks.
+        setTasksSelectedIds(new Set())
+        fetchTasks()
+    }, [
+        tasksSelectedIds,
+        batchAssignUserId,
+        assignWorkers,
+        fetchTasks,
+        pushToast,
+    ])
+
+    const tasksAssignableIds = useMemo(
+        () => tasksListGroup.filter(isTaskAssignable).map((t) => t.id),
+        [tasksListGroup],
+    )
+    const allTasksSelected =
+        tasksAssignableIds.length > 0 &&
+        tasksAssignableIds.every((id) => tasksSelectedIds.has(id))
+
+    /** Anything not yet finished can be confirmed (scan data comes from the task). */
+    const isTaskConfirmable = (t: PickingTask) =>
+        t.status !== 'COMPLETED' && t.status !== 'CANCELLED'
+
+    const selectedConfirmableTasks = useMemo(
+        () =>
+            tasksListGroup.filter(
+                (t) => tasksSelectedIds.has(t.id) && isTaskConfirmable(t),
+            ),
+        [tasksListGroup, tasksSelectedIds],
+    )
+
+    /**
+     * Batch confirm: each selected task is confirmed with its own bin/material/
+     * batch/serial (the same values the scan dialog prefills), so serial-managed
+     * picks complete one-per-serial without opening 10 dialogs.
+     */
+    const handleBatchConfirm = useCallback(async () => {
+        if (!selectedConfirmableTasks.length) return
+        setBatchConfirmLoading(true)
+        try {
+            const results = await Promise.allSettled(
+                selectedConfirmableTasks.map((t) =>
+                    pickingService.confirmPick(t.id, {
+                        scannedBinId: t.sourceBinId,
+                        scannedMaterialId: t.materialId,
+                        scannedBatchId: t.batchId || undefined,
+                        scannedSerialId: t.serialId || undefined,
+                        pickedQty: Math.max(
+                            1,
+                            (t.requiredQty || 1) - (t.pickedQty || 0),
+                        ),
+                        idempotencyKey: `pick-${t.id}-${Date.now()}`,
+                    }),
+                ),
+            )
+            const okIds = new Set<string>()
+            let failed = 0
+            results.forEach((r, i) => {
+                if (r.status === 'fulfilled') okIds.add(selectedConfirmableTasks[i].id)
+                else failed++
+            })
+            if (failed === 0 && okIds.size > 0) {
+                pushToast(
+                    'success',
+                    'Confirmed',
+                    `${okIds.size} pick(s) confirmed.`,
+                )
+            } else if (okIds.size > 0) {
+                pushToast(
+                    'warning',
+                    'Partially confirmed',
+                    `${okIds.size} of ${selectedConfirmableTasks.length} pick(s) confirmed; ${failed} failed.`,
+                )
+            } else {
+                pushToast(
+                    'danger',
+                    'Confirm failed',
+                    'No picks were confirmed — check task statuses.',
+                )
+            }
+            setTasksSelectedIds((prev) => {
+                const next = new Set(prev)
+                okIds.forEach((id) => next.delete(id))
+                return next
+            })
+            setBatchConfirmOpen(false)
+            // Table refresh rebuilds the derived modal list → rows flip to
+            // COMPLETED live.
+            fetchTasks()
+        } finally {
+            setBatchConfirmLoading(false)
+        }
+    }, [selectedConfirmableTasks, fetchTasks, pushToast])
 
 const columns = useMemo<ColumnDef<PickGroupRow>[]>(
     () => [
@@ -852,7 +1006,7 @@ const columns = useMemo<ColumnDef<PickGroupRow>[]>(
             {/* Group tasks dialog (serial-managed stock: one task per serial) */}
             <Dialog
                 isOpen={tasksListOpen}
-                width={560}
+                width={640}
                 onClose={() => setTasksListOpen(false)}
                 onRequestClose={() => setTasksListOpen(false)}
             >
@@ -861,37 +1015,143 @@ const columns = useMemo<ColumnDef<PickGroupRow>[]>(
                 </h5>
                 <p className="mb-3 text-sm text-gray-500">
                     Serial-managed stock creates one picking task per serial.
-                    Confirm and cancel are per task (scan flow).
+                    Select multiple tasks and assign them all to one worker —
+                    confirm and cancel stay per task (scan flow).
                 </p>
+
+                {/* Batch assign bar */}
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/60">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 accent-primary"
+                            checked={allTasksSelected}
+                            disabled={!tasksAssignableIds.length}
+                            onChange={(e) =>
+                                setTasksSelectedIds(
+                                    e.target.checked
+                                        ? new Set(tasksAssignableIds)
+                                        : new Set(),
+                                )
+                            }
+                        />
+                        Select all
+                    </label>
+                    <span className="text-xs text-gray-500">
+                        {tasksSelectedIds.size} selected
+                    </span>
+                    <div className="ml-auto flex items-center gap-2">
+                        <div className="w-60">
+                            <Select
+                                size="sm"
+                                isSearchable
+                                placeholder="Assign selected to…"
+                                options={assignWorkerOptions}
+                                value={
+                                    assignWorkerOptions.find(
+                                        (o) => o.value === batchAssignUserId,
+                                    ) ?? null
+                                }
+                                onChange={(option) =>
+                                    setBatchAssignUserId(option?.value ?? '')
+                                }
+                            />
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            disabled={
+                                !tasksSelectedIds.size || !batchAssignUserId
+                            }
+                            onClick={handleBatchAssign}
+                        >
+                            Assign selected
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            disabled={!selectedConfirmableTasks.length}
+                            onClick={() => setBatchConfirmOpen(true)}
+                        >
+                            Confirm selected
+                            {selectedConfirmableTasks.length
+                                ? ` (${selectedConfirmableTasks.length})`
+                                : ''}
+                        </Button>
+                    </div>
+                </div>
+
                 <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
                     {tasksListGroup.map((t) => (
                         <li
                             key={t.id}
                             className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-gray-700"
                         >
-                            <span className="min-w-0">
-                                <span className="font-mono text-xs font-semibold">
-                                    {t.taskNumber}
-                                </span>
-                                <span className="ml-2 text-xs text-gray-500">
-                                    serial{' '}
-                                    {t.serialId
-                                        ? `…${t.serialId.slice(-6)}`
-                                        : 'n/a'}{' '}
-                                    · req {t.requiredQty} · {t.status}
+                            <span className="flex min-w-0 items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="h-4 w-4 shrink-0 rounded border-gray-300 accent-primary"
+                                    checked={tasksSelectedIds.has(t.id)}
+                                    disabled={!isTaskAssignable(t)}
+                                    onChange={(e) =>
+                                        setTasksSelectedIds((prev) => {
+                                            const next = new Set(prev)
+                                            if (e.target.checked) next.add(t.id)
+                                            else next.delete(t.id)
+                                            return next
+                                        })
+                                    }
+                                />
+                                <span className="min-w-0">
+                                    <span className="font-mono text-xs font-semibold">
+                                        {t.taskNumber}
+                                    </span>
+                                    <span className="ml-2 text-xs text-gray-500">
+                                        serial{' '}
+                                        {t.serialId
+                                            ? `…${t.serialId.slice(-6)}`
+                                            : 'n/a'}{' '}
+                                        · req {t.requiredQty} ·{' '}
+                                        <span
+                                            className={
+                                                t.status === 'COMPLETED'
+                                                    ? 'font-medium text-emerald-600 dark:text-emerald-400'
+                                                    : t.status === 'CANCELLED'
+                                                      ? 'font-medium text-red-500'
+                                                      : ''
+                                            }
+                                        >
+                                            {t.status}
+                                        </span>
+                                        {t.assignedUser
+                                            ? ` · ${
+                                                  assignedWorkerName(
+                                                      t.assignedUser,
+                                                      assignWorkers,
+                                                  ) ?? t.assignedUser
+                                              }`
+                                            : ''}
+                                    </span>
                                 </span>
                             </span>
                             <span className="flex shrink-0 gap-1">
                                 <Button
                                     size="xs"
                                     variant="plain"
-                                    onClick={() => openAssign(t)}
+                                    disabled={!isTaskAssignable(t)}
+                                    onClick={() => {
+                                        // Close this dialog first — otherwise it
+                                        // stacks on top of the Assign modal.
+                                        setTasksListOpen(false)
+                                        openAssign(t)
+                                    }}
                                 >
                                     Assign
                                 </Button>
                                 <Button
                                     size="xs"
                                     variant="plain"
+                                    disabled={!isTaskConfirmable(t)}
                                     onClick={() => {
                                         setTasksListOpen(false)
                                         openConfirm(t)
@@ -903,7 +1163,14 @@ const columns = useMemo<ColumnDef<PickGroupRow>[]>(
                                     size="xs"
                                     variant="plain"
                                     className="!text-red-500"
-                                    onClick={() => handleCancel(t)}
+                                    onClick={async () => {
+                                        await handleCancel(t)
+                                        setTasksSelectedIds((prev) => {
+                                            const next = new Set(prev)
+                                            next.delete(t.id)
+                                            return next
+                                        })
+                                    }}
                                 >
                                     Cancel
                                 </Button>
@@ -912,6 +1179,26 @@ const columns = useMemo<ColumnDef<PickGroupRow>[]>(
                     ))}
                 </ul>
             </Dialog>
+
+            {/* Batch confirm (multi-select in the tasks dialog) */}
+            <ConfirmDialog
+                isOpen={batchConfirmOpen}
+                title={`Confirm ${selectedConfirmableTasks.length} pick(s)?`}
+                confirmText="Confirm picks"
+                onRequestClose={() => setBatchConfirmOpen(false)}
+                onCancel={() => setBatchConfirmOpen(false)}
+                onConfirm={handleBatchConfirm}
+                confirmButtonProps={{ loading: batchConfirmLoading }}
+            >
+                <p>
+                    Confirms the picked bin / material / batch / serial for{' '}
+                    <span className="font-semibold">
+                        {selectedConfirmableTasks.length}
+                    </span>{' '}
+                    selected task(s) using each task&rsquo;s remaining quantity.
+                    Stock still posts only on Goods Issue.
+                </p>
+            </ConfirmDialog>
 
             {/* Confirm Pick Dialog â€” scan bin â†’ material â†’ batch/serial â†’ qty */}
             <FormDialog
