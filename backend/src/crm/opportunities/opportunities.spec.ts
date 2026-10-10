@@ -614,8 +614,8 @@ describe('CrmOpportunitiesController RBAC metadata', () => {
         ['findOne', 'read'],
         ['create', 'create'],
         ['update', 'update'],
-    ])('%s requires crm:%s', (handler, action) => {
+    ])('%s requires crm.opportunities:%s', (handler, action) => {
         const fn = CrmOpportunitiesController.prototype[handler as keyof CrmOpportunitiesController]
-        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ module: 'crm', action })
+        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.opportunities', action })
     })
 })

@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { CurrentUser, type AuthRequestUser } from '../../auth/auth.decorator'
 import { RequirePermission } from '../../permissions/permission.guard'
-import { MODULE_CODES } from '../../permissions/permissions.constants'
 import {
     CreateTicketCommentDto,
     CreateTicketDto,
@@ -15,25 +14,25 @@ export class CrmTicketsController {
     constructor(private readonly tickets: CrmTicketsService) {}
 
     @Get()
-    @RequirePermission(MODULE_CODES.CRM, 'read')
+    @RequirePermission('crm.tickets', 'read')
     list(@Query() query: ListTicketsQueryDto) {
         return this.tickets.list(query)
     }
 
     @Get(':id')
-    @RequirePermission(MODULE_CODES.CRM, 'read')
+    @RequirePermission('crm.tickets', 'read')
     findOne(@Param('id') id: string) {
         return this.tickets.findOne(id)
     }
 
     @Post()
-    @RequirePermission(MODULE_CODES.CRM, 'create')
+    @RequirePermission('crm.tickets', 'create')
     create(@Body() dto: CreateTicketDto, @CurrentUser() user: AuthRequestUser) {
         return this.tickets.create(dto, user.id)
     }
 
     @Patch(':id')
-    @RequirePermission(MODULE_CODES.CRM, 'update')
+    @RequirePermission('crm.tickets', 'update')
     update(
         @Param('id') id: string,
         @Body() dto: UpdateTicketDto,
@@ -43,13 +42,13 @@ export class CrmTicketsController {
     }
 
     @Get(':id/comments')
-    @RequirePermission(MODULE_CODES.CRM, 'read')
+    @RequirePermission('crm.tickets', 'read')
     listComments(@Param('id') id: string) {
         return this.tickets.listComments(id)
     }
 
     @Post(':id/comments')
-    @RequirePermission(MODULE_CODES.CRM, 'create')
+    @RequirePermission('crm.tickets', 'create')
     addComment(
         @Param('id') id: string,
         @Body() dto: CreateTicketCommentDto,

@@ -4,6 +4,8 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PutawayService } from './putaway/putaway.service'
 import { PickingService } from './picking/picking.service'
 import { PackingService } from './packing/packing.service'
+import { ShipmentsService } from '../../scm/shipments/shipments.service'
+import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
 import { TransfersService } from './transfers/transfers.service'
 import { StorageBinsService } from './storage-bins.service'
 import { WarehouseService } from './warehouse.service'
@@ -108,6 +110,8 @@ describe('MM-03 Warehouse Management', () => {
                 PutawayService,
                 PickingService,
                 PackingService,
+                { provide: ShipmentsService, useValue: { createFromPackage: jest.fn(), findOne: jest.fn() } },
+                { provide: StockTransferOrderService, useValue: {} },
                 TransfersService,
                 StorageBinsService,
                 WarehouseService,

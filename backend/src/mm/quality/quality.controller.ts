@@ -10,7 +10,8 @@ import { InspectionLotLifecycleService } from './inspection-lot-lifecycle.servic
 import { NonconformanceService } from './nonconformance.service'
 import { CorrectiveActionService } from './corrective-action.service'
 import { QualityReportingService } from './quality-reporting.service'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 import {
     CapaQueryDto,
     CompleteInspectionLotDto,
@@ -37,6 +38,9 @@ import {
     UpdateInspectionRuleDto,
 } from './dto/quality.dto'
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('receiving', 'defect-codes', 'inspection-plans', 'inspection-queue', 'inspection-rules', 'nonconformances', 'quality-dashboard', 'quality-holds', 'quality-quarantine', 'receiving-inspection', 'usage-decisions')
+
 @Controller('mm/quality')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class QualityController {
@@ -54,209 +58,225 @@ export class QualityController {
     ) {}
 
     @Get('dashboard')
+    @MmRead(READERS)
     dashboard(@Query() query: QualityQueryDto) {
         return this.reporting.getDashboard(query)
     }
 
     @Get('usage-decisions')
+    @MmRead(READERS)
     listDecisions(@Query() query: QualityQueryDto) {
         return this.reporting.listDecisions(query)
     }
 
     // ── Inspection plans ──
     @Get('inspection-plans')
+    @MmRead(READERS)
     listPlans(@Query() query: QualityQueryDto) {
         return this.plans.findAll(query)
     }
 
     @Get('inspection-plans/:id')
+    @MmRead(READERS)
     getPlan(@Param('id') id: string) {
         return this.plans.findOne(id)
     }
 
     @Post('inspection-plans')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     createPlan(@Body() dto: CreateInspectionPlanDto) {
         return this.plans.create(dto)
     }
 
     @Put('inspection-plans/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     updatePlan(@Param('id') id: string, @Body() dto: UpdateInspectionPlanDto) {
         return this.plans.update(id, dto)
     }
 
     @Delete('inspection-plans/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-plans'))
     removePlan(@Param('id') id: string) {
         return this.plans.remove(id)
     }
 
     // ── Inspection rules ──
     @Get('inspection-rules')
+    @MmRead(READERS)
     listInspectionRules(@Query() query: QualityQueryDto) {
         return this.inspectionRules.findAll(query)
     }
 
     @Get('inspection-rules/:id')
+    @MmRead(READERS)
     getInspectionRule(@Param('id') id: string) {
         return this.inspectionRules.findOne(id)
     }
 
     @Post('inspection-rules')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     createInspectionRule(@Body() dto: CreateInspectionRuleDto) {
         return this.inspectionRules.create(dto)
     }
 
     @Put('inspection-rules/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     updateInspectionRule(@Param('id') id: string, @Body() dto: UpdateInspectionRuleDto) {
         return this.inspectionRules.update(id, dto)
     }
 
     @Delete('inspection-rules/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     removeInspectionRule(@Param('id') id: string) {
         return this.inspectionRules.remove(id)
     }
 
     @Post('inspection-rules/seed-legacy/:companyId')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-rules'))
     seedLegacyInspectionRules(@Param('companyId') companyId: string) {
         return this.inspectionRules.seedLegacyFlags(companyId)
     }
 
     // ── Defect codes ──
     @Get('defect-codes')
+    @MmRead(READERS)
     listDefectCodes(@Query() query: QualityQueryDto) {
         return this.defectCodes.findAll(query)
     }
 
     @Post('defect-codes')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'defect-codes'))
     createDefectCode(@Body() dto: CreateDefectCodeDto) {
         return this.defectCodes.create(dto)
     }
 
     @Post('defect-codes/seed/:companyId')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'defect-codes'))
     seedDefectCodes(@Param('companyId') companyId: string) {
         return this.defectCodes.seedDefaults(companyId)
     }
 
     // ── Inspection lots ──
     @Get('inspection-lots')
+    @MmRead(READERS)
     listLots(@Query() query: QualityQueryDto) {
         return this.lots.findAll(query)
     }
 
     @Get('inspection-lots/:id')
+    @MmRead(READERS)
     getLot(@Param('id') id: string) {
         return this.lots.findOne(id)
     }
 
     @Post('inspection-lots/:id/start')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     startLot(@Param('id') id: string, @Body() dto: StartInspectionLotDto) {
         return this.lifecycle.start(id, dto)
     }
 
     @Post('inspection-lots/:id/results')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     recordResults(@Param('id') id: string, @Body() dto: RecordInspectionResultsDto) {
         return this.lots.recordResults(id, dto)
     }
 
     @Post('inspection-lots/:id/complete')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'inspection-queue', 'receiving-inspection'))
     completeLot(@Param('id') id: string, @Body() dto: CompleteInspectionLotDto) {
         return this.lifecycle.complete(id, dto)
     }
 
     @Post('inspection-lots/:id/usage-decision')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'usage-decisions', 'inspection-queue', 'receiving-inspection'))
     usageDecision(@Param('id') id: string, @Body() dto: UsageDecisionExtendedDto) {
         return this.lots.usageDecision(id, dto)
     }
 
     // ── Holds ──
     @Post('holds')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     createHold(@Body() dto: CreateQualityHoldDtoExtended) {
         return this.holds.create(dto)
     }
 
     @Get('holds')
+    @MmRead(READERS)
     listHolds(@Query() query: QualityQueryDto) {
         return this.holds.findAll(query)
     }
 
     @Post('holds/:id/release')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'quality-holds', 'quality-quarantine'))
     releaseHold(@Param('id') id: string, @Body() dto: ReleaseQualityHoldDto) {
         return this.holds.release(id, dto)
     }
 
     // ── Nonconformances ──
     @Get('nonconformances')
+    @MmRead(READERS)
     listNc(@Query() query: QualityQueryDto) {
         return this.nc.findAll(query)
     }
 
     @Get('nonconformances/:id')
+    @MmRead(READERS)
     getNc(@Param('id') id: string) {
         return this.nc.findOne(id)
     }
 
     @Post('nonconformances')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     createNc(@Body() dto: CreateNonconformanceDto) {
         return this.nc.create(dto)
     }
 
     @Post('nonconformances/:id/resolve')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     resolveNc(@Param('id') id: string, @Body() dto: ResolveNonconformanceDto) {
         return this.nc.resolve(id, dto)
     }
 
     @Get('nonconformances/:id/corrective-actions')
+    @MmRead(READERS)
     listCapa(@Param('id') id: string) {
         return this.capa.listForNc(id)
     }
 
     @Post('nonconformances/:id/corrective-actions')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     createCapa(@Param('id') id: string, @Body() dto: CreateCorrectiveActionDto) {
         return this.capa.create(id, dto)
     }
 
     // ── Corrective Actions (top-level) ──
     @Get('corrective-actions')
+    @MmRead(READERS)
     listAllCapa(@Query() query: CapaQueryDto) {
         return this.capa.list(query)
     }
 
     @Get('corrective-actions/:id')
+    @MmRead(READERS)
     getCapaById(@Param('id') id: string) {
         return this.capa.findOne(id)
     }
 
     @Put('corrective-actions/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     updateCapa(@Param('id') id: string, @Body() dto: UpdateCorrectiveActionDto) {
         return this.capa.update(id, dto)
     }
 
     @Post('corrective-actions/:id/transition')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances'))
     transitionCapa(@Param('id') id: string, @Body() dto: TransitionCorrectiveActionDto) {
         return this.capa.transition(id, dto)
     }
 
     // ── Attachments ──
     @Get('attachments')
+    @MmRead(READERS)
     listAttachments(
         @Query('entityType') entityType: string,
         @Query('entityId') entityId: string,
@@ -265,7 +285,7 @@ export class QualityController {
     }
 
     @Post('attachments')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances', 'inspection-queue', 'receiving-inspection'))
     uploadAttachment(@Body() dto: UploadQualityAttachmentDto) {
         const buffer = Buffer.from(dto.contentBase64, 'base64')
         return this.attachments.save({
@@ -280,7 +300,7 @@ export class QualityController {
     }
 
     @Delete('attachments/:id')
-    @MmMutation()
+    @MmMutation(mmFeatures('receiving', 'nonconformances', 'inspection-queue', 'receiving-inspection'))
     removeAttachment(@Param('id') id: string) {
         return this.attachments.remove(id)
     }

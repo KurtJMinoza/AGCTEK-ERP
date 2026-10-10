@@ -17,7 +17,8 @@ import {
     ScannerEventsQueryDto,
     ScannerEventBatchDto,
 } from './dto/scanner.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 function normalizeScannerBody(raw: Record<string, any>): Record<string, any> {
     const alias = (camel: string, snake: string) =>
@@ -35,6 +36,9 @@ function normalizeScannerBody(raw: Record<string, any>): Record<string, any> {
     }
 }
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'mobile-counting', 'mobile-picking', 'mobile-receiving', 'serial-scanning')
+
 @Controller('mm/scanner')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class ScannerController {
@@ -43,7 +47,7 @@ export class ScannerController {
         private resolveService: BarcodeResolveService,
     ) {}
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'serial-scanning'))
     @Post('events')
     async processEvent(@Body() body: Record<string, any>) {
         const dto = plainToInstance(ScannerEventDto, normalizeScannerBody(body), {
@@ -53,7 +57,7 @@ export class ScannerController {
         return this.eventService.processEvent(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('barcode-rfid', 'barcode-scanning', 'batch-scanning', 'serial-scanning'))
     @Post('events/batch')
     async processBatch(@Body() body: Record<string, any>) {
         const rawEvents = Array.isArray(body?.events) ? body.events : []
@@ -80,11 +84,13 @@ export class ScannerController {
     }
 
     @Get('events')
+    @MmRead(READERS)
     listEvents(@Query() query: ScannerEventsQueryDto) {
         return this.eventService.listEvents(query)
     }
 
     @Get('resolve')
+    @MmRead(READERS)
     resolve(@Query() query: ResolveQueryDto) {
         return this.resolveService.resolve(query.barcode, query.companyId)
     }

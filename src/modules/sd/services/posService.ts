@@ -71,7 +71,17 @@ export async function processPOSCheckout(
         receiptId: saved.orderId,
         branchId: saved.branchId ?? order.branchId,
         completedAt: saved.createdAt,
-        lines: saved.lines,
+        lines: saved.lines.map((line) => ({
+            ...line,
+            variantName:
+                line.variantName ??
+                order.items.find(
+                    (item) =>
+                        (line.variantId &&
+                            item.variantId === line.variantId) ||
+                        (!line.variantId && item.sku === line.sku),
+                )?.variantName,
+        })),
         subtotal: saved.subtotal,
         orderTotal: saved.totalAmount,
         paymentReceived: saved.paymentReceived ?? order.paymentReceived,

@@ -11,6 +11,7 @@ import { PutawayStrategyRegistry } from '../warehouse/tasks/strategies/putaway-s
 import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
 import { PickingService } from '../warehouse/picking/picking.service'
 import { PackingService } from '../warehouse/packing/packing.service'
+import { ShipmentsService } from '../../scm/shipments/shipments.service'
 import { GoodsIssueService } from '../stock-ops/goods-issue.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 
@@ -110,6 +111,7 @@ describe('MM-10 Outbound', () => {
                 ReservationService,
                 PickingService,
                 PackingService,
+                { provide: ShipmentsService, useValue: { createFromPackage: jest.fn(), findOne: jest.fn() } },
                 GoodsIssueService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: InventoryPostingService, useValue: mockPosting },

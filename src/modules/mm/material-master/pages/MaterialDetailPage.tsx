@@ -54,6 +54,8 @@ import MaterialFormDialog from '../components/MaterialFormDialog'
 import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload } from '../types'
 import type { SupplierMaterial } from '@/modules/mm/supplier-management/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { formatMaterialMoney } from '../utils/formatMaterialMoney'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     ACTIVE: 'success', DRAFT: 'default', INACTIVE: 'warning', BLOCKED: 'danger',
@@ -95,6 +97,7 @@ const MaterialDetailPage = () => {
     const router = useRouter()
     const id = params?.id as string
     const { data: material, loading, refresh } = useMaterial(id)
+    const { canUpdate } = useResourceAccess()
     const breadcrumbItems = useMemo(
         () =>
             buildErpBreadcrumbs(`/modules/mm/material-master/materials-skus/${id}`, {
@@ -152,8 +155,6 @@ const MaterialDetailPage = () => {
         )
     }
 
-    const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: material.currency?.code || 'USD', maximumFractionDigits: 2 })
-
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
@@ -162,15 +163,17 @@ const MaterialDetailPage = () => {
                 title={material.materialName}
                 description={`${material.materialCode}${material.sku ? ` · SKU: ${material.sku}` : ''}${material.brand ? ` · ${material.brand}` : ''}${material.model ? ` ${material.model}` : ''}`}
                 actions={
-                    <>
-                        {material.status !== 'ACTIVE' && (
-                            <Button size="sm" variant="plain" icon={<HiOutlineCheckCircle />} onClick={() => setConfirmAction('activate')}>Activate</Button>
-                        )}
-                        {material.status === 'ACTIVE' && (
-                            <Button size="sm" variant="plain" icon={<HiOutlineBan />} onClick={() => setConfirmAction('deactivate')}>Deactivate</Button>
-                        )}
-                        <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => setEditOpen(true)}>Edit</Button>
-                    </>
+                    canUpdate ? (
+                        <>
+                            {material.status !== 'ACTIVE' && (
+                                <Button size="sm" variant="plain" icon={<HiOutlineCheckCircle />} onClick={() => setConfirmAction('activate')}>Activate</Button>
+                            )}
+                            {material.status === 'ACTIVE' && (
+                                <Button size="sm" variant="plain" icon={<HiOutlineBan />} onClick={() => setConfirmAction('deactivate')}>Deactivate</Button>
+                            )}
+                            <Button size="sm" variant="solid" icon={<HiOutlinePencil />} onClick={() => setEditOpen(true)}>Edit</Button>
+                        </>
+                    ) : undefined
                 }
             />
 
@@ -203,7 +206,7 @@ const MaterialDetailPage = () => {
                         <TabPanel active={tab === 'suppliers'}><SuppliersTab materialId={material.id} /></TabPanel>
                         <TabPanel active={tab === 'purchasing'}><PurchasingTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'planning'}><PlanningTab material={material} /></TabPanel>
-                        <TabPanel active={tab === 'valuation'}><ValuationTab material={material} fmt={fmt} /></TabPanel>
+                        <TabPanel active={tab === 'valuation'}><ValuationTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'barcodes'}><BarcodesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'batches'}><BatchesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'serials'}><SerialsTab material={material} onRefresh={refresh} /></TabPanel>
@@ -417,10 +420,9 @@ const SuppliersTab = ({ materialId }: { materialId: string }) => {
             id: 'unitPrice',
             size: 120,
             cell: ({ row }) => {
-                const code = row.original.currency?.code
                 const price = Number(row.original.unitPrice)
                 if (!Number.isFinite(price)) return '—'
-                return code ? `${code} ${price.toLocaleString()}` : price.toLocaleString()
+                return formatMaterialMoney(price, row.original.currency?.code)
             },
         },
         {
@@ -499,11 +501,14 @@ const PlanningTab = ({ material }: { material: Material }) => (
     </div>
 )
 
-const ValuationTab = ({ material, fmt }: { material: Material; fmt: Intl.NumberFormat }) => (
+const ValuationTab = ({ material }: { material: Material }) => (
     <div className="grid gap-6 md:grid-cols-2">
         <div>
             <InfoRow label="Valuation method" value={material.valuationMethod ?? '—'} />
-            <InfoRow label="Standard cost" value={fmt.format(Number(material.standardCost))} />
+            <InfoRow
+                label="Standard cost"
+                value={formatMaterialMoney(Number(material.standardCost), material.currency?.code)}
+            />
             <InfoRow label="Currency" value={material.currency ? `${material.currency.code} — ${material.currency.name}` : '—'} />
             <InfoRow label="Valuation class" value={material.valuationClass?.name ?? '—'} />
             <InfoRow label="Company" value={material.company?.name ?? '—'} />
@@ -598,6 +603,7 @@ const TransactionsTab = ({ materialId }: { materialId: string }) => {
 }
 
 const DocumentsTab = ({ materialId }: { materialId: string }) => {
+    const { canCreate, canDelete } = useResourceAccess()
     const [rows, setRows] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
@@ -677,22 +683,22 @@ const DocumentsTab = ({ materialId }: { materialId: string }) => {
             id: 'actions',
             header: '',
             size: 56,
-            cell: ({ row }) => (
+            cell: ({ row }) => canDelete ? (
                 <Button
                     size="xs"
                     variant="plain"
                     icon={<HiOutlineTrash className="text-red-500" />}
                     onClick={() => handleDelete(row.original.id)}
                 />
-            ),
+            ) : null,
         },
-    ], [materialId])
+    ], [materialId, canDelete])
 
     return (
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Documents</h6>
-                <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add document</Button>
+                {canCreate && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add document</Button>}
             </div>
             {loading ? (
                 <div className="flex justify-center py-8"><Spinner size={28} /></div>
@@ -734,6 +740,7 @@ const DocumentsTab = ({ materialId }: { materialId: string }) => {
 
 const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const barcodes = material.barcodes ?? []
+    const { canCreate, canDelete } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [barcodeType, setBarcodeType] = useState('EAN13')
     const [barcodeValue, setBarcodeValue] = useState('')
@@ -756,14 +763,14 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
         { header: 'Type', accessorKey: 'barcodeType', size: 120 },
         { header: 'Value', accessorKey: 'barcodeValue', size: 300 },
         { header: 'Primary', accessorKey: 'isPrimary', size: 80, cell: ({ row }) => row.original.isPrimary ? <Tag className="bg-emerald-100 text-emerald-700 text-xs">Yes</Tag> : <span className="text-gray-400">No</span> },
-        { id: 'actions', header: '', size: 56, cell: ({ row }) => <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => handleDelete(row.original.id)} /> },
+        { id: 'actions', header: '', size: 56, cell: ({ row }) => canDelete ? <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => handleDelete(row.original.id)} /> : null },
     ]
 
     return (
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Barcodes</h6>
-                <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button>
+                {canCreate && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button>}
             </div>
             <DataTable<MmBarcode> columns={cols} data={barcodes} compact />
             <FormDialog
@@ -795,6 +802,7 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
 
 const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const batches = material.batches ?? []
+    const { canCreate } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [manufacturingDate, setManufacturingDate] = useState('')
     const [expiryDate, setExpiryDate] = useState('')
@@ -841,7 +849,7 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Batches</h6>
-                {material.batchManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>}
+                {canCreate && material.batchManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>}
             </div>
             {!material.batchManaged ? (
                 <p className="text-sm text-gray-500">This material is not batch-managed.</p>
@@ -895,6 +903,7 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
 
 const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const serials = material.serialNumbers ?? []
+    const { canCreate } = useResourceAccess()
     const [addOpen, setAddOpen] = useState(false)
     const [batchId, setBatchId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
@@ -968,7 +977,7 @@ const SerialsTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
         <div>
             <div className="mb-4 flex items-center justify-between">
                 <h6 className="text-sm font-semibold heading-text">Serial Numbers</h6>
-                {material.serialManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add serial</Button>}
+                {canCreate && material.serialManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add serial</Button>}
             </div>
             {!material.serialManaged ? (
                 <p className="text-sm text-gray-500">This material is not serial-managed.</p>

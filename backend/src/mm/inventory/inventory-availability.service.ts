@@ -252,6 +252,31 @@ export class InventoryAvailabilityService {
         return this.aggregateBalancesCompany(balances)
     }
 
+    /**
+     * Commercial stock for SD Product Catalog / ecommerce (material master thresholds).
+     * WM ledger totals live in getCompanyMaterialTotals(); GR sync pushes ledger → master.
+     */
+    async getCommercialMaterialTotals(
+        companyId: string,
+        materialId: string,
+    ): Promise<CompanyMaterialTotals> {
+        void companyId
+        const material = await this.prisma.mmMaterial.findFirst({
+            where: { id: materialId, deletedAt: null },
+            select: { onHandQty: true, reservedQty: true },
+        })
+        if (!material) {
+            return { onHandQty: 0, reservedQty: 0, availableQty: 0 }
+        }
+        const onHandQty = Number(material.onHandQty)
+        const reservedQty = Number(material.reservedQty)
+        return {
+            onHandQty,
+            reservedQty,
+            availableQty: Math.max(0, onHandQty - reservedQty),
+        }
+    }
+
     async getCompanyMaterialTotalsBatch(
         companyId: string,
         materialIds: string[],

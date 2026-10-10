@@ -85,11 +85,15 @@ const strings = (value: unknown): string[] =>
 const text = (value: unknown) =>
     typeof value === 'string' && value.trim() ? value.trim() : null
 
+type ApiSession = { client: ApiClient; token: string; expiresAt: string }
+
 /**
- * SD + retail endpoints shared with the web marketplace. They need no auth
- * header; the signed-in customer is identified by `customerId`.
+ * SD + retail endpoints shared with the web marketplace. Account and checkout
+ * calls send the shopper's session token as a bearer header.
  */
 export class HttpCommerceApi implements CommerceApi {
+    private sessionToken: string | null = null
+
     /**
      * @param baseUrl Nest API origin, e.g. http://192.168.1.10:3011
      * @param webUrl Next.js origin serving uploaded product images (`/uploads/...`)
@@ -98,6 +102,14 @@ export class HttpCommerceApi implements CommerceApi {
         private readonly baseUrl: string,
         private readonly webUrl: string,
     ) {}
+
+    getSessionToken(): string | null {
+        return this.sessionToken
+    }
+
+    setSessionToken(token: string | null): void {
+        this.sessionToken = token
+    }
 
     async getProducts(): Promise<Product[]> {
         const rows = await this.request<ApiProduct[]>('/sd/products?activeOnly=true')
@@ -118,25 +130,27 @@ export class HttpCommerceApi implements CommerceApi {
     }
 
     async signIn(input: SignInInput): Promise<Customer> {
-        const { client } = await this.request<{ client: ApiClient }>(
+        const { client, token } = await this.request<ApiSession>(
             '/retail/clients/login',
             { method: 'POST', body: JSON.stringify(input) },
         )
+        this.sessionToken = token
         return client
     }
 
     async register(input: RegisterInput): Promise<Customer> {
-        const { client } = await this.request<{ client: ApiClient }>(
+        const { client, token } = await this.request<ApiSession>(
             '/retail/clients/register',
             { method: 'POST', body: JSON.stringify(input) },
         )
+        this.sessionToken = token
         return client
     }
 
-    async updateProfile(customerId: string, update: ProfileUpdate): Promise<Customer> {
+    async updateProfile(_customerId: string, update: ProfileUpdate): Promise<Customer> {
         const { client } = await this.request<{ client: ApiClient }>(
             '/retail/clients/me',
-            { method: 'PATCH', body: JSON.stringify({ clientId: customerId, ...update }) },
+            { method: 'PATCH', body: JSON.stringify(update) },
         )
         return client
     }
@@ -312,6 +326,9 @@ export class HttpCommerceApi implements CommerceApi {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json',
+                    ...(this.sessionToken
+                        ? { Authorization: `Bearer ${this.sessionToken}` }
+                        : {}),
                     ...(init?.headers ?? {}),
                 },
             })
@@ -336,13 +353,15 @@ export class HttpCommerceApi implements CommerceApi {
                 ? message.join('; ')
                 : message || `Request failed (${res.status})`
             const code =
-                res.status === 404
-                    ? 'NOT_FOUND'
-                    : res.status === 409
-                      ? 'CONFLICT'
-                      : res.status >= 500
-                        ? 'NETWORK'
-                        : 'VALIDATION'
+                res.status === 401
+                    ? 'UNAUTHORIZED'
+                    : res.status === 404
+                      ? 'NOT_FOUND'
+                      : res.status === 409
+                        ? 'CONFLICT'
+                        : res.status >= 500
+                          ? 'NETWORK'
+                          : 'VALIDATION'
             throw new CommerceApiError(text, code)
         }
         return body as T

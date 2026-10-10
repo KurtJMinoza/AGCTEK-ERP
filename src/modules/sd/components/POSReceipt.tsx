@@ -5,6 +5,8 @@ import { branchLabel } from '../catalogs/branchCatalog'
 
 type POSReceiptProps = {
     receipt: POSCheckoutResult
+    /** Selected branch name (MM Organization Branch) when available. */
+    branchName?: string | null
     className?: string
 }
 
@@ -34,7 +36,7 @@ const Row = ({
 )
 
 /** 80mm thermal-style receipt; always black on white so it prints the same in dark mode. */
-const POSReceipt = ({ receipt, className }: POSReceiptProps) => {
+const POSReceipt = ({ receipt, branchName, className }: POSReceiptProps) => {
     const completedAt = new Date(receipt.completedAt)
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
 
@@ -53,7 +55,7 @@ const POSReceipt = ({ receipt, className }: POSReceiptProps) => {
                 <div className="mt-1">OFFICIAL RECEIPT</div>
             </div>
             <Divider />
-            <Row label="Branch" value={branchLabel(receipt.branchId)} />
+            <Row label="Branch" value={branchLabel(receipt.branchId, branchName)} />
             <Row label="Receipt #" value={receipt.receiptId} />
             <Row label="Date" value={completedAt.toLocaleDateString('en-PH')} />
             <Row label="Time" value={completedAt.toLocaleTimeString('en-PH')} />
@@ -61,6 +63,11 @@ const POSReceipt = ({ receipt, className }: POSReceiptProps) => {
             {receipt.lines.map((line) => (
                 <div key={line.sku} className="mb-1.5">
                     <div className="break-words">{line.name}</div>
+                    {line.variantName ? (
+                        <div className="break-words text-[10px]">
+                            Variant: {line.variantName}
+                        </div>
+                    ) : null}
                     <Row
                         label={`  ${line.quantity} x ${money(line.unitPrice)}`}
                         value={money(line.lineTotal)}

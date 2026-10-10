@@ -40,6 +40,15 @@ const WITH_MATERIAL_CATEGORY = {
         orderBy: { effectiveFrom: 'asc' },
         select: {
             materialId: true,
+            companyId: true,
+            company: {
+                select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    logoUrl: true,
+                },
+            },
             material: {
                 select: { materialCategory: { select: { name: true } } },
             },
@@ -158,6 +167,16 @@ export class ProductService {
         const search = query.search?.trim()
         const where: Prisma.SdProductWhereInput = {
             ...(query.divisionId ? { divisionId: query.divisionId } : {}),
+            ...(query.companyId
+                ? {
+                      materialAssignments: {
+                          some: {
+                              status: 'ACTIVE',
+                              companyId: query.companyId,
+                          },
+                      },
+                  }
+                : {}),
             ...(query.activeOnly === 'true' ? { isActive: true } : {}),
             ...(query.sku ? { sku: query.sku } : {}),
             ...(search
@@ -238,7 +257,16 @@ export class ProductService {
             materialAssignments.find((row) => row.materialId === primaryId) ??
             materialAssignments[0]
         const category = primary?.material.materialCategory?.name
-        return category ? { ...product, category } : product
+        const company = primary?.company
+            ? {
+                  id: primary.company.id,
+                  name: primary.company.name,
+                  code: primary.company.code,
+                  logoUrl: primary.company.logoUrl,
+              }
+            : null
+        const base = category ? { ...product, category } : product
+        return { ...base, company }
     }
 
     private async materialCategoryName(materialId: string | undefined) {

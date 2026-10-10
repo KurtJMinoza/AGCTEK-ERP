@@ -15,8 +15,8 @@ describe('QuotationController', () => {
         ['accept', 'update'],
         ['reject', 'update'],
         ['cancel', 'update'],
-    ] as const)('%s requires sd:%s', (handler, action) => {
-        expect(Reflect.getMetadata(PERMISSION_KEY, proto[handler])).toEqual({ module: 'sd', action })
+    ] as const)('%s requires sd.quotations:%s', (handler, action) => {
+        expect(Reflect.getMetadata(PERMISSION_KEY, proto[handler])).toEqual({ resource: 'sd.quotations', action })
     })
 
     it('has no create endpoint (quotations start from a CRM opportunity)', () => {

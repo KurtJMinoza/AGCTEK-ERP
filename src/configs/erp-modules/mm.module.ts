@@ -7,6 +7,8 @@ type ChildDef = {
     icon?: string
     /** Absolute module path override (cross-hub deep link) */
     path?: string
+    /** Permission resource of the linked feature when `path` points into another hub */
+    permissionCode?: string
 }
 
 function mmPage(
@@ -40,6 +42,7 @@ function mmHub(
                 child.description ?? `${title} — ${child.title}.`,
             path: child.path ?? `/modules/mm/${code}/${child.code}`,
             icon: child.icon ?? icon,
+            permissionCode: child.permissionCode ?? `mm.${code}.${child.code}`,
         })),
     }
 }
@@ -173,13 +176,13 @@ export const MM_CATEGORIES: ErpCategory[] = [
             mmHub(
                 'procurement',
                 'Procurement',
-                'Requisitions, RFQs, quotations, purchase orders, and contracts.',
+                'Purchase requests, RFQs, quotations, purchase orders, and contracts.',
                 'shoppingCart',
                 'Procurement',
                 [
                     {
                         code: 'purchase-requisitions',
-                        title: 'Purchase Requisitions',
+                        title: 'Purchase Requests',
                         icon: 'clipboard',
                     },
                     { code: 'rfqs', title: 'RFQs', icon: 'fileText' },
@@ -312,6 +315,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'Supplier Returns',
                         icon: 'truck',
                         path: '/modules/mm/returns-disposal/supplier-returns',
+                        permissionCode: 'mm.returns-disposal.supplier-returns',
                         description:
                             'Owned by Returns & Disposal — open supplier return documents from blocked QI stock.',
                     },
@@ -424,6 +428,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'storage-sections',
                         title: 'Storage Sections',
                         icon: 'gitBranch',
+                    },
+                    {
+                        code: 'storage-shelves',
+                        title: 'Storage Shelves',
+                        icon: 'layers',
                     },
                     {
                         code: 'storage-bins',

@@ -306,7 +306,7 @@ export class DashboardKpiService {
             procurement: [
                 kpi(
                     'openPrs',
-                    'Open PR',
+                    'Open purchase requests',
                     openPrs,
                     'procurement',
                     '/modules/mm/procurement/purchase-requisitions',

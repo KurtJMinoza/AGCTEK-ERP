@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { HiOutlineArrowLeft, HiOutlineArrowRight, HiOutlineCube } from 'react-icons/hi'
+import { HiOutlineArrowLeft, HiOutlineArrowRight, HiOutlineCube, HiOutlineViewGrid } from 'react-icons/hi'
 import Steps from '@/components/ui/Steps'
 import FormDialog from '@/components/shared/FormDialog'
 import NumericInput from '@/components/shared/NumericInput'
@@ -15,7 +15,15 @@ import Switcher from '@/components/ui/Switcher'
 import { Form, FormItem } from '@/components/ui/Form'
 import { isRenderableImageSrc } from '@/utils/productImage'
 import ProductCatalogImageGallery from './ProductCatalogImageGallery'
-import { PRODUCT_DIVISIONS } from '../catalogs/productDivisions'
+import ProductOptionsPanel from './ProductOptionsPanel'
+import {
+    normalizeOptionsDraft,
+    productOptionVariantsService,
+    type OptionsVariantsDraft,
+    type ProductOptionsVariants,
+} from '../services/productOptionVariantsService'
+import { validateOptionsVariants } from '../services/productOptionVariantsValidation'
+import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
@@ -120,19 +128,15 @@ const CREATE_WIZARD_STEPS = [
     'MM material',
     'Pricing & media',
     'Details',
+    'Options & Variants',
 ] as const
 
 const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}`)[][] = [
-    ['divisionId', 'sku', 'name'],
+    ['sku', 'name'],
     ['companyId', 'materialIds', 'materialLinkMode'],
     ['price', 'originalPrice', 'badge', 'imageUrl'],
     ['description', 'sortOrder', 'isActive'],
 ]
-
-const DIVISION_OPTIONS: Option[] = PRODUCT_DIVISIONS.map((d) => ({
-    value: d.id,
-    label: d.label,
-}))
 
 const BADGE_PRESETS = ['Best Seller', 'New', 'Sale', 'Hot Deal', 'Limited']
 
@@ -167,7 +171,7 @@ const toFormValues = (
               measurements: productMeasurements(product),
           }
         : {
-              divisionId: defaultDivisionId,
+              divisionId: defaultDivisionId || RETAIL_DIVISION_ID,
               autoGenerateSku: true,
               sku: '',
               name: '',
@@ -203,6 +207,96 @@ const MEASUREMENT_FIELDS: {
     { key: 'volume', label: 'Volume', placeholder: 'e.g. 1.5 L' },
 ]
 
+/** Converts a stored options+variants payload into the editable draft shape. */
+const toOptionsVariantsDraft = (
+    payload: ProductOptionsVariants,
+): OptionsVariantsDraft => {
+    const optionOrder = new Map(
+        payload.options.map((option, index) => [option.id, index]),
+    )
+    return {
+        variantImageMode: payload.variantImageMode,
+        options: payload.options.map((option) => ({
+            name: option.name,
+            isRequired: option.isRequired,
+            displayStyle: option.displayStyle,
+            values: option.values.map((value) => ({
+                value: value.value,
+                swatchColor: value.swatchColor,
+                imageUrl: value.imageUrl,
+            })),
+        })),
+        variants: payload.variants.map((variant) => ({
+            variantName: variant.variantName,
+            sku: variant.sku,
+            barcode: variant.barcode,
+            price: variant.price,
+            compareAtPrice: variant.compareAtPrice,
+            cost: variant.cost,
+            imageUrl: variant.imageUrl,
+            weight: variant.weight,
+            isActive: variant.isActive,
+            isDefault: variant.isDefault,
+            sortOrder: variant.sortOrder,
+            materialId: variant.materialId,
+            companyId: variant.companyId,
+            salesUomId: variant.salesUomId,
+            materialUomId: variant.materialUomId,
+            optionValues: [...variant.optionValues]
+                .sort(
+                    (a, b) =>
+                        (optionOrder.get(a.optionId) ?? 0) -
+                        (optionOrder.get(b.optionId) ?? 0),
+                )
+                .map((link) => link.value),
+        })),
+    }
+}
+
+/**
+ * Auto-saved "Add New Product" draft. Written on every form change (debounced)
+ * and restored when the wizard is reopened, so an accidentally closed tab or
+ * dialog does not lose the in-progress product. Cleared once the product saves.
+ */
+const PRODUCT_DRAFT_KEY = 'sd-product-draft:v1'
+
+type ProductFormDraft = {
+    savedAt: number
+    wizardStep: number
+    optionsVariants: OptionsVariantsDraft | null
+    values: Partial<FormShape>
+}
+
+const readProductFormDraft = (): ProductFormDraft | null => {
+    if (typeof window === 'undefined') return null
+    try {
+        const raw = window.localStorage.getItem(PRODUCT_DRAFT_KEY)
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as ProductFormDraft
+        return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+        return null
+    }
+}
+
+const writeProductFormDraft = (draft: ProductFormDraft) => {
+    if (typeof window === 'undefined') return
+    try {
+        window.localStorage.setItem(PRODUCT_DRAFT_KEY, JSON.stringify(draft))
+    } catch {
+        /* storage full / unavailable — draft is best-effort */
+    }
+}
+
+const clearProductFormDraft = () => {
+    if (typeof window === 'undefined') return
+    try {
+        window.localStorage.removeItem(PRODUCT_DRAFT_KEY)
+    } catch {
+        /* ignore */
+    }
+}
+
 type ProductFormDialogProps = {
     isOpen: boolean
     mode: 'create' | 'edit'
@@ -218,7 +312,7 @@ const ProductFormDialog = ({
     isOpen,
     mode,
     product,
-    defaultDivisionId = '',
+    defaultDivisionId = RETAIL_DIVISION_ID,
     saving,
     onClose,
     onSubmit,
@@ -229,6 +323,7 @@ const ProductFormDialog = ({
         reset,
         setValue,
         getValues,
+        watch,
         trigger,
         setError,
         formState: { errors },
@@ -242,13 +337,21 @@ const ProductFormDialog = ({
 
     /** Category of the primary linked material, owned by Materials Management. */
     const [mmCategory, setMmCategory] = useState<string | null>(null)
+    /** Valuation currency from the primary linked MM material (pricing labels). */
+    const [valuationCurrency, setValuationCurrency] = useState<string | null>(
+        null,
+    )
 
     useEffect(() => {
         if (!isOpen) return
         reset(toFormValues(product, defaultDivisionId))
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
+        setValuationCurrency(null)
         setWizardStep(0)
+        setOptionsAttempted(false)
+        setOptionsInitial(null)
+        setOptionsDraft(null)
     }, [isOpen, product, defaultDivisionId, reset])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
@@ -258,6 +361,88 @@ const ProductFormDialog = ({
     const createWizard = !editing
     const [wizardStep, setWizardStep] = useState(0)
     const [uploading, setUploading] = useState(false)
+    const [optionsInitial, setOptionsInitial] =
+        useState<ProductOptionsVariants | null>(null)
+    const [optionsDraft, setOptionsDraft] =
+        useState<OptionsVariantsDraft | null>(null)
+    const [draftRestored, setDraftRestored] = useState(false)
+    const draftTimer = useRef<number | null>(null)
+    /** Shows inline Options & Variants errors after a failed save attempt. */
+    const [optionsAttempted, setOptionsAttempted] = useState(false)
+    const optionsSectionRef = useRef<HTMLDivElement | null>(null)
+    const optionsIssues =
+        optionsAttempted && optionsDraft
+            ? validateOptionsVariants(optionsDraft)
+            : []
+
+    /** Restore an auto-saved draft when the create wizard reopens. */
+    useEffect(() => {
+        if (!isOpen || editing) return
+        const draft = readProductFormDraft()
+        if (!draft) return
+        reset({
+            ...toFormValues(null, defaultDivisionId),
+            ...draft.values,
+        })
+        // Values are restored, but the wizard restarts at step 1 so the
+        // Options & Variants step never becomes a confusing landing page.
+        setWizardStep(0)
+        setOptionsAttempted(false)
+        if (draft.optionsVariants) {
+            setOptionsDraft(normalizeOptionsDraft(draft.optionsVariants))
+        }
+        setDraftRestored(true)
+    }, [isOpen, editing, reset, defaultDivisionId])
+
+    /** Persist the in-progress draft (debounced) on every form change. */
+    useEffect(() => {
+        if (!isOpen || editing) return
+        const subscription = watch((values) => {
+            if (draftTimer.current) {
+                window.clearTimeout(draftTimer.current)
+            }
+            draftTimer.current = window.setTimeout(() => {
+                writeProductFormDraft({
+                    savedAt: Date.now(),
+                    wizardStep,
+                    optionsVariants: optionsDraft ?? null,
+                    values: values as Partial<FormShape>,
+                })
+            }, 400)
+        })
+        return () => {
+            subscription.unsubscribe()
+            if (draftTimer.current) {
+                window.clearTimeout(draftTimer.current)
+            }
+        }
+    }, [isOpen, editing, watch, wizardStep, optionsDraft])
+
+    /** Load existing options + variants when editing (create keeps restored drafts). */
+    useEffect(() => {
+        if (!isOpen || !product?.id) return
+        let alive = true
+        productOptionVariantsService
+            .getForProduct(product.id)
+            .then((payload) => {
+                if (!alive) return
+                setOptionsInitial(payload)
+                setOptionsDraft(
+                    payload.hasVariants
+                        ? toOptionsVariantsDraft(payload)
+                        : null,
+                )
+            })
+            .catch(() => {
+                if (alive) {
+                    setOptionsInitial(null)
+                    setOptionsDraft(null)
+                }
+            })
+        return () => {
+            alive = false
+        }
+    }, [isOpen, product?.id])
     const [editMaterialIds, setEditMaterialIds] = useState<string[]>([])
     const [editCompanyId, setEditCompanyId] = useState<string | null>(null)
     const [mmStockRefreshKey, setMmStockRefreshKey] = useState(0)
@@ -326,6 +511,7 @@ const ProductFormDialog = ({
     ) => {
         const primary = materials[0]
         setMmCategory(primary?.general.materialCategory ?? null)
+        setValuationCurrency(primary?.valuation.currencyCode ?? null)
         if (!primary || measuredMaterialRef.current === primary.materialId)
             return
         // Editing: the first load only fills blanks so saved shop specs survive.
@@ -347,7 +533,22 @@ const ProductFormDialog = ({
         )
     }
 
-    const onValid = (values: FormShape) => {
+    const onValid = async (values: FormShape) => {
+        const optionIssues = validateOptionsVariants(optionsDraft)
+        if (optionIssues.length > 0) {
+            setOptionsAttempted(true)
+            if (createWizard) {
+                setWizardStep(CREATE_WIZARD_STEPS.length - 1)
+            }
+            window.setTimeout(() => {
+                optionsSectionRef.current?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                })
+            }, 60)
+            return
+        }
+        setOptionsAttempted(false)
         const {
             productType: _productType,
             autoGenerateSku: autoSku,
@@ -386,30 +587,46 @@ const ProductFormDialog = ({
             imageGallery,
             attributes,
         }
+        if (optionsDraft) {
+            payload.optionsVariants = optionsDraft
+        }
         if (!editing) {
             payload.materialIds = materialIds
             payload.materialLinkMode = materialLinkMode
             payload.companyId = companyId
         }
-        return onSubmit(payload)
+        await onSubmit(payload)
+        clearProductFormDraft()
+        setDraftRestored(false)
     }
 
-    const goWizardNext = async () => {
-        const fields = CREATE_STEP_FIELDS[wizardStep]
+    /** Discard the auto-saved draft and start from a blank product. */
+    const discardDraft = () => {
+        clearProductFormDraft()
+        reset(toFormValues(null, defaultDivisionId))
+        setWizardStep(0)
+        setOptionsDraft(null)
+        setDraftRestored(false)
+        setOptionsAttempted(false)
+    }
+
+    /** Field + business checks for one wizard step (shared by Next and step clicks). */
+    const validateWizardStep = async (step: number): Promise<boolean> => {
+        const fields = CREATE_STEP_FIELDS[step] ?? []
         const ok = await trigger(fields as (keyof FormShape)[])
-        if (!ok) return
+        if (!ok) return false
 
         const values = getValues()
-        if (wizardStep === 1) {
+        if (step === 1) {
             if (!values.companyId?.trim()) {
                 setError('companyId', { message: 'Select a company' })
-                return
+                return false
             }
             if (!values.materialIds?.length) {
                 setError('materialIds', {
                     message: 'Select at least one MM material',
                 })
-                return
+                return false
             }
             if (
                 values.materialLinkMode === 'single' &&
@@ -418,10 +635,10 @@ const ProductFormDialog = ({
                 setError('materialIds', {
                     message: 'Single-material mode allows only one MM material',
                 })
-                return
+                return false
             }
         }
-        if (wizardStep === 2) {
+        if (step === 2) {
             if (
                 values.price != null &&
                 values.originalPrice != null &&
@@ -430,10 +647,30 @@ const ProductFormDialog = ({
                 setError('originalPrice', {
                     message: 'Must be higher than the selling price',
                 })
+                return false
+            }
+        }
+        return true
+    }
+
+    const goWizardNext = async () => {
+        if (!(await validateWizardStep(wizardStep))) return
+        setWizardStep((s) => Math.min(s + 1, CREATE_WIZARD_STEPS.length - 1))
+    }
+
+    /** Clickable steps: jump back freely; forward only through valid steps. */
+    const goWizardTo = async (target: number) => {
+        if (target <= wizardStep) {
+            setWizardStep(target)
+            return
+        }
+        for (let step = wizardStep; step < target; step++) {
+            if (!(await validateWizardStep(step))) {
+                setWizardStep(step)
                 return
             }
         }
-        setWizardStep((s) => Math.min(s + 1, CREATE_WIZARD_STEPS.length - 1))
+        setWizardStep(target)
     }
 
     const wizardStepHint = createWizard
@@ -447,11 +684,16 @@ const ProductFormDialog = ({
 
     const showStep = (step: number) => editing || wizardStep === step
 
+    /** Live price / SKU for the variant generator defaults. */
+    const watchedPrice = useWatch({ control, name: 'price' }) ?? 0
+    const watchedSku = useWatch({ control, name: 'sku' }) ?? ''
+    const watchedOriginalPrice = useWatch({ control, name: 'originalPrice' })
+
     return (
         <FormDialog
             isOpen={isOpen}
             onClose={onClose}
-            size="xl"
+            width={1080}
             title={editing ? 'Edit Product' : 'Add New Product'}
             description={
                 editing && product
@@ -464,11 +706,32 @@ const ProductFormDialog = ({
             icon={<HiOutlineCube />}
             headerExtra={
                 createWizard ? (
-                    <Steps current={wizardStep} className="mt-3">
-                        {CREATE_WIZARD_STEPS.map((title) => (
-                            <Steps.Item key={title} title={title} />
-                        ))}
-                    </Steps>
+                    <>
+                        <div className="mt-3 hidden lg:block">
+                            <Steps
+                                current={wizardStep}
+                                onChange={(index) => void goWizardTo(index)}
+                            >
+                                {CREATE_WIZARD_STEPS.map((title) => (
+                                    <Steps.Item
+                                        key={title}
+                                        title={
+                                            <span className="text-xs font-semibold">
+                                                {title}
+                                            </span>
+                                        }
+                                    />
+                                ))}
+                            </Steps>
+                        </div>
+                        <p className="mt-2 text-xs font-medium text-gray-500 lg:hidden">
+                            Step {wizardStep + 1} of{' '}
+                            {CREATE_WIZARD_STEPS.length} ·{' '}
+                            <span className="text-gray-900">
+                                {CREATE_WIZARD_STEPS[wizardStep]}
+                            </span>
+                        </p>
+                    </>
                 ) : undefined
             }
             footerClassName={createWizard ? '!justify-between' : undefined}
@@ -549,36 +812,31 @@ const ProductFormDialog = ({
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
+                {draftRestored ? (
+                    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        <span className="font-semibold">
+                            Unsaved draft restored.
+                        </span>
+                        <span>Your in-progress product was auto-saved.</span>
+                        <button
+                            type="button"
+                            className="font-medium underline"
+                            onClick={discardDraft}
+                        >
+                            Discard draft
+                        </button>
+                    </div>
+                ) : null}
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                     {showStep(0) ? (
                     <>
-                    <FormItem
-                        label="Division"
-                        asterisk
-                        invalid={Boolean(errors.divisionId)}
-                        errorMessage={errors.divisionId?.message}
-                    >
-                        <Controller
-                            name="divisionId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<Option>
-                                    isSearchable={false}
-                                    isDisabled={editing}
-                                    placeholder="Select storefront"
-                                    options={DIVISION_OPTIONS}
-                                    value={
-                                        DIVISION_OPTIONS.find(
-                                            (o) => o.value === field.value,
-                                        ) ?? null
-                                    }
-                                    onChange={(option) =>
-                                        field.onChange(option?.value ?? '')
-                                    }
-                                />
-                            )}
-                        />
-                    </FormItem>
+                    <Controller
+                        name="divisionId"
+                        control={control}
+                        render={({ field }) => (
+                            <input type="hidden" {...field} />
+                        )}
+                    />
                     {!editing ? (
                         <FormItem label="SKU source">
                             <Controller
@@ -698,6 +956,19 @@ const ProductFormDialog = ({
                             placeholder="Set by the linked MM material"
                         />
                     </FormItem>
+                    {valuationCurrency ? (
+                        <FormItem
+                            label="Valuation currency"
+                            extra={
+                                <span className="text-xs text-gray-500">
+                                    From MM material valuation — use for
+                                    storefront prices
+                                </span>
+                            }
+                        >
+                            <Input readOnly disabled value={valuationCurrency} />
+                        </FormItem>
+                    ) : null}
                     {divisionId === LPG_DIVISION_ID ? (
                         <FormItem label="LPG add-on">
                             <Controller
@@ -775,7 +1046,11 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Selling price (PHP)"
+                        label={
+                            valuationCurrency
+                                ? `Selling price (${valuationCurrency})`
+                                : 'Selling price'
+                        }
                         asterisk
                         invalid={Boolean(errors.price)}
                         errorMessage={errors.price?.message}
@@ -799,8 +1074,25 @@ const ProductFormDialog = ({
                         />
                     </FormItem>
                     <FormItem
-                        label="Original price (PHP)"
+                        label={
+                            valuationCurrency
+                                ? `Original price (${valuationCurrency})`
+                                : 'Original price'
+                        }
                         asterisk
+                        extra={
+                            valuationCurrency ? (
+                                <span className="text-xs text-gray-500">
+                                    Matches MM valuation currency on the linked
+                                    material
+                                </span>
+                            ) : (
+                                <span className="text-xs text-gray-500">
+                                    Link an MM material to use its valuation
+                                    currency (e.g. PHP)
+                                </span>
+                            )
+                        }
                         invalid={Boolean(errors.originalPrice)}
                         errorMessage={errors.originalPrice?.message}
                     >
@@ -969,6 +1261,34 @@ const ProductFormDialog = ({
                         Detailed storefront content (features, specs, reviews)
                         is kept as-is.
                     </p>
+                ) : null}
+                {showStep(4) ? (
+                    <div className="mt-6" ref={optionsSectionRef}>
+                        <p className="mb-3 text-sm font-semibold text-gray-900">
+                            Options & Variants
+                        </p>
+                        <ProductOptionsPanel
+                            initial={optionsInitial}
+                            value={optionsDraft}
+                            onChange={setOptionsDraft}
+                            errors={optionsIssues}
+                            parentPrice={watchedPrice || product?.price || 0}
+                            parentCompareAt={
+                                watchedOriginalPrice ??
+                                product?.originalPrice ??
+                                null
+                            }
+                            defaultSku={
+                                watchedSku || product?.sku || ''
+                            }
+                            disabled={saving || uploading}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                            A product with options requires the customer to pick
+                            a variant (with its own SKU, price and MM stock
+                            link) before checkout.
+                        </p>
+                    </div>
                 ) : null}
             </Form>
         </FormDialog>

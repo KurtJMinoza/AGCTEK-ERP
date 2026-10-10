@@ -1,11 +1,22 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError as toError } from './apiError'
+import type { OptionsVariantsDraft } from './productOptionVariantsService'
 
 export type ProductAttributes = Record<string, unknown>
+
+/** MM company from the primary active product ↔ material assignment. */
+export type SdProductCompany = {
+    id: string
+    name: string
+    code: string
+    logoUrl: string | null
+}
 
 export type SdProductRecord = {
     id: string
     divisionId: string
+    /** Linked MM company (stock items); null when not mapped to material. */
+    company?: SdProductCompany | null
     sku: string
     name: string
     description: string
@@ -24,6 +35,7 @@ export type SdProductRecord = {
 
 export type ProductListParams = {
     divisionId?: string
+    companyId?: string
     activeOnly?: boolean
     sku?: string
     search?: string
@@ -55,6 +67,8 @@ export type ProductInput = {
     imageGallery?: string[]
     /** Existing gallery photos to keep, in order; new ones are uploaded as files. */
     galleryImages?: string[]
+    /** Options + variants draft; saved via the product options endpoint after the product row exists. */
+    optionsVariants?: OptionsVariantsDraft | null
 }
 
 /** Matches the server's PRODUCT_GALLERY_MAX. */
@@ -125,6 +139,7 @@ export async function listProducts(
         const { data } = await ErpAxiosBase.get<ApiProduct[]>('/sd/products', {
             params: {
                 divisionId: params.divisionId || undefined,
+                companyId: params.companyId || undefined,
                 activeOnly: params.activeOnly ? 'true' : undefined,
                 sku: params.sku || undefined,
                 search: params.search?.trim() || undefined,

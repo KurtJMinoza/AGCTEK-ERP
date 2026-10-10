@@ -3,6 +3,10 @@ import { z } from 'zod'
 export const POSOrderItemSchema = z.strictObject({
     sku: z.string().trim().min(1, 'SKU is required'),
     quantity: z.number().int().positive('Quantity must be at least 1'),
+    /** Selected variant (products with options); unit price overrides catalog. */
+    variantId: z.string().trim().min(1).optional(),
+    variantName: z.string().trim().optional(),
+    unitPrice: z.number().nonnegative().optional(),
 })
 
 /**

@@ -12,6 +12,11 @@ export type ErpSubmodule = {
     icon?: ErpIconName
     /** Opens path in a new tab outside the ERP shell (e.g. the /shop marketplace) */
     isExternalLink?: boolean
+    /**
+     * Permission resource when it differs from `<module>.<code>` (several pages sharing one resource).
+     * Nested features use `<module>.<submodule>.<code>`.
+     */
+    permissionCode?: string
     /** Hub-page section this feature belongs to (children only) */
     group?: string
     /** Section label when this submodule has nested features */

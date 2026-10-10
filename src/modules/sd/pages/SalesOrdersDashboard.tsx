@@ -35,16 +35,21 @@ import {
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
-import { SALES_BRANCHES, branchLabel } from '../catalogs/branchCatalog'
-import { productDivisionLabel } from '../catalogs/productDivisions'
-import DivisionBadge from '../components/DivisionBadge'
+import { useSalesBranches } from '../hooks/useSalesBranches'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const { TabList, TabNav } = Tabs
 
 type ChannelFilter = 'all' | SalesOrderChannel
 
+const DIVISION_LABEL: Record<string, string> = {
+    DIV_RETAIL: 'AWIC',
+    DIV_LPG: 'LPG',
+    DIV_APPLIANCES: 'MCONPINCO',
+}
+
 const divisionLabel = (divisionId: string | null) =>
-    divisionId ? productDivisionLabel(divisionId) : '—'
+    divisionId ? (DIVISION_LABEL[divisionId] ?? divisionId) : '—'
 
 const divisionsLabel = (divisionIds: string[]) =>
     divisionIds.length ? divisionIds.map(divisionLabel).join(', ') : '—'
@@ -64,36 +69,12 @@ const DATE_RANGE_OPTIONS: DateRangeOption[] = [
 
 type BranchFilterOption = { value: string; label: string }
 
-const BRANCH_FILTER_OPTIONS: BranchFilterOption[] = [
-    { value: 'all', label: 'All branches' },
-    ...SALES_BRANCHES.map((branch) => ({
-        value: branch.id,
-        label: branch.label,
-    })),
-]
-
-const notify = (
-    type: 'success' | 'danger' | 'info' | 'warning',
-    title: string,
-    message: string,
-) =>
+const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
         <Notification type={type} title={title} closable>
             {message}
         </Notification>,
         { placement: 'top-end' },
-    )
-
-/**
- * Cancelling a confirmed order is only allowed once it is in "Pending Delivery";
- * the row surfaces that as a hint and keeps the live flow in the details dialog
- * (which enforces the backend transition).
- */
-const notifyCancelPlaceholder = (order: SalesOrderRecord) =>
-    notify(
-        'info',
-        'Cancel Order — use View Details',
-        `${order.orderId} was not cancelled. Open View Details to run the live cancellation flow.`,
     )
 
 const formatPrice = (value: number) =>
@@ -112,20 +93,14 @@ const formatDateTime = (iso: string) =>
 const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
     if (channel === 'POS') {
         return (
-            <StatusBadge
-                tone="warning"
-                prefix={<HiOutlineDesktopComputer className="mr-1" />}
-            >
+            <StatusBadge tone="warning" prefix={<HiOutlineDesktopComputer className="mr-1" />}>
                 POS Fast-Track
             </StatusBadge>
         )
     }
     if (channel === 'E-commerce') {
         return (
-            <StatusBadge
-                tone="info"
-                prefix={<HiOutlineGlobeAlt className="mr-1" />}
-            >
+            <StatusBadge tone="info" prefix={<HiOutlineGlobeAlt className="mr-1" />}>
                 E-commerce
             </StatusBadge>
         )
@@ -136,20 +111,12 @@ const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
 const STATUS_TONE: Record<SalesOrderRecord['status'], StatusTone> = {
     Completed: 'success',
     'Pending Delivery': 'warning',
-    Draft: 'warning',
+    Draft: 'default',
     Cancelled: 'danger',
 }
 
-/** Admin-facing wording: `Draft` is the awaiting-approval phase. */
-const STATUS_LABEL: Record<SalesOrderRecord['status'], string> = {
-    Draft: 'Pending Approval',
-    'Pending Delivery': 'Pending Delivery',
-    Completed: 'Completed',
-    Cancelled: 'Cancelled',
-}
-
 const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
-    <StatusBadge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</StatusBadge>
+    <StatusBadge tone={STATUS_TONE[status]}>{status}</StatusBadge>
 )
 
 const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
@@ -166,9 +133,7 @@ const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
     {
         header: 'Division',
         id: 'division',
-        cell: ({ row }) => (
-            <DivisionBadge divisionId={row.original.divisionId} />
-        ),
+        cell: ({ row }) => divisionLabel(row.original.divisionId),
     },
     { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
     {
@@ -190,39 +155,6 @@ const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
         ),
     },
 ]
-
-/**
- * Panel revealed by clicking an order row: the master order's line items, each
- * tagged with the division (AWIC · MCONPINCO · LPG) that must fulfil it.
- */
-const renderOrderLines = (order: SalesOrderRecord) => (
-    <div className="min-w-[34rem]">
-        <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Line items
-            </span>
-            <span className="text-xs text-gray-400">
-                {order.lines.length} line{order.lines.length === 1 ? '' : 's'} ·
-                division badge shows which warehouse fulfils the line
-            </span>
-        </div>
-        <div className="rounded border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-            <DataTable
-                columns={lineColumns}
-                data={order.lines}
-                hidePagination
-            />
-        </div>
-        <div className="mt-2 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
-            <span className="text-gray-500">
-                {divisionsLabel(order.divisionIds)}
-            </span>
-            <span className="font-semibold">
-                Total {formatPrice(order.totalAmount)}
-            </span>
-        </div>
-    </div>
-)
 
 const SummaryStat = ({
     label,
@@ -252,7 +184,28 @@ const SalesOrdersDashboard = () => {
     const setFilters = useSalesOrdersStore((s) => s.setFilters)
     const updatingId = useSalesOrdersStore((s) => s.updatingId)
     const updateOrderStatus = useSalesOrdersStore((s) => s.updateOrderStatus)
-    const confirmOrder = useSalesOrdersStore((s) => s.confirmOrder)
+    const { canUpdate } = useResourceAccess('sd.sales-orders')
+
+    /** Branch filter + labels come from the MM Organization Branch master. */
+    const { branches } = useSalesBranches()
+    const branchFilterOptions = useMemo<BranchFilterOption[]>(
+        () => [
+            { value: 'all', label: 'All branches' },
+            ...branches.map((branch) => ({
+                value: branch.id,
+                label: branch.label,
+            })),
+        ],
+        [branches],
+    )
+    const branchNameOf = useCallback(
+        (branchId: string | null | undefined) =>
+            branchId
+                ? (branches.find((branch) => branch.id === branchId)?.label ??
+                  branchId)
+                : '—',
+        [branches],
+    )
 
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const [channel, setChannel] = useState<ChannelFilter>('all')
@@ -294,33 +247,6 @@ const SalesOrdersDashboard = () => {
             )
         }
     }
-
-    /**
-     * Approve / confirm a DRAFT order. Delegates to the canonical backend confirm
-     * route, which runs the SD→MM handoff server-side (ATP + reservation, i.e.
-     * the soft deduction in the division warehouse). The store patches the row
-     * and refetches, so the badge flips to "Pending Delivery" immediately.
-     */
-    const confirmOrderRow = useCallback(
-        async (order: SalesOrderRecord) => {
-            try {
-                const updated = await confirmOrder(order.id)
-                setSelectedSnapshot((current) =>
-                    current?.id === order.id ? updated : current,
-                )
-                notify('success', 'Order Confirmed', 'Stock Reserved in MM.')
-            } catch (error) {
-                notify(
-                    'danger',
-                    'Order not confirmed',
-                    error instanceof Error
-                        ? error.message
-                        : 'Please try again.',
-                )
-            }
-        },
-        [confirmOrder],
-    )
 
     const hasActiveFilters =
         filters.search.trim() !== '' ||
@@ -369,9 +295,7 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Channel',
                 id: 'channel',
-                cell: ({ row }) => (
-                    <ChannelBadge channel={row.original.channel} />
-                ),
+                cell: ({ row }) => <ChannelBadge channel={row.original.channel} />,
             },
             {
                 header: 'Division',
@@ -383,7 +307,7 @@ const SalesOrdersDashboard = () => {
                 id: 'branch',
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap">
-                        {branchLabel(row.original.branchId)}
+                        {branchNameOf(row.original.branchId)}
                     </span>
                 ),
             },
@@ -419,54 +343,22 @@ const SalesOrdersDashboard = () => {
                 cell: ({ row }) => <StatusCell status={row.original.status} />,
             },
             {
-                header: 'Workflow Actions',
+                header: '',
                 id: 'actions',
-                size: 380,
-                minSize: 340,
                 cell: ({ row }) => (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        <Button
-                            size="xs"
-                            variant="default"
-                            className="whitespace-nowrap"
-                            icon={<HiOutlineEye />}
-                            onClick={() => setSelected(row.original)}
-                        >
-                            View Details
-                        </Button>
-                        {row.original.status === 'Draft' ? (
-                            <Button
-                                size="xs"
-                                variant="solid"
-                                className="whitespace-nowrap"
-                                icon={<HiOutlineCheck />}
-                                loading={updatingId === row.original.id}
-                                onClick={() =>
-                                    void confirmOrderRow(row.original)
-                                }
-                            >
-                                Confirm Order
-                            </Button>
-                        ) : null}
-                        <Button
-                            size="xs"
-                            variant="solid"
-                            className="whitespace-nowrap"
-                            customColorClass={() =>
-                                'bg-red-500 hover:bg-red-600 text-white'
-                            }
-                            icon={<HiOutlineX />}
-                            onClick={() =>
-                                notifyCancelPlaceholder(row.original)
-                            }
-                        >
-                            Cancel Order
-                        </Button>
-                    </div>
+                    <Button
+                        size="xs"
+                        variant="default"
+                        className="whitespace-nowrap"
+                        icon={<HiOutlineEye />}
+                        onClick={() => setSelected(row.original)}
+                    >
+                        View Details
+                    </Button>
                 ),
             },
         ],
-        [confirmOrderRow, updatingId, setSelected],
+        [],
     )
 
     return (
@@ -503,16 +395,10 @@ const SalesOrdersDashboard = () => {
                         All Orders ({summary.orderCount})
                     </TabNav>
                     <TabNav value="POS" className="shrink-0 whitespace-nowrap">
-                        POS
-                        <span className="hidden sm:inline">
-                            &nbsp;Fast-Track
-                        </span>
+                        POS<span className="hidden sm:inline">&nbsp;Fast-Track</span>
                         &nbsp;({summary.posCount})
                     </TabNav>
-                    <TabNav
-                        value="E-commerce"
-                        className="shrink-0 whitespace-nowrap"
-                    >
+                    <TabNav value="E-commerce" className="shrink-0 whitespace-nowrap">
                         E-commerce
                         <span className="hidden sm:inline">&nbsp;Standard</span>
                         &nbsp;({summary.ecommerceCount})
@@ -536,23 +422,19 @@ const SalesOrdersDashboard = () => {
                             (option) => option.value === filters.dateRange,
                         )}
                         onChange={(option) =>
-                            void setFilters({
-                                dateRange: option?.value ?? 'all',
-                            })
+                            void setFilters({ dateRange: option?.value ?? 'all' })
                         }
                     />
                 </div>
                 <div className="md:w-56">
                     <Select<BranchFilterOption>
                         isSearchable={false}
-                        options={BRANCH_FILTER_OPTIONS}
-                        value={BRANCH_FILTER_OPTIONS.find(
+                        options={branchFilterOptions}
+                        value={branchFilterOptions.find(
                             (option) => option.value === filters.branchId,
                         )}
                         onChange={(option) =>
-                            void setFilters({
-                                branchId: option?.value ?? 'all',
-                            })
+                            void setFilters({ branchId: option?.value ?? 'all' })
                         }
                     />
                 </div>
@@ -594,8 +476,6 @@ const SalesOrdersDashboard = () => {
                     data={visibleOrders}
                     loading={loading && orders.length === 0}
                     noData={!loading && visibleOrders.length === 0}
-                    getRowId={(order) => order.id}
-                    renderSubRow={renderOrderLines}
                     hidePagination
                 />
             </Card>
@@ -615,9 +495,7 @@ const SalesOrdersDashboard = () => {
                         </div>
                         <div className="mb-4 grid gap-1 break-words text-sm sm:grid-cols-2">
                             <div>
-                                <span className="text-gray-500">
-                                    Customer:{' '}
-                                </span>
+                                <span className="text-gray-500">Customer: </span>
                                 {selected.customer.name}
                             </div>
                             <div>
@@ -625,14 +503,12 @@ const SalesOrdersDashboard = () => {
                                 {selected.customer.email ?? '—'}
                             </div>
                             <div>
-                                <span className="text-gray-500">
-                                    Division:{' '}
-                                </span>
+                                <span className="text-gray-500">Division: </span>
                                 {divisionsLabel(selected.divisionIds)}
                             </div>
                             <div>
                                 <span className="text-gray-500">Branch: </span>
-                                {branchLabel(selected.branchId)}
+                                {branchNameOf(selected.branchId)}
                             </div>
                             <div>
                                 <span className="text-gray-500">Created: </span>
@@ -654,19 +530,13 @@ const SalesOrdersDashboard = () => {
                             {selected.promoCode ? (
                                 <div className="flex justify-between text-emerald-600">
                                     <span>Promo ({selected.promoCode})</span>
-                                    <span>
-                                        −{formatPrice(selected.discountAmount)}
-                                    </span>
+                                    <span>−{formatPrice(selected.discountAmount)}</span>
                                 </div>
                             ) : null}
                             {selected.channel === 'E-commerce' ? (
                                 <div className="flex justify-between">
-                                    <span className="text-gray-500">
-                                        Shipping
-                                    </span>
-                                    <span>
-                                        {formatPrice(selected.shipping)}
-                                    </span>
+                                    <span className="text-gray-500">Shipping</span>
+                                    <span>{formatPrice(selected.shipping)}</span>
                                 </div>
                             ) : null}
                             <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
@@ -676,47 +546,18 @@ const SalesOrdersDashboard = () => {
                             {selected.paymentReceived !== null ? (
                                 <>
                                     <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Cash
-                                        </span>
-                                        <span>
-                                            {formatPrice(
-                                                selected.paymentReceived,
-                                            )}
-                                        </span>
+                                        <span className="text-gray-500">Cash</span>
+                                        <span>{formatPrice(selected.paymentReceived)}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Change
-                                        </span>
-                                        <span>
-                                            {formatPrice(selected.change ?? 0)}
-                                        </span>
+                                        <span className="text-gray-500">Change</span>
+                                        <span>{formatPrice(selected.change ?? 0)}</span>
                                     </div>
                                 </>
                             ) : null}
                         </div>
                         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-                            {selected.status === 'Draft' ? (
-                                <>
-                                    <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                        Approve handoff — reserves stock in MM
-                                    </span>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        className="flex-1 sm:flex-none"
-                                        icon={<HiOutlineCheck />}
-                                        loading={updatingId === selected.id}
-                                        onClick={() =>
-                                            void confirmOrderRow(selected)
-                                        }
-                                    >
-                                        Confirm Order
-                                    </Button>
-                                </>
-                            ) : null}
-                            {selected.status === 'Pending Delivery' ? (
+                            {canUpdate && selected.status === 'Pending Delivery' ? (
                                 <>
                                     <span className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
                                         Update status
@@ -730,9 +571,7 @@ const SalesOrdersDashboard = () => {
                                         }
                                         icon={<HiOutlineX />}
                                         disabled={updatingId === selected.id}
-                                        onClick={() =>
-                                            setConfirmCancelOpen(true)
-                                        }
+                                        onClick={() => setConfirmCancelOpen(true)}
                                     >
                                         Cancel Order
                                     </Button>
@@ -742,9 +581,7 @@ const SalesOrdersDashboard = () => {
                                         className="flex-1 sm:flex-none"
                                         icon={<HiOutlineCheck />}
                                         loading={updatingId === selected.id}
-                                        onClick={() =>
-                                            void changeStatus('Completed')
-                                        }
+                                        onClick={() => void changeStatus('Completed')}
                                     >
                                         Mark Completed
                                     </Button>
@@ -781,8 +618,8 @@ const SalesOrdersDashboard = () => {
                 }}
             >
                 <p>
-                    {selected?.orderId} will be marked Cancelled. This cannot be
-                    undone from the dashboard.
+                    {selected?.orderId} will be marked Cancelled. This cannot
+                    be undone from the dashboard.
                 </p>
             </ConfirmDialog>
         </PageContainer>

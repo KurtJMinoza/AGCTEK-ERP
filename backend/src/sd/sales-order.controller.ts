@@ -1,7 +1,9 @@
 import {
+    UnauthorizedException,
     Body,
     Controller,
     Get,
+    Headers,
     Param,
     Patch,
     Post,
@@ -18,12 +20,20 @@ import {
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
+import { RequirePermission } from '../permissions/permission.guard'
+import { RetailSessionService } from '../retail/retail-session.service'
+import { ReturnRequestService } from './return-request.service'
+import {
+    CreateCustomerReturnRequestDto,
+} from './dto/sales-order.dto'
 
 @Controller('sd/sales-orders')
 export class SalesOrderController {
     constructor(
         private salesOrders: SalesOrderService,
         private orchestration: SdMmOrchestrationService,
+        private retailSessions: RetailSessionService,
+        private returnRequests: ReturnRequestService,
     ) {}
 
     @Get()
@@ -32,22 +42,37 @@ export class SalesOrderController {
     }
 
     @Post()
+    @RequirePermission('sd.sales-orders', 'create')
     create(@Body() dto: CreateSalesOrderDto) {
         return this.salesOrders.create(dto)
     }
 
     @Post('retail')
-    createRetail(@Body() dto: CreateRetailSalesOrderDto) {
-        return this.salesOrders.createRetail(dto)
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'create')
+    createRetail(
+        @Body() dto: CreateRetailSalesOrderDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.salesOrders.createRetail(
+            dto,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
     }
 
     /** Mixed-division storefront cart → one ECOMMERCE sales order per division. */
     @Post('retail/checkout')
-    createMarketplaceCheckout(@Body() dto: CreateMarketplaceCheckoutDto) {
-        return this.salesOrders.createMarketplaceCheckout(dto)
+    createMarketplaceCheckout(
+        @Body() dto: CreateMarketplaceCheckoutDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.salesOrders.createMarketplaceCheckout(
+            dto,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
     }
 
     @Patch('retail/:id/status')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'update')
     updateRetailStatus(
         @Param('id') id: string,
         @Body() dto: UpdateRetailSalesOrderStatusDto,
@@ -55,22 +80,47 @@ export class SalesOrderController {
         return this.salesOrders.updateRetailStatus(id, dto)
     }
 
+    /**
+     * Storefront return request for a delivered order. The shopper must be
+     * signed in and own the order; company scope is resolved server-side.
+     */
+    @Post('retail/:id/returns')
+    requestReturn(
+        @Param('id') id: string,
+        @Body() dto: CreateCustomerReturnRequestDto,
+        @Headers('authorization') authorization?: string,
+    ) {
+        const clientId = this.retailSessions.clientIdFromAuthorization(
+            authorization,
+        )
+        if (!clientId) {
+            throw new UnauthorizedException(
+                'Please sign in to request a return',
+            )
+        }
+        return this.returnRequests.createForCustomer(clientId, id, dto)
+    }
+
     @Get(':id')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
     findOne(@Param('id') id: string) {
         return this.salesOrders.findOne(id)
     }
 
     @Post(':id/confirm')
+    @RequirePermission('sd.sales-orders', 'update')
     confirm(@Param('id') id: string) {
         return this.salesOrders.confirm(id)
     }
 
     @Post(':id/cancel')
+    @RequirePermission('sd.sales-orders', 'update')
     cancel(@Param('id') id: string) {
         return this.salesOrders.cancel(id)
     }
 
     @Patch(':id/lines/:lineId/quantity')
+    @RequirePermission('sd.sales-orders', 'update')
     changeQuantity(
         @Param('id') id: string,
         @Param('lineId') lineId: string,
@@ -80,6 +130,7 @@ export class SalesOrderController {
     }
 
     @Post(':id/issue')
+    @RequirePermission(['sd.sales-orders', 'sd.deliveries'], 'update')
     issue(@Param('id') id: string, @Body() dto: IssueSalesOrderDto) {
         return this.orchestration.issueSalesOrder({
             salesOrderId: id,

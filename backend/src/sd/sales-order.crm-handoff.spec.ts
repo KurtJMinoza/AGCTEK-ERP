@@ -59,6 +59,10 @@ function setup() {
     }
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
     const quotations = { claimForConversion: jest.fn() }
+    const optionVariants = {
+        findVariantById: jest.fn().mockResolvedValue(null),
+        hasVariants: jest.fn().mockResolvedValue(false),
+    }
     const service = new SalesOrderService(
         prisma as unknown as PrismaService,
         {} as never,

@@ -11,7 +11,6 @@ import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
-import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 
 const DECIMAL_UPDATE_KEYS = new Set([
     'onHandQty',
@@ -64,70 +63,50 @@ function serializeMaterial<T extends object>(row: T): T {
 
 @Injectable()
 export class MaterialsService {
-    constructor(
-        private prisma: PrismaService,
-        private inventoryAvailability: InventoryAvailabilityService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
-    private async overlayLedgerStock<T extends Record<string, unknown>>(
+    /** Sellable qty from material master thresholds (same source as Product Catalog). */
+    private enrichCommercialStock<T extends Record<string, unknown>>(
         row: T,
-    ): Promise<T & { availableQty?: number }> {
-        const companyId = row.companyId as string | undefined
-        const id = row.id as string | undefined
-        if (!companyId || !id) return row
-        const totals = await this.inventoryAvailability.getCompanyMaterialTotals(
-            companyId,
-            id,
-        )
+    ): T & { availableQty: number } {
+        const onHand = toNumber(row.onHandQty)
+        const reserved = toNumber(row.reservedQty)
         return {
             ...row,
-            onHandQty: totals.onHandQty,
-            reservedQty: totals.reservedQty,
-            availableQty: totals.availableQty,
+            onHandQty: onHand,
+            reservedQty: reserved,
+            availableQty: Math.max(0, onHand - reserved),
         }
     }
 
-    private async overlayLedgerStockBatch(
+    private enrichCommercialStockBatch(
         rows: Array<Record<string, unknown>>,
-    ): Promise<Array<Record<string, unknown> & { availableQty?: number }>> {
-        const byCompany = new Map<string, string[]>()
-        for (const row of rows) {
-            const companyId = row.companyId as string | undefined
-            const id = row.id as string | undefined
-            if (!companyId || !id) continue
-            const list = byCompany.get(companyId) ?? []
-            list.push(id)
-            byCompany.set(companyId, list)
-        }
-        const totalsByMaterial = new Map<string, { onHandQty: number; reservedQty: number; availableQty: number }>()
-        for (const [companyId, materialIds] of byCompany) {
-            const batch = await this.inventoryAvailability.getCompanyMaterialTotalsBatch(
-                companyId,
-                materialIds,
-            )
-            for (const [materialId, totals] of batch) {
-                totalsByMaterial.set(materialId, totals)
-            }
-        }
-        return rows.map((row) => {
-            const id = row.id as string | undefined
-            const totals = id ? totalsByMaterial.get(id) : undefined
-            if (!totals) return row
-            return {
-                ...row,
-                onHandQty: totals.onHandQty,
-                reservedQty: totals.reservedQty,
-                availableQty: totals.availableQty,
-            }
-        })
+    ): Array<Record<string, unknown> & { availableQty: number }> {
+        return rows.map((row) => this.enrichCommercialStock(row))
     }
 
-    private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUpdateInput {
-        const data: Prisma.MmMaterialUpdateInput = {}
+    /** Nullable FK scalars — empty string clears the relation. */
+    private static readonly NULLABLE_FK_KEYS = new Set([
+        'currencyId',
+        'valuationClassId',
+        'companyId',
+        'defaultWarehouseId',
+        'preferredSupplierId',
+        'purchaseUomId',
+        'salesUomId',
+    ])
+
+    private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUncheckedUpdateInput {
+        const data: Prisma.MmMaterialUncheckedUpdateInput = {}
         for (const [key, value] of Object.entries(dto)) {
             if (value === undefined) continue
             if (DECIMAL_UPDATE_KEYS.has(key)) {
                 ;(data as Record<string, unknown>)[key] = new Decimal(value as number)
+            } else if (
+                MaterialsService.NULLABLE_FK_KEYS.has(key) &&
+                (value === '' || value === null)
+            ) {
+                ;(data as Record<string, unknown>)[key] = null
             } else {
                 ;(data as Record<string, unknown>)[key] = value
             }
@@ -153,6 +132,7 @@ export class MaterialsService {
         materialType: { select: { id: true, code: true, name: true } },
         materialCategory: { select: { id: true, code: true, name: true } },
         baseUom: { select: { id: true, code: true, name: true } },
+        currency: { select: { id: true, code: true, name: true, symbol: true } },
         company: { select: { id: true, code: true, name: true } },
         defaultWarehouse: { select: { id: true, code: true, name: true } },
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
@@ -199,7 +179,7 @@ export class MaterialsService {
             this.prisma.mmMaterial.count({ where }),
         ])
 
-        const enriched = await this.overlayLedgerStockBatch(
+        const enriched = this.enrichCommercialStockBatch(
             data.map((row) => row as Record<string, unknown>),
         )
         return {
@@ -226,7 +206,7 @@ export class MaterialsService {
             },
         })
         if (!material) throw new NotFoundException('Material not found')
-        const enriched = await this.overlayLedgerStock(
+        const enriched = this.enrichCommercialStock(
             material as Record<string, unknown>,
         )
         return serializeMaterial(enriched)
@@ -312,12 +292,23 @@ export class MaterialsService {
             status = 'DRAFT'
         }
 
+        // Materials default to the PHP currency. The New/Edit Material form no
+        // longer exposes a currency picker; the API remains the authority.
+        const currencyId =
+            dto.currencyId && dto.currencyId.trim() !== ''
+                ? dto.currencyId
+                : ((await this.prisma.mmCurrency.findFirst({
+                      where: { code: 'PHP' },
+                      select: { id: true },
+                  }))?.id ?? null)
+
         const material = await this.prisma.mmMaterial.create({
             data: {
                 ...(dto as Prisma.MmMaterialUncheckedCreateInput),
                 materialCode,
                 sku,
                 status,
+                currencyId,
                 onHandQty: new Decimal(dto.onHandQty ?? 0),
                 reservedQty: new Decimal(dto.reservedQty ?? 0),
             },
@@ -376,6 +367,25 @@ export class MaterialsService {
             include: this.includes,
         })
 
+        if (dto.currencyId !== undefined || dto.standardCost !== undefined) {
+            const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput = {}
+            if (dto.currencyId !== undefined) {
+                valuationPatch.currencyId =
+                    dto.currencyId && dto.currencyId.trim() !== ''
+                        ? dto.currencyId
+                        : null
+            }
+            if (dto.standardCost !== undefined) {
+                valuationPatch.standardCost = new Decimal(dto.standardCost)
+            }
+            if (Object.keys(valuationPatch).length > 0) {
+                await this.prisma.mmMaterialValuation.updateMany({
+                    where: { materialId: id },
+                    data: valuationPatch,
+                })
+            }
+        }
+
         const changes = this.diffChanges(existing, updated)
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'UPDATE', changes, null)
@@ -391,9 +401,7 @@ export class MaterialsService {
         if (material.status === 'BLOCKED') {
             throw new BadRequestException('Unblock the material before activating')
         }
-        await assertActivateReady(this.prisma, material as Parameters<
-            typeof assertActivateReady
-        >[1])
+        await assertActivateReady(this.prisma, material as any)
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
             data: { status: 'ACTIVE' },

@@ -2,9 +2,11 @@ import { notFound, redirect } from 'next/navigation'
 import SubmodulePlaceholderPage from '@/components/erp/SubmodulePlaceholderPage'
 import {
     erpFeatureRoutePath,
+    featurePermissionCode,
     findFeatureByRoute,
     getNestedSubmoduleStaticParams,
 } from '@/configs/erp-modules'
+import { requireRead } from '@/server/actions/permissions/getMyPermissions'
 
 type PageProps = {
     params: Promise<{
@@ -52,6 +54,10 @@ export default async function Page({ params }: PageProps) {
     if (!match) {
         notFound()
     }
+
+    await requireRead(
+        featurePermissionCode(moduleCode, match.submodule, match.child),
+    )
 
     if (match.child.path !== segmentPath) {
         redirect(match.child.path)

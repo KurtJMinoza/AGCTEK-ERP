@@ -1,45 +1,49 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import axios from 'axios'
+import {
+    HiOutlineDocumentDuplicate,
+    HiOutlineDuplicate,
+    HiOutlineTrash,
+} from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Button from '@/components/ui/Button'
-import Checkbox from '@/components/ui/Checkbox'
 import Notification from '@/components/ui/Notification'
 import Spinner from '@/components/ui/Spinner'
-import Tag from '@/components/ui/Tag'
 import toast from '@/components/ui/toast'
+import { USER_ROLES } from '@/constants/roles.constant'
 import {
-    USER_ROLE_VALUES,
-    getRoleLabel,
-    type UserRole,
-} from '@/constants/roles.constant'
-import { SUPER_ADMIN_SETTINGS_PATH } from '@/constants/route.constant'
+    SUPER_ADMIN_SETTINGS_PATH,
+    superAdminRolePath,
+    superAdminTemplatePath,
+} from '@/constants/route.constant'
 import {
+    apiDeleteRole,
     apiGetRolePermissions,
+    apiUpdateRole,
     apiUpdateRolePermissions,
-    type CrudFlags,
-    type RolePermissionRow,
+    type RolePermissionGroup,
+    type RolePermissionsResponse,
 } from '@/services/PermissionService'
 import { invalidatePermissions } from '@/utils/hooks/usePermissions'
-
-const ACTION_COLUMNS: { field: keyof CrudFlags; label: string }[] = [
-    { field: 'canView', label: 'View' },
-    { field: 'canCreate', label: 'Create' },
-    { field: 'canRead', label: 'Read' },
-    { field: 'canUpdate', label: 'Update' },
-    { field: 'canDelete', label: 'Delete' },
-]
-
-const WRITE_FIELDS: (keyof CrudFlags)[] = ['canCreate', 'canUpdate', 'canDelete']
+import CreateRoleDialog from '../components/CreateRoleDialog'
+import PermissionMatrix, {
+    sameFlags,
+    toPermissionEntries,
+} from '../components/PermissionMatrix'
+import RoleDetailsCard from '../components/RoleDetailsCard'
+import RoleUsersCard from '../components/RoleUsersCard'
 
 function errorMessage(error: unknown, fallback: string) {
     if (axios.isAxiosError(error)) {
-        const message = (error.response?.data as { message?: string | string[] })
-            ?.message
+        const message = (
+            error.response?.data as { message?: string | string[] }
+        )?.message
         if (Array.isArray(message)) return message.join(', ')
         if (message) return message
     }
@@ -55,237 +59,312 @@ function notify(type: 'success' | 'danger', title: string, message: string) {
     )
 }
 
-/** Mirrors the backend rules: write implies read, and any grant implies view. */
-function applyToggle(
-    row: RolePermissionRow,
-    field: keyof CrudFlags,
-    value: boolean,
-): RolePermissionRow {
-    const next = { ...row, [field]: value }
-    if (value) {
-        if (WRITE_FIELDS.includes(field)) next.canRead = true
-        next.canView = true
-    } else if (field === 'canView' || field === 'canRead') {
-        next.canCreate = false
-        next.canUpdate = false
-        next.canDelete = false
-        if (field === 'canView') next.canRead = false
-    }
-    return next
-}
-
-function sameFlags(a: RolePermissionRow[], b: RolePermissionRow[]) {
-    return a.every((row, i) =>
-        ACTION_COLUMNS.every(({ field }) => row[field] === b[i]?.[field]),
-    )
-}
-
 const RolePermissionsPage = () => {
     const params = useParams()
-    const role = params?.role as string
-    const isKnownRole = USER_ROLE_VALUES.includes(role as UserRole)
+    const router = useRouter()
+    const roleCode = params?.role as string
+    const [detailsSaving, setDetailsSaving] = useState(false)
+    const [copyDialog, setCopyDialog] = useState<'role' | 'template' | null>(
+        null,
+    )
+    const [deleteOpen, setDeleteOpen] = useState(false)
+    const [deleting, setDeleting] = useState(false)
 
-    const [original, setOriginal] = useState<RolePermissionRow[]>([])
-    const [rows, setRows] = useState<RolePermissionRow[]>([])
+    const [role, setRole] = useState<RolePermissionsResponse['role'] | null>(
+        null,
+    )
+    const [original, setOriginal] = useState<RolePermissionGroup[]>([])
+    const [groups, setGroups] = useState<RolePermissionGroup[]>([])
     const [editable, setEditable] = useState(false)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [loadError, setLoadError] = useState<string | null>(null)
 
+    const applyResponse = (data: RolePermissionsResponse) => {
+        setRole(data.role)
+        setOriginal(data.groups)
+        setGroups(data.groups)
+        setEditable(data.editable)
+    }
+
     const load = useCallback(async () => {
-        if (!isKnownRole) {
-            setLoading(false)
-            return
-        }
         setLoading(true)
         setLoadError(null)
         try {
-            const data = await apiGetRolePermissions(role)
-            setOriginal(data.permissions)
-            setRows(data.permissions)
-            setEditable(data.editable)
+            applyResponse(await apiGetRolePermissions(roleCode))
         } catch (error) {
-            setLoadError(errorMessage(error, 'Failed to load role permissions.'))
+            setLoadError(
+                errorMessage(error, 'Failed to load role permissions.'),
+            )
         } finally {
             setLoading(false)
         }
-    }, [role, isKnownRole])
+    }, [roleCode])
 
     useEffect(() => {
         load()
     }, [load])
 
-    const dirty = useMemo(() => !sameFlags(rows, original), [rows, original])
+    const dirty = useMemo(
+        () => !sameFlags(groups, original),
+        [groups, original],
+    )
 
-    const toggle = (moduleCode: string, field: keyof CrudFlags, value: boolean) => {
-        setRows((prev) =>
-            prev.map((row) =>
-                row.moduleCode === moduleCode ? applyToggle(row, field, value) : row,
-            ),
-        )
-    }
+    const copySource = useMemo(
+        () =>
+            role
+                ? { type: 'role' as const, code: role.code, name: role.name }
+                : null,
+        [role],
+    )
 
     const handleSave = async () => {
         setSaving(true)
         try {
             const data = await apiUpdateRolePermissions(
-                role,
-                rows
-                    .filter((row) => !row.locked)
-                    .map(({ moduleCode, canView, canCreate, canRead, canUpdate, canDelete }) => ({
-                        moduleCode,
-                        canView,
-                        canCreate,
-                        canRead,
-                        canUpdate,
-                        canDelete,
-                    })),
+                roleCode,
+                toPermissionEntries(groups),
             )
-            setOriginal(data.permissions)
-            setRows(data.permissions)
+            applyResponse(data)
             invalidatePermissions()
-            notify('success', 'Permissions saved', `${getRoleLabel(role)} permissions updated.`)
+            notify(
+                'success',
+                'Permissions saved',
+                `${data.role.name} permissions updated.`,
+            )
         } catch (error) {
-            notify('danger', 'Save failed', errorMessage(error, 'Failed to save permissions.'))
+            notify(
+                'danger',
+                'Save failed',
+                errorMessage(error, 'Failed to save permissions.'),
+            )
         } finally {
             setSaving(false)
         }
     }
 
-    const roleLabel = getRoleLabel(role) || role
+    const handleSaveDetails = async (values: {
+        name: string
+        description: string
+    }) => {
+        setDetailsSaving(true)
+        try {
+            const updated = await apiUpdateRole(roleCode, values)
+            setRole((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          name: updated.name,
+                          description: updated.description,
+                      }
+                    : prev,
+            )
+            notify('success', 'Role updated', `${updated.name} details saved.`)
+        } catch (error) {
+            notify(
+                'danger',
+                'Save failed',
+                errorMessage(error, 'Failed to save role details.'),
+            )
+        } finally {
+            setDetailsSaving(false)
+        }
+    }
+
+    const handleDelete = async () => {
+        setDeleting(true)
+        try {
+            await apiDeleteRole(roleCode)
+            notify(
+                'success',
+                'Role deleted',
+                `${role?.name ?? roleCode} was deleted.`,
+            )
+            router.push(SUPER_ADMIN_SETTINGS_PATH)
+        } catch (error) {
+            notify(
+                'danger',
+                'Delete failed',
+                errorMessage(error, 'Failed to delete the role.'),
+            )
+            setDeleting(false)
+            setDeleteOpen(false)
+        }
+    }
+
+    const roleLabel = role?.name ?? roleCode
+    const isSuperAdmin = roleCode === USER_ROLES.SUPER_ADMIN
+    const canDelete = Boolean(role && !role.isSystem && role.userCount === 0)
 
     return (
         <PageContainer>
             <PageHeader
-                title={`${roleLabel} permissions`}
-                description="Module access and CRUD actions granted to this role."
+                title={roleLabel}
+                description="Role details, permissions per submodule, and the users who have this role."
                 breadcrumbs={[
-                    { label: 'Super Admin Settings', href: SUPER_ADMIN_SETTINGS_PATH },
+                    {
+                        label: 'Super Admin Settings',
+                        href: SUPER_ADMIN_SETTINGS_PATH,
+                    },
                     { label: 'Roles' },
                     { label: roleLabel },
                 ]}
                 actions={
-                    editable ? (
-                        <div className="flex gap-2">
+                    role && !isSuperAdmin ? (
+                        <div className="flex flex-wrap gap-2">
                             <Button
                                 size="sm"
-                                disabled={!dirty || saving}
-                                onClick={() => setRows(original)}
+                                icon={<HiOutlineDuplicate />}
+                                onClick={() => setCopyDialog('role')}
                             >
-                                Reset
+                                Clone
                             </Button>
                             <Button
                                 size="sm"
-                                variant="solid"
-                                loading={saving}
-                                disabled={!dirty}
-                                onClick={handleSave}
+                                icon={<HiOutlineDocumentDuplicate />}
+                                disabled={dirty}
+                                title={
+                                    dirty
+                                        ? 'Save or reset your permission changes first.'
+                                        : undefined
+                                }
+                                onClick={() => setCopyDialog('template')}
                             >
-                                Save
+                                Save as template
                             </Button>
+                            {!role.isSystem && (
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlineTrash />}
+                                    disabled={!canDelete}
+                                    title={
+                                        canDelete
+                                            ? undefined
+                                            : 'Move every user to another role before deleting this role.'
+                                    }
+                                    onClick={() => setDeleteOpen(true)}
+                                >
+                                    Delete
+                                </Button>
+                            )}
                         </div>
                     ) : null
                 }
             />
 
-            <AdaptiveCard>
-                {!isKnownRole ? (
-                    <p className="text-sm text-gray-500">Unknown role: {role}</p>
-                ) : loading ? (
+            <CreateRoleDialog
+                isOpen={copyDialog !== null}
+                kind={copyDialog ?? 'role'}
+                source={copySource}
+                onClose={() => setCopyDialog(null)}
+                onCreated={(created) => {
+                    const asTemplate = copyDialog === 'template'
+                    setCopyDialog(null)
+                    notify(
+                        'success',
+                        asTemplate ? 'Template created' : 'Role created',
+                        `${created.name} was created from ${roleLabel}.`,
+                    )
+                    router.push(
+                        asTemplate
+                            ? superAdminTemplatePath(created.code)
+                            : superAdminRolePath(created.code),
+                    )
+                }}
+            />
+
+            <ConfirmDialog
+                isOpen={deleteOpen}
+                type="danger"
+                title="Delete role"
+                confirmText="Delete"
+                confirmButtonProps={{ loading: deleting }}
+                onClose={() => setDeleteOpen(false)}
+                onRequestClose={() => setDeleteOpen(false)}
+                onCancel={() => setDeleteOpen(false)}
+                onConfirm={handleDelete}
+            >
+                <p>
+                    {roleLabel} and its permissions will be permanently deleted.
+                    No users currently have this role.
+                </p>
+            </ConfirmDialog>
+
+            {loading ? (
+                <AdaptiveCard>
                     <div className="flex justify-center py-10">
                         <Spinner size={32} />
                     </div>
-                ) : loadError ? (
+                </AdaptiveCard>
+            ) : loadError ? (
+                <AdaptiveCard>
                     <div className="flex flex-col items-start gap-3">
                         <p className="text-sm text-red-500">{loadError}</p>
                         <Button size="sm" onClick={load}>
                             Retry
                         </Button>
                     </div>
-                ) : (
-                    <>
-                        {!editable && (
-                            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                                Super Admin always has full access to every module. These
-                                permissions cannot be changed.
+                </AdaptiveCard>
+            ) : (
+                <div className="flex flex-col gap-4">
+                    {role && (
+                        <RoleDetailsCard
+                            role={role}
+                            editable={!isSuperAdmin}
+                            saving={detailsSaving}
+                            onSave={handleSaveDetails}
+                        />
+                    )}
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                        <div>
+                            <h4 className="heading-text">Permissions</h4>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {editable
+                                    ? 'Read, Create, Update and Delete per submodule, grouped by module.'
+                                    : 'Super Admin always has full access to every module. These permissions cannot be changed.'}
                             </p>
-                        )}
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-gray-200 text-left dark:border-gray-700">
-                                        <th className="py-3 pr-4 font-semibold heading-text">
-                                            Module
-                                        </th>
-                                        {ACTION_COLUMNS.map(({ field, label }) => (
-                                            <th
-                                                key={field}
-                                                className="w-24 py-3 text-center font-semibold heading-text"
-                                            >
-                                                {label}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                    {rows.map((row) => {
-                                        const disabled = !editable || row.locked || saving
-                                        return (
-                                            <tr key={row.moduleCode}>
-                                                <td className="py-3 pr-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-semibold heading-text">
-                                                            {row.moduleName}
-                                                        </span>
-                                                        <Tag className="border-0 bg-gray-100 text-xs dark:bg-gray-700">
-                                                            {row.moduleCode}
-                                                        </Tag>
-                                                        {row.locked && editable && (
-                                                            <Tag className="border-0 bg-amber-100 text-xs text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                                                                Super Admin only
-                                                            </Tag>
-                                                        )}
-                                                        {!row.isActive && (
-                                                            <Tag className="border-0 bg-gray-100 text-xs text-gray-500 dark:bg-gray-700">
-                                                                Inactive
-                                                            </Tag>
-                                                        )}
-                                                    </div>
-                                                    {row.description && (
-                                                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                                                            {row.description}
-                                                        </p>
-                                                    )}
-                                                </td>
-                                                {ACTION_COLUMNS.map(({ field, label }) => (
-                                                    <td key={field} className="py-3 text-center">
-                                                        <Checkbox
-                                                            className="justify-center"
-                                                            checked={row[field]}
-                                                            disabled={disabled}
-                                                            aria-label={`${row.moduleName} ${label}`}
-                                                            onChange={(value) =>
-                                                                toggle(row.moduleCode, field, value)
-                                                            }
-                                                        />
-                                                    </td>
-                                                ))}
-                                            </tr>
-                                        )
-                                    })}
-                                </tbody>
-                            </table>
                         </div>
                         {editable && (
-                            <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                                View is module access (menu and entry). Any other grant also
-                                grants View, and Create, Update or Delete also grant Read.
-                                Changes take effect within about 30 seconds.
-                            </p>
+                            <div className="flex gap-2">
+                                <Button
+                                    size="sm"
+                                    disabled={!dirty || saving}
+                                    onClick={() => setGroups(original)}
+                                >
+                                    Reset
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    loading={saving}
+                                    disabled={!dirty}
+                                    onClick={handleSave}
+                                >
+                                    Save permissions
+                                </Button>
+                            </div>
                         )}
-                    </>
-                )}
-            </AdaptiveCard>
+                    </div>
+                    <PermissionMatrix
+                        groups={groups}
+                        disabled={!editable || saving}
+                        onChange={setGroups}
+                    />
+                    {editable && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Read means the submodule or feature is visible and
+                            its records can be read. Create, Update or Delete
+                            also grant Read. Submodules that contain features
+                            are granted per feature; expand them to set each
+                            feature, or use their checkboxes to set all
+                            features at once. A module appears in the menu when
+                            anything in it is readable. Changes take effect
+                            within about 30 seconds.
+                        </p>
+                    )}
+                    <RoleUsersCard roleCode={roleCode} />
+                </div>
+            )}
         </PageContainer>
     )
 }

@@ -21,6 +21,7 @@ import { uomConversionService } from '../services/referenceService'
 import { useUomOptions } from '@/modules/mm/shared/useEntityOptions'
 import type { MmUomConversion, MmUom } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { firstError, positiveNumber, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
 
@@ -34,6 +35,7 @@ type Opt = { value: string; label: string }
 
 const UomConversionsPage = () => {
     const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const { canCreate, canUpdate, canDelete } = useResourceAccess()
     const [items, setItems] = useState<MmUomConversion[]>([])
     const [loading, setLoading] = useState(true)
     const [formOpen, setFormOpen] = useState(false)
@@ -134,19 +136,19 @@ const UomConversionsPage = () => {
         {
             id: 'actions', header: '', size: 56, enableSorting: false, cell: ({ row }) => (
                 <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                    <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>
-                    <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
+                    {canUpdate && <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>}
+                    {canDelete && <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>}
                 </Dropdown>
             ),
         },
-    ], [])
+    ], [canUpdate, canDelete])
 
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="UOM Conversions" description="Define conversion factors between units of measure." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add conversion</Button>} />
+            <PageHeader title="UOM Conversions" description="Define conversion factors between units of measure." actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add conversion</Button> : undefined} />
             <AdaptiveCard>
-                {selectedRows.size > 0 && (
+                {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
                         <div className="ml-auto flex items-center gap-2">

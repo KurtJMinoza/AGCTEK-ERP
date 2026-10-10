@@ -18,6 +18,43 @@ const STORE_SLUGS: Record<string, string> = {
 /** Full catalogue page (search, filters, sort), e.g. /shop/products?store=awic. */
 export const MARKETPLACE_PRODUCTS_PATH = `${MARKETPLACE_PATH}/products` as const
 
+/** Shopper account pages. */
+export const MARKETPLACE_SIGN_IN_PATH = `${MARKETPLACE_PATH}/sign-in` as const
+export const MARKETPLACE_SIGN_UP_PATH = `${MARKETPLACE_PATH}/sign-up` as const
+export const MARKETPLACE_ACCOUNT_PATH = `${MARKETPLACE_PATH}/account` as const
+
+/** Matches `/shop/sign-in` and, on a dedicated marketplace host, `/sign-in`. */
+export const isMarketplaceAuthPath = (path: string) =>
+    [MARKETPLACE_SIGN_IN_PATH, MARKETPLACE_SIGN_UP_PATH].some(
+        (page) =>
+            path === page || path === page.slice(MARKETPLACE_PATH.length),
+    )
+
+/** Sign-in / sign-up link that returns the shopper to `next` (same-origin paths only). */
+export const marketplaceAuthHref = (
+    page: typeof MARKETPLACE_SIGN_IN_PATH | typeof MARKETPLACE_SIGN_UP_PATH,
+    next?: string | null,
+) => {
+    const target = safeReturnPath(next)
+    return target === MARKETPLACE_PATH
+        ? page
+        : `${page}?${new URLSearchParams({ next: target }).toString()}`
+}
+
+/** Same-origin paths only: guards post-sign-in redirects against open redirects and auth-page loops. */
+export const safeReturnPath = (next: string | null | undefined) => {
+    const value = next?.trim() ?? ''
+    if (
+        !value.startsWith('/') ||
+        value.startsWith('//') ||
+        value.includes('\\') ||
+        isMarketplaceAuthPath(value.split(/[?#]/)[0])
+    ) {
+        return MARKETPLACE_PATH
+    }
+    return value
+}
+
 export const storeSlug = (divisionId: string) =>
     STORE_SLUGS[divisionId] ?? divisionId.toLowerCase()
 

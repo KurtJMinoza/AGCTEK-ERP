@@ -6,14 +6,15 @@ import {
     IsOptional,
     IsString,
     Max,
+    Matches,
     MaxLength,
     Min,
     MinLength,
 } from 'class-validator'
 import { Transform, Type } from 'class-transformer'
-import { USER_ROLES, type UserRole } from '../../auth/auth.constants'
+import { ROLE_CODE_PATTERN } from '../../auth/auth.constants'
 
-const ROLE_VALUES = Object.values(USER_ROLES)
+const ROLE_CODE_MESSAGE = 'role must be a valid role code'
 const STATUS_VALUES = ['active', 'inactive'] as const
 
 export class UserQueryDto {
@@ -22,8 +23,8 @@ export class UserQueryDto {
     search?: string
 
     @IsOptional()
-    @IsIn(ROLE_VALUES)
-    role?: UserRole
+    @Matches(ROLE_CODE_PATTERN, { message: ROLE_CODE_MESSAGE })
+    role?: string
 
     @IsOptional()
     @IsIn(STATUS_VALUES)
@@ -73,8 +74,8 @@ export class CreateUserDto {
     @MinLength(6)
     password!: string
 
-    @IsIn(ROLE_VALUES)
-    role!: UserRole
+    @Matches(ROLE_CODE_PATTERN, { message: ROLE_CODE_MESSAGE })
+    role!: string
 
     /** Initial (default) company. Required unless role is super_admin. */
     @IsOptional()
@@ -112,8 +113,8 @@ export class UpdateUserDto {
     jobPosition?: string
 
     @IsOptional()
-    @IsIn(ROLE_VALUES)
-    role?: UserRole
+    @Matches(ROLE_CODE_PATTERN, { message: ROLE_CODE_MESSAGE })
+    role?: string
 }
 
 export class UpdateUserStatusDto {

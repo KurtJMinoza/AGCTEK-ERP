@@ -1,7 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common'
 import { CurrentUser, type AuthRequestUser } from '../../auth/auth.decorator'
 import { RequirePermission } from '../../permissions/permission.guard'
-import { MODULE_CODES } from '../../permissions/permissions.constants'
 import { CrmActivitiesService } from './activities.service'
 import { CompleteActivityDto, CreateActivityDto } from './dto/activity.dto'
 
@@ -10,13 +9,13 @@ export class CrmActivitiesController {
     constructor(private readonly activities: CrmActivitiesService) {}
 
     @Get()
-    @RequirePermission(MODULE_CODES.CRM, 'read')
+    @RequirePermission('crm.activities', 'read')
     list(@Param('opportunityId') opportunityId: string) {
         return this.activities.listForOpportunity(opportunityId)
     }
 
     @Post()
-    @RequirePermission(MODULE_CODES.CRM, 'create')
+    @RequirePermission('crm.activities', 'create')
     create(
         @Param('opportunityId') opportunityId: string,
         @Body() dto: CreateActivityDto,
@@ -27,7 +26,7 @@ export class CrmActivitiesController {
 
     @Post(':activityId/complete')
     @HttpCode(200)
-    @RequirePermission(MODULE_CODES.CRM, 'update')
+    @RequirePermission('crm.activities', 'update')
     complete(
         @Param('opportunityId') opportunityId: string,
         @Param('activityId') activityId: string,
@@ -43,13 +42,13 @@ export class CrmTicketActivitiesController {
     constructor(private readonly activities: CrmActivitiesService) {}
 
     @Get()
-    @RequirePermission(MODULE_CODES.CRM, 'read')
+    @RequirePermission('crm.activities', 'read')
     list(@Param('ticketId') ticketId: string) {
         return this.activities.listForTicket(ticketId)
     }
 
     @Post()
-    @RequirePermission(MODULE_CODES.CRM, 'create')
+    @RequirePermission('crm.activities', 'create')
     create(
         @Param('ticketId') ticketId: string,
         @Body() dto: CreateActivityDto,
@@ -60,7 +59,7 @@ export class CrmTicketActivitiesController {
 
     @Post(':activityId/complete')
     @HttpCode(200)
-    @RequirePermission(MODULE_CODES.CRM, 'update')
+    @RequirePermission('crm.activities', 'update')
     complete(
         @Param('ticketId') ticketId: string,
         @Param('activityId') activityId: string,

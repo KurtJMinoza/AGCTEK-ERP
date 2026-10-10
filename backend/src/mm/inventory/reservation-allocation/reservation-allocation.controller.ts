@@ -10,7 +10,11 @@ import {
     ReservationQueryDto,
 } from './dto/reservation-allocation.dto'
 import { AvailabilityQueryDto } from '../dto/availability-query.dto'
-import { MmMutation } from '../../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../../common/mm-mutation.decorator'
+import { mmFeatures } from '../../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('inventory-management', 'available-stock', 'goods-issue', 'inventory-ledger', 'inventory-status', 'reservations', 'stock-movements', 'stock-overview', 'traceability')
 
 @Controller('mm/inventory')
 export class ReservationAllocationController {
@@ -21,61 +25,66 @@ export class ReservationAllocationController {
     ) {}
 
     @Get('availability')
+    @MmRead(READERS)
     getAvailability(@Query() query: AvailabilityQueryDto) {
         return this.availability.getAvailability(query)
     }
 
     @Get('reservations')
+    @MmRead(READERS)
     listReservations(@Query() query: ReservationQueryDto) {
         return this.reservations.findAll(query)
     }
 
     @Get('reservations/:id')
+    @MmRead(READERS)
     getReservation(@Param('id') id: string) {
         return this.reservations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations')
     createReservation(@Body() dto: CreateReservationHeaderDto) {
         return this.reservations.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/release')
     releaseReservation(@Param('id') id: string) {
         return this.reservations.release(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/cancel')
     cancelReservation(@Param('id') id: string) {
         return this.reservations.cancel(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('reservations/:id/allocate')
     allocateReservation(@Param('id') id: string, @Body() dto: AllocateReservationDto) {
         return this.reservations.allocate(id, dto)
     }
 
     @Get('allocations')
+    @MmRead(READERS)
     listAllocations(@Query() query: AllocationQueryDto) {
         return this.allocations.findAll(query)
     }
 
     @Get('allocations/:id')
+    @MmRead(READERS)
     getAllocation(@Param('id') id: string) {
         return this.allocations.findOne(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('allocations')
     createAllocation(@Body() dto: CreateAllocationDto) {
         return this.allocations.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'reservations'))
     @Post('allocations/:id/release')
     releaseAllocation(@Param('id') id: string) {
         return this.allocations.release(id)

@@ -3,7 +3,7 @@ import {
     BadRequestException,
     ConflictException,
     NotFoundException,
-    Optional,
+    UnauthorizedException,
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -26,7 +26,6 @@ import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
 import { SdMmPipelineService } from './sd-mm-pipeline.service'
-import { NotificationsService } from '../notifications/notifications.service'
 import {
     assertCatalogLineInput,
     assertSellable,
@@ -47,15 +46,6 @@ const SIGNED_IN_ECOMMERCE_DIVISIONS: ReadonlySet<string> = new Set([
     'DIV_LPG',
     'DIV_APPLIANCES',
 ])
-
-/**
- * Manual-approval workflow: every e-commerce order is captured as `DRAFT`
- * ("Waiting for Approval"). Checkout immediately places the MM stock hold
- * (soft deduction) so the order can't be oversold, but it must NOT set
- * `CONFIRMED` — only an admin `confirm()` advances the status and alerts the
- * warehouse to start packing.
- */
-const ECOMMERCE_INITIAL_STATUS = 'DRAFT'
 
 export interface CrmSalesOrderHandoffResult {
     salesOrderId: string
@@ -98,9 +88,6 @@ export class SalesOrderService {
         private products: ProductService,
         private mmPipeline: SdMmPipelineService,
         private quotations: QuotationService,
-        /** Best-effort warehouse alert on approval; absent in unit tests. */
-        @Optional()
-        private notifications?: NotificationsService,
     ) {}
 
     private readonly includes = {
@@ -348,7 +335,10 @@ export class SalesOrderService {
      * Idempotent on `idempotencyKey`. Totals are re-verified server-side; no MM
      * events are emitted until retail SKUs are mapped to MM-01 materials.
      */
-    async createRetail(dto: CreateRetailSalesOrderDto) {
+    async createRetail(
+        dto: CreateRetailSalesOrderDto,
+        sessionClientId: string | null = null,
+    ) {
         const existing = await this.prisma.sdSalesOrder.findUnique({
             where: { idempotencyKey: dto.idempotencyKey },
             include: { lines: { orderBy: { lineNumber: 'asc' } } },
@@ -367,6 +357,7 @@ export class SalesOrderService {
             dto.channel,
             [dto.divisionId],
             dto.customerId,
+            sessionClientId,
         )
 
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -385,9 +376,6 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                // Hybrid approval: place the MM stock hold (soft deduction) now for
-                // BOTH channels. POS is completed at the counter; e-commerce stays
-                // DRAFT (pending admin approval) even though stock is reserved.
                 const { integrated } = await this.mmPipeline.integrateConfirmedOrder(
                     created.id,
                 )
@@ -424,11 +412,10 @@ export class SalesOrderService {
      * carries its own `divisionId` and MM splits fulfillment downstream. The
      * header `divisionId` stays null. Idempotent on `checkoutId`.
      */
-    async createMarketplaceCheckout(dto: CreateMarketplaceCheckoutDto) {
-        // Capture ONE master ECOMMERCE order as DRAFT, then immediately place the
-        // MM soft hold (reservation) so the item can't be oversold. The status
-        // stays DRAFT for manual admin approval; confirm() remains the only path
-        // that advances the order to CONFIRMED.
+    async createMarketplaceCheckout(
+        dto: CreateMarketplaceCheckoutDto,
+        sessionClientId: string | null = null,
+    ) {
         const master: RetailOrderInput = {
             channel: 'ECOMMERCE',
             idempotencyKey: dto.checkoutId,
@@ -459,6 +446,7 @@ export class SalesOrderService {
             master.channel,
             dto.cartItems.map((line) => line.divisionId),
             dto.customerId,
+            sessionClientId,
         )
 
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -474,11 +462,6 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                // Hybrid approval: soft-hold stock now so the item can't be
-                // oversold, but keep the order DRAFT so it still awaits admin
-                // approval. The reservation is idempotent, so confirming later
-                // does not double-hold.
-                await this.mmPipeline.integrateConfirmedOrder(order.id)
                 return this.checkoutResult(dto, order)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
@@ -565,9 +548,7 @@ export class SalesOrderService {
             totalAmount: totals.totalAmount,
             paymentReceived: totals.paymentReceived,
             changeAmount: totals.changeAmount,
-            // POS fast-track completes at the counter; e-commerce orders are
-            // captured as ECOMMERCE_INITIAL_STATUS (DRAFT) and never auto-confirm.
-            status: isPos ? 'COMPLETED' : ECOMMERCE_INITIAL_STATUS,
+            status: isPos ? 'COMPLETED' : 'CONFIRMED',
             correlationId,
             idempotencyKey: dto.idempotencyKey,
             createdBy: dto.createdBy ?? null,
@@ -763,12 +744,18 @@ export class SalesOrderService {
         channel: RetailOrderInput['channel'],
         divisionIds: readonly string[],
         customerId: string,
+        sessionClientId: string | null,
     ) {
         if (
             channel !== 'ECOMMERCE' ||
             !divisionIds.some((id) => SIGNED_IN_ECOMMERCE_DIVISIONS.has(id))
         ) {
             return null
+        }
+        if (!sessionClientId || sessionClientId !== customerId) {
+            throw new UnauthorizedException(
+                'Please sign in to your account before placing an order.',
+            )
         }
         try {
             return await this.retailClients.getProfile(customerId)
@@ -833,29 +820,7 @@ export class SalesOrderService {
         })
 
         await this.mmPipeline.emitSalesOrderConfirmedIntegration(updated)
-        await this.notifyWarehouseToPack(updated)
         return updated
-    }
-
-    /** Best-effort warehouse alert when an admin approves an order. */
-    private async notifyWarehouseToPack(order: {
-        orderNumber: string
-        warehouseId: string | null
-        lines: unknown[]
-    }) {
-        if (!this.notifications) return
-        try {
-            await this.notifications.create({
-                target: 'Warehouse',
-                description: `Order ${order.orderNumber} approved — start packing (${order.lines.length} line${order.lines.length === 1 ? '' : 's'}).`,
-                type: 1,
-                location: order.warehouseId ?? '',
-                locationLabel: 'Fulfillment',
-                status: 'pending',
-            })
-        } catch {
-            // Alert is best-effort; never block the approval.
-        }
     }
 
     async cancel(id: string) {

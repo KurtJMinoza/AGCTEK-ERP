@@ -12,6 +12,7 @@ import {
 import { MaintenanceService } from './maintenance.service'
 import { VehicleDocumentsService } from './vehicle-documents.service'
 import type { ListQuery } from '../scm.utils'
+import { RequirePermission } from '../../permissions/permission.guard'
 
 @Controller('scm/maintenance')
 export class MaintenanceController {
@@ -21,6 +22,7 @@ export class MaintenanceController {
     ) {}
 
     @Get()
+    @RequirePermission(['scm.maintenance', 'scm.vehicles'], 'read')
     findAll(
         @Query() query: ListQuery & { vehicleId?: string; type?: string },
     ) {
@@ -29,6 +31,7 @@ export class MaintenanceController {
 
     /** Fleet OR/CR/insurance list (before :id). */
     @Get('documents')
+    @RequirePermission(['scm.maintenance', 'scm.vehicles'], 'read')
     findDocuments(
         @Query()
         query: ListQuery & {
@@ -41,6 +44,7 @@ export class MaintenanceController {
     }
 
     @Get('compliance-summary')
+    @RequirePermission(['scm.maintenance', 'scm.vehicles'], 'read')
     complianceSummary() {
         return this.vehicleDocumentsService.complianceSummary()
     }
@@ -50,26 +54,31 @@ export class MaintenanceController {
      * Empty vehicleIds → all vehicles. null thresholdKm clears.
      */
     @Put('odometer-thresholds')
+    @RequirePermission('scm.maintenance', 'update')
     setOdometerThresholds(@Body() body: Record<string, unknown>) {
         return this.maintenanceService.setOdometerThresholds(body as never)
     }
 
     @Get(':id')
+    @RequirePermission(['scm.maintenance', 'scm.vehicles'], 'read')
     findOne(@Param('id') id: string) {
         return this.maintenanceService.findOne(id)
     }
 
     @Post()
+    @RequirePermission('scm.maintenance', 'create')
     create(@Body() body: Record<string, unknown>) {
         return this.maintenanceService.create(body as never)
     }
 
     @Patch(':id')
+    @RequirePermission('scm.maintenance', 'update')
     update(@Param('id') id: string, @Body() body: Record<string, unknown>) {
         return this.maintenanceService.update(id, body as never)
     }
 
     @Delete(':id')
+    @RequirePermission('scm.maintenance', 'delete')
     remove(@Param('id') id: string) {
         return this.maintenanceService.remove(id)
     }

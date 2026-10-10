@@ -8,7 +8,7 @@ import { documentFlowService } from '@/modules/mm/shared/services/documentFlowSe
 import type { DocumentFlowNode } from '@/modules/mm/shared/types/documentFlow'
 
 const TYPE_LABELS: Record<string, string> = {
-    PURCHASE_REQUISITION: 'Purchase Requisition',
+    PURCHASE_REQUISITION: 'Purchase Request',
     RFQ: 'RFQ',
     QUOTATION: 'Quotation',
     PURCHASE_ORDER: 'Purchase Order',

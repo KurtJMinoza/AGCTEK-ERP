@@ -146,7 +146,7 @@ const ProcurementSuggestionsPage = () => {
                 cell: ({ row }) => <StatusBadge status={row.original.status} />,
             },
             {
-                header: 'PR',
+                header: 'Request',
                 cell: ({ row }) =>
                     row.original.purchaseRequisition?.requisitionNumber ?? '—',
             },
@@ -167,7 +167,7 @@ const ProcurementSuggestionsPage = () => {
                                     variant="solid"
                                     onClick={() => setConvertId(row.original.id)}
                                 >
-                                    Convert to PR
+                                    Convert to request
                                 </Button>
                                 <Button
                                     size="xs"
@@ -195,7 +195,7 @@ const ProcurementSuggestionsPage = () => {
             pushToast(
                 'success',
                 'Converted',
-                `DRAFT PR ${res.purchaseRequisition.requisitionNumber}`,
+                `DRAFT purchase request ${res.purchaseRequisition.requisitionNumber}`,
             )
             setConvertId(null)
             load()
@@ -211,7 +211,7 @@ const ProcurementSuggestionsPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Procurement Suggestions"
-                description="MRP recommendations — convert to DRAFT PR on demand (never auto-PO)"
+                description="MRP recommendations — convert to DRAFT purchase request on demand (never auto-PO)"
             />
             <AdaptiveCard className="mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -265,7 +265,7 @@ const ProcurementSuggestionsPage = () => {
             <FormDialog
                 isOpen={!!convertId}
                 onClose={() => setConvertId(null)}
-                title="Convert to DRAFT Purchase Requisition"
+                title="Convert to DRAFT purchase request"
                 footer={
                     <>
                         <Button size="sm" onClick={() => setConvertId(null)}>

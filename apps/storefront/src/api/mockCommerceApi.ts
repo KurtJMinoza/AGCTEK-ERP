@@ -108,6 +108,12 @@ export class MockCommerceApi implements CommerceApi {
     private nextNumber = 1001
     private profiles = new Map<string, Customer>()
 
+    getSessionToken(): string | null {
+        return null
+    }
+
+    setSessionToken(_token: string | null): void {}
+
     getProducts(): Promise<Product[]> {
         return delay(PRODUCTS)
     }

@@ -8,21 +8,20 @@ import Card from '@/components/ui/Card'
 import Drawer from '@/components/ui/Drawer'
 import Spinner from '@/components/ui/Spinner'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
-import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import {
-    cancelSalesOrder,
     getSalesOrders,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
+import StorefrontReturnDialog from './StorefrontReturnDialog'
 
 const STATUS_COPY: Record<
     SalesOrderRecord['status'],
     { label: string; tone: StatusTone }
 > = {
-    Draft: { label: 'Waiting for Approval', tone: 'warning' },
-    'Pending Delivery': { label: 'Preparing to Ship', tone: 'info' },
+    'Pending Delivery': { label: 'To be delivered', tone: 'warning' },
     Completed: { label: 'Delivered', tone: 'success' },
     Cancelled: { label: 'Cancelled', tone: 'danger' },
+    Draft: { label: 'Processing', tone: 'default' },
 }
 
 const formatPrice = (value: number) =>
@@ -42,6 +41,8 @@ export type StorefrontOrdersDrawerProps = {
     onClose: () => void
     /** Signed-in storefront client; orders are fetched only for this customer. */
     customerId: string | null
+    /** Shopper bearer token — required to file a return request. */
+    clientToken: string | null
     /** Limits the list to one division; omit to show orders from every store. */
     divisionId?: string
     isMobile: boolean
@@ -55,6 +56,7 @@ const StorefrontOrdersDrawer = ({
     isOpen,
     onClose,
     customerId,
+    clientToken,
     divisionId,
     isMobile,
     accentTextClass,
@@ -63,10 +65,10 @@ const StorefrontOrdersDrawer = ({
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [cancellingId, setCancellingId] = useState<string | null>(null)
-    const [cancelTarget, setCancelTarget] = useState<SalesOrderRecord | null>(
+    const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(
         null,
     )
+    const [returnMessage, setReturnMessage] = useState<string | null>(null)
 
     const load = useCallback(async () => {
         if (!customerId) return
@@ -93,24 +95,6 @@ const StorefrontOrdersDrawer = ({
         setOrders(null)
     }, [customerId])
 
-    /** Customer-initiated cancellation while the order awaits approval. */
-    const cancelOrder = async (orderId: string) => {
-        setCancellingId(orderId)
-        setError(null)
-        try {
-            await cancelSalesOrder(orderId)
-            await load()
-        } catch (err) {
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Unable to cancel your order',
-            )
-        } finally {
-            setCancellingId(null)
-        }
-    }
-
     return (
         <Drawer
             title="My orders"
@@ -132,6 +116,12 @@ const StorefrontOrdersDrawer = ({
                             Retry
                         </Button>
                     </div>
+                </Alert>
+            ) : null}
+
+            {returnMessage ? (
+                <Alert showIcon type="success" className="mb-4">
+                    {returnMessage}
                 </Alert>
             ) : null}
 
@@ -215,7 +205,7 @@ const StorefrontOrdersDrawer = ({
                                             </li>
                                         ) : null}
                                     </ul>
-                                    <div className="mt-3 flex justify-between border-t border-gray-100 pt-3 font-bold dark:border-gray-700">
+                                    <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 font-bold dark:border-gray-700">
                                         <span>
                                             {order.status === 'Completed'
                                                 ? 'Total paid'
@@ -225,23 +215,19 @@ const StorefrontOrdersDrawer = ({
                                             {formatPrice(order.totalAmount)}
                                         </span>
                                     </div>
-                                    {order.status === 'Draft' ? (
-                                        <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-700">
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                Awaiting approval — you can
-                                                still request a cancellation.
-                                            </span>
+                                    {order.status === 'Completed' &&
+                                    clientToken ? (
+                                        <div className="mt-3 border-t border-gray-100 pt-3 dark:border-gray-700">
                                             <Button
                                                 size="xs"
                                                 variant="plain"
-                                                loading={
-                                                    cancellingId === order.id
-                                                }
-                                                onClick={() =>
-                                                    setCancelTarget(order)
-                                                }
+                                                className="!px-0 !text-emerald-700 dark:!text-emerald-400"
+                                                onClick={() => {
+                                                    setReturnMessage(null)
+                                                    setReturnOrder(order)
+                                                }}
                                             >
-                                                Request cancellation
+                                                Return items
                                             </Button>
                                         </div>
                                     ) : null}
@@ -251,30 +237,23 @@ const StorefrontOrdersDrawer = ({
                     })}
                 </ul>
             )}
-            <ConfirmDialog
-                isOpen={cancelTarget !== null}
-                type="danger"
-                title="Request cancellation?"
-                cancelText="Keep order"
-                confirmText="Request cancellation"
-                confirmButtonProps={{
-                    customColorClass: () =>
-                        'bg-red-500 hover:bg-red-600 text-white',
-                }}
-                onClose={() => setCancelTarget(null)}
-                onRequestClose={() => setCancelTarget(null)}
-                onCancel={() => setCancelTarget(null)}
-                onConfirm={() => {
-                    const target = cancelTarget
-                    setCancelTarget(null)
-                    if (target) void cancelOrder(target.id)
-                }}
-            >
-                <p>
-                    {cancelTarget?.orderId} will be cancelled. You can place a
-                    new order any time.
-                </p>
-            </ConfirmDialog>
+
+            {returnOrder ? (
+                <StorefrontReturnDialog
+                    isOpen={returnOrder !== null}
+                    order={returnOrder}
+                    token={clientToken ?? ''}
+                    onClose={() => setReturnOrder(null)}
+                    onSubmitted={(requestNumber) => {
+                        setReturnOrder(null)
+                        setReturnMessage(
+                            `Return request ${requestNumber} submitted — it will be reviewed before processing.`,
+                        )
+                        void load()
+                    }}
+                    onError={() => setReturnMessage(null)}
+                />
+            ) : null}
         </Drawer>
     )
 }

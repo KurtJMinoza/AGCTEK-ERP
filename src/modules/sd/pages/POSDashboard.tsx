@@ -1,14 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type KeyboardEvent,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
@@ -34,8 +27,15 @@ import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import { useDivisionProducts } from '../hooks/useDivisionProducts'
-import type { SalesDivisionId } from '../services/pricingEngine'
-import { usePOSCartStore, type POSCartItem } from '../store/usePOSCartStore'
+import {
+    usePOSCartStore,
+    posLineKey,
+    type POSCartItem,
+} from '../store/usePOSCartStore'
+import {
+    productOptionVariantsService,
+    type ProductVariantDefinition,
+} from '../services/productOptionVariantsService'
 import {
     processPOSCheckout,
     type POSCheckoutResult,
@@ -46,6 +46,7 @@ import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
 } from '../store/usePOSBranchStore'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const CameraBarcodeScanner = dynamic(
     () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
@@ -75,11 +76,7 @@ const POSDashboard = () => {
     const router = useRouter()
     const { hydrated, branch } = useActivePOSBranch()
     const branchId = branch?.id ?? null
-    // The terminal sells whichever division the selected branch belongs to.
-    // Previously this was hardcoded to DIV_RETAIL, so LPG / Appliances branch
-    // SKUs could never be found ("not in the catalog").
-    const divisionId = (branch?.divisionId ??
-        RETAIL_DIVISION_ID) as SalesDivisionId
+    const { canCreate } = useResourceAccess('sd.pos')
 
     useEffect(() => {
         if (hydrated && !branchId) router.replace(POS_GATEWAY_PATH)
@@ -91,7 +88,12 @@ const POSDashboard = () => {
     const updateQuantity = usePOSCartStore((s) => s.updateQuantity)
     const removeItem = usePOSCartStore((s) => s.removeItem)
     const clearCart = usePOSCartStore((s) => s.clearCart)
-    const catalog = useDivisionProducts(divisionId, toRetailProduct)
+    const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
+    /** Parent with multiple variants → cashier picks the exact one. */
+    const [variantPicker, setVariantPicker] = useState<{
+        product: ReturnType<typeof toRetailProduct>
+        variants: ProductVariantDefinition[]
+    } | null>(null)
 
     const skuInputRef = useRef<HTMLInputElement>(null)
     const [sku, setSku] = useState('')
@@ -120,20 +122,13 @@ const POSDashboard = () => {
 
     const resolveProduct = useCallback(
         (code: string) => {
-            // Cashier input (typed or barcode-wedge) can carry stray whitespace
-            // or lower case; normalize before matching against the catalog.
-            const normalized = code.trim().toUpperCase()
+            const normalized = code.trim()
             if (!normalized) return null
+            const lower = normalized.toLowerCase()
             return (
-                catalog.products.find(
-                    (p) => p.sku.trim().toUpperCase() === normalized,
-                ) ??
-                catalog.products.find(
-                    (p) => p.productId.trim().toUpperCase() === normalized,
-                ) ??
-                catalog.products.find(
-                    (p) => p.itemId.trim().toUpperCase() === normalized,
-                ) ??
+                catalog.products.find((p) => p.sku.toLowerCase() === lower) ??
+                catalog.products.find((p) => p.productId.toLowerCase() === lower) ??
+                catalog.products.find((p) => p.itemId.toLowerCase() === lower) ??
                 null
             )
         },
@@ -142,14 +137,13 @@ const POSDashboard = () => {
 
     const handleAdd = useCallback(
         async (override?: string) => {
-            const code = (override ?? sku).trim().toUpperCase()
+            const code = (override ?? sku).trim()
             if (!code) return
             if (!catalog.ready) {
                 notify(
                     'danger',
                     'Catalog not loaded',
-                    catalog.error ??
-                        'Products are still loading. Try again in a moment.',
+                    catalog.error ?? 'Products are still loading. Try again in a moment.',
                 )
                 if (catalog.error) void catalog.reload()
                 return
@@ -159,25 +153,91 @@ const POSDashboard = () => {
             setSku('')
             focusScanner()
             if (!product) {
-                notify(
-                    'danger',
-                    'Invalid SKU',
-                    `${code} is not in the catalog.`,
+                // The code may be a variant barcode — resolve the exact variant.
+                try {
+                    const variant =
+                        await productOptionVariantsService.findVariantByBarcode(
+                            code,
+                        )
+                    const parent = catalog.products.find(
+                        (p) =>
+                            p.sku.toLowerCase() ===
+                            variant.product?.sku?.toLowerCase(),
+                    )
+                    if (!parent) {
+                        notify(
+                            'danger',
+                            'Variant not in catalog',
+                            `${code} matched ${variant.variantName}, but its parent SKU is not in the POS catalog.`,
+                        )
+                        setAddingSku(false)
+                        return
+                    }
+                    addItem(parent, 1, {
+                        id: variant.id,
+                        name: variant.variantName,
+                        sku: variant.sku,
+                        unitPrice: Number(variant.price ?? parent.basePrice),
+                    })
+                    setAddingSku(false)
+                    return
+                } catch {
+                    notify(
+                        'danger',
+                        'Invalid SKU',
+                        `${code} is not in the catalog.`,
+                    )
+                    setAddingSku(false)
+                    return
+                }
+            }
+            // Products with options: ask the cashier to choose the exact variant.
+            try {
+                const payload = await productOptionVariantsService.getForProduct(
+                    product.productId,
                 )
-                setAddingSku(false)
-                return
+                if (payload.hasVariants) {
+                    const active = payload.variants.filter(
+                        (variant) => variant.isActive,
+                    )
+                    if (active.length === 0) {
+                        notify(
+                            'danger',
+                            'No variants available',
+                            `${product.name} has no active variants.`,
+                        )
+                        setAddingSku(false)
+                        return
+                    }
+                    if (active.length === 1) {
+                        const only = active[0]
+                        addItem(product, 1, {
+                            id: only.id,
+                            name: only.variantName,
+                            sku: only.sku,
+                            unitPrice: Number(only.price ?? product.basePrice),
+                        })
+                        setAddingSku(false)
+                        return
+                    }
+                    setVariantPicker({
+                        product,
+                        variants: [...active].sort(
+                            (a, b) =>
+                                Number(b.isDefault) - Number(a.isDefault) ||
+                                a.sortOrder - b.sortOrder,
+                        ),
+                    })
+                    setAddingSku(false)
+                    return
+                }
+            } catch {
+                /* variant lookup failed — treat as a simple product */
             }
             addItem(product)
             setAddingSku(false)
         },
-        [
-            addItem,
-            catalog.error,
-            catalog.ready,
-            catalog.reload,
-            resolveProduct,
-            sku,
-        ],
+        [addItem, catalog.error, catalog.ready, catalog.reload, resolveProduct, sku],
     )
 
     const handleScanKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -208,17 +268,21 @@ const POSDashboard = () => {
         if (!branchId) return
         setCheckingOut(true)
         try {
-            const result = await processPOSCheckout(
-                {
-                    branchId,
-                    items: items.map((item) => ({
-                        sku: item.product.sku,
-                        quantity: item.quantity,
-                    })),
-                    paymentReceived: cashReceived,
-                },
-                divisionId,
-            )
+            const result = await processPOSCheckout({
+                branchId,
+                items: items.map((item) => ({
+                    sku: item.product.sku,
+                    quantity: item.quantity,
+                    ...(item.variant
+                        ? {
+                              variantId: item.variant.id,
+                              variantName: item.variant.name,
+                              unitPrice: item.variant.unitPrice,
+                          }
+                        : {}),
+                })),
+                paymentReceived: cashReceived,
+            })
             clearCart()
             setCash('')
             setReceipt(result)
@@ -226,9 +290,7 @@ const POSDashboard = () => {
             notify(
                 'danger',
                 'Checkout failed',
-                error instanceof Error
-                    ? error.message
-                    : 'Unable to complete sale.',
+                error instanceof Error ? error.message : 'Unable to complete sale.',
             )
             void catalog.reload()
         } finally {
@@ -251,7 +313,9 @@ const POSDashboard = () => {
                             {row.original.product.name}
                         </div>
                         <div className="text-xs text-gray-500">
-                            {row.original.product.sku}
+                            {row.original.variant
+                                ? `${row.original.variant.name} · ${row.original.variant.sku}`
+                                : row.original.product.sku}
                         </div>
                     </div>
                 ),
@@ -268,9 +332,7 @@ const POSDashboard = () => {
                                 variant="default"
                                 icon={<HiOutlineMinus />}
                                 aria-label={`Decrease ${product.name}`}
-                                onClick={() =>
-                                    updateQuantity(product.sku, quantity - 1)
-                                }
+                                onClick={() => updateQuantity(posLineKey(row.original), quantity - 1)}
                             />
                             <span className="min-w-[2rem] text-center font-semibold tabular-nums">
                                 {quantity}
@@ -280,20 +342,21 @@ const POSDashboard = () => {
                                 variant="default"
                                 icon={<HiOutlinePlus />}
                                 aria-label={`Increase ${product.name}`}
-                                onClick={() =>
-                                    updateQuantity(product.sku, quantity + 1)
-                                }
+                                onClick={() => updateQuantity(posLineKey(row.original), quantity + 1)}
                             />
                         </div>
                     )
                 },
             },
             {
-                header: 'BASE PRICE',
-                id: 'basePrice',
+                header: 'PRICE',
+                id: 'price',
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap font-medium tabular-nums">
-                        {formatPrice(row.original.product.basePrice)}
+                        {formatPrice(
+                            row.original.variant?.unitPrice ??
+                                row.original.product.basePrice,
+                        )}
                     </span>
                 ),
             },
@@ -308,7 +371,7 @@ const POSDashboard = () => {
                             variant="plain"
                             icon={<HiOutlineTrash />}
                             aria-label={`Remove ${product.name}`}
-                            onClick={() => removeItem(product.sku)}
+                            onClick={() => removeItem(posLineKey(row.original))}
                         />
                     )
                 },
@@ -370,12 +433,10 @@ const POSDashboard = () => {
                 <div className="flex flex-col gap-6 xl:col-span-8">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4">
-                            <h3 className="text-lg font-bold heading-text">
-                                Scan items
-                            </h3>
+                            <h3 className="text-lg font-bold heading-text">Scan items</h3>
                             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                Use a USB barcode wedge, type the SKU, or scan
-                                with your device camera.
+                                Use a USB barcode wedge, type the SKU, or scan with your device
+                                camera.
                             </p>
                         </div>
 
@@ -396,18 +457,20 @@ const POSDashboard = () => {
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <Button
-                                block
-                                size="lg"
-                                variant="solid"
-                                className="h-12 sm:col-span-1"
-                                icon={<HiOutlineQrcode className="text-lg" />}
-                                loading={addingSku}
-                                disabled={!sku.trim() && !catalog.ready}
-                                onClick={() => void handleAdd()}
-                            >
-                                Add item
-                            </Button>
+                            {canCreate && (
+                                <Button
+                                    block
+                                    size="lg"
+                                    variant="solid"
+                                    className="h-12 sm:col-span-1"
+                                    icon={<HiOutlineQrcode className="text-lg" />}
+                                    loading={addingSku}
+                                    disabled={!sku.trim() && !catalog.ready}
+                                    onClick={() => void handleAdd()}
+                                >
+                                    Add item
+                                </Button>
+                            )}
                             <Button
                                 block
                                 size="lg"
@@ -435,9 +498,7 @@ const POSDashboard = () => {
 
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4 flex items-center justify-between gap-2">
-                            <h3 className="text-base font-semibold heading-text">
-                                Cart
-                            </h3>
+                            <h3 className="text-base font-semibold heading-text">Cart</h3>
                             {items.length > 0 ? (
                                 <span className="text-sm text-gray-500 tabular-nums">
                                     {formatPrice(subtotal)} subtotal
@@ -469,6 +530,65 @@ const POSDashboard = () => {
                     />
                 </div>
             </div>
+
+            <Dialog
+                isOpen={variantPicker !== null}
+                width={520}
+                shouldReturnFocusAfterClose={false}
+                onAfterClose={focusScanner}
+                onClose={() => setVariantPicker(null)}
+                onRequestClose={() => setVariantPicker(null)}
+            >
+                <h5 className="mb-1">Choose a variant</h5>
+                <p className="mb-4 text-sm text-gray-500">
+                    {variantPicker?.product.name}
+                </p>
+                <div className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto">
+                    {variantPicker?.variants.map((variant) => (
+                        <button
+                            key={variant.id}
+                            type="button"
+                            className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-left hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                            onClick={() => {
+                                if (!variantPicker) return
+                                addItem(variantPicker.product, 1, {
+                                    id: variant.id,
+                                    name: variant.variantName,
+                                    sku: variant.sku,
+                                    unitPrice: Number(
+                                        variant.price ??
+                                            variantPicker.product.basePrice,
+                                    ),
+                                })
+                                setVariantPicker(null)
+                                focusScanner()
+                            }}
+                        >
+                            <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium">
+                                    {variant.variantName}
+                                    {variant.isDefault ? (
+                                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                            Default
+                                        </span>
+                                    ) : null}
+                                </span>
+                                <span className="block truncate font-mono text-xs text-gray-400">
+                                    {variant.sku}
+                                </span>
+                            </span>
+                            <span className="shrink-0 text-sm font-semibold">
+                                {formatPrice(Number(variant.price))}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <Button size="sm" onClick={() => setVariantPicker(null)}>
+                        Cancel
+                    </Button>
+                </div>
+            </Dialog>
 
             <CameraBarcodeScanner
                 isOpen={cameraOpen}
@@ -509,13 +629,18 @@ const POSDashboard = () => {
                 <h5 className="mb-4">Sale complete</h5>
                 {receipt ? (
                     <div className="max-h-[60vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
-                        <POSReceipt receipt={receipt} />
+                        <POSReceipt
+                            receipt={receipt}
+                            branchName={branch?.label}
+                        />
                     </div>
                 ) : null}
                 <div className="mt-4 flex justify-end gap-2">
-                    <Button size="sm" onClick={() => setReceipt(null)}>
-                        New sale
-                    </Button>
+                    {canCreate && (
+                        <Button size="sm" onClick={() => setReceipt(null)}>
+                            New sale
+                        </Button>
+                    )}
                     <Button
                         size="sm"
                         variant="solid"
@@ -529,7 +654,10 @@ const POSDashboard = () => {
             {receipt
                 ? createPortal(
                       <div className="print-isolate hidden print:block">
-                          <POSReceipt receipt={receipt} />
+                          <POSReceipt
+                              receipt={receipt}
+                              branchName={branch?.label}
+                          />
                       </div>,
                       document.body,
                   )

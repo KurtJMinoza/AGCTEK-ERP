@@ -7,6 +7,7 @@ import {
     Param,
     Patch,
     Post,
+    Put,
     Query,
     Req,
 } from '@nestjs/common'
@@ -19,9 +20,12 @@ import {
     PRODUCT_GALLERY_MAX,
     UpdateProductDto,
 } from './dto/product.dto'
+import { UpdateProductOptionsVariantsDto } from './dto/product-option-variants.dto'
 import { ProductService } from './product.service'
+import { ProductOptionVariantsService } from './product-option-variants.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
+import { RequirePermission } from '../permissions/permission.guard'
 
 /**
  * Reads a product payload sent either as JSON or as multipart/form-data with a
@@ -79,6 +83,7 @@ export class ProductController {
     constructor(
         private products: ProductService,
         private availabilityService: CommercialAvailabilityService,
+        private optionVariants: ProductOptionVariantsService,
     ) {}
 
     @Get()
@@ -88,6 +93,7 @@ export class ProductController {
 
     /** Multipart upload (field `file`); returns `{ imageUrl }` to save on the product. */
     @Post('images')
+    @RequirePermission('sd.product-catalog', 'create')
     async uploadImage(@Req() req: FastifyRequest) {
         let buffer: Buffer | null = null
         for await (const part of req.parts()) {
@@ -98,6 +104,7 @@ export class ProductController {
 
     /** Multipart upload (field `file`); returns `{ videoUrl }` for `attributes.videos`. */
     @Post('videos')
+    @RequirePermission('sd.product-catalog', 'create')
     async uploadVideo(@Req() req: FastifyRequest) {
         let buffer: Buffer | null = null
         for await (const part of req.parts({
@@ -109,8 +116,58 @@ export class ProductController {
     }
 
     @Get('suggested-sku')
+    @RequirePermission('sd.product-catalog', 'read')
     suggestedSku(@Query('divisionId') divisionId: string) {
         return this.products.suggestSku(divisionId)
+    }
+
+    /** Options + variants of a product (admin editor + storefront detail). */
+    @Get(':id/options-variants')
+    optionsVariants(@Param('id') id: string) {
+        return this.optionVariants.getForProduct(id)
+    }
+
+    /** Replace the full options + variants set (variant generator output). */
+    @Put(':id/options-variants')
+    updateOptionsVariants(
+        @Param('id') id: string,
+        @Body() dto: UpdateProductOptionsVariantsDto,
+    ) {
+        return this.optionVariants.updateOptionsAndVariants(id, dto)
+    }
+
+    /** POS / scanner: barcode → the exact variant (plus parent product). */
+    @Get('variants/barcode/:barcode')
+    variantByBarcode(@Param('barcode') barcode: string) {
+        return this.optionVariants.findVariantByBarcode(barcode)
+    }
+
+    /** Per-variant MM availability (selected variant is the stock item). */
+    @Get('variants/:variantId/availability')
+    variantAvailability(
+        @Param('variantId') variantId: string,
+        @Query('companyId') companyId?: string,
+        @Query('branchId') branchId?: string,
+    ) {
+        return this.optionVariants.variantAvailability(
+            variantId,
+            companyId,
+            branchId,
+        )
+    }
+
+    /** Batch per-variant availability for a product page. */
+    @Get(':id/variants/availability')
+    productVariantsAvailability(
+        @Param('id') id: string,
+        @Query('companyId') companyId?: string,
+        @Query('branchId') branchId?: string,
+    ) {
+        return this.optionVariants.listAvailabilityForProduct(
+            id,
+            companyId,
+            branchId,
+        )
     }
 
     @Get('storefront/availability')
@@ -126,6 +183,7 @@ export class ProductController {
     }
 
     @Get(':id/availability')
+    @RequirePermission(['sd.product-catalog', 'sd.pos', 'sd.sales-orders'], 'read')
     availability(
         @Param('id') id: string,
         @Query('companyId') companyId: string,
@@ -150,12 +208,14 @@ export class ProductController {
     }
 
     @Post()
+    @RequirePermission('sd.product-catalog', 'create')
     create(@Body() dto: CreateProductDto) {
         return this.products.create(dto)
     }
 
     /** JSON, or multipart with `data` (JSON) + optional `image` and `gallery` files. */
     @Patch(':id')
+    @RequirePermission('sd.product-catalog', 'update')
     async update(@Param('id') id: string, @Req() req: FastifyRequest) {
         const { dto, image, gallery } = await readProductPayload(
             req,
@@ -165,6 +225,7 @@ export class ProductController {
     }
 
     @Delete(':id')
+    @RequirePermission('sd.product-catalog', 'delete')
     remove(@Param('id') id: string) {
         return this.products.remove(id)
     }

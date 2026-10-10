@@ -11,7 +11,7 @@ import {
 } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { HiOutlineAdjustments, HiOutlineSearch, HiX } from 'react-icons/hi'
-import { BadgeCheck, LayoutGrid } from 'lucide-react'
+import { BadgeCheck, Building2, LayoutGrid } from 'lucide-react'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
@@ -20,10 +20,7 @@ import Select from '@/components/ui/Select'
 import Skeleton from '@/components/ui/Skeleton'
 import classNames from '@/utils/classNames'
 import useResponsive from '@/utils/hooks/useResponsive'
-import {
-    PRODUCT_DIVISIONS,
-    productDivisionLabel,
-} from '@/modules/sd/catalogs/productDivisions'
+import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import StorefrontCatalogStatus from '@/modules/storefront/shared/components/StorefrontCatalogStatus'
 import {
@@ -36,7 +33,6 @@ import MarketplaceFilters, {
     type FilterOption,
 } from '../components/MarketplaceFilters'
 import MarketplaceHeader from '../components/MarketplaceHeader'
-import { OFFICIAL_STORES } from '../components/MarketplaceOfficialStores'
 import { discountPercent } from '../components/MarketplaceProductCard'
 import { MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
@@ -71,7 +67,7 @@ const SORT_OPTIONS: SortOption[] = [
 const PAGE_SIZE = 24
 const SEARCH_URL_DELAY_MS = 300
 
-const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4'
+const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 lg:gap-7 xl:grid-cols-3'
 
 const CRUMB_BUTTON =
     'cursor-pointer truncate font-medium text-emerald-700 hover:underline focus:outline-none focus-visible:underline'
@@ -101,6 +97,11 @@ const FilterChip = ({
         <HiX className="text-emerald-500 group-hover:text-emerald-800" />
     </button>
 )
+
+type CompanyFilterOption = FilterOption & {
+    name: string
+    code: string
+}
 
 const GridSkeleton = () => (
     <div className={GRID} aria-busy="true" aria-label="Loading products">
@@ -190,17 +191,36 @@ const MarketplaceProductsPage = () => {
         [searchScores],
     )
 
-    const storeOptions = useMemo<FilterOption[]>(
-        () =>
-            PRODUCT_DIVISIONS.map((division) => ({
-                value: division.id,
-                label: division.label,
-                count: catalog.records.filter(
-                    (p) => p.divisionId === division.id && matchesSearch(p),
-                ).length,
-            })),
-        [catalog.records, matchesSearch],
-    )
+    /**
+     * A marketplace company is the company on an active SD product-to-MM
+     * material assignment. It is intentionally not inferred from sales
+     * divisions or from every MM valuation record.
+     */
+    const companyOptions = useMemo<CompanyFilterOption[]>(() => {
+        const companies = new Map<string, CompanyFilterOption>()
+
+        for (const product of catalog.records) {
+            if (!matchesSearch(product) || !product.company) continue
+
+            const existing = companies.get(product.company.id)
+            if (existing) {
+                existing.count += 1
+                continue
+            }
+
+            companies.set(product.company.id, {
+                value: product.company.id,
+                label: product.company.code || product.company.name,
+                name: product.company.name,
+                code: product.company.code,
+                count: 1,
+            })
+        }
+
+        return [...companies.values()].sort((a, b) =>
+            a.label.localeCompare(b.label),
+        )
+    }, [catalog.records, matchesSearch])
 
     const categoryOptions = useMemo<FilterOption[]>(() => {
         const counts = new Map<string, number>()
@@ -208,6 +228,11 @@ const MarketplaceProductsPage = () => {
             if (
                 query.stores.length > 0 &&
                 !query.stores.includes(product.divisionId)
+            )
+                continue
+            if (
+                query.companies.length > 0 &&
+                !query.companies.includes(product.company?.id ?? '')
             )
                 continue
             if (!matchesSearch(product)) continue
@@ -223,7 +248,7 @@ const MarketplaceProductsPage = () => {
                 label: category,
                 count,
             }))
-    }, [catalog.records, query.stores, matchesSearch])
+    }, [catalog.records, query.stores, query.companies, matchesSearch])
 
     /** Ignore categories the chosen stores don't sell (e.g. from an old link). */
     const activeCategories = catalog.ready
@@ -237,6 +262,8 @@ const MarketplaceProductsPage = () => {
             (product) =>
                 (query.stores.length === 0 ||
                     query.stores.includes(product.divisionId)) &&
+                (query.companies.length === 0 ||
+                    query.companies.includes(product.company?.id ?? '')) &&
                 (activeCategories.length === 0 ||
                     activeCategories.includes(product.category)) &&
                 matchesSearch(product),
@@ -255,6 +282,7 @@ const MarketplaceProductsPage = () => {
     }, [
         catalog.records,
         query.stores,
+        query.companies,
         query.sort,
         activeCategories,
         matchesSearch,
@@ -263,6 +291,7 @@ const MarketplaceProductsPage = () => {
 
     const filterKey = [
         query.stores.join(','),
+        query.companies.join(','),
         activeCategories.join(','),
         query.sort,
         normalizedQuery,
@@ -289,26 +318,46 @@ const MarketplaceProductsPage = () => {
 
     const searching = normalizedQuery !== ''
     const singleStore = query.stores.length === 1 ? query.stores[0] : null
+    const singleCompanyId =
+        query.companies.length === 1 ? query.companies[0] : null
     const singleCategory =
         activeCategories.length === 1 ? activeCategories[0] : null
-    const store = singleStore
-        ? OFFICIAL_STORES.find((s) => s.divisionId === singleStore)
+    const company = singleCompanyId
+        ? companyOptions.find((option) => option.value === singleCompanyId)
         : undefined
+    /** Real seller brand of a single-store browse: the MM company behind the store's products. */
+    const storeCompany = useMemo(
+        () =>
+            company ??
+            (singleStore
+                ? catalog.records.find(
+                      (product) =>
+                          product.divisionId === singleStore &&
+                          product.company?.name?.trim(),
+                  )?.company
+                : undefined),
+        [company, singleStore, catalog.records],
+    )
     const storeTheme = divisionTheme(singleStore)
-    const StoreIcon = store?.icon
-    const storeTotal = singleStore
-        ? catalog.records.filter((p) => p.divisionId === singleStore).length
-        : 0
+    const StoreIcon = Building2
+    const storeTotal = singleCompanyId
+        ? catalog.records.filter((p) => p.company?.id === singleCompanyId)
+              .length
+        : singleStore
+          ? catalog.records.filter((p) => p.divisionId === singleStore).length
+          : 0
 
     const title = searching
         ? `Results for “${deferredSearch.trim()}”`
         : singleCategory
           ? singleCategory
-          : singleStore
-            ? productDivisionLabel(singleStore)
-            : query.sort === 'discount'
-              ? "Today's Best Deals"
-              : 'All Products'
+          : company
+            ? company.name
+            : singleStore
+              ? productDivisionLabel(singleStore)
+              : query.sort === 'discount'
+                ? "Today's Best Deals"
+                : 'All Products'
 
     useEffect(() => {
         const previous = document.title
@@ -319,11 +368,14 @@ const MarketplaceProductsPage = () => {
     }, [title])
 
     const filterCount =
-        query.stores.length + activeCategories.length + (searching ? 1 : 0)
+        query.stores.length +
+        query.companies.length +
+        activeCategories.length +
+        (searching ? 1 : 0)
 
     const clearAll = () => {
         setSearch('')
-        update({ stores: [], categories: [], q: '' })
+        update({ stores: [], companies: [], categories: [], q: '' })
     }
 
     const goHome = () => {
@@ -339,13 +391,13 @@ const MarketplaceProductsPage = () => {
 
     const filters = (
         <MarketplaceFilters
-            stores={storeOptions}
+            companies={companyOptions}
             categories={categoryOptions}
-            selectedStores={query.stores}
+            selectedCompanies={query.companies}
             selectedCategories={activeCategories}
-            onStoresChange={(stores) => update({ stores })}
+            onCompaniesChange={(companies) => update({ companies })}
             onCategoriesChange={(categories) => update({ categories })}
-            onReset={() => update({ stores: [], categories: [] })}
+            onReset={() => update({ companies: [], categories: [] })}
         />
     )
 
@@ -399,7 +451,7 @@ const MarketplaceProductsPage = () => {
                     ]}
                 />
 
-                {store && !searching ? (
+                {(company || singleStore) && !searching ? (
                     <section
                         className={classNames(
                             'mb-8 flex flex-col gap-5 overflow-hidden rounded-2xl bg-gradient-to-br p-6 sm:flex-row sm:items-center sm:p-8',
@@ -413,21 +465,23 @@ const MarketplaceProductsPage = () => {
                                 storeTheme.solid,
                             )}
                         >
-                            {StoreIcon ? (
-                                <StoreIcon
-                                    aria-hidden
-                                    className="h-7 w-7"
-                                    strokeWidth={1.75}
-                                />
-                            ) : null}
+                            <StoreIcon
+                                aria-hidden
+                                className="h-7 w-7"
+                                strokeWidth={1.75}
+                            />
                         </span>
                         <div className="min-w-0 flex-1">
                             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-                                Official store
+                                {company
+                                    ? 'MM valuation company'
+                                    : 'Official store'}
                             </p>
                             <h1 className="mt-1 flex items-center gap-2 text-3xl font-semibold tracking-tight text-gray-900">
                                 <span className="truncate">
-                                    {singleCategory ?? store.name}
+                                    {singleCategory ??
+                                        storeCompany?.name ??
+                                        productDivisionLabel(singleStore!)}
                                 </span>
                                 {!singleCategory ? (
                                     <BadgeCheck
@@ -438,8 +492,16 @@ const MarketplaceProductsPage = () => {
                             </h1>
                             <p className="mt-1 text-sm text-gray-500">
                                 {singleCategory
-                                    ? `From ${store.name} · ${store.tagline}`
-                                    : store.tagline}
+                                    ? company
+                                        ? `From ${company.name}${company.code ? ` · ${company.code}` : ''}`
+                                        : storeCompany
+                                          ? `From ${storeCompany.name}`
+                                          : `From ${productDivisionLabel(singleStore!)}`
+                                    : company
+                                      ? `Products linked to MM materials valued for ${company.name}.`
+                                      : storeCompany
+                                        ? `Products sold by ${storeCompany.name}.`
+                                        : `${productDivisionLabel(singleStore!)} storefront products.`}
                             </p>
                         </div>
                         {catalog.ready ? (
@@ -449,8 +511,8 @@ const MarketplaceProductsPage = () => {
                                     storeTheme.text,
                                 )}
                             >
-                                {storeTotal} item{storeTotal === 1 ? '' : 's'}{' '}
-                                in store
+                                {storeTotal} product
+                                {storeTotal === 1 ? '' : 's'}
                             </p>
                         ) : null}
                     </section>
@@ -476,8 +538,8 @@ const MarketplaceProductsPage = () => {
                             </h1>
                             <p className="mt-1 text-sm text-gray-500">
                                 {searching
-                                    ? 'Searching every official store: AWIC, LPG and MCONPINCO.'
-                                    : 'Everything from AWIC, LPG and MCONPINCO in one cart.'}
+                                    ? 'Searching published catalogue products across all companies.'
+                                    : 'Published products linked to their MM materials and valuation companies.'}
                             </p>
                         </div>
                     </section>
@@ -514,9 +576,10 @@ const MarketplaceProductsPage = () => {
                                 >
                                     Filters
                                     {query.stores.length +
+                                        query.companies.length +
                                         activeCategories.length >
                                     0
-                                        ? ` (${query.stores.length + activeCategories.length})`
+                                        ? ` (${query.stores.length + query.companies.length + activeCategories.length})`
                                         : ''}
                                 </Button>
                                 <div className="w-48">
@@ -560,6 +623,26 @@ const MarketplaceProductsPage = () => {
                                                 stores: query.stores.filter(
                                                     (s) => s !== divisionId,
                                                 ),
+                                            })
+                                        }
+                                    />
+                                ))}
+                                {query.companies.map((companyId) => (
+                                    <FilterChip
+                                        key={companyId}
+                                        label={
+                                            companyOptions.find(
+                                                (option) =>
+                                                    option.value === companyId,
+                                            )?.label ?? 'Company'
+                                        }
+                                        onRemove={() =>
+                                            update({
+                                                companies:
+                                                    query.companies.filter(
+                                                        (id) =>
+                                                            id !== companyId,
+                                                    ),
                                             })
                                         }
                                     />

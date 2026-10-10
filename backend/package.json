@@ -18,6 +18,7 @@
     "prisma:seed-sd-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-purge.ts",
     "prisma:purge-sd-mm-keep-uom": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-purge-keep-uom.ts",
     "prisma:seed-org-warehouse": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-org-warehouse.ts",
+    "prisma:seed-mm-reference": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reference-essentials-run.ts",
     "prisma:seed-material-samples": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-material-samples-run.ts",
     "prisma:seed-sd-mm-stock": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-test-stock.ts",
     "prisma:seed-supplier-links": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-supplier-material-links-run.ts",

@@ -1,4 +1,4 @@
-import type { ErpModule, ErpModuleCode } from '@/types/erp-modules'
+import type { ErpModule, ErpModuleCode, ErpSubmodule } from '@/types/erp-modules'
 import { MM_CATEGORIES } from '@/configs/erp-modules/mm.module'
 
 /**
@@ -112,6 +112,7 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'sales-analysis',
+                        permissionCode: 'sd.reports',
                         title: 'Sales Analysis',
                         description:
                             'Analyze revenue trends, order volumes, and product mix.',
@@ -120,6 +121,7 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'backorder-report',
+                        permissionCode: 'sd.reports',
                         title: 'Backorder Report',
                         description:
                             'Track open quantities and delivery bottlenecks.',
@@ -134,6 +136,7 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'sales-org',
+                        permissionCode: 'sd.configuration',
                         title: 'Sales Organization',
                         description:
                             'Configure sales orgs, distribution channels, and divisions.',
@@ -142,6 +145,7 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'document-types',
+                        permissionCode: 'sd.configuration',
                         title: 'Document Types',
                         description:
                             'Define SD document types and number ranges.',
@@ -237,6 +241,7 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'financial-statements',
+                        permissionCode: 'fico.reports',
                         title: 'Financial Statements',
                         description:
                             'Balance sheet, P&L, and cash flow reports.',
@@ -245,6 +250,7 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'cost-center-reporting',
+                        permissionCode: 'fico.reports',
                         title: 'Cost Center Reporting',
                         description:
                             'Analyze actual vs. plan costs by cost center.',
@@ -259,6 +265,7 @@ export const ERP_MODULES: ErpModule[] = [
                 submodules: [
                     {
                         code: 'fiscal-year-variant',
+                        permissionCode: 'fico.configuration',
                         title: 'Fiscal Year Variant',
                         description:
                             'Define posting periods and fiscal year structure.',
@@ -267,6 +274,7 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'document-types-fi',
+                        permissionCode: 'fico.configuration',
                         title: 'FI Document Types',
                         description:
                             'Configure financial document types and number ranges.',
@@ -572,6 +580,53 @@ export function findChildByRouteInModule(
         }
     }
     return undefined
+}
+
+/** Permission resource guarding a submodule; null for external links (e.g. the public marketplace). */
+export function submodulePermissionCode(
+    moduleCode: string,
+    submodule: Pick<ErpSubmodule, 'code' | 'permissionCode' | 'isExternalLink'>,
+): string | null {
+    if (submodule.permissionCode) return submodule.permissionCode
+    if (submodule.isExternalLink) return null
+    return `${moduleCode}.${submodule.code}`
+}
+
+/** Permission resource guarding a feature nested inside a submodule, e.g. `mm.procurement.rfqs`. */
+export function featurePermissionCode(
+    moduleCode: string,
+    submodule: Pick<ErpSubmodule, 'code'>,
+    feature: Pick<ErpSubmodule, 'code' | 'permissionCode'>,
+): string {
+    return (
+        feature.permissionCode ??
+        `${moduleCode}.${submodule.code}.${feature.code}`
+    )
+}
+
+/** Permission resource of the deepest registry page containing `pathname` (detail routes included). */
+export function permissionCodeForPath(pathname: string): string | null {
+    const contains = (path: string) =>
+        pathname === path || pathname.startsWith(`${path}/`)
+    let bestPath = ''
+    let bestCode: string | null = null
+    for (const module of ERP_MODULES) {
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                if (contains(submodule.path) && submodule.path.length > bestPath.length) {
+                    bestPath = submodule.path
+                    bestCode = submodulePermissionCode(module.code, submodule)
+                }
+                for (const child of submodule.children ?? []) {
+                    if (contains(child.path) && child.path.length > bestPath.length) {
+                        bestPath = child.path
+                        bestCode = featurePermissionCode(module.code, submodule, child)
+                    }
+                }
+            }
+        }
+    }
+    return bestCode
 }
 
 export function submoduleHasChildren(submodule: { children?: unknown[] }) {

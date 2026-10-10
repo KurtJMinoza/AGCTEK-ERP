@@ -3,10 +3,12 @@ import {
     NotFoundException,
     BadRequestException,
     Inject,
+    Optional,
     forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { WarehouseTaskService } from '../tasks/warehouse-task.service'
+import { PackingService } from '../packing/packing.service'
 import { CreatePickingDto } from './dto/create-picking.dto'
 import { PickingQueryDto } from './dto/picking-query.dto'
 import { ConfirmPickingDto } from './dto/confirm-picking.dto'
@@ -22,6 +24,8 @@ export class PickingService {
         private prisma: PrismaService,
         @Inject(forwardRef(() => WarehouseTaskService))
         private warehouseTasks: WarehouseTaskService,
+        /** Auto packing on pick completion (ecommerce flow) — optional to keep manual use intact. */
+        @Optional() private packing?: PackingService,
     ) {}
 
     private readonly includes = {
@@ -201,6 +205,9 @@ export class PickingService {
                 warehouseTaskId: engineTask.id,
                 priority: dto.priority ?? 5,
                 status: 'OPEN',
+                salesOrderId: dto.salesOrderId ?? null,
+                salesOrderLineId: dto.salesOrderLineId ?? null,
+                lastIdempotencyKey: dto.lastIdempotencyKey ?? null,
             },
             include: this.includes,
         })
@@ -354,7 +361,22 @@ export class PickingService {
             await this.syncWaveProgress(task.waveId)
         }
 
+        // Ecommerce chain: a fully picked task auto-creates its packing session.
+        if (newStatus === 'COMPLETED') {
+            await this.autoOpenPacking(id)
+        }
+
         return updated
+    }
+
+    /** Idempotent: opens the packing session exactly once per picking task. */
+    private async autoOpenPacking(pickingTaskId: string) {
+        if (!this.packing) return
+        try {
+            await this.packing.createFromPickingTask(pickingTaskId)
+        } catch {
+            /* packing already open / not packable — pick confirmation still succeeds */
+        }
     }
 
     async cancel(id: string) {

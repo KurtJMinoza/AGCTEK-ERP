@@ -43,7 +43,7 @@ describe('CrmOpportunityQuotationsService.create', () => {
 
             await expect(service.create('opp-1', dto, user)).resolves.toEqual({ id: 'q-1', status: 'DRAFT' })
 
-            expect(permissions.assertPermission).toHaveBeenCalledWith({ role: 'sales' }, 'sd', 'create')
+            expect(permissions.assertPermission).toHaveBeenCalledWith({ role: 'sales' }, 'sd.quotations', 'create')
             expect(order).toEqual(['lock', 'read', 'create'])
             expect(quotations.create).toHaveBeenCalledWith(
                 {

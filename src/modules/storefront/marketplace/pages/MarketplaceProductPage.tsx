@@ -12,13 +12,13 @@ import {
     HiOutlineShoppingCart,
     HiOutlineTruck,
 } from 'react-icons/hi'
-import { BadgeCheck, ChevronRight, Heart } from 'lucide-react'
+import { BadgeCheck, ChevronRight, Heart, Sparkles } from 'lucide-react'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import Skeleton from '@/components/ui/Skeleton'
 import classNames from '@/utils/classNames'
-import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
+import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import {
     productAttribute,
     type SdProductRecord,
@@ -30,6 +30,13 @@ import { discountPercent } from '../components/MarketplaceProductCard'
 import MarketplaceProductRow from '../components/MarketplaceProductRow'
 import ProductGallery from '../components/product/ProductGallery'
 import ProductStockStatus from '../components/product/ProductStockStatus'
+import ProductVariantSelector from '../components/product/ProductVariantSelector'
+import {
+    effectiveVariantCompareAt,
+    effectiveVariantPrice,
+    type ProductVariantDefinition,
+    type VariantImageMode,
+} from '@/modules/sd/services/productOptionVariantsService'
 import {
     formatReviewDate,
     productReviews,
@@ -67,21 +74,28 @@ const CRUMB_BUTTON =
 const Section = ({
     id,
     title,
+    icon,
     aside,
     children,
 }: {
     id: string
     title: string
+    icon?: ReactNode
     aside?: ReactNode
     children: ReactNode
 }) => (
     <Card className={classNames('rounded-2xl', SURFACE)} bodyClass="p-6 sm:p-8">
         <section aria-labelledby={id}>
-            <div className="mb-5 flex items-center justify-between gap-4">
+            <div className="mb-6 flex items-center justify-between gap-4">
                 <h2
                     id={id}
-                    className="text-lg font-semibold tracking-tight text-gray-900"
+                    className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-gray-900"
                 >
+                    {icon ? (
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                            {icon}
+                        </span>
+                    ) : null}
                     {title}
                 </h2>
                 {aside}
@@ -160,6 +174,12 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
     const [quantity, setQuantity] = useState(1)
     const { stock, loading, available, soldOut, maxQuantity } =
         useProductAvailability(product)
+    const [selectedVariant, setSelectedVariant] =
+        useState<ProductVariantDefinition | null>(null)
+    const [hasVariants, setHasVariants] = useState(false)
+    /** Admin setting: variant image replaces the main product photo. */
+    const [variantImageMode, setVariantImageMode] =
+        useState<VariantImageMode>('replace')
 
     useEffect(() => {
         setQuantity((q) => Math.max(1, Math.min(q, maxQuantity)))
@@ -176,8 +196,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
     const key = productKey(product)
     const inCart = quantityByKey.get(key) ?? 0
     const favorite = favorites.has(key)
-    const discount = discountPercent(product)
-    const storeName = productDivisionLabel(product.divisionId)
+    const storeName = productSellerLabel(product)
     const store = OFFICIAL_STORES.find(
         (s) => s.divisionId === product.divisionId,
     )
@@ -239,26 +258,75 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
 
     const unavailableLabel =
         stock?.state === 'NOT_MAPPED' ? 'Unavailable' : 'Out of stock'
-    const addToCart = () => requestAdd(product, quantity)
-    const buyNow = () => requestAdd(product, quantity, true)
+    const variantSelected = hasVariants ? Boolean(selectedVariant) : true
+    const addDisabled = soldOut || (hasVariants && !selectedVariant)
+    /** Cart/order snapshot: parent product + the selected sellable variant. */
+    const variantSnapshot = selectedVariant
+        ? {
+              id: selectedVariant.id,
+              name: selectedVariant.variantName,
+              sku: selectedVariant.sku,
+              price: effectiveVariantPrice(product.price, selectedVariant),
+              barcode: selectedVariant.barcode,
+              imageUrl: selectedVariant.imageUrl || undefined,
+              options: selectedVariant.optionValues.map(
+                  (link) => link.value,
+              ),
+          }
+        : undefined
+    const addToCart = () => {
+        if (hasVariants && !selectedVariant) {
+            notify(
+                'danger',
+                'Select a variant',
+                'Choose the option values for this product first.',
+            )
+            return
+        }
+        requestAdd(product, quantity, false)
+    }
+    const buyNow = () => {
+        if (hasVariants && !selectedVariant) {
+            notify(
+                'danger',
+                'Select a variant',
+                'Choose the option values for this product first.',
+            )
+            return
+        }
+        requestAdd(product, quantity, true)
+    }
+
+    /** Variant prices/images override the parent display once one is selected. */
+    const displayPrice = effectiveVariantPrice(product.price, selectedVariant)
+    const displayOriginalPrice = effectiveVariantCompareAt(
+        product,
+        selectedVariant,
+    )
+    const displayDiscount =
+        displayOriginalPrice !== null && displayOriginalPrice > displayPrice
+            ? Math.round(
+                  (1 - displayPrice / displayOriginalPrice) * 100,
+              )
+            : null
 
     const priceBlock = (
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span
                 className={classNames(
-                    'text-4xl font-bold tracking-tight',
-                    discount ? 'text-rose-600' : 'text-gray-900',
+                    'text-[2.6rem] font-bold leading-none tracking-tight',
+                    displayDiscount ? 'text-rose-600' : 'text-gray-900',
                 )}
             >
-                {formatPrice(product.price)}
+                {formatPrice(displayPrice)}
             </span>
-            {discount ? (
+            {displayDiscount ? (
                 <>
                     <span className="text-base text-gray-400 line-through">
-                        {formatPrice(product.originalPrice!)}
+                        {formatPrice(displayOriginalPrice!)}
                     </span>
                     <span className="rounded-md bg-rose-50 px-2 py-0.5 text-sm font-semibold text-rose-600">
-                        −{discount}%
+                        −{displayDiscount}%
                     </span>
                 </>
             ) : null}
@@ -327,29 +395,39 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                 />
             </div>
 
+            {/* HERO */}
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-12">
                 <div className="min-w-0 lg:col-span-7">
                     <div className="lg:sticky lg:top-24">
-                        <ProductGallery product={product} />
+                        <ProductGallery
+                            product={product}
+                            heroImage={
+                                variantImageMode === 'replace'
+                                    ? selectedVariant?.imageUrl || null
+                                    : null
+                            }
+                        />
                     </div>
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-5 lg:col-span-5">
+                <div className="flex min-w-0 flex-col gap-6 lg:col-span-5">
+                    {/* Seller / status chips */}
                     <div className="flex flex-wrap items-center gap-2">
-                        <SellerTag divisionId={product.divisionId} />
-                        <span className="flex items-center gap-1 text-xs font-medium text-emerald-700">
+                        <SellerTag product={product} />
+                        <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
                             <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
                             Official store
                         </span>
                         {product.badge ? (
-                            <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
                                 {product.badge}
                             </span>
                         ) : null}
                     </div>
 
+                    {/* Title block */}
                     <div>
-                        <h1 className="text-3xl font-semibold leading-tight tracking-tight text-gray-900">
+                        <h1 className="text-3xl font-semibold leading-tight tracking-tight text-gray-900 sm:text-[2rem]">
                             {product.name}
                         </h1>
                         {tagline ? (
@@ -357,137 +435,169 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                 {tagline}
                             </p>
                         ) : null}
-                        {averageRating !== null ? (
-                            <a
-                                href="#reviews-heading"
-                                className="mt-3 inline-flex items-center gap-2 text-sm text-gray-500 hover:text-emerald-700"
-                            >
-                                <StarRating rating={averageRating} />
-                                <span className="font-medium text-gray-700">
-                                    {averageRating.toFixed(1)}
-                                </span>
-                                · {reviews.length} review
-                                {reviews.length === 1 ? '' : 's'}
-                            </a>
-                        ) : null}
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                            {averageRating !== null ? (
+                                <a
+                                    href="#reviews-heading"
+                                    className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-emerald-700"
+                                >
+                                    <StarRating rating={averageRating} />
+                                    <span className="font-medium text-gray-700">
+                                        {averageRating.toFixed(1)}
+                                    </span>
+                                    <span className="text-gray-400">
+                                        ({reviews.length} review
+                                        {reviews.length === 1 ? '' : 's'})
+                                    </span>
+                                </a>
+                            ) : null}
+                            <span className="text-sm text-gray-400">
+                                {product.sku}
+                            </span>
+                        </div>
                     </div>
 
-                    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                        {priceBlock}
-                        {discount ? (
-                            <p className="mt-1.5 text-sm font-medium text-emerald-700">
-                                You save{' '}
-                                {formatPrice(
-                                    product.originalPrice! - product.price,
-                                )}
-                            </p>
-                        ) : null}
+                    {/* Options & variants */}
+                    <ProductVariantSelector
+                        product={product}
+                        onVariantChange={setSelectedVariant}
+                        onHasVariants={setHasVariants}
+                        onVariantImageMode={setVariantImageMode}
+                    />
+
+                    {/* Buy panel */}
+                    <Card
+                        className={classNames('rounded-2xl', SURFACE)}
+                        bodyClass="flex flex-col gap-5 p-6 sm:p-7"
+                    >
+                        <div className="flex items-end justify-between gap-4">
+                            {priceBlock}
+                            {displayDiscount ? (
+                                <span className="shrink-0 text-sm font-medium text-emerald-700">
+                                    You save{' '}
+                                    {formatPrice(
+                                        displayOriginalPrice! - displayPrice,
+                                    )}
+                                </span>
+                            ) : null}
+                        </div>
                         <ProductStockStatus
-                            className="mt-4"
                             loading={loading}
                             stock={stock}
                             available={available}
                             soldOut={soldOut}
                         />
-                    </div>
+                        <div className="flex flex-col gap-4 border-t border-gray-100 pt-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm text-gray-500">
+                                        Quantity
+                                    </span>
+                                    <QuantityStepper
+                                        quantity={quantity}
+                                        label={product.name}
+                                        onDecrease={() =>
+                                            setQuantity((q) =>
+                                                Math.max(1, q - 1),
+                                            )
+                                        }
+                                        onIncrease={() =>
+                                            setQuantity((q) =>
+                                                Math.min(maxQuantity, q + 1),
+                                            )
+                                        }
+                                    />
+                                </div>
+                                {inCart > 0 ? (
+                                    <button
+                                        type="button"
+                                        className="cursor-pointer text-sm font-medium text-emerald-700 hover:underline"
+                                        onClick={openCart}
+                                    >
+                                        {inCart} in your cart · View cart
+                                    </button>
+                                ) : null}
+                            </div>
+                            <div className="flex gap-3">
+                                <div className="grid flex-1 grid-cols-2 gap-3">
+                                    <Button
+                                        className={SECONDARY_BUTTON_CLASS}
+                                        customColorClass={SECONDARY_BUTTON}
+                                        icon={<HiOutlineShoppingCart />}
+                                        disabled={addDisabled}
+                                        onClick={addToCart}
+                                    >
+                                        Add to Cart
+                                    </Button>
+                                    <Button
+                                        className={classNames(
+                                            PRIMARY_BUTTON_CLASS,
+                                            'py-2.5',
+                                        )}
+                                        customColorClass={PRIMARY_BUTTON}
+                                        disabled={addDisabled}
+                                        onClick={buyNow}
+                                    >
+                                        {soldOut
+                                            ? unavailableLabel
+                                            : 'Buy now'}
+                                    </Button>
+                                </div>
+                                <Button
+                                    shape="circle"
+                                    aria-pressed={favorite}
+                                    aria-label={
+                                        favorite
+                                            ? 'Remove from favourites'
+                                            : 'Add to favourites'
+                                    }
+                                    className="!h-11 !w-11 shrink-0 border border-gray-200"
+                                    customColorClass={() =>
+                                        'bg-white text-gray-400 hover:text-rose-500'
+                                    }
+                                    icon={
+                                        <Heart
+                                            aria-hidden
+                                            className={classNames(
+                                                'h-5 w-5',
+                                                favorite &&
+                                                    'fill-rose-500 text-rose-500',
+                                            )}
+                                        />
+                                    }
+                                    onClick={() => toggleFavorite(key)}
+                                />
+                            </div>
+                        </div>
+                    </Card>
 
+                    {/* Highlights (top 4) */}
+                    {highlights.length > 0 ? (
+                        <ul className="flex flex-wrap gap-2">
+                            {highlights.slice(0, 4).map((point) => (
+                                <li
+                                    key={point}
+                                    className="flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50/60 px-3 py-1.5 text-xs font-medium text-emerald-800"
+                                >
+                                    <HiOutlineCheck
+                                        aria-hidden
+                                        className="h-3.5 w-3.5 shrink-0 text-emerald-600"
+                                    />
+                                    {point}
+                                </li>
+                            ))}
+                        </ul>
+                    ) : null}
+
+                    {/* Short description */}
                     {product.description ? (
                         <p className="text-sm leading-relaxed text-gray-600">
                             {product.description}
                         </p>
                     ) : null}
 
-                    {highlights.length > 0 ? (
-                        <ul className="flex flex-col gap-2 text-sm text-gray-700">
-                            {highlights.slice(0, 4).map((point) => (
-                                <li key={point} className="flex gap-2">
-                                    <HiOutlineCheck className="mt-0.5 shrink-0 text-emerald-600" />
-                                    <span>{point}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : null}
-
-                    <div className="flex flex-col gap-4 border-t border-gray-100 pt-5">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <span className="text-sm text-gray-500">
-                                    Quantity
-                                </span>
-                                <QuantityStepper
-                                    quantity={quantity}
-                                    label={product.name}
-                                    onDecrease={() =>
-                                        setQuantity((q) => Math.max(1, q - 1))
-                                    }
-                                    onIncrease={() =>
-                                        setQuantity((q) =>
-                                            Math.min(maxQuantity, q + 1),
-                                        )
-                                    }
-                                />
-                            </div>
-                            {inCart > 0 ? (
-                                <button
-                                    type="button"
-                                    className="cursor-pointer text-sm font-medium text-emerald-700 hover:underline"
-                                    onClick={openCart}
-                                >
-                                    {inCart} in your cart · View cart
-                                </button>
-                            ) : null}
-                        </div>
-                        <div className="flex gap-3">
-                            <div className="grid flex-1 grid-cols-2 gap-3">
-                                <Button
-                                    className={SECONDARY_BUTTON_CLASS}
-                                    customColorClass={SECONDARY_BUTTON}
-                                    icon={<HiOutlineShoppingCart />}
-                                    disabled={soldOut}
-                                    onClick={addToCart}
-                                >
-                                    Add to Cart
-                                </Button>
-                                <Button
-                                    className={classNames(
-                                        PRIMARY_BUTTON_CLASS,
-                                        'py-2.5',
-                                    )}
-                                    customColorClass={PRIMARY_BUTTON}
-                                    disabled={soldOut}
-                                    onClick={buyNow}
-                                >
-                                    {soldOut ? unavailableLabel : 'Buy now'}
-                                </Button>
-                            </div>
-                            <Button
-                                shape="circle"
-                                aria-pressed={favorite}
-                                aria-label={
-                                    favorite
-                                        ? 'Remove from favourites'
-                                        : 'Add to favourites'
-                                }
-                                className="!h-11 !w-11 shrink-0 border border-gray-200"
-                                customColorClass={() =>
-                                    'bg-white text-gray-400 hover:text-rose-500'
-                                }
-                                icon={
-                                    <Heart
-                                        aria-hidden
-                                        className={classNames(
-                                            'h-5 w-5',
-                                            favorite &&
-                                                'fill-rose-500 text-rose-500',
-                                        )}
-                                    />
-                                }
-                                onClick={() => toggleFavorite(key)}
-                            />
-                        </div>
-                    </div>
-
-                    <ul className="grid grid-cols-1 gap-3 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:grid-cols-2">
+                    {/* Trust perks */}
+                    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <Perk icon={<HiOutlineTruck />}>
                             Delivered by {storeName}
                         </Perk>
@@ -504,9 +614,14 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                 </div>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-12">
+            {/* DETAILS / SPECS / REVIEWS */}
+            <div className="mt-14 grid grid-cols-1 gap-8 lg:grid-cols-12">
                 <div className="flex min-w-0 flex-col gap-8 lg:col-span-8">
-                    <Section id="details-heading" title="Product details">
+                    <Section
+                        id="details-heading"
+                        title="Product details"
+                        icon={<HiOutlineCheck aria-hidden />}
+                    >
                         <div className="flex flex-col gap-6">
                             {details || product.description ? (
                                 <p className="whitespace-pre-line text-sm leading-relaxed text-gray-600">
@@ -555,7 +670,11 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         </div>
                     </Section>
 
-                    <Section id="specs-heading" title="Specifications">
+                    <Section
+                        id="specs-heading"
+                        title="Specifications"
+                        icon={<Sparkles aria-hidden className="h-4 w-4" />}
+                    >
                         <dl className="grid grid-cols-1 gap-x-10 text-sm sm:grid-cols-2">
                             {specs.map((spec) => (
                                 <div
@@ -570,12 +689,18 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                     </dd>
                                 </div>
                             ))}
+                            {specs.length === 0 ? (
+                                <p className="text-sm text-gray-400 sm:col-span-2">
+                                    No specifications listed yet.
+                                </p>
+                            ) : null}
                         </dl>
                     </Section>
 
                     <Section
                         id="reviews-heading"
                         title="Customer reviews"
+                        icon={<Sparkles aria-hidden className="h-4 w-4" />}
                         aside={
                             averageRating !== null ? (
                                 <span className="flex items-center gap-2 text-sm text-gray-500">
@@ -712,6 +837,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                 </aside>
             </div>
 
+            {/* RELATED */}
             <div className="mt-16 flex flex-col gap-16">
                 <MarketplaceProductRow
                     id="similar-heading"
@@ -729,22 +855,39 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                 />
             </div>
 
+            {/* MOBILE BOTTOM BAR */}
             <div className="fixed inset-x-0 bottom-0 z-20 border-t border-gray-100 bg-white/95 px-4 py-3 shadow-[0_-4px_16px_rgb(0_0_0/0.06)] backdrop-blur lg:hidden">
                 <div className="mx-auto flex max-w-7xl items-center gap-3">
-                    <div className="min-w-0">
-                        <p
-                            className={classNames(
-                                'truncate text-lg font-bold',
-                                discount ? 'text-rose-600' : 'text-gray-900',
-                            )}
-                        >
-                            {formatPrice(product.price)}
-                        </p>
-                        {discount ? (
-                            <p className="truncate text-xs text-gray-400 line-through">
-                                {formatPrice(product.originalPrice!)}
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="min-w-0">
+                            <p
+                                className={classNames(
+                                    'truncate text-lg font-bold leading-tight',
+                                    displayDiscount
+                                        ? 'text-rose-600'
+                                        : 'text-gray-900',
+                                )}
+                            >
+                                {formatPrice(displayPrice)}
                             </p>
-                        ) : null}
+                            {displayDiscount ? (
+                                <p className="truncate text-xs text-gray-400 line-through">
+                                    {formatPrice(displayOriginalPrice!)}
+                                </p>
+                            ) : null}
+                        </div>
+                        <QuantityStepper
+                            quantity={quantity}
+                            label={product.name}
+                            onDecrease={() =>
+                                setQuantity((q) => Math.max(1, q - 1))
+                            }
+                            onIncrease={() =>
+                                setQuantity((q) =>
+                                    Math.min(maxQuantity, q + 1),
+                                )
+                            }
+                        />
                     </div>
                     <div className="ml-auto grid shrink-0 grid-cols-2 gap-2">
                         <Button
@@ -753,7 +896,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                             customColorClass={SECONDARY_BUTTON}
                             aria-label="Add to cart"
                             icon={<HiOutlineShoppingCart />}
-                            disabled={soldOut}
+                            disabled={addDisabled}
                             onClick={addToCart}
                         >
                             Add
@@ -762,7 +905,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                             size="sm"
                             className="!rounded-lg border-0"
                             customColorClass={PRIMARY_BUTTON}
-                            disabled={soldOut}
+                            disabled={addDisabled}
                             onClick={buyNow}
                         >
                             {soldOut ? unavailableLabel : 'Buy now'}

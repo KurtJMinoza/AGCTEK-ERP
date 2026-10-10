@@ -33,6 +33,7 @@ import type {
 } from '../types'
 import { prRemainingQty } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     nonNegativeNumber,
@@ -102,6 +103,7 @@ const emptyLine = (): LineDraft => ({
 const PurchaseOrderListPage = () => {
     const router = useRouter()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmPurchaseOrder[]>([])
     const [total, setTotal] = useState(0)
@@ -220,9 +222,9 @@ const PurchaseOrderListPage = () => {
     })), [lines])
 
     const prErrors = useMemo<FieldErrors>(() => ({
-        purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase requisition'),
+        purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase request'),
         buyerId: required(fromPr.buyerId, 'Buyer'),
-        lineIds: fromPr.lineIds.length === 0 ? 'Select at least one PR line' : undefined,
+        lineIds: fromPr.lineIds.length === 0 ? 'Select at least one request line' : undefined,
     }), [fromPr])
 
     const setHeaderField = (key: string, value: string) => {
@@ -272,7 +274,7 @@ const PurchaseOrderListPage = () => {
                 })
             } else {
                 if (Object.values(prErrors).some(Boolean)) {
-                    pushToast('danger', 'Validation', 'Complete PR conversion fields.')
+                    pushToast('danger', 'Validation', 'Complete purchase request conversion fields.')
                     return
                 }
                 created = await purchaseOrderService.createFromPr({
@@ -375,7 +377,7 @@ const PurchaseOrderListPage = () => {
     ], [router])
 
     const modeTitle =
-        createMode === 'manual' ? 'New Purchase Order (Manual)' : 'Create PO from PR'
+        createMode === 'manual' ? 'New Purchase Order (Manual)' : 'Create PO from purchase request'
 
     return (
         <PageContainer>
@@ -383,16 +385,16 @@ const PurchaseOrderListPage = () => {
             <PageHeader
                 title="Purchase Orders"
                 description="Supplier commitments with approval, delivery, and receiving tracking."
-                actions={
+                actions={canCreate ? (
                     <div className="flex flex-wrap gap-2">
                         <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={() => openCreate('pr')}>
-                            From PR
+                            From request
                         </Button>
                         <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => openCreate('manual')}>
                             New PO
                         </Button>
                     </div>
-                }
+                ) : undefined}
             />
 
             <AdaptiveCard className="mt-4">
@@ -450,7 +452,7 @@ const PurchaseOrderListPage = () => {
                             variant={createMode === m ? 'solid' : 'default'}
                             onClick={() => openCreate(m)}
                         >
-                            {m === 'manual' ? 'Manual DRAFT' : 'From PR'}
+                            {m === 'manual' ? 'Manual DRAFT' : 'From request'}
                         </Button>
                     ))}
                 </div>
@@ -561,7 +563,7 @@ const PurchaseOrderListPage = () => {
                 {createMode === 'pr' && (
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <FormItem label="Approved PR" asterisk className="sm:col-span-2" invalid={Boolean(prErr('purchaseRequisitionId'))} errorMessage={prErr('purchaseRequisitionId')}>
+                            <FormItem label="Approved purchase request" asterisk className="sm:col-span-2" invalid={Boolean(prErr('purchaseRequisitionId'))} errorMessage={prErr('purchaseRequisitionId')}>
                                 <Select<FilterOption>
                                     options={approvedPrs.map((p) => ({ value: p.id, label: `${p.requisitionNumber} — ${p.purpose}` }))}
                                     value={approvedPrs.find((p) => p.id === fromPr.purchaseRequisitionId)
@@ -599,7 +601,7 @@ const PurchaseOrderListPage = () => {
                                 <Select<FilterOption>
                                     isClearable
                                     isSearchable
-                                    placeholder="Optional — set on PO or from PR line hint"
+                                    placeholder="Optional — set on PO or from request line hint"
                                     options={suppliers}
                                     value={suppliers.find((s) => s.value === fromPr.supplierId) ?? null}
                                     onChange={(opt) => {
@@ -608,7 +610,7 @@ const PurchaseOrderListPage = () => {
                                     }}
                                 />
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Optional when creating from PR — assign on the PO later if needed.
+                                    Optional when creating from a purchase request — assign on the PO later if needed.
                                 </p>
                             </FormItem>
                             <FormItem label="Buyer" asterisk invalid={Boolean(prErr('buyerId'))} errorMessage={prErr('buyerId')}>
@@ -630,14 +632,14 @@ const PurchaseOrderListPage = () => {
                                     onChange={(opt) => setFromPr((p) => ({ ...p, warehouseId: opt?.value ?? '' }))}
                                 />
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Optional on PO; PR line warehouses are shown below when set.
+                                    Optional on PO; request line warehouses are shown below when set.
                                 </p>
                             </FormItem>
                         </div>
                         {selectedPr && (
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                                    PR Lines (remaining qty)
+                                    Request lines (remaining qty)
                                 </p>
                                 {prErr('lineIds') && forceValidate && (
                                     <p className="text-xs text-red-500">{prErr('lineIds')}</p>
@@ -670,7 +672,7 @@ const PurchaseOrderListPage = () => {
                                         </label>
                                     ))}
                                 {(selectedPr.lines ?? []).filter((l) => prRemainingQty(l) > 0).length === 0 && (
-                                    <p className="text-sm text-gray-500">No remaining quantity on this PR.</p>
+                                    <p className="text-sm text-gray-500">No remaining quantity on this purchase request.</p>
                                 )}
                             </div>
                         )}

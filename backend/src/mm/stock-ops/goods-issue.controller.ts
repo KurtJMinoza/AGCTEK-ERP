@@ -16,7 +16,8 @@ import {
     IsOptional,
     IsIn,
 } from 'class-validator'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 class CreateGiFromPackageDto {
     @IsString()
@@ -38,17 +39,20 @@ class CreateGiFromPackageDto {
     createdBy?: string
 }
 
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('inventory-management', 'goods-issue')
+
 @Controller('mm/goods-issues')
 export class GoodsIssueController {
     constructor(private service: GoodsIssueService) {}
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post()
     create(@Body() dto: CreateGoodsIssueDto) {
         return this.service.create(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post('from-package/:packageId')
     fromPackage(
         @Param('packageId') packageId: string,
@@ -57,30 +61,32 @@ export class GoodsIssueController {
         return this.service.createFromPackage(packageId, dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post(':id/post')
     post(@Param('id') id: string) {
         return this.service.post(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post(':id/cancel')
     cancel(@Param('id') id: string) {
         return this.service.cancel(id)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post(':id/reverse')
     reverse(@Param('id') id: string, @Body() body: { createdBy?: string }) {
         return this.service.reverse(id, body?.createdBy)
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: StockOpsQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }

@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PermissionsService } from '../../permissions/permissions.service'
-import { MODULE_CODES } from '../../permissions/permissions.constants'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CustomerService } from '../../sd/customer.service'
 import type { CreateCustomerDto } from '../../sd/dto/customer.dto'
@@ -201,7 +200,7 @@ export class CrmLeadsService {
         const linkedCustomerId = dto.customerId ?? lead.customerId
         let newCustomer: CreateCustomerDto | null = null
         if (dto.newCustomer) {
-            await this.permissions.assertPermission({ role: user.role }, MODULE_CODES.SD, 'create')
+            await this.permissions.assertPermission({ role: user.role }, 'sd.customer-master', 'create')
             const email = dto.newCustomer.email ?? lead.email
             if (!email) {
                 throw new BadRequestException('An email is required to create the SD customer')

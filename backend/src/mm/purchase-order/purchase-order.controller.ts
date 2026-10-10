@@ -20,7 +20,8 @@ import {
     UpsertPoToleranceDto,
     RevisePurchaseOrderDto,
 } from './dto/po-actions.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
 
 class ActionBody {
     reason?: string
@@ -28,110 +29,118 @@ class ActionBody {
     performedBy?: string
 }
 
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('procurement', 'po-approvals', 'purchase-orders', 'supplier-invoices'), ...mmFeatures('receiving', 'advanced-shipping-notices', 'expected-receipts')]
+
 @Controller('mm/purchase-orders')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class PurchaseOrderController {
     constructor(private service: PurchaseOrderService) {}
 
     @Post()
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     create(@Body() dto: CreatePurchaseOrderDto) {
         return this.service.create(dto)
     }
 
     @Post('from-pr')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     fromPr(@Body() dto: CreatePoFromPrDto) {
         return this.service.createFromPr(dto)
     }
 
     @Get()
+    @MmRead(READERS)
     findAll(@Query() query: PurchaseOrderQueryDto) {
         return this.service.findAll(query)
     }
 
     @Get(':id')
+    @MmRead(READERS)
     findOne(@Param('id') id: string) {
         return this.service.findOne(id)
     }
 
     @Put(':id')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     update(@Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
         return this.service.update(id, dto, dto.buyerId ?? undefined)
     }
 
     @Post(':id/submit')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     submit(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.submit(id, body?.performedBy)
     }
 
     @Post(':id/approve')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders', 'po-approvals'))
     approve(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.approveViaWorkflow(id, body?.performedBy, body?.comment)
     }
 
     @Post(':id/reject')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders', 'po-approvals'))
     reject(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.rejectViaWorkflow(id, body?.reason ?? body?.comment, body?.performedBy)
     }
 
     @Post(':id/return')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders', 'po-approvals'))
     returnPo(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.returnViaWorkflow(id, body?.comment, body?.performedBy)
     }
 
     @Post(':id/revise')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     revise(@Param('id') id: string, @Body() dto: RevisePurchaseOrderDto) {
         return this.service.revise(id, dto)
     }
 
     @Post(':id/send')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     send(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.send(id, body?.performedBy)
     }
 
     @Post(':id/cancel')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     cancel(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.cancel(id, body?.reason, body?.performedBy)
     }
 
     @Post(':id/close')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     close(@Param('id') id: string, @Body() body: ActionBody) {
         return this.service.close(id, body?.performedBy)
     }
 
     @Get(':id/audit')
+    @MmRead(READERS)
     getAudit(@Param('id') id: string) {
         return this.service.getAudit(id)
     }
 
     @Get(':id/document-flow')
+    @MmRead(READERS)
     getDocumentFlow(@Param('id') id: string) {
         return this.service.getDocumentFlow(id)
     }
 
     @Get(':id/attachments')
+    @MmRead(READERS)
     listAttachments(@Param('id') id: string) {
         return this.service.listAttachments(id)
     }
 
     @Post(':id/attachments')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     addAttachment(@Param('id') id: string, @Body() dto: CreatePoAttachmentDto) {
         return this.service.addAttachment(id, dto)
     }
 
     @Delete(':id/attachments/:attachmentId')
-    @MmMutation()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'))
     deleteAttachment(
         @Param('id') id: string,
         @Param('attachmentId') attachmentId: string,
@@ -147,11 +156,13 @@ export class PoToleranceController {
     constructor(private service: PurchaseOrderService) {}
 
     @Get()
+    @MmRead(READERS)
     get(@Query('companyId') companyId: string) {
         return this.service.getTolerances(companyId)
     }
 
     @Put()
+    @MmMutation(mmFeatures('procurement', 'purchase-orders'), 'update')
     upsert(@Body() dto: UpsertPoToleranceDto) {
         return this.service.upsertTolerances(dto)
     }

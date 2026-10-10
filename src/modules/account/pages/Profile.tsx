@@ -78,7 +78,7 @@ const Profile = () => {
 
             try {
                 const profile = await apiGetProfile(initialUserName)
-                setRole(profile.role)
+                setRole(profile.roleName || getRoleLabel(profile.role) || profile.role)
                 setAvatar(profile.avatar)
                 setCurrentUserName(profile.userName)
                 reset({
@@ -189,7 +189,7 @@ const Profile = () => {
                 userName: result.user.userName,
                 email: result.user.email,
             })
-            setRole(result.user.role)
+            setRole(result.user.roleName || getRoleLabel(result.user.role) || result.user.role)
             setCurrentUserName(result.user.userName)
             await syncSessionProfile({
                 name: result.user.userName,
@@ -253,7 +253,7 @@ const Profile = () => {
                 {role ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <Tag className="border-0 bg-primary-subtle text-primary">
-                            {getRoleLabel(role) || role}
+                            {role}
                         </Tag>
                     </div>
                 ) : null}

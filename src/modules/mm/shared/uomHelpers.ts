@@ -165,26 +165,62 @@ export function buildAlternateUomOptions(
         .map((u) => ({ value: u.id!, label: `${u.code} — ${u.name}` }))
 }
 
+/** Friendly names for the physical UOM catalog, used when the UOM master row is missing. */
+export const UOM_CATALOG_LABELS: Record<string, string> = {
+    MG: 'Milligram',
+    G: 'Gram',
+    KG: 'Kilogram',
+    TON: 'Metric tonne',
+    LB: 'Pound',
+    OZ: 'Ounce',
+    MM: 'Millimetre',
+    CM: 'Centimetre',
+    M: 'Metre',
+    KM: 'Kilometre',
+    IN: 'Inch',
+    FT: 'Foot',
+    YD: 'Yard',
+    ML: 'Millilitre',
+    L: 'Litre',
+    GAL: 'US gallon',
+    QT: 'Quart',
+    PT: 'Pint',
+    CBM: 'Cubic metre',
+}
+
+/**
+ * Physical-UOM dropdown options (weight / dimension / volume). Always offers the
+ * full catalogue even when the UOM master has no row for a code yet; uses the
+ * master's name when the code exists.
+ */
 export function buildUomCodeOptions(
     uoms: UomLike[],
     category: UomCategory,
     currentValue?: string,
 ): UomCodeOption[] {
-    const allowed = new Set(UOM_CODE_GROUPS[category].map((c) => c.toUpperCase()))
+    const catalog = UOM_CODE_GROUPS[category]
     const current = currentValue?.trim().toUpperCase()
 
-    const filtered = uoms.filter((u) => {
-        if (u.isActive === false) return false
-        const code = u.code.toUpperCase()
-        return allowed.has(code) || (current !== undefined && current !== '' && code === current)
+    const byCode = new Map<string, UomLike>()
+    for (const uom of uoms) {
+        if (uom.isActive === false) continue
+        byCode.set(uom.code.toUpperCase(), uom)
+    }
+
+    const codes = [...catalog]
+    if (current && current !== '' && !codes.includes(current)) {
+        codes.push(current)
+    }
+
+    return codes.map((code) => {
+        const uom = byCode.get(code)
+        return uom
+            ? { value: code, label: `${code} — ${uom.name}` }
+            : {
+                  value: code,
+                  label: `${code} — ${UOM_CATALOG_LABELS[code] ?? code}`,
+              }
     })
-
-    filtered.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-
-    return filtered.map((u) => ({
-        value: u.code,
-        label: `${u.code} — ${u.name}`,
-    }))
 }
 
 /** Default transactional UOM from material list option meta (purchase → base). */

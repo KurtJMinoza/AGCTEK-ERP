@@ -27,7 +27,11 @@ import {
     PostTransferDto,
 } from './dto/inventory-operation.dto'
 import { PostStatusChangeDto } from './dto/post-status-change.dto'
-import { MmMutation } from '../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
+import { mmFeatures } from '../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = [...mmFeatures('inventory-management', 'available-stock', 'goods-issue', 'goods-receipt', 'inventory-adjustments', 'inventory-ledger', 'inventory-status', 'reservations', 'stock-movements', 'stock-overview', 'stock-transfers', 'traceability'), ...mmFeatures('receiving', 'goods-receipt')]
 
 @Controller('mm/inventory')
 export class InventoryController {
@@ -45,102 +49,112 @@ export class InventoryController {
     // ── Read APIs ──────────────────────────────────────────────────────────
 
     @Get('balance')
+    @MmRead(READERS)
     getBalance(@Query() query: BalanceQueryDto) {
         return this.balanceService.getBalance(query)
     }
 
     @Get('balance/summary')
+    @MmRead(READERS)
     getBalanceSummary(@Query() query: BalanceQueryDto) {
         return this.balanceService.getBalanceSummary(query)
     }
 
     /** @deprecated use GET balance */
     @Get('balances')
+    @MmRead(READERS)
     getBalances(@Query() query: BalanceQueryDto) {
         return this.balanceService.queryBalances(query)
     }
 
     @Get('available')
+    @MmRead(READERS)
     getAvailable(@Query() query: AvailabilityQueryDto) {
         return this.availabilityService.getAvailability(query)
     }
 
     @Get('ledger')
+    @MmRead(READERS)
     getLedger(@Query() query: TransactionQueryDto) {
         return this.balanceQueryService.queryTransactions(query)
     }
 
     @Get('transactions')
+    @MmRead(READERS)
     getTransactions(@Query() query: TransactionQueryDto) {
         return this.balanceQueryService.queryTransactions(query)
     }
 
     @Get('traceability')
+    @MmRead(READERS)
     trace(@Query() query: TraceabilityQueryDto) {
         return this.traceability.trace(query)
     }
 
     @Get('stock-statuses')
+    @MmRead(READERS)
     listStockStatuses() {
         return this.stockStatus.listStatuses()
     }
 
     @Get('materials/:materialId')
+    @MmRead(READERS)
     getByMaterial(@Param('materialId') materialId: string) {
         return this.balanceService.getByMaterial(materialId)
     }
 
     @Get('warehouses/:warehouseId')
+    @MmRead(READERS)
     getByWarehouse(@Param('warehouseId') warehouseId: string) {
         return this.balanceService.getByWarehouse(warehouseId)
     }
 
     // ── Posting APIs ───────────────────────────────────────────────────────
 
-    @MmMutation()
+    @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')])
     @Post('receipts')
     postReceipt(@Body() dto: PostReceiptDto) {
         return this.operations.postReceipt(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
     @Post('issues')
     postIssue(@Body() dto: PostIssueDto) {
         return this.operations.postIssue(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-transfers'))
     @Post('transfers')
     postTransfer(@Body() dto: PostTransferDto) {
         return this.operations.postTransfer(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'inventory-adjustments'))
     @Post('adjustments')
     postAdjustment(@Body() dto: PostAdjustmentDto) {
         return this.operations.postAdjustment(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'inventory-status'))
     @Post('status-changes')
     postStatusChange(@Body() dto: PostStatusChangeDto) {
         return this.stockStatus.postStatusChange(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements', 'inventory-ledger'))
     @Post('reversals')
     postReversal(@Body() body: ReverseTransactionDto & { transactionId: string }) {
         return this.reversalService.reverse(body.transactionId, body)
     }
 
     /** Low-level posting — prefer typed operation endpoints above. */
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements'))
     @Post('post')
     postTransaction(@Body() dto: PostTransactionDto) {
         return this.postingService.postTransaction(dto)
     }
 
-    @MmMutation()
+    @MmMutation(mmFeatures('inventory-management', 'stock-movements', 'inventory-ledger'))
     @Post(':transactionId/reverse')
     reverseTransaction(
         @Param('transactionId') transactionId: string,

@@ -111,7 +111,7 @@ const PurchaseRequisitionDetailPage = () => {
             setPr(data)
             setWorkflow(data.workflowInstance ?? null)
         } catch {
-            pushToast('danger', 'Error', 'Failed to load purchase requisition')
+            pushToast('danger', 'Error', 'Failed to load purchase request')
         } finally {
             setLoading(false)
         }
@@ -284,7 +284,7 @@ const PurchaseRequisitionDetailPage = () => {
             <PageContainer>
                 <Breadcrumb items={breadcrumbItems} />
                 <div className="flex h-96 flex-col items-center justify-center gap-2">
-                    <p className="text-lg font-semibold">Purchase requisition not found</p>
+                    <p className="text-lg font-semibold">Purchase request not found</p>
                     <Button onClick={() => router.back()}>Go back</Button>
                 </div>
             </PageContainer>
@@ -415,7 +415,7 @@ const PurchaseRequisitionDetailPage = () => {
                                     <InfoCard label="Rejection Reason" value={pr.rejectionReason || pr.returnedReason || '—'} />
                                 </div>
                                 {tasks.length === 0 ? (
-                                    <p className="text-sm text-gray-500">No approval tasks yet. Submit the PR to start the workflow.</p>
+                                    <p className="text-sm text-gray-500">No approval tasks yet. Submit the purchase request to start the workflow.</p>
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
@@ -509,14 +509,14 @@ const PurchaseRequisitionDetailPage = () => {
                 onConfirm={runConfirm}
                 confirmButtonProps={{ loading: confirming }}
             >
-                <p>Are you sure you want to {confirmAction?.action?.toLowerCase()} this purchase requisition?</p>
+                <p>Are you sure you want to {confirmAction?.action?.toLowerCase()} this purchase request?</p>
             </ConfirmDialog>
 
             <FormDialog
                 isOpen={convertOpen}
                 onClose={() => setConvertOpen(false)}
                 size="md"
-                title="Convert PR Line"
+                title="Convert request line"
                 description="Creates an RFQ or DRAFT PO from remaining quantity (document conversion)."
                 icon={<HiOutlineClipboardCheck />}
                 footer={

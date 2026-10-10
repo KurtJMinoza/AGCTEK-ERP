@@ -1,0 +1,3 @@
+import { resourceGuardLayout } from '@/server/actions/permissions/getMyPermissions'
+
+export default resourceGuardLayout('mm.warehouse-management.bin-capacity')

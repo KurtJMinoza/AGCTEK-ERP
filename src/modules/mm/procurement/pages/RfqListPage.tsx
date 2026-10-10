@@ -30,6 +30,7 @@ import { purchaseRequisitionService } from '../services/purchaseRequisitionServi
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmRfq, MmRfqListResponse, PurchaseRequisition } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
     minLength,
@@ -94,6 +95,7 @@ const emptyLine = (): LineDraft => ({
 const RfqListPage = () => {
     const router = useRouter()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmRfq[]>([])
     const [total, setTotal] = useState(0)
@@ -232,10 +234,10 @@ const RfqListPage = () => {
     })), [lines])
 
     const fromPrErrors = useMemo<FieldErrors>(() => ({
-        purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase requisition'),
+        purchaseRequisitionId: required(fromPr.purchaseRequisitionId, 'Purchase request'),
         buyerId: required(fromPr.buyerId, 'Buyer'),
         responseDeadline: required(fromPr.responseDeadline, 'Response deadline'),
-        prLineIds: fromPr.prLineIds.length === 0 ? 'Select at least one PR line' : undefined,
+        prLineIds: fromPr.prLineIds.length === 0 ? 'Select at least one request line' : undefined,
     }), [fromPr])
 
     const setHeaderField = (key: string, value: unknown) => {
@@ -340,13 +342,13 @@ const RfqListPage = () => {
                 prLineIds: fromPr.prLineIds,
                 supplierIds: fromPr.supplierIds.length > 0 ? fromPr.supplierIds : undefined,
             })
-            pushToast('success', 'Created', `${created.rfqNumber} created from PR.`)
+            pushToast('success', 'Created', `${created.rfqNumber} created from purchase request.`)
             setFromPrOpen(false)
             fetchData()
             router.push(`${ROUTE_PATH}/${created.id}`)
         } catch (e: unknown) {
             const err = e as { response?: { data?: { message?: string | string[] } } }
-            const msg = err?.response?.data?.message || 'Create from PR failed'
+            const msg = err?.response?.data?.message || 'Create from purchase request failed'
             pushToast('danger', 'Error', Array.isArray(msg) ? msg.join(', ') : msg)
         } finally {
             setSubmitting(false)
@@ -434,16 +436,16 @@ const RfqListPage = () => {
             <PageHeader
                 title="RFQs"
                 description="Request quotations from suppliers, compare responses, and award winners."
-                actions={
+                actions={canCreate ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <Button size="sm" icon={<HiOutlineDocumentDuplicate />} onClick={openFromPr}>
-                            From Approved PR
+                            From approved request
                         </Button>
                         <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
                             New RFQ
                         </Button>
                     </div>
-                }
+                ) : undefined}
             />
 
             <AdaptiveCard className="mt-4">
@@ -670,20 +672,20 @@ const RfqListPage = () => {
                 isOpen={fromPrOpen}
                 onClose={() => setFromPrOpen(false)}
                 width={720}
-                title="RFQ from Approved PR"
-                description="Create an RFQ from approved purchase requisition lines."
+                title="RFQ from approved purchase request"
+                description="Create an RFQ from approved purchase request lines."
                 icon={<HiOutlineDocumentDuplicate />}
                 footer={
                     <>
                         <Button size="sm" onClick={() => setFromPrOpen(false)}>Cancel</Button>
                         <Button size="sm" variant="solid" loading={submitting} onClick={handleFromPr}>
-                            Create from PR
+                            Create from request
                         </Button>
                     </>
                 }
             >
                 <div className="space-y-4">
-                    <FormItem label="Approved PR" asterisk invalid={Boolean(fpErr('purchaseRequisitionId'))} errorMessage={fpErr('purchaseRequisitionId')}>
+                    <FormItem label="Approved purchase request" asterisk invalid={Boolean(fpErr('purchaseRequisitionId'))} errorMessage={fpErr('purchaseRequisitionId')}>
                         <Select<FilterOption>
                             options={prOptions}
                             value={prOptions.find((o) => o.value === fromPr.purchaseRequisitionId) ?? null}
@@ -733,7 +735,7 @@ const RfqListPage = () => {
                     </div>
                     {selectedPr && (
                         <div>
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">PR Lines</p>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Request lines</p>
                             {fpErr('prLineIds') && <p className="mb-2 text-xs text-red-500">{fpErr('prLineIds')}</p>}
                             <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-gray-600">
                                 {(selectedPr.lines ?? []).map((l) => (

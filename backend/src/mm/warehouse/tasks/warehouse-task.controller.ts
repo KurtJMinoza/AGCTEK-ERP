@@ -21,7 +21,11 @@ import {
     StartTaskDto,
     WarehouseTaskQueryDto,
 } from './dto/warehouse-task.dto'
-import { MmMutation } from '../../common/mm-mutation.decorator'
+import { MmMutation, MmRead } from '../../common/mm-mutation.decorator'
+import { mmFeatures } from '../../../permissions/permissions.constants'
+
+/** Read access: the pages that load these endpoints. */
+const READERS = mmFeatures('warehouse-management', 'exceptions', 'my-tasks', 'overview', 'picking', 'task-queue')
 
 @Controller('mm/warehouse/tasks')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -32,17 +36,19 @@ export class WarehouseTaskController {
     ) {}
 
     @Post()
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue'))
     create(@Body() dto: CreateWarehouseTaskDto) {
         return this.tasks.create(dto)
     }
 
     @Get()
+    @MmRead(READERS)
     list(@Query() query: WarehouseTaskQueryDto) {
         return this.tasks.findAll(query)
     }
 
     @Get('my')
+    @MmRead(READERS)
     myTasks(@Req() req: any, @Query() query: WarehouseTaskQueryDto) {
         const userId = req.headers['x-user-id'] ?? req.user?.id ?? query.assignedUserId
         if (!userId) return { data: [], total: 0, page: 1, pageSize: 20 }
@@ -50,48 +56,49 @@ export class WarehouseTaskController {
     }
 
     @Get(':id')
+    @MmRead(READERS)
     get(@Param('id') id: string) {
         return this.tasks.findOne(id)
     }
 
     @Post(':id/assign')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue'))
     assign(@Param('id') id: string, @Body() dto: AssignTaskDto) {
         return this.tasks.assign(id, dto.userId)
     }
 
     @Post(':id/reassign')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue'))
     reassign(@Param('id') id: string, @Body() dto: AssignTaskDto) {
         return this.tasks.reassign(id, dto.userId)
     }
 
     @Post(':id/start')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue', 'my-tasks', 'picking'))
     start(@Param('id') id: string, @Body() dto: StartTaskDto) {
         return this.tasks.start(id, dto)
     }
 
     @Post(':id/complete')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue', 'my-tasks', 'picking'))
     complete(@Param('id') id: string, @Body() dto: CompleteTaskDto) {
         return this.tasks.complete(id, dto)
     }
 
     @Post(':id/cancel')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue'))
     cancel(@Param('id') id: string, @Body() dto: CancelTaskDto) {
         return this.tasks.cancel(id, dto)
     }
 
     @Post(':id/exception')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'task-queue', 'my-tasks', 'exceptions'))
     reportException(@Param('id') id: string, @Body() dto: ReportExceptionDto) {
         return this.exceptions.report(id, dto)
     }
 
     @Post(':id/exception/release')
-    @MmMutation()
+    @MmMutation(mmFeatures('warehouse-management', 'exceptions', 'task-queue'))
     releaseException(@Param('id') id: string, @Body() dto: ReleaseExceptionDto) {
         return this.exceptions.release(id, dto)
     }

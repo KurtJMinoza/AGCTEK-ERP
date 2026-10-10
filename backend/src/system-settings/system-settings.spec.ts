@@ -21,6 +21,14 @@ function mockPrisma(stored: Record<string, string> = {}) {
             update: jest.fn(),
             upsert: jest.fn((args: unknown) => args),
         },
+        role: {
+            findMany: jest.fn(async () => [
+                { code: 'super_admin', name: 'Super Administrator' },
+                { code: 'admin', name: 'Administrator' },
+                { code: 'employee', name: 'Employee' },
+                { code: 'warehouse_operator', name: 'Warehouse Operator' },
+            ]),
+        },
         $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     }
 }
@@ -99,6 +107,27 @@ describe('SystemSettingsService', () => {
         expect(prisma.systemSetting.upsert).toHaveBeenCalledWith(
             expect.objectContaining({ update: { value: 'true', updatedById: 'u1' } }),
         )
+    })
+
+    it('lists active roles (except Super Admin) as default-role options', async () => {
+        const rows = await service(mockPrisma()).list()
+        const role = rows.find((r) => r.key === SETTING_KEYS.DEFAULT_USER_ROLE)!
+        expect(role.options).toEqual(['admin', 'employee', 'warehouse_operator'])
+        expect(role.optionLabels).toMatchObject({ warehouse_operator: 'Warehouse Operator' })
+    })
+
+    it('accepts an active custom role as default and rejects unknown roles', async () => {
+        const prisma = mockPrisma()
+        const s = service(prisma)
+        await s.update([{ key: SETTING_KEYS.DEFAULT_USER_ROLE, value: 'warehouse_operator' }], 'u1')
+        expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(1)
+        await expect(
+            s.update([{ key: SETTING_KEYS.DEFAULT_USER_ROLE, value: 'ghost_role' }], 'u1'),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+            s.update([{ key: SETTING_KEYS.DEFAULT_USER_ROLE, value: 'super_admin' }], 'u1'),
+        ).rejects.toThrow(BadRequestException)
+        expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(1)
     })
 
     it('404s for unknown keys on get', async () => {
