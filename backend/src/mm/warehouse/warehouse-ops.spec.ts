@@ -11,13 +11,10 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { WarehouseTaskService } from './tasks/warehouse-task.service'
 import { PutawayStrategyRegistry } from './tasks/strategies/putaway-strategy.registry'
 import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
-import {
-    NotFoundException,
-    BadRequestException,
-} from '@nestjs/common'
+import { NotFoundException, BadRequestException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 
-const mockPrisma = {
+const mockPrisma: any = {
     wmPutawayTask: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -97,6 +94,10 @@ const mockPrisma = {
     },
 }
 
+mockPrisma.$transaction = jest.fn(async (operation: (tx: unknown) => unknown) =>
+    operation(mockPrisma),
+)
+
 describe('Warehouse Operations', () => {
     let putawayService: PutawayService
     let pickingService: PickingService
@@ -110,7 +111,13 @@ describe('Warehouse Operations', () => {
                 PutawayService,
                 PickingService,
                 PackingService,
-                { provide: ShipmentsService, useValue: { createFromPackage: jest.fn(), findOne: jest.fn() } },
+                {
+                    provide: ShipmentsService,
+                    useValue: {
+                        createFromPackage: jest.fn(),
+                        findOne: jest.fn(),
+                    },
+                },
                 TransfersService,
                 InventoryBalanceService,
                 { provide: PrismaService, useValue: mockPrisma },
@@ -209,17 +216,25 @@ describe('Warehouse Operations', () => {
                 providers: [
                     PutawayService,
                     { provide: PrismaService, useValue: mockPrisma },
-                    { provide: InventoryPostingService, useValue: { postTransaction: jest.fn() } },
+                    {
+                        provide: InventoryPostingService,
+                        useValue: { postTransaction: jest.fn() },
+                    },
                     {
                         provide: WarehouseTaskService,
                         useValue: { assign: jest.fn().mockResolvedValue({}) },
                     },
-                    { provide: PutawayStrategyRegistry, useValue: { recommend: jest.fn() } },
+                    {
+                        provide: PutawayStrategyRegistry,
+                        useValue: { recommend: jest.fn() },
+                    },
                 ],
             }).compile()
             const svc = moduleRef.get(PutawayService)
             await svc.assign('1', 'worker1')
-            expect(moduleRef.get(WarehouseTaskService).assign).toHaveBeenCalledWith('wt1', 'worker1')
+            expect(
+                moduleRef.get(WarehouseTaskService).assign,
+            ).toHaveBeenCalledWith('wt1', 'worker1')
         })
 
         it('should reject confirming a COMPLETED task', async () => {
@@ -278,9 +293,9 @@ describe('Warehouse Operations', () => {
                 status: 'IN_PROGRESS',
             })
 
-            await expect(
-                putawayService.assign('1', 'worker1'),
-            ).rejects.toThrow(BadRequestException)
+            await expect(putawayService.assign('1', 'worker1')).rejects.toThrow(
+                BadRequestException,
+            )
         })
     })
 
@@ -343,7 +358,9 @@ describe('Warehouse Operations', () => {
             expect(result.packageNumber).toBe('PKG-000001')
             expect(mockPrisma.wmPackage.create).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ packageNumber: 'PKG-000001' }),
+                    data: expect.objectContaining({
+                        packageNumber: 'PKG-000001',
+                    }),
                 }),
             )
         })
@@ -365,7 +382,9 @@ describe('Warehouse Operations', () => {
 
             expect(mockPrisma.wmPackage.create).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ packageNumber: 'PKG-000002' }),
+                    data: expect.objectContaining({
+                        packageNumber: 'PKG-000002',
+                    }),
                 }),
             )
         })
@@ -380,16 +399,22 @@ describe('Warehouse Operations', () => {
                         materialId: 'mat1',
                         expectedQty: new Decimal(5),
                         scannedQty: new Decimal(3),
-                        material: { materialCode: 'MAT-001', materialName: 'Test' },
+                        material: {
+                            materialCode: 'MAT-001',
+                            materialName: 'Test',
+                        },
                     },
                 ],
             })
 
-            const result = await packingService.verify('1') as any
+            const result = (await packingService.verify('1')) as any
 
             expect(result.verified).toBe(false)
             expect(result.exceptions).toHaveLength(1)
-            expect(Number(result.exceptions[0].expectedQty) - Number(result.exceptions[0].scannedQty)).toBe(2)
+            expect(
+                Number(result.exceptions[0].expectedQty) -
+                    Number(result.exceptions[0].scannedQty),
+            ).toBe(2)
         })
 
         it('should reject sealing an unverified package', async () => {
@@ -448,7 +473,9 @@ describe('Warehouse Operations', () => {
             })
             const sto = (transfersService as any).sto
             await transfersService.approve('1', 'user-1')
-            expect(sto.approve).toHaveBeenCalledWith('sto-1', { approvedBy: 'user-1' })
+            expect(sto.approve).toHaveBeenCalledWith('sto-1', {
+                approvedBy: 'user-1',
+            })
         })
 
         it('should only approve DRAFT transfers', async () => {
@@ -476,7 +503,9 @@ describe('Warehouse Operations', () => {
         })
 
         it('should reject dispatch of non-PICKED transfer', async () => {
-            mockPrisma.wmWarehouseTransfer.updateMany.mockResolvedValue({ count: 0 })
+            mockPrisma.wmWarehouseTransfer.updateMany.mockResolvedValue({
+                count: 0,
+            })
             mockPrisma.wmWarehouseTransfer.findUnique.mockResolvedValue({
                 id: '1',
                 status: 'DRAFT',

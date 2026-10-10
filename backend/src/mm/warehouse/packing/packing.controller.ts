@@ -3,7 +3,9 @@ import { PackingService } from './packing.service'
 import { CreatePackageDto } from './dto/create-package.dto'
 import { PackageQueryDto } from './dto/package-query.dto'
 import { ScanItemDto } from './dto/scan-item.dto'
+import { SealPackageDto } from './dto/seal-package.dto'
 import { MmMutation, MmRead } from '../../common/mm-mutation.decorator'
+import { MmUser, type MmRequestUser } from '../../common/mm-auth.decorator'
 import { mmFeatures } from '../../../permissions/permissions.constants'
 
 /** Read access: the pages that load these endpoints. */
@@ -39,7 +41,11 @@ export class PackingController {
 
     @Post(':id/scan')
     @MmMutation(mmFeatures('warehouse-management', 'packing'), 'update')
-    scanItem(@Param('id') id: string, @Body() dto: ScanItemDto) {
+    scanItem(
+        @Param('id') id: string,
+        @Body() dto: ScanItemDto,
+        @MmUser() user: MmRequestUser,
+    ) {
         return this.service.scanItem(
             id,
             dto.materialId,
@@ -47,6 +53,7 @@ export class PackingController {
             dto.batchId,
             dto.serialId,
             dto.idempotencyKey,
+            user,
         )
     }
 
@@ -58,8 +65,8 @@ export class PackingController {
 
     @Post(':id/seal')
     @MmMutation(mmFeatures('warehouse-management', 'packing'), 'update')
-    seal(@Param('id') id: string) {
-        return this.service.seal(id)
+    seal(@Param('id') id: string, @Body() dto: SealPackageDto) {
+        return this.service.seal(id, dto)
     }
 
     @Post(':id/ready-for-dispatch')

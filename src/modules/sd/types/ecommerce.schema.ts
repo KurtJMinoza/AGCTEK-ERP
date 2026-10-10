@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
+import { CHECKOUT_PAYMENT_METHODS } from '../services/salesOrderDashboardService'
 import { SALES_DIVISION_IDS } from '../services/pricingEngine'
 import { POSOrderItemSchema } from './pos.schema'
 
@@ -31,6 +32,11 @@ export const EcommerceOrderSchema = z.strictObject({
     items: z.array(EcommerceOrderItemSchema).min(1, 'Cart is empty'),
     shipping: SalesOrderShippingSchema,
     discountCode: z.string().trim().optional(),
+    /** Mode of payment: required before the order is placed (demo mode). */
+    paymentMethod: z.enum(CHECKOUT_PAYMENT_METHODS),
+    paymentProvider: z.string().trim().max(80).optional(),
+    /** Demo card: simulate a failed authorization (no picking afterwards). */
+    cardDemoSimulateFailure: z.boolean().optional(),
 })
 
 export type EcommerceOrderItem = z.infer<typeof EcommerceOrderItemSchema>

@@ -1,6 +1,7 @@
 import {
     ArrayMaxSize,
     ArrayMinSize,
+    IsBoolean,
     IsDefined,
     IsEmail,
     IsIn,
@@ -122,6 +123,12 @@ export class ListSalesOrdersQueryDto {
     @MaxLength(64)
     customerId?: string
 
+    /** Organization / MM company scope; orders are filtered by companyId. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    companyId?: string
+
     @IsOptional()
     @IsIn(RETAIL_SALES_DIVISIONS)
     divisionId?: string
@@ -153,6 +160,12 @@ export class CreateRetailSalesOrderLineDto {
     @IsString()
     @MaxLength(64)
     variantId?: string
+
+    /** Variant label snapshot; the backend re-verifies it against the variant master. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    variantName?: string
 
     @IsString()
     @IsNotEmpty()
@@ -299,6 +312,30 @@ export class MarketplaceCheckoutLineDto extends CreateRetailSalesOrderLineDto {
  * master ECOMMERCE sales order; each line keeps its own `divisionId` and MM
  * splits fulfillment downstream. Idempotent on `checkoutId`.
  */
+
+/** Demo-mode checkout payment methods. Real gateways are NOT connected. */
+export const CHECKOUT_PAYMENT_METHODS = [
+    'COD',
+    'CARD_DEMO',
+    'WALLET_DEMO',
+    'QR_DEMO',
+    'BANK_TRANSFER_DEMO',
+] as const
+export type CheckoutPaymentMethod = (typeof CHECKOUT_PAYMENT_METHODS)[number]
+
+/** Demo payment record statuses (mirrors `sd_sales_order_payments.status`). */
+export const DEMO_PAYMENT_STATUSES = [
+    'Pending',
+    'Pending Collection',
+    'Pending Verification',
+    'Authorized',
+    'Paid',
+    'Failed',
+    'Cancelled',
+    'Refunded',
+] as const
+export type DemoPaymentStatus = (typeof DEMO_PAYMENT_STATUSES)[number]
+
 export class CreateMarketplaceCheckoutDto {
     @IsString()
     @IsNotEmpty()
@@ -350,11 +387,32 @@ export class CreateMarketplaceCheckoutDto {
     @Type(() => SalesOrderShippingAddressDto)
     shippingAddress!: SalesOrderShippingAddressDto
 
+    /** Mode of payment selected at checkout (demo mode — no real gateways). */
+    @IsIn(CHECKOUT_PAYMENT_METHODS)
+    paymentMethod!: CheckoutPaymentMethod
+
+    @IsOptional()
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(80)
+    paymentProvider?: string
+
+    /** Demo card simulation: when true the CARD_DEMO payment is recorded Failed. */
+    @IsOptional()
+    @IsBoolean()
+    cardDemoSimulateFailure?: boolean
+
     @IsOptional()
     @IsString()
     createdBy?: string
 }
 
+/**
+ * Back-office retail status changes are limited to safe pre-fulfillment
+ * cancellation and final closure after SCM has recorded delivery. The service
+ * enforces DELIVERED → COMPLETED so callers cannot bypass pick, pack, shipment
+ * or goods issue.
+ */
 export const RETAIL_STATUS_TARGETS = ['COMPLETED', 'CANCELLED'] as const
 
 export class UpdateRetailSalesOrderStatusDto {
@@ -379,6 +437,41 @@ export class UpdateRetailSalesOrderStatusDto {
     @IsOptional()
     @IsUrl({ require_tld: false })
     proofOfDeliveryUrl?: string
+}
+
+/** Admin transitions on an order's demo payment record. */
+export const ORDER_PAYMENT_TARGETS = [
+    'Paid',
+    'Failed',
+    'Cancelled',
+    'Refunded',
+] as const
+export type OrderPaymentTarget = (typeof ORDER_PAYMENT_TARGETS)[number]
+
+export class UpdateOrderPaymentStatusDto {
+    @IsIn(ORDER_PAYMENT_TARGETS)
+    status!: OrderPaymentTarget
+
+    @IsOptional()
+    @IsString()
+    updatedBy?: string
+}
+
+/** Customer self-service cancellation (online orders, before warehouse processing). */
+export const CUSTOMER_CANCEL_REASONS = [
+    'Changed my mind',
+    'Wrong item',
+    'Wrong address',
+    'Payment issue',
+    'Other',
+] as const
+export type CustomerCancelReason = (typeof CUSTOMER_CANCEL_REASONS)[number]
+
+export class CustomerCancelOrderDto {
+    @IsOptional()
+    @IsString()
+    @MaxLength(200)
+    reason?: string
 }
 
 export class CustomerReturnLineDto {
