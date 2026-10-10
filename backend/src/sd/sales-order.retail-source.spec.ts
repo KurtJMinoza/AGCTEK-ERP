@@ -8,17 +8,10 @@ function setup() {
     const prisma = {
         sdSalesOrder: {
             findUnique: jest.fn().mockResolvedValue(null),
-            findMany: jest.fn().mockResolvedValue([]),
             count: jest.fn().mockResolvedValue(0),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
                 Promise.resolve({ id: 'so-1', ...args.data, lines: [] }),
             ),
-        },
-        sdProduct: {
-            findMany: jest.fn().mockResolvedValue([]),
-        },
-        sdProductVariant: {
-            findMany: jest.fn().mockResolvedValue([]),
         },
     }
     const retailClients = {
@@ -31,7 +24,6 @@ function setup() {
     }
     const mmPipeline = {
         integrateConfirmedOrder: jest.fn().mockResolvedValue({ integrated: false }),
-        resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const service = new SalesOrderService(
         prisma as unknown as PrismaService,
@@ -58,8 +50,8 @@ const retailOrder = (
         ],
         subtotal: 200,
         discountAmount: 0,
-        shippingAmount: 50,
-        totalAmount: 250,
+        shippingAmount: 0,
+        totalAmount: 200,
         ...overrides,
     }) as CreateRetailSalesOrderDto
 
@@ -67,13 +59,7 @@ describe('SalesOrderService retail order source', () => {
     it('stamps POS sales with channel POS / source POS', async () => {
         const { prisma, service } = setup()
         await service.createRetail(
-            retailOrder({
-                channel: 'POS',
-                branchId: 'BR_AWIC_DAVAO_MAIN',
-                shippingAmount: 0,
-                totalAmount: 200,
-                paymentReceived: 200,
-            }),
+            retailOrder({ channel: 'POS', branchId: 'BR_AWIC_DAVAO_MAIN', paymentReceived: 200 }),
         )
         expect(prisma.sdSalesOrder.create.mock.calls[0][0].data).toMatchObject({
             channel: 'POS',

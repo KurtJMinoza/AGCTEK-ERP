@@ -517,8 +517,6 @@ describe('MM-03 Warehouse Management', () => {
             mockPrisma.wmPackage.findUnique.mockResolvedValue({
                 id: 'pkg1',
                 status: 'VERIFIED',
-                // Ship-to is required before READY_FOR_DISPATCH (SCM release)
-                shipToAddress: '4th Avenue, Test City',
                 items: [
                     {
                         id: 'i1',

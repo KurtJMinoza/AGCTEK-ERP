@@ -16,10 +16,8 @@ import {
     CreateMarketplaceCheckoutDto,
     CreateRetailSalesOrderDto,
     CreateSalesOrderDto,
-    CustomerCancelOrderDto,
     IssueSalesOrderDto,
     ListSalesOrdersQueryDto,
-    UpdateOrderPaymentStatusDto,
     UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
@@ -90,24 +88,6 @@ export class SalesOrderController {
     }
 
     /**
-     * Customer self-service cancellation before warehouse processing. The
-     * customer must be signed in and own the order; the MM reservation is
-     * released and open picking tasks are cancelled.
-     */
-    @Post('retail/:id/cancel')
-    customerCancel(
-        @Param('id') id: string,
-        @Body() dto: CustomerCancelOrderDto,
-        @Headers('authorization') authorization?: string,
-    ) {
-        return this.salesOrders.cancelRetailOrderForCustomer(
-            id,
-            this.retailSessions.clientIdFromAuthorization(authorization),
-            dto,
-        )
-    }
-
-    /**
      * Storefront return request for a delivered order. The shopper must be
      * signed in and own the order; company scope is resolved server-side.
      */
@@ -148,27 +128,14 @@ export class SalesOrderController {
 
     @Get(':id')
     @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
-    findOne(
-        @Param('id') id: string,
-        @Query('companyId') companyId?: string,
-    ) {
-        return this.salesOrders.findOne(id, companyId)
+    findOne(@Param('id') id: string) {
+        return this.salesOrders.findOne(id)
     }
 
     @Post(':id/confirm')
     @RequirePermission('sd.sales-orders', 'update')
     confirm(@Param('id') id: string) {
         return this.salesOrders.confirm(id)
-    }
-
-    /** Admin: mark a demo payment Paid / Failed / Cancelled / Refunded. */
-    @Patch(':id/payment')
-    @RequirePermission('sd.sales-orders', 'update')
-    updateOrderPayment(
-        @Param('id') id: string,
-        @Body() dto: UpdateOrderPaymentStatusDto,
-    ) {
-        return this.salesOrders.updateOrderPaymentStatus(id, dto)
     }
 
     @Post(':id/cancel')

@@ -22,7 +22,6 @@ export const MARKETPLACE_PRODUCTS_PATH = `${MARKETPLACE_PATH}/products` as const
 export const MARKETPLACE_SIGN_IN_PATH = `${MARKETPLACE_PATH}/sign-in` as const
 export const MARKETPLACE_SIGN_UP_PATH = `${MARKETPLACE_PATH}/sign-up` as const
 export const MARKETPLACE_ACCOUNT_PATH = `${MARKETPLACE_PATH}/account` as const
-export const MARKETPLACE_ORDERS_PATH = `${MARKETPLACE_PATH}/orders` as const
 
 /** Matches `/shop/sign-in` and, on a dedicated marketplace host, `/sign-in`. */
 export const isMarketplaceAuthPath = (path: string) =>

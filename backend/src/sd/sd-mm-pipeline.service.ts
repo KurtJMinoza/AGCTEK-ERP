@@ -134,25 +134,10 @@ export class SdMmPipelineService {
                 baseQty = converted.quantity
                 baseUomId = converted.baseUomId
             } catch (err) {
-                // Retail lines with no explicit UOM conversion still flow into
-                // the pipeline: one sold unit maps to one base unit. Preferred
-                // over failing checkout after the order is already recorded.
-                if (
-                    err instanceof Error &&
-                    /No UOM conversion found/i.test(err.message)
-                ) {
-                    this.logger.warn(
-                        `Order ${order.orderNumber} line ${line.lineNumber}: no UOM conversion ` +
-                            `for material ${materialId} (sku ${line.sku}) — using 1:1 base units`,
-                    )
-                    baseQty = new Decimal(line.quantity)
-                    baseUomId = material.baseUomId
-                } else {
-                    throw new SdMmIntegrationException(
-                        SD_MM_ERROR.INVALID_UOM_MAPPING,
-                        err instanceof Error ? err.message : 'UOM conversion failed',
-                    )
-                }
+                throw new SdMmIntegrationException(
+                    SD_MM_ERROR.INVALID_UOM_MAPPING,
+                    err instanceof Error ? err.message : 'UOM conversion failed',
+                )
             }
 
             await this.prisma.sdSalesOrderLine.update({
@@ -163,11 +148,6 @@ export class SdMmPipelineService {
                     salesUomId,
                     baseQuantity: baseQty,
                     baseUomId,
-                    // Organization / MM company scope, mirrored on every line so
-                    // picking/packing/shipment/invoice/return all derive it.
-                    ...(effectiveCompanyId
-                        ? { companyId: effectiveCompanyId }
-                        : {}),
                 },
             })
 
@@ -199,26 +179,11 @@ export class SdMmPipelineService {
             linesByWarehouse.keys().next().value ??
             null
 
-        // E-commerce orders don't pick a branch at checkout — carry the
-        // Organization branch of the fulfillment warehouse (e.g. HQ Branch).
-        let primaryWarehouseBranchId: string | null = null
-        if (!order.branchId && primaryWarehouse) {
-            const warehouse =
-                await this.prisma.warehouse.findUnique({
-                    where: { id: primaryWarehouse },
-                    select: { branchId: true },
-                })
-            primaryWarehouseBranchId = warehouse?.branchId ?? null
-        }
-
         await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
                 companyId: effectiveCompanyId,
                 ...(primaryWarehouse ? { warehouseId: primaryWarehouse } : {}),
-                ...(primaryWarehouseBranchId
-                    ? { branchId: primaryWarehouseBranchId }
-                    : {}),
             },
         })
 
@@ -259,16 +224,6 @@ export class SdMmPipelineService {
         if (!enriched) return { integrated: false, order: null }
         const integrated = await this.emitSalesOrderConfirmedIntegration(enriched)
         return { integrated, order: enriched }
-    }
-
-    /**
-     * Org company for a checkout order. Resolved from the Organization setup
-     * (code AGCTEK by default) and validated to exist — checkout is blocked
-     * with a clear error when no company is configured instead of silently
-     * recording an order without one.
-     */
-    async resolveCheckoutCompanyId(): Promise<string> {
-        return this.fulfillmentDetermination.defaultCompanyId()
     }
 
     isMmLinked(

@@ -1,10 +1,10 @@
-import { Injectable,
+import {
+    Injectable,
     BadRequestException,
     NotFoundException,
     Inject,
     forwardRef,
 } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import { InventoryAvailabilityService } from '../inventory-availability.service'
@@ -25,21 +25,7 @@ export class ReservationEngineService {
         private domainEvents: MmDomainEventsService,
         @Inject(forwardRef(() => AllocationEngineService))
         private allocations: AllocationEngineService,
-        private events: EventEmitter2,
     ) {}
-
-    /**
-     * Keep the material master stock cache in sync after the reservation bucket
-     * changes (the cache otherwise only updates on stock postings and drifts
-     * after cancellation / release).
-     */
-    private notifyStockChanged(materialIds: Iterable<string | null | undefined>) {
-        for (const materialId of new Set(materialIds)) {
-            if (materialId) {
-                this.events.emit('inventory.stock.changed', { materialId })
-            }
-        }
-    }
 
     private readonly includes = {
         company: true,
@@ -238,8 +224,6 @@ export class ReservationEngineService {
             integrationStatus: l.status,
         }))
 
-        this.notifyStockChanged(header.lines.map((l) => l.materialId))
-
         void this.domainEvents.reservationCreated({
             companyId: dto.companyId,
             reservationId: header.id,
@@ -404,8 +388,6 @@ export class ReservationEngineService {
             },
         })
 
-        this.notifyStockChanged([line.materialId])
-
         return {
             lineId: line.id,
             releasedQty: releaseQty.toString(),
@@ -503,9 +485,6 @@ export class ReservationEngineService {
                 sourceDocumentId: header.sourceDocumentId,
             },
         })
-
-        this.notifyStockChanged(header.lines.map((l) => l.materialId))
-
         return updated
     }
 

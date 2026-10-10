@@ -1,6 +1,5 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
-    AssignableWorker,
     PickingTask,
     PickingTaskListResponse,
     PickingQueryParams,
@@ -21,16 +20,10 @@ export const pickingService = {
     create: (data: CreatePickingTaskPayload) =>
         ErpAxiosBase.post<PickingTask>(BASE, data).then((r) => r.data),
 
-    assign: (id: string, data: { userId: string }) =>
+    assign: (id: string, data: { assignedUser: string }) =>
         ErpAxiosBase.post<PickingTask>(`${BASE}/${id}/assign`, data).then(
             (r) => r.data,
         ),
-
-    /** Active workers selectable for picking assignment (company-scoped). */
-    assignableUsers: (companyId?: string, warehouseId?: string) =>
-        ErpAxiosBase.get<AssignableWorker[]>(`${BASE}/assignable-users`, {
-            params: { companyId, warehouseId },
-        }).then((r) => r.data),
 
     confirmPick: (id: string, data: {
         scannedBinId: string

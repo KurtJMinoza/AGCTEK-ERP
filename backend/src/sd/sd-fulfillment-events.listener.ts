@@ -9,7 +9,7 @@ import { SalesInvoiceService } from './sales-invoice.service'
  *
  *  - `goods-issue.posted` (dispatch) → SD shipment marker + order SHIPPED +
  *    sales invoice created & issued (timing: dispatch, ERP standard).
- *  - `shipment.delivered` → sales order DELIVERED + invoice finalized.
+ *  - `shipment.delivered` → sales order DELIVERED → COMPLETED + invoice finalized.
  *
  * Every handler is idempotent (unique salesOrderId invoice, guarded updates).
  */
@@ -103,15 +103,12 @@ export class SdFulfillmentEventsListener {
         const ids = shipmentIds ?? []
         if (!ids.length) return
 
-        // SCM shipment → package → sales order. New order-level packages carry
-        // the direct SD link; the picking-task relation remains a legacy
-        // fallback for historical packages.
+        // SCM shipment → package → picking task → sales order.
         const rows = await this.prisma.shipment.findMany({
             where: { id: { in: ids } },
             select: {
                 package: {
                     select: {
-                        salesOrderId: true,
                         pickingTask: { select: { salesOrderId: true } },
                     },
                 },
@@ -120,11 +117,7 @@ export class SdFulfillmentEventsListener {
         const orderIds = [
             ...new Set(
                 rows
-                    .map(
-                        (row) =>
-                            row.package?.salesOrderId ??
-                            row.package?.pickingTask?.salesOrderId,
-                    )
+                    .map((row) => row.package?.pickingTask?.salesOrderId)
                     .filter(Boolean) as string[],
             ),
         ]
@@ -132,7 +125,7 @@ export class SdFulfillmentEventsListener {
 
         await this.prisma.sdSalesOrder.updateMany({
             where: { id: { in: orderIds } },
-            data: { status: 'DELIVERED' },
+            data: { status: 'COMPLETED' },
         })
         for (const salesOrderId of orderIds) {
             await this.invoices.issueForSalesOrder(salesOrderId)
