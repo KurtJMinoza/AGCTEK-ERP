@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { MmModule } from '../mm/mm.module'
 import { RetailModule } from '../retail/retail.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { CustomerController } from './customer.controller'
 import { CustomerService } from './customer.service'
 import { ProductController } from './product.controller'
@@ -28,7 +29,7 @@ import { ReturnRequestService } from './return-request.service'
 import { ReturnRequestController } from './return-request.controller'
 
 @Module({
-    imports: [forwardRef(() => MmModule), RetailModule],
+    imports: [forwardRef(() => MmModule), RetailModule, NotificationsModule],
     controllers: [
         SalesOrderController,
         CustomerController,

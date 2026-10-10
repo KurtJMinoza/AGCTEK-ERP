@@ -203,6 +203,35 @@ export class ProductService {
                 { name: 'asc' },
             ],
         })
+
+        // TEMP DEBUG (POS "not in the catalog" troubleshooting): when a specific
+        // SKU is queried, report whether it was returned and — if not — whether
+        // the row exists but was hidden by the active-only flag or by the
+        // division filter. Remove once the POS catalog issue is closed.
+        if (query.sku) {
+            const sku = query.sku.toUpperCase()
+            const found = rows.some((row) => row.sku.toUpperCase() === sku)
+            const candidates = await this.prisma.sdProduct.findMany({
+                where: { sku: { equals: sku, mode: 'insensitive' } },
+                select: { id: true, divisionId: true, isActive: true },
+            })
+            console.log('[sd/products][debug] SKU lookup', {
+                sku,
+                divisionId: query.divisionId ?? null,
+                activeOnly: query.activeOnly ?? null,
+                found,
+                candidates: candidates.map((c) => ({
+                    id: c.id,
+                    divisionId: c.divisionId,
+                    isActive: c.isActive,
+                    hiddenByActiveFilter:
+                        query.activeOnly === 'true' && !c.isActive,
+                    hiddenByDivisionFilter: query.divisionId
+                        ? c.divisionId !== query.divisionId
+                        : false,
+                })),
+            })
+        }
         return rows.map((row) => this.withMaterialCategory(row))
     }
 

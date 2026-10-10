@@ -29,7 +29,7 @@ export type RetailProduct = {
     category: RetailProductCategory
     imageUrl: string
     imageGallery: string[]
-    salesOrgId: typeof RETAIL_DIVISION_ID
+    salesOrgId: string
     popularity?: number
 }
 

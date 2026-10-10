@@ -90,7 +90,7 @@ describe('SD quotations on PostgreSQL', () => {
         const allow = { assertPermission: async () => undefined }
         quotations = new QuotationService(prisma as never)
         opps = new CrmOpportunitiesService(prisma as never, new CrmActivitiesService(prisma as never), quotations)
-        salesOrders = new SalesOrderService(prisma as never, {} as never, {} as never, {} as never, {} as never, quotations, { findVariantById: async () => null, hasVariants: async () => false } as never)
+        salesOrders = new SalesOrderService(prisma as never, {} as never, {} as never, {} as never, {} as never, quotations)
         handoff = new CrmOpportunityHandoffService(prisma as never, opps, salesOrders, allow as never, quotations)
         oppQuotes = new CrmOpportunityQuotationsService(prisma as never, quotations, allow as never)
     })

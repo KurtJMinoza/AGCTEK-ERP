@@ -1,5 +1,6 @@
 import {
     UnauthorizedException,
+    BadRequestException,
     Body,
     Controller,
     Get,
@@ -8,6 +9,7 @@ import {
     Patch,
     Post,
     Query,
+    Req,
 } from '@nestjs/common'
 import {
     ChangeSalesOrderLineQtyDto,
@@ -28,6 +30,11 @@ import { ReturnRequestService } from './return-request.service'
 import {
     CreateCustomerReturnRequestDto,
 } from './dto/sales-order.dto'
+import type { FastifyRequest } from 'fastify'
+import {
+    DELIVERY_IMAGE_MAX_BYTES,
+    saveDeliveryProofImage,
+} from './product-image-storage'
 
 @Controller('sd/sales-orders')
 export class SalesOrderController {
@@ -119,6 +126,24 @@ export class SalesOrderController {
             )
         }
         return this.returnRequests.createForCustomer(clientId, id, dto)
+    }
+
+    /** Multipart POD upload (field `file`); returns `{ imageUrl }` to attach to an order. */
+    @Post('delivery-proof-image')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'update')
+    async uploadDeliveryProof(@Req() req: FastifyRequest) {
+        let buffer: Buffer | null = null
+        for await (const part of req.parts({
+            limits: { fileSize: DELIVERY_IMAGE_MAX_BYTES, files: 1 },
+        })) {
+            if (part.type === 'file' && !buffer) buffer = await part.toBuffer()
+        }
+        if (!buffer || buffer.length === 0) {
+            throw new BadRequestException(
+                'Proof-of-delivery image is required',
+            )
+        }
+        return { imageUrl: saveDeliveryProofImage(buffer) }
     }
 
     @Get(':id')

@@ -283,14 +283,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(
-            product,
-            quantity,
-            false,
-            selectedVariant
-                ? variantSnapshot
-                : undefined,
-        )
+        requestAdd(product, quantity, false)
     }
     const buyNow = () => {
         if (hasVariants && !selectedVariant) {
@@ -301,14 +294,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(
-            product,
-            quantity,
-            true,
-            selectedVariant
-                ? variantSnapshot
-                : undefined,
-        )
+        requestAdd(product, quantity, true)
     }
 
     /** Variant prices/images override the parent display once one is selected. */

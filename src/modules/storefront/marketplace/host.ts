@@ -5,6 +5,9 @@ import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 /** App-router path of the marketplace on the ERP host (e.g. erp.agctek.co/shop). */
 export const MARKETPLACE_PATH = '/shop' as const
 
+/** Full-page checkout review route (replaces the old checkout modal). */
+export const CHECKOUT_PATH = `${MARKETPLACE_PATH}/checkout` as const
+
 /** URL segment per store, e.g. /shop/mconpinco/MCO-PRD-000001. */
 const STORE_SLUGS: Record<string, string> = {
     [RETAIL_DIVISION_ID]: 'awic',

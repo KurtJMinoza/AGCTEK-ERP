@@ -22,6 +22,7 @@
     "prisma:repair-default-packing-packages": "ts-node --project prisma/tsconfig.seed.json prisma/repair-default-packing-packages.ts",
     "prisma:seed-mm-reference": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reference-essentials-run.ts",
     "prisma:seed-material-samples": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-material-samples-run.ts",
+    "prisma:seed-sd-mm-stock": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-test-stock.ts",
     "prisma:seed-supplier-links": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-supplier-material-links-run.ts",
     "prisma:seed-purchase-requisition": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-purchase-requisition-run.ts",
     "prisma:delete-procurement-docs": "ts-node --project prisma/tsconfig.seed.json prisma/delete-procurement-documents-run.ts",

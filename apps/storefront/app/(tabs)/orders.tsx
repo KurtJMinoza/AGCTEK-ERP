@@ -10,7 +10,7 @@ import { useOrders } from '@/src/hooks/useOrders'
 import { colors } from '@/src/theme'
 import type { OrderStatus } from '@/src/types'
 
-const FILTERS: (OrderStatus | 'ALL')[] = ['ALL', 'PROCESSING', 'TO_BE_DELIVERED', 'DELIVERED', 'CANCELLED']
+const FILTERS: (OrderStatus | 'ALL')[] = ['ALL', 'PENDING_APPROVAL', 'PREPARING_TO_SHIP', 'DELIVERED', 'CANCELLED']
 
 /** My orders across every store (refreshed whenever the tab is opened). */
 export default function OrdersScreen() {

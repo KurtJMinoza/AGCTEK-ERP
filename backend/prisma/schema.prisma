@@ -3948,6 +3948,14 @@ model SdSalesOrder {
   createdBy          String?
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
+  /// Order lifecycle milestones (drives the tracking timeline).
+  approvedAt         DateTime?
+  shippedAt          DateTime?
+  deliveredAt        DateTime?
+  /// Delivery specifics + proof of delivery (POD photo).
+  trackingNumber     String?
+  courierName        String?
+  proofOfDeliveryUrl String?
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]

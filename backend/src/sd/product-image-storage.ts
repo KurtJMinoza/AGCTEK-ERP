@@ -100,3 +100,22 @@ export function deleteProductImageByUrl(
     const absolutePath = join(UPLOAD_ROOT, fileName)
     if (existsSync(absolutePath)) unlinkSync(absolutePath)
 }
+
+/** Proof-of-delivery photos live in their own `public/uploads/deliveries` folder. */
+const DELIVERY_UPLOAD_ROOT = resolve(
+    process.env.DELIVERY_UPLOAD_DIR ??
+        join(process.cwd(), '..', 'public', 'uploads', 'deliveries'),
+)
+export const DELIVERY_IMAGE_URL_PREFIX = '/uploads/deliveries/'
+export const DELIVERY_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+/** Saves a POD image buffer and returns its public URL (`/uploads/deliveries/…`). */
+export function saveDeliveryProofImage(buffer: Buffer): string {
+    if (!buffer.length) throw new Error('Proof-of-delivery image is empty')
+    if (buffer.length > DELIVERY_IMAGE_MAX_BYTES)
+        throw new Error('Proof-of-delivery image exceeds the 5 MB limit')
+    mkdirSync(DELIVERY_UPLOAD_ROOT, { recursive: true })
+    const fileName = `${randomUUID()}.jpg`
+    writeFileSync(join(DELIVERY_UPLOAD_ROOT, fileName), buffer)
+    return DELIVERY_IMAGE_URL_PREFIX + fileName
+}

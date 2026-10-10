@@ -13,7 +13,7 @@ const BASE = '/mm/storage-bins'
 
 export const storageBinService = {
     list: (params?: StorageBinQueryParams) => {
-        const limit = params?.limit ?? params?.pageSize ?? 0
+        const limit = params?.limit ?? 0
         if (limit >= 50) {
             const key = `storage-bins:${JSON.stringify(params ?? {})}`
             return mmCachedFetch(key, () =>
