@@ -479,6 +479,26 @@ const PackingPage = () => {
                 cell: ({ row }) => <span className="text-sm">{row.original.items?.length ?? 0} items</span>,
             },
             {
+                header: 'Packed By',
+                id: 'packedBy',
+                size: 150,
+                minSize: 120,
+                cell: ({ row }) => {
+                    const names = Array.from(
+                        new Set(
+                            (row.original.items ?? [])
+                                .map((it) => it.packedByName)
+                                .filter((n): n is string => Boolean(n)),
+                        ),
+                    )
+                    return (
+                        <span className="text-sm">
+                            {names.length ? names.join(', ') : '—'}
+                        </span>
+                    )
+                },
+            },
+            {
                 header: 'Weight',
                 accessorKey: 'weight',
                 size: 100,
