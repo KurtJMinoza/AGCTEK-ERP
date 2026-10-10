@@ -293,9 +293,13 @@ export class AllocationEngineService {
             const open = new Decimal(line.quantity).minus(line.pickedQuantity)
             if (open.lte(0)) continue
 
-            // Idempotent: one picking task per reservation line, ever.
+            // Idempotent: one picking task per allocation line, ever. Serial
+            // split stock can produce MANY allocation lines per reservation
+            // line (one per serial), so the dedupe must be per allocation
+            // line — keying on the reservation line would collapse all serial
+            // tasks into one and under-pick the order.
             const existing = await this.prisma.wmPickingTask.findFirst({
-                where: { reservationLineId: line.reservationLineId },
+                where: { allocationLineId: line.id },
                 select: { id: true },
             })
             if (existing) continue
