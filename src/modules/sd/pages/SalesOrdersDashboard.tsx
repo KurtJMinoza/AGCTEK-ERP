@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
     HiOutlineCheck,
     HiOutlineDesktopComputer,
@@ -31,6 +31,7 @@ import toast from '@/components/ui/toast'
 import {
     PAYMENT_METHOD_LABEL,
     markOrderPaymentPaid,
+    startSalesOrderFulfillment,
     summarizeSalesOrders,
     type RetailStatusTarget,
     type SalesOrderChannel,
@@ -186,6 +187,7 @@ const SummaryStat = ({
 )
 
 const SalesOrdersDashboard = () => {
+    const router = useRouter()
     const orders = useSalesOrdersStore((s) => s.orders)
     const loading = useSalesOrdersStore((s) => s.loading)
     const error = useSalesOrdersStore((s) => s.error)
@@ -317,6 +319,9 @@ const SalesOrdersDashboard = () => {
     const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(
         null,
     )
+    const [fulfillmentStartingId, setFulfillmentStartingId] = useState<
+        string | null
+    >(null)
 
     /** Admin: verify a bank transfer / collect COD — then picking may start. */
     const markPaid = async (order: SalesOrderRecord) => {
@@ -338,6 +343,29 @@ const SalesOrdersDashboard = () => {
             )
         } finally {
             setPaymentUpdatingId(null)
+        }
+    }
+
+    const goToPicking = async (order: SalesOrderRecord) => {
+        setFulfillmentStartingId(order.id)
+        try {
+            const result = await startSalesOrderFulfillment(order.id)
+            notify(
+                'success',
+                result.created ? 'Fulfillment started' : 'Picking task ready',
+                `${order.orderId} is linked to ${result.pickingTask.taskNumber}.`,
+            )
+            router.push(
+                `/modules/mm/warehouse-management/picking?search=${encodeURIComponent(order.orderId)}`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Fulfillment could not start',
+                error instanceof Error ? error.message : 'Please try again.',
+            )
+        } finally {
+            setFulfillmentStartingId(null)
         }
     }
 
@@ -864,14 +892,23 @@ const SalesOrdersDashboard = () => {
                                                 delivery. Mark Completed is
                                                 available only after delivery.
                                             </div>
-                                            <Link href="/modules/mm/warehouse-management/picking">
-                                                <Button
-                                                    size="sm"
-                                                    className="flex-1 sm:flex-none"
-                                                >
-                                                    Go to Picking
-                                                </Button>
-                                            </Link>
+                                            <Button
+                                                size="sm"
+                                                className="flex-1 sm:flex-none"
+                                                loading={
+                                                    fulfillmentStartingId ===
+                                                    selected.id
+                                                }
+                                                disabled={
+                                                    fulfillmentStartingId !==
+                                                    null
+                                                }
+                                                onClick={() =>
+                                                    void goToPicking(selected)
+                                                }
+                                            >
+                                                Go to Picking
+                                            </Button>
                                             {selected.customerCancel
                                                 ?.canCancel ? (
                                                 <Button

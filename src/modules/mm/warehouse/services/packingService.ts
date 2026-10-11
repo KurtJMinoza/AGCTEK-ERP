@@ -1,11 +1,14 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
     WmPackage,
-    WmPackageItem,
     PackageListResponse,
     PackageQueryParams,
     CreatePackagePayload,
     PackingSession,
+    PackageScanLogEntry,
+    PackingScanResult,
+    AdjustPackageItemPayload,
+    CompletePackingPayload,
 } from '../types'
 
 const BASE = '/mm/packages'
@@ -23,11 +26,45 @@ export const packingService = {
     create: (data: CreatePackagePayload) =>
         ErpAxiosBase.post<WmPackage>(BASE, data).then((r) => r.data),
 
+    /**
+     * Scanner-first scan: send `barcode` or `materialCode` (or `materialId`)
+     * with the quantity. The server resolves the material, blocks wrong items
+     * and over-scanning, and returns full package progress.
+     */
     scanItem: (
         id: string,
-        data: { materialId: string; batchId?: string; serialId?: string },
+        data: {
+            materialId?: string
+            materialCode?: string
+            barcode?: string
+            quantity?: number
+            batchId?: string
+            serialId?: string
+            scanType?: 'barcode' | 'manual'
+            idempotencyKey?: string
+        },
     ) =>
-        ErpAxiosBase.post<WmPackageItem>(`${BASE}/${id}/scan`, data).then(
+        ErpAxiosBase.post<PackingScanResult>(`${BASE}/${id}/scan`, data).then(
+            (r) => r.data,
+        ),
+
+    /** Manual +1 / −1 / add quantity / reset when no barcode scanner is used. */
+    adjustItem: (id: string, itemId: string, data: AdjustPackageItemPayload) =>
+        ErpAxiosBase.post<PackingScanResult>(
+            `${BASE}/${id}/items/${itemId}/adjust`,
+            data,
+        ).then((r) => r.data),
+
+    /** Complete Packing — server blocks it until every quantity is scanned. */
+    completePacking: (id: string, data?: CompletePackingPayload) =>
+        ErpAxiosBase.post<PackingScanResult>(
+            `${BASE}/${id}/complete`,
+            data ?? {},
+        ).then((r) => r.data),
+
+    /** "Recently scanned" feed. */
+    scanLogs: (id: string) =>
+        ErpAxiosBase.get<PackageScanLogEntry[]>(`${BASE}/${id}/scan-logs`).then(
             (r) => r.data,
         ),
 

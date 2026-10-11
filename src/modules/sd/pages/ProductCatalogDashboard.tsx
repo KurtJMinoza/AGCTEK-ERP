@@ -20,8 +20,10 @@ import {
     createProduct,
     deleteProduct,
     listProducts,
+    setProductStatus,
     updateProduct,
     type ProductInput,
+    type ProductLifecycleStatus,
     type SdProductRecord,
 } from '../services/productCatalogService'
 import { useProductCatalogStore } from '../store/useProductCatalogStore'
@@ -50,6 +52,9 @@ const ProductCatalogDashboard = () => {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [companyFilter, setCompanyFilter] = useState('all')
+    const [statusFilter, setStatusFilter] = useState<'all' | ProductLifecycleStatus>(
+        'all',
+    )
     const [companies, setCompanies] = useState<
         { id: string; name: string; code: string }[]
     >([])
@@ -59,6 +64,7 @@ const ProductCatalogDashboard = () => {
     const [saving, setSaving] = useState(false)
     const [pendingDelete, setPendingDelete] = useState<SdProductRecord | null>(null)
     const [deleting, setDeleting] = useState(false)
+    const [deleteBlocked, setDeleteBlocked] = useState(false)
     const [togglingId, setTogglingId] = useState<string | null>(null)
 
     const fetchProducts = useCallback(async () => {
@@ -68,6 +74,7 @@ const ProductCatalogDashboard = () => {
             setProducts(
                 await listProducts({
                     companyId: companyFilter === 'all' ? undefined : companyFilter,
+                    status: statusFilter === 'all' ? undefined : statusFilter,
                     search,
                 }),
             )
@@ -76,7 +83,7 @@ const ProductCatalogDashboard = () => {
         } finally {
             setLoading(false)
         }
-    }, [companyFilter, search])
+    }, [companyFilter, search, statusFilter])
 
     useEffect(() => {
         void fetchProducts()
@@ -179,7 +186,10 @@ const ProductCatalogDashboard = () => {
         async (product: SdProductRecord, isActive: boolean) => {
             setTogglingId(product.id)
             try {
-                const updated = await updateProduct(product.id, { isActive })
+                const updated = await setProductStatus(
+                    product.id,
+                    isActive ? 'ACTIVE' : 'INACTIVE',
+                )
                 setProducts((rows) =>
                     rows.map((row) => (row.id === updated.id ? updated : row)),
                 )
@@ -206,9 +216,37 @@ const ProductCatalogDashboard = () => {
             afterChange(pendingDelete.divisionId)
             setPendingDelete(null)
         } catch (err) {
+            const message =
+                err instanceof Error ? err.message : 'Please try again.'
+            const blocked = message.includes('cannot be deleted because')
+            setDeleteBlocked(blocked)
             notify(
                 'danger',
                 'Product not deleted',
+                message,
+            )
+        } finally {
+            setDeleting(false)
+        }
+    }
+
+    const archivePendingProduct = async () => {
+        if (!pendingDelete) return
+        setDeleting(true)
+        try {
+            const updated = await setProductStatus(pendingDelete.id, 'ARCHIVED')
+            notify(
+                'success',
+                'Product archived',
+                `${updated.name} is hidden from the shop and new orders while its history remains intact.`,
+            )
+            afterChange(updated.divisionId)
+            setPendingDelete(null)
+            setDeleteBlocked(false)
+        } catch (err) {
+            notify(
+                'danger',
+                'Product not archived',
                 err instanceof Error ? err.message : 'Please try again.',
             )
         } finally {
@@ -240,10 +278,15 @@ const ProductCatalogDashboard = () => {
                 companyFilter={companyFilter}
                 onCompanyFilterChange={setCompanyFilter}
                 companyFilterOptions={companyFilterOptions}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
                 togglingId={togglingId}
                 onToggleActive={toggleActive}
                 onEdit={(product) => setDialog({ mode: 'edit', product })}
-                onDelete={setPendingDelete}
+                onDelete={(product) => {
+                    setDeleteBlocked(false)
+                    setPendingDelete(product)
+                }}
                 onAddProduct={() => setDialog({ mode: 'create' })}
                 onRefresh={() => void fetchProducts()}
             />
@@ -262,20 +305,39 @@ const ProductCatalogDashboard = () => {
                 isOpen={pendingDelete !== null}
                 type="danger"
                 title="Delete product?"
-                confirmText="Delete"
+                confirmText={deleteBlocked ? 'Archive product' : 'Delete'}
                 cancelText="Cancel"
                 confirmButtonProps={{ loading: deleting }}
-                onClose={() => setPendingDelete(null)}
-                onRequestClose={() => setPendingDelete(null)}
-                onCancel={() => setPendingDelete(null)}
-                onConfirm={() => void confirmDelete()}
+                onClose={() => {
+                    setPendingDelete(null)
+                    setDeleteBlocked(false)
+                }}
+                onRequestClose={() => {
+                    setPendingDelete(null)
+                    setDeleteBlocked(false)
+                }}
+                onCancel={() => {
+                    setPendingDelete(null)
+                    setDeleteBlocked(false)
+                }}
+                onConfirm={() =>
+                    void (deleteBlocked ? archivePendingProduct() : confirmDelete())
+                }
             >
-                <p>
-                    {pendingDelete?.name} ({pendingDelete?.sku}) will be removed from{' '}
-                    {pendingDelete ? productSellerLabel(pendingDelete) : ''}{' '}
-                    and can no longer be sold. To hide it temporarily, switch it off
-                    under Visible instead.
-                </p>
+                {deleteBlocked ? (
+                    <p>
+                        This product is already used in transactions. It cannot be
+                        deleted; archive it instead to hide it from the shop and new
+                        orders while retaining its history.
+                    </p>
+                ) : (
+                    <p>
+                        {pendingDelete?.name} ({pendingDelete?.sku}) will be removed
+                        from {pendingDelete ? productSellerLabel(pendingDelete) : ''}{' '}
+                        and can no longer be sold. Used products will be offered an
+                        Archive action instead.
+                    </p>
+                )}
             </ConfirmDialog>
         </PageContainer>
     )

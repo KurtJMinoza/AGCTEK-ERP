@@ -541,14 +541,14 @@ export class ScannerEventService {
         }
         const qty = dto.quantity ?? 1
 
-        const item = await this.packingService.scanItem(
-            dto.packageId,
-            ctx.materialId,
-            qty,
-            ctx.batchId,
-            ctx.serialNumberId,
-            dto.idempotencyKey,
-        )
+        const result = await this.packingService.scanItem(dto.packageId, {
+            materialId: ctx.materialId,
+            quantity: qty,
+            batchId: ctx.batchId,
+            serialId: ctx.serialNumberId,
+            scanType: 'barcode',
+            idempotencyKey: dto.idempotencyKey,
+        })
 
         return {
             materialId: ctx.materialId,
@@ -556,7 +556,16 @@ export class ScannerEventService {
             serialNumberId: ctx.serialNumberId,
             documentType: 'PACKAGE',
             documentId: dto.packageId,
-            payload: { packageId: dto.packageId, item },
+            payload: {
+                packageId: dto.packageId,
+                line: result.line,
+                progress: {
+                    totalExpected: result.totalExpected,
+                    totalScanned: result.totalScanned,
+                    remaining: result.remaining,
+                    allScanned: result.allScanned,
+                },
+            },
         }
     }
 

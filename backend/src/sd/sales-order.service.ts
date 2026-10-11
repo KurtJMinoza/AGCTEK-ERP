@@ -38,6 +38,7 @@ import {
 } from './sd-catalog-pricing'
 import { QuotationService } from './quotation.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
+import { SalesInvoiceService } from './sales-invoice.service'
 
 /** Retail order to persist: single-division (header `divisionId`) or a marketplace master (lines tagged). */
 type RetailOrderInput = Omit<
@@ -58,8 +59,8 @@ type DemoPaymentPlan = {
     method: CheckoutPaymentMethod
     provider: string | null
     status: DemoPaymentStatus
-    /** True when the order may proceed to reservation + picking now. */
-    canFulfill: boolean
+    /** COD is a real collection method; the remaining choices are demo-only. */
+    isDemo: boolean
     reference: string
     paidAt: Date | null
 }
@@ -68,11 +69,31 @@ type DemoPaymentPlan = {
 const FULFILLMENT_READY_PAYMENT_STATUSES: ReadonlySet<string> = new Set([
     'Paid',
     'Authorized',
+    'Verified',
     'Pending Collection', // Cash on Delivery — collected at the door.
+    'Confirmed',
 ])
 
-export function paymentAllowsFulfillment(status: string): boolean {
-    return FULFILLMENT_READY_PAYMENT_STATUSES.has(status)
+export function paymentAllowsFulfillment(
+    status: string | null | undefined,
+): boolean {
+    return !!status && FULFILLMENT_READY_PAYMENT_STATUSES.has(status)
+}
+
+export function canStartFulfillment(
+    paymentMethod?: string | null,
+    paymentStatus?: string | null,
+): boolean {
+    if (!paymentStatus) return false
+    if (
+        paymentStatus === 'Failed' ||
+        paymentStatus === 'Cancelled' ||
+        paymentStatus === 'Refunded' ||
+        paymentStatus === 'Pending Verification'
+    ) {
+        return false
+    }
+    return FULFILLMENT_READY_PAYMENT_STATUSES.has(paymentStatus)
 }
 
 /** Storefront divisions whose e-commerce orders require a registered client account. */
@@ -129,6 +150,7 @@ export class SalesOrderService {
         private mmPipeline: SdMmPipelineService,
         private quotations: QuotationService,
         private commercialAvailability: CommercialAvailabilityService,
+        private invoices: SalesInvoiceService,
     ) {}
 
     private readonly includes = {
@@ -521,8 +543,20 @@ export class SalesOrderService {
         const existing = await this.findCheckoutOrder(dto.checkoutId)
         if (existing) {
             // Replayed checkout: heal a payment record that a crash may have
-            // missed without touching the already-recorded order.
-            await this.recordPaymentForOrder(existing, payment, dto.createdBy)
+            // missed without touching the already-recorded order. Enrichment
+            // remains safe to repeat and lets a recovered eligible checkout
+            // resume the canonical SD-to-MM handoff.
+            const enriched = await this.mmPipeline.enrichOrderForMmIntegration(
+                existing.id,
+            )
+            await this.recordPaymentForOrder(
+                enriched ?? existing,
+                payment,
+                dto.createdBy,
+            )
+            if (enriched && this.isFulfillmentEligible(enriched)) {
+                await this.createReservationAndPickingForSalesOrder(existing.id)
+            }
             return this.checkoutResult(dto, existing)
         }
 
@@ -563,11 +597,13 @@ export class SalesOrderService {
         // resolve the product-to-material assignments and require current MM
         // ATP for the actual fulfillment warehouse. This prevents an
         // out-of-stock cart from becoming an order that cannot be reserved.
-        await this.commercialAvailability.assertMarketplaceCheckoutAvailability({
-            companyId: checkoutCompanyId,
-            lines: dto.cartItems,
-            channel: 'ECOMMERCE',
-        })
+        await this.commercialAvailability.assertMarketplaceCheckoutAvailability(
+            {
+                companyId: checkoutCompanyId,
+                lines: dto.cartItems,
+                channel: 'ECOMMERCE',
+            },
+        )
 
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber('SO', attempt)
@@ -586,24 +622,21 @@ export class SalesOrderService {
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
                 // Material resolution + company/warehouse scope always run;
-                // reservation and auto picking only fire when the payment
-                // method is cleared for fulfillment (see demoPaymentPlan).
+                // a payment record is persisted before the fulfillment event.
+                // Reservation and auto-picking only fire when that payment is
+                // cleared for fulfillment (see demoPaymentPlan).
                 const enriched =
                     await this.mmPipeline.enrichOrderForMmIntegration(order.id)
-                if (
-                    payment.canFulfill &&
-                    enriched &&
-                    this.mmPipeline.isMmLinked(enriched)
-                ) {
-                    await this.mmPipeline.emitSalesOrderConfirmedIntegration(
-                        enriched,
-                    )
-                }
                 await this.recordPaymentForOrder(
                     enriched ?? order,
                     payment,
                     dto.createdBy,
                 )
+                if (enriched && this.isFulfillmentEligible(enriched)) {
+                    await this.createReservationAndPickingForSalesOrder(
+                        order.id,
+                    )
+                }
                 return this.checkoutResult(dto, order)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
@@ -612,11 +645,20 @@ export class SalesOrderService {
                         dto.checkoutId,
                     )
                     if (recorded) {
+                        const enriched =
+                            await this.mmPipeline.enrichOrderForMmIntegration(
+                                recorded.id,
+                            )
                         await this.recordPaymentForOrder(
-                            recorded,
+                            enriched ?? recorded,
                             payment,
                             dto.createdBy,
                         )
+                        if (enriched && this.isFulfillmentEligible(enriched)) {
+                            await this.createReservationAndPickingForSalesOrder(
+                                recorded.id,
+                            )
+                        }
                         return this.checkoutResult(dto, recorded)
                     }
                 }
@@ -648,7 +690,7 @@ export class SalesOrderService {
                     method: dto.paymentMethod,
                     provider: dto.paymentProvider ?? null,
                     status: 'Pending Collection',
-                    canFulfill: true,
+                    isDemo: false,
                     reference,
                     paidAt: null,
                 }
@@ -657,7 +699,7 @@ export class SalesOrderService {
                     method: dto.paymentMethod,
                     provider: dto.paymentProvider ?? null,
                     status: 'Pending Verification',
-                    canFulfill: false,
+                    isDemo: true,
                     reference,
                     paidAt: null,
                 }
@@ -667,7 +709,7 @@ export class SalesOrderService {
                           method: dto.paymentMethod,
                           provider: dto.paymentProvider ?? null,
                           status: 'Failed',
-                          canFulfill: false,
+                          isDemo: true,
                           reference,
                           paidAt: null,
                       }
@@ -675,7 +717,7 @@ export class SalesOrderService {
                           method: dto.paymentMethod,
                           provider: dto.paymentProvider ?? null,
                           status: 'Paid',
-                          canFulfill: true,
+                          isDemo: true,
                           reference,
                           paidAt,
                       }
@@ -685,7 +727,7 @@ export class SalesOrderService {
                     method: dto.paymentMethod,
                     provider: dto.paymentProvider ?? null,
                     status: 'Paid',
-                    canFulfill: true,
+                    isDemo: true,
                     reference,
                     paidAt,
                 }
@@ -707,12 +749,9 @@ export class SalesOrderService {
         createdBy?: string,
     ) {
         if (!order.companyId) return null
-        const existing = await this.prisma.sdSalesOrderPayment.findFirst({
+        return this.prisma.sdSalesOrderPayment.upsert({
             where: { salesOrderId: order.id },
-        })
-        if (existing) return existing
-        return this.prisma.sdSalesOrderPayment.create({
-            data: {
+            create: {
                 companyId: order.companyId,
                 salesOrderId: order.id,
                 customerId: order.customerId,
@@ -722,11 +761,94 @@ export class SalesOrderService {
                 currency: SD_CATALOG_CURRENCY,
                 status: payment.status,
                 referenceNumber: payment.reference,
-                isDemo: true,
+                isDemo: payment.isDemo,
                 paidAt: payment.paidAt,
                 createdBy: createdBy ?? null,
             },
+            // The first checkout is authoritative. A retry only heals a
+            // missing record; it must not rewrite its payment outcome.
+            update: {},
         })
+    }
+
+    /**
+     * Determines whether an order's payment outcome is eligible for warehouse fulfillment.
+     * Cash on Delivery (Pending Collection or Paid) = eligible.
+     * Paid / Authorized / Verified demo payments = eligible.
+     * Bank Transfer (Pending Verification) = not eligible until verified.
+     * Failed / Cancelled / Refunded = not eligible.
+     */
+    isFulfillmentEligible(order: {
+        channel?: string | null
+        paymentMethod?: string | null
+        paymentStatus?: string | null
+        status?: string | null
+    }): boolean {
+        if (order.status === 'CANCELLED' || order.status === 'COMPLETED') {
+            return false
+        }
+        if (
+            order.paymentStatus === 'Failed' ||
+            order.paymentStatus === 'Cancelled' ||
+            order.paymentStatus === 'Refunded' ||
+            order.paymentStatus === 'Pending Verification'
+        ) {
+            return false
+        }
+        if (
+            order.paymentMethod === 'COD' &&
+            (order.paymentStatus === 'Pending Collection' ||
+                order.paymentStatus === 'Paid')
+        ) {
+            return true
+        }
+        if (
+            order.paymentStatus === 'Paid' ||
+            order.paymentStatus === 'Authorized' ||
+            order.paymentStatus === 'Verified' ||
+            order.paymentStatus === 'Confirmed'
+        ) {
+            return true
+        }
+        if (!order.paymentMethod && order.channel !== 'ECOMMERCE') {
+            return true
+        }
+        return false
+    }
+
+    private paymentBlocksFulfillment(order: {
+        channel: string
+        paymentMethod?: string | null
+        paymentStatus?: string | null
+        status?: string | null
+    }) {
+        if (order.status === 'CANCELLED' || order.status === 'COMPLETED') {
+            return true
+        }
+        return !this.isFulfillmentEligible(order)
+    }
+
+    /**
+     * The sole SD release point for a paid/eligible order. It never creates
+     * reservations or pick tasks itself; it emits the established SD-to-MM
+     * confirmation contract, which remains idempotent in MM.
+     */
+    private async emitFulfillmentIfEligible(
+        order: NonNullable<
+            Awaited<
+                ReturnType<SdMmPipelineService['enrichOrderForMmIntegration']>
+            >
+        >,
+    ) {
+        if (this.paymentBlocksFulfillment(order)) return false
+        if (!this.mmPipeline.isMmLinked(order)) return false
+        // Re-delivery is deliberately safe. The MM consumer receipt,
+        // source/warehouse reservation idempotency, and allocation-line task
+        // key together prevent duplicate work. Re-emitting is required to
+        // heal a partial failure where one line was reserved before another
+        // warehouse failed to generate its pick task.
+        await this.mmPipeline.emitSalesOrderConfirmedIntegration(order)
+        return true
     }
 
     private findCheckoutOrder(checkoutId: string) {
@@ -872,7 +994,7 @@ export class SalesOrderService {
             paymentStatus: payment?.status ?? null,
             paymentReference: payment?.reference ?? null,
             paymentProvider: payment?.provider ?? null,
-            isDemoPayment: payment ? true : false,
+            isDemoPayment: payment?.isDemo ?? false,
             status: isPos ? 'COMPLETED' : 'CONFIRMED',
             correlationId,
             idempotencyKey: dto.idempotencyKey,
@@ -898,6 +1020,8 @@ export class SalesOrderService {
                         description: line.description,
                         productNameSnapshot:
                             product?.name ?? line.description ?? undefined,
+                        productSkuSnapshot:
+                            product?.sku ?? line.sku ?? undefined,
                         productImageSnapshot: product?.imageUrl?.trim()
                             ? product.imageUrl
                             : undefined,
@@ -998,38 +1122,40 @@ export class SalesOrderService {
         }
 
         const paidAt =
-            target === 'Paid' ? (payment.paidAt ?? new Date()) : payment.paidAt
-        await this.prisma.$transaction([
-            this.prisma.sdSalesOrderPayment.update({
-                where: { id: payment.id },
+            target === 'Paid' || target === 'Verified'
+                ? (payment.paidAt ?? new Date())
+                : payment.paidAt
+        // Claim the exact observed payment state. Only the request that wins
+        // this compare-and-set may release warehouse fulfillment; a concurrent
+        // Verify/Mark Paid click simply returns the now-current order.
+        const transitioned = await this.prisma.$transaction(async (tx) => {
+            const claim = await tx.sdSalesOrderPayment.updateMany({
+                where: { id: payment.id, status: payment.status },
                 data: { status: target, paidAt },
-            }),
-            this.prisma.sdSalesOrder.update({
+            })
+            if (claim.count === 0) return false
+            await tx.sdSalesOrder.update({
                 where: { id },
                 data: { paymentStatus: target },
-            }),
-        ])
+            })
+            return true
+        })
+        if (!transitioned) return this.findOne(id)
 
-        // Fulfillment gate opens when the payment is cleared: reserve + auto
-        // pick if the order was never integrated (e.g. bank transfer that was
-        // waiting for verification). Never re-emit for an already-reserved
-        // order — the MM consumer dedupes, but re-reserving hits the
-        // reservation-number unique key noisily.
+        // Fulfillment gate opens when payment is cleared (Paid / Verified / Authorized):
+        // reserve + auto picking if picking does not exist yet.
         if (
-            target === 'Paid' &&
-            order.channel === 'ECOMMERCE' &&
-            !order.lines.some(
-                (line) =>
-                    line.integrationStatus && line.integrationStatus !== 'OPEN',
-            )
+            target === 'Paid' ||
+            target === 'Verified' ||
+            target === 'Authorized'
         ) {
-            const enriched =
-                await this.mmPipeline.enrichOrderForMmIntegration(id)
-            if (enriched && this.mmPipeline.isMmLinked(enriched)) {
-                await this.mmPipeline.emitSalesOrderConfirmedIntegration(
-                    enriched,
+            if (target === 'Paid') {
+                await this.invoices.markPaidForSalesOrder(
+                    id,
+                    paidAt ?? new Date(),
                 )
             }
+            await this.createReservationAndPickingForSalesOrder(id)
         }
         return this.findOne(id)
     }
@@ -1567,14 +1693,12 @@ export class SalesOrderService {
         if (order.status === 'CONFIRMED') {
             // Self-heal: orders recorded CONFIRMED before MM enrichment (e.g.
             // e-commerce checkout created before pipeline wiring) get one more
-            // pass. Enrichment is idempotent; the MM event consumer dedupes.
+            // pass. Pending, failed, or unverified checkout payments remain
+            // confirmed commercially but cannot release warehouse work.
+            if (this.paymentBlocksFulfillment(order)) return order
             await this.mmPipeline.enrichOrderForMmIntegration(id)
             const integrated = await this.findOne(id)
-            if (this.mmPipeline.isMmLinked(integrated)) {
-                await this.mmPipeline.emitSalesOrderConfirmedIntegration(
-                    integrated,
-                )
-            }
+            await this.emitFulfillmentIfEligible(integrated)
             return integrated
         }
         if (order.status !== 'DRAFT') {
@@ -1597,8 +1721,187 @@ export class SalesOrderService {
             include: this.includes,
         })
 
-        await this.mmPipeline.emitSalesOrderConfirmedIntegration(updated)
+        await this.emitFulfillmentIfEligible(updated)
         return updated
+    }
+
+    /**
+     * Authoritatively creates or repairs stock reservation and warehouse picking
+     * for a sales order. Idempotently creates only missing lines/tasks without
+     * duplicating existing active reservations or picking tasks.
+     */
+    async createReservationAndPickingForSalesOrder(
+        salesOrderId: string,
+        options?: { throwOnIneligible?: boolean },
+    ) {
+        const enriched =
+            await this.mmPipeline.enrichOrderForMmIntegration(salesOrderId)
+        if (!enriched) throw new NotFoundException('Sales order not found')
+        if (
+            enriched.status === 'CANCELLED' ||
+            enriched.status === 'COMPLETED'
+        ) {
+            throw new ConflictException(
+                `Cannot start fulfillment for a ${enriched.status?.toLowerCase() ?? 'closed'} order`,
+            )
+        }
+        if (!this.isFulfillmentEligible(enriched)) {
+            if (options?.throwOnIneligible) {
+                throw new BadRequestException(
+                    `Payment is not eligible for fulfillment (current status: ${enriched.paymentStatus ?? 'Unknown'}).`,
+                )
+            }
+            return {
+                success: false,
+                created: false,
+                orderId: salesOrderId,
+                reason: `Payment is not eligible for fulfillment (current status: ${enriched.paymentStatus ?? 'Unknown'}).`,
+                pickingTasks: [],
+            }
+        }
+
+        // Pre-fulfillment validation (Part 3 & Test 11):
+        if (!enriched.companyId) {
+            throw new BadRequestException(
+                'No company is configured for this sales order.',
+            )
+        }
+        if (!enriched.warehouseId) {
+            throw new BadRequestException(
+                'No fulfillment warehouse configured.',
+            )
+        }
+        const missingMaterial = enriched.lines.find((line) => !line.materialId)
+        if (missingMaterial) {
+            throw new BadRequestException(
+                `Missing MM material link for sales order line ${missingMaterial.lineNumber}.`,
+            )
+        }
+
+        // Idempotency: check existing active picking tasks
+        const existingTasks = this.prisma.wmPickingTask
+            ? await this.prisma.wmPickingTask.findMany({
+                  where: {
+                      salesOrderId,
+                      status: { not: 'CANCELLED' },
+                  },
+                  orderBy: { createdAt: 'asc' },
+              })
+            : []
+        const missingPickingLines = (
+            tasks: Array<{
+                salesOrderLineId: string | null
+                requiredQty: Decimal
+            }>,
+        ) =>
+            enriched.lines.filter((line) => {
+                const required = new Decimal(line.baseQuantity ?? line.quantity)
+                const tasked = tasks
+                    .filter((task) => task.salesOrderLineId === line.id)
+                    .reduce(
+                        (total, task) => total.plus(task.requiredQty),
+                        new Decimal(0),
+                    )
+                return !tasked.eq(required)
+            })
+
+        const initiallyMissing = missingPickingLines(existingTasks)
+
+        if (initiallyMissing.length === 0 && existingTasks.length > 0) {
+            return {
+                success: true,
+                created: false,
+                orderId: salesOrderId,
+                pickingTasks: existingTasks,
+                pickingTask: existingTasks[0],
+            }
+        }
+
+        // A stable key makes concurrent/retried repair requests the same MM
+        // command. Failed consumers remain retryable, while a duplicate
+        // checkout cannot create another reservation/allocation/task set.
+        const repairKey = `fulfillment-repair:${salesOrderId}:${initiallyMissing
+            .map(
+                (line) =>
+                    `${line.id}:${new Decimal(
+                        line.baseQuantity ?? line.quantity,
+                    ).toString()}`,
+            )
+            .sort()
+            .join('|')}`
+        await this.emitFulfillmentRepair(enriched, repairKey)
+
+        const resultingTasks = this.prisma.wmPickingTask
+            ? await this.prisma.wmPickingTask.findMany({
+                  where: {
+                      salesOrderId,
+                      status: { not: 'CANCELLED' },
+                  },
+                  orderBy: { createdAt: 'asc' },
+              })
+            : []
+
+        const stillMissing = missingPickingLines(resultingTasks)
+        if (resultingTasks.length === 0 || stillMissing.length > 0) {
+            const lineNumbers = stillMissing
+                .map((line) => line.lineNumber)
+                .join(', ')
+            throw new BadRequestException(
+                resultingTasks.length === 0
+                    ? 'Fulfillment did not create a picking task. Verify reservation, allocation, and pickable-bin stock.'
+                    : `Fulfillment did not create the full picking quantity for sales order line(s) ${lineNumbers}.`,
+            )
+        }
+
+        return {
+            success: true,
+            created: resultingTasks.length > existingTasks.length,
+            orderId: salesOrderId,
+            pickingTasks: resultingTasks,
+            pickingTask: resultingTasks[0] ?? null,
+        }
+    }
+
+    /** Alias for createReservationAndPickingForSalesOrder */
+    async ensureReservationAndPickingForSalesOrder(salesOrderId: string) {
+        return this.createReservationAndPickingForSalesOrder(salesOrderId)
+    }
+
+    /**
+     * Idempotently repair the SD-to-MM handoff for an eligible order.
+     */
+    async createMissingFulfillment(id: string) {
+        return this.createReservationAndPickingForSalesOrder(id, {
+            throwOnIneligible: true,
+        })
+    }
+
+    /**
+     * Re-emits the SD → MM confirmation contract for repair. An MM failure
+     * (insufficient pickable stock, missing storage bin, unmapped warehouse)
+     * must reach the caller with its real reason.
+     */
+    private async emitFulfillmentRepair(
+        enriched: NonNullable<
+            Awaited<
+                ReturnType<SdMmPipelineService['enrichOrderForMmIntegration']>
+            >
+        >,
+        repairKey: string,
+    ) {
+        try {
+            await this.mmPipeline.emitSalesOrderConfirmedIntegration(enriched, {
+                fulfillmentRepairKey: repairKey,
+            })
+        } catch (error) {
+            const reason =
+                error instanceof Error ? error.message : 'unknown error'
+            throw new BadRequestException(
+                `Fulfillment could not start: ${reason} ` +
+                    'Verify the material has pickable stock in a storage bin (complete putaway or bin transfer) ' +
+                    'and that a fulfillment warehouse is configured.',
+            )
+        }
     }
 
     async cancel(id: string) {

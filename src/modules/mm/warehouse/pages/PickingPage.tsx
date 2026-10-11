@@ -1,6 +1,7 @@
-﻿'use client'
+'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -116,9 +117,10 @@ function pushToast(
 }
 
 const PickingPage = () => {
+    const searchParams = useSearchParams()
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
 
-    const [search, setSearch] = useState('')
+    const [search, setSearch] = useState(() => searchParams.get('search') ?? '')
     const [warehouseFilter, setWarehouseFilter] = useState('')
     const [statusTab, setStatusTab] = useState('All')
     const [page, setPage] = useState(1)
@@ -239,8 +241,17 @@ const PickingPage = () => {
     /** Stable group key: same SO + material + bin = one aggregated row. */
     const groupKeyOf = (t: PickingTask | undefined) =>
         t
-            ? `${t.salesOrderId ?? 'no-so'}:${t.materialId}:${t.sourceBinId}`
+            ? `${t.salesOrderId ?? (t.sourceDocument?.startsWith('SO-') ? t.sourceDocument : null) ?? 'no-so'}:${t.materialId}:${t.sourceBinId}`
             : 'no-so::'
+
+    const resolveTaskOrderNumber = (t: PickingTask | undefined): string | null => {
+        if (!t) return null
+        if (t.salesOrder?.orderNumber) return t.salesOrder.orderNumber
+        if (t.sourceDocument && t.sourceDocument.startsWith('SO-'))
+            return t.sourceDocument
+        if (t.salesOrderId) return `SO-${t.salesOrderId.slice(-6).toUpperCase()}`
+        return null
+    }
 
     const groupedTasks = useMemo(() => {
         const STATUS_RANK: Record<string, number> = {
@@ -256,6 +267,10 @@ const PickingPage = () => {
             {
                 tasks: PickingTask[]
                 orderNumber: string | null
+                customerName: string | null
+                companyName: string | null
+                warehouseName: string | null
+                productDisplay: PickingTask['productDisplay']
                 requiredQty: number
                 pickedQty: number
                 assignedNames: string[]
@@ -269,7 +284,19 @@ const PickingPage = () => {
             if (!g) {
                 g = {
                     tasks: [],
-                    orderNumber: t.salesOrder?.orderNumber ?? null,
+                    orderNumber: resolveTaskOrderNumber(t),
+                    customerName:
+                        t.salesOrder?.customerName ??
+                        t.salesOrder?.customerEmail ??
+                        null,
+                    companyName:
+                        t.salesOrder?.company?.name ??
+                        t.warehouse?.company?.name ??
+                        null,
+                    warehouseName: t.warehouse
+                        ? `${t.warehouse.code} — ${t.warehouse.name}`
+                        : null,
+                    productDisplay: t.productDisplay,
                     requiredQty: 0,
                     pickedQty: 0,
                     assignedNames: [],
@@ -281,6 +308,25 @@ const PickingPage = () => {
             g.tasks.push(t)
             g.requiredQty += Number(t.requiredQty ?? 0)
             g.pickedQty += Number(t.pickedQty ?? 0)
+            const taskOrderNo = resolveTaskOrderNumber(t)
+            if (!g.orderNumber && taskOrderNo) {
+                g.orderNumber = taskOrderNo
+            }
+            if (!g.customerName) {
+                g.customerName =
+                    t.salesOrder?.customerName ??
+                    t.salesOrder?.customerEmail ??
+                    null
+            }
+            if (!g.companyName) {
+                g.companyName =
+                    t.salesOrder?.company?.name ??
+                    t.warehouse?.company?.name ??
+                    null
+            }
+            if (!g.warehouseName && t.warehouse) {
+                g.warehouseName = `${t.warehouse.code} — ${t.warehouse.name}`
+            }
             const name = assignedWorkerName(
                 t.assignedUser,
                 assignWorkers,
@@ -618,7 +664,11 @@ const PickingPage = () => {
         key: string
         tasks: PickingTask[]
         orderNumber: string | null
+        customerName: string | null
+        companyName: string | null
+        warehouseName: string | null
         material: PickingTask['material']
+        productDisplay: PickingTask['productDisplay']
         sourceBin: PickingTask['sourceBin']
         requiredQty: number
         pickedQty: number
@@ -633,7 +683,11 @@ const PickingPage = () => {
                 key: groupKeyOf(g.tasks[0]),
                 tasks: g.tasks,
                 orderNumber: g.orderNumber,
+                customerName: g.customerName,
+                companyName: g.companyName,
+                warehouseName: g.warehouseName,
                 material: g.tasks[0]?.material,
+                productDisplay: g.productDisplay,
                 sourceBin: g.tasks[0]?.sourceBin,
                 requiredQty: g.requiredQty,
                 pickedQty: g.pickedQty,
@@ -818,9 +872,71 @@ const PickingPage = () => {
                 accessorKey: 'orderNumber',
                 size: 130,
                 minSize: 110,
+                cell: ({ row }) => {
+                    const orderNumber =
+                        row.original.orderNumber ||
+                        row.original.tasks
+                            .map(resolveTaskOrderNumber)
+                            .find(Boolean)
+                    return (
+                        <span className="whitespace-nowrap font-mono text-xs">
+                            {orderNumber || '—'}
+                        </span>
+                    )
+                },
+            },
+            {
+                header: 'Customer',
+                accessorKey: 'customerName',
+                size: 170,
+                minSize: 130,
+                cell: ({ row }) => {
+                    const cust =
+                        row.original.customerName ||
+                        row.original.tasks
+                            .map(
+                                (t) =>
+                                    t.salesOrder?.customerName ||
+                                    t.salesOrder?.customerEmail,
+                            )
+                            .find(Boolean)
+                    return (
+                        <span className="truncate text-sm">
+                            {cust || '—'}
+                        </span>
+                    )
+                },
+            },
+            {
+                header: 'Company',
+                accessorKey: 'companyName',
+                size: 160,
+                minSize: 130,
+                cell: ({ row }) => {
+                    const comp =
+                        row.original.companyName ||
+                        row.original.tasks
+                            .map(
+                                (t) =>
+                                    t.salesOrder?.company?.name ||
+                                    t.warehouse?.company?.name,
+                            )
+                            .find(Boolean)
+                    return (
+                        <span className="truncate text-sm">
+                            {comp || '—'}
+                        </span>
+                    )
+                },
+            },
+            {
+                header: 'Warehouse',
+                accessorKey: 'warehouseName',
+                size: 180,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap font-mono text-xs">
-                        {row.original.orderNumber || '—'}
+                    <span className="truncate text-sm">
+                        {row.original.warehouseName || '—'}
                     </span>
                 ),
             },
@@ -842,12 +958,38 @@ const PickingPage = () => {
                 minSize: 180,
                 cell: ({ row }) => {
                     const m = row.original.material
-                    return m ? (
-                        <span className="truncate text-sm">
-                            {m.materialCode} — {m.materialName}
-                        </span>
-                    ) : (
-                        <span className="text-sm text-gray-400">—</span>
+                    const product = row.original.productDisplay
+                    const itemName =
+                        product?.name?.trim() ||
+                        m?.materialName ||
+                        product?.materialCode ||
+                        'Deleted product'
+                    const itemCode =
+                        product?.sku ||
+                        product?.variantSku ||
+                        m?.materialCode ||
+                        product?.materialCode ||
+                        null
+                    const lifecycleLabel =
+                        product?.productStatus === 'ARCHIVED'
+                            ? 'Archived product'
+                            : product?.productStatus === 'INACTIVE'
+                              ? 'Inactive product'
+                              : product?.productDeleted && !product?.name
+                                ? 'Deleted product'
+                                : null
+                    return (
+                        <div className="min-w-0">
+                            <div className="truncate text-sm" title={itemName}>
+                                {itemCode ? `${itemCode} — ` : ''}
+                                {itemName}
+                            </div>
+                            {lifecycleLabel ? (
+                                <span className="text-xs text-amber-600 dark:text-amber-300">
+                                    {lifecycleLabel}
+                                </span>
+                            ) : null}
+                        </div>
                     )
                 },
             },

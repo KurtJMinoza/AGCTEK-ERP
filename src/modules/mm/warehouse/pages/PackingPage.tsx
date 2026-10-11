@@ -17,7 +17,6 @@ import Dropdown from '@/components/ui/Dropdown'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Tabs from '@/components/ui/Tabs'
-import Tag from '@/components/ui/Tag'
 import { FormItem } from '@/components/ui/Form'
 import {
     HiOutlineCube,
@@ -28,9 +27,9 @@ import {
     HiOutlineLockClosed,
     HiOutlineTruck,
     HiOutlineTrash,
-    HiOutlineQrcode,
 } from 'react-icons/hi'
 import { packingService } from '../services/packingService'
+import PackagePackingWorkspace from '../components/PackagePackingWorkspace'
 import {
     useMmFilterRefs,
     useLazyMaterialEntities,
@@ -38,7 +37,6 @@ import {
 } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     WmPackage,
-    WmPackageItem,
     PackageQueryParams,
     CreatePackagePayload,
 } from '../types'
@@ -86,6 +84,16 @@ function pushToast(
     )
 }
 
+/** Backend validation message (possibly an array) from an axios failure. */
+function apiErrorMessage(err: unknown, fallback: string): string {
+    const response = (err as { response?: { data?: { message?: unknown } } })
+        ?.response?.data
+    const message = response?.message
+    if (Array.isArray(message)) return message.join(', ')
+    if (typeof message === 'string' && message) return message
+    return fallback
+}
+
 const PackingPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
 
@@ -125,10 +133,6 @@ const PackingPage = () => {
     const [detailOpen, setDetailOpen] = useState(false)
     const [detailPkg, setDetailPkg] = useState<WmPackage | null>(null)
     const [detailLoading, setDetailLoading] = useState(false)
-    const [scanMaterialId, setScanMaterialId] = useState('')
-    const [scanLoading, setScanLoading] = useState(false)
-    const [qrCode, setQrCode] = useState('')
-    const [qrLoading, setQrLoading] = useState(false)
 
     const [sealWeight, setSealWeight] = useState('')
     const [sealLength, setSealLength] = useState('')
@@ -243,12 +247,11 @@ const PackingPage = () => {
             )
             setCreateOpen(false)
             fetchPackages()
-        } catch (err: any) {
-            const msg = err?.response?.data?.message || 'An error occurred'
+        } catch (err) {
             pushToast(
                 'danger',
                 'Error',
-                Array.isArray(msg) ? msg.join(', ') : msg,
+                apiErrorMessage(err, 'An error occurred'),
             )
         }
     }, [createForm, fetchPackages])
@@ -257,8 +260,6 @@ const PackingPage = () => {
         async (pkg: WmPackage) => {
             setDetailOpen(true)
             setDetailLoading(true)
-            setScanMaterialId('')
-            setQrCode('')
             setSealWeight('')
             setSealLength('')
             setSealWidth('')
@@ -267,8 +268,6 @@ const PackingPage = () => {
             setDispatchTracking('')
             setShipToName(pkg.shipToName ?? '')
             setShipToAddress(pkg.shipToAddress ?? '')
-            // The Scan Item dropdown needs the material master loaded.
-            void ensureMaterials()
             try {
                 const full = await packingService.get(pkg.id)
                 setDetailPkg(full)
@@ -301,7 +300,7 @@ const PackingPage = () => {
                 setDetailLoading(false)
             }
         },
-        [ensureMaterials],
+        [],
     )
 
     const refreshDetail = useCallback(async () => {
@@ -313,106 +312,6 @@ const PackingPage = () => {
             pushToast('danger', 'Error', 'Failed to refresh package details')
         }
     }, [detailPkg])
-
-    const handleScan = useCallback(async () => {
-        if (!detailPkg || !scanMaterialId) return
-        setScanLoading(true)
-        try {
-            const result = await packingService.scanItem(detailPkg.id, {
-                materialId: scanMaterialId,
-            })
-            pushToast(
-                'success',
-                'Scanned',
-                result.packedByName
-                    ? `Packed by ${result.packedByName}.`
-                    : 'Item scanned successfully.',
-            )
-            setScanMaterialId('')
-            await refreshDetail()
-            fetchPackages()
-        } catch (err: any) {
-            pushToast(
-                'danger',
-                'Scan error',
-                err?.response?.data?.message || 'Scan failed',
-            )
-        } finally {
-            setScanLoading(false)
-        }
-    }, [detailPkg, scanMaterialId, refreshDetail, fetchPackages])
-
-    const handleQrScan = useCallback(async () => {
-        if (!detailPkg || !qrCode.trim()) return
-        setQrLoading(true)
-        try {
-            const hit = await packingService.resolveCode(qrCode.trim())
-            const materialId =
-                hit.materialId ??
-                hit.serial?.materialId ??
-                hit.batch?.materialId
-            if (!materialId) {
-                pushToast(
-                    'danger',
-                    'QR scan',
-                    `Code resolved to ${hit.type} — scan a material, batch or serial code.`,
-                )
-                return
-            }
-            const result = await packingService.scanItem(detailPkg.id, {
-                materialId,
-                batchId: hit.batchId,
-                serialId: hit.serialNumberId,
-            })
-            pushToast(
-                'success',
-                'QR scanned',
-                result.packedByName
-                    ? `${result.material?.materialCode ?? 'Item'} packed by ${result.packedByName}.`
-                    : `${result.material?.materialCode ?? 'Item'} scanned.`,
-            )
-            setQrCode('')
-            await refreshDetail()
-            fetchPackages()
-        } catch (err: any) {
-            pushToast(
-                'danger',
-                'QR scan failed',
-                err?.response?.data?.message ||
-                    'Could not resolve / scan this code',
-            )
-        } finally {
-            setQrLoading(false)
-        }
-    }, [detailPkg, qrCode, refreshDetail, fetchPackages])
-
-    const handleVerify = useCallback(async () => {
-        if (!detailPkg) return
-        try {
-            const result = await packingService.verify(detailPkg.id)
-            if ((result as any).verified === false) {
-                pushToast(
-                    'danger',
-                    'Verification failed',
-                    'Some items have exceptions — check scanned quantities.',
-                )
-            } else {
-                pushToast(
-                    'success',
-                    'Verified',
-                    `Package ${detailPkg.packageNumber} verified.`,
-                )
-            }
-            await refreshDetail()
-            fetchPackages()
-        } catch (err: any) {
-            pushToast(
-                'danger',
-                'Error',
-                err?.response?.data?.message || 'Verification failed',
-            )
-        }
-    }, [detailPkg, refreshDetail, fetchPackages])
 
     const handleSeal = useCallback(async () => {
         if (!detailPkg) return
@@ -430,11 +329,11 @@ const PackingPage = () => {
             )
             await refreshDetail()
             fetchPackages()
-        } catch (err: any) {
+        } catch (err) {
             pushToast(
                 'danger',
                 'Error',
-                err?.response?.data?.message || 'Seal failed',
+                apiErrorMessage(err, 'Seal failed'),
             )
         }
     }, [
@@ -483,11 +382,11 @@ const PackingPage = () => {
             }
             await refreshDetail()
             fetchPackages()
-        } catch (err: any) {
+        } catch (err) {
             pushToast(
                 'danger',
                 'Error',
-                err?.response?.data?.message || 'Ready-for-dispatch failed',
+                apiErrorMessage(err, 'Ready-for-dispatch failed'),
             )
         }
     }, [detailPkg, shipToName, shipToAddress, refreshDetail, fetchPackages])
@@ -505,11 +404,11 @@ const PackingPage = () => {
             )
             await refreshDetail()
             fetchPackages()
-        } catch (err: any) {
+        } catch (err) {
             pushToast(
                 'danger',
                 'SCM release failed',
-                err?.response?.data?.message || 'Retry failed',
+                apiErrorMessage(err, 'Retry failed'),
             )
         }
     }, [detailPkg, refreshDetail, fetchPackages])
@@ -525,11 +424,11 @@ const PackingPage = () => {
             )
             await refreshDetail()
             fetchPackages()
-        } catch (err: any) {
+        } catch (err) {
             pushToast(
                 'danger',
                 'Error',
-                err?.response?.data?.message || 'Dispatch failed',
+                apiErrorMessage(err, 'Dispatch failed'),
             )
         }
     }, [detailPkg, refreshDetail, fetchPackages])
@@ -578,19 +477,6 @@ const PackingPage = () => {
             setBulkDeleting(false)
         }
     }, [selectedRows, fetchPackages])
-
-    const scannedSummary = useMemo(() => {
-        if (!detailPkg?.items) return { scanned: 0, total: 0 }
-        const total = detailPkg.items.reduce(
-            (sum, item) => sum + (Number(item.expectedQty) || 0),
-            0,
-        )
-        const scanned = detailPkg.items.reduce(
-            (sum, item) => sum + (Number(item.scannedQty) || 0),
-            0,
-        )
-        return { scanned, total }
-    }, [detailPkg])
 
     const columns = useMemo<ColumnDef<WmPackage>[]>(
         () => [
@@ -874,7 +760,10 @@ const PackingPage = () => {
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
                         onIndeterminateCheckBoxChange={(checked, rows) =>
-                            handleSelectAllChange(checked, rows as any)
+                            handleSelectAllChange(
+                                checked,
+                                rows as { original: WmPackage }[],
+                            )
                         }
                         noData={!loading && packages.length === 0}
                         pagingData={{
@@ -1067,17 +956,6 @@ const PackingPage = () => {
                     detailPkg && !detailLoading ? (
                         <>
                             <div className="flex flex-wrap items-center gap-2">
-                                {(detailPkg.status === 'OPEN' ||
-                                    detailPkg.status === 'PACKING') && (
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        icon={<HiOutlineCheckCircle />}
-                                        onClick={handleVerify}
-                                    >
-                                        Verify
-                                    </Button>
-                                )}
                                 {detailPkg.status === 'VERIFIED' && (
                                     <Button
                                         size="sm"
@@ -1161,169 +1039,11 @@ const PackingPage = () => {
                         ) : null}
 
                         <div>
-                            <p className="mb-3 text-sm font-semibold heading-text">
-                                Items — {scannedSummary.scanned} of{' '}
-                                {scannedSummary.total} scanned
-                            </p>
-                            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600">
-                                <table className="w-full table-fixed text-sm">
-                                    <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700">
-                                        <tr>
-                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
-                                                Material
-                                            </th>
-                                            <th className="px-3 py-2 text-right font-medium text-gray-500">
-                                                Expected
-                                            </th>
-                                            <th className="px-3 py-2 text-right font-medium text-gray-500">
-                                                Scanned
-                                            </th>
-                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
-                                                Packed By
-                                            </th>
-                                            <th className="px-3 py-2 text-left font-medium text-gray-500">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(detailPkg.items || []).map(
-                                            (item: WmPackageItem) => {
-                                                const shortfall =
-                                                    item.scannedQty <
-                                                    item.expectedQty
-                                                return (
-                                                    <tr
-                                                        key={item.id}
-                                                        className={
-                                                            shortfall
-                                                                ? 'bg-red-50 dark:bg-red-500/10'
-                                                                : ''
-                                                        }
-                                                    >
-                                                        <td className="px-3 py-2">
-                                                            <span
-                                                                className="block truncate"
-                                                                title={
-                                                                    item.material
-                                                                        ? `${item.material.materialCode} — ${item.material.materialName}`
-                                                                        : item.materialId
-                                                                }
-                                                            >
-                                                                {item.material
-                                                                    ? `${item.material.materialCode} — ${item.material.materialName}`
-                                                                    : item.materialId}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right font-medium">
-                                                            {item.expectedQty}
-                                                        </td>
-                                                        <td
-                                                            className={`px-3 py-2 text-right font-medium ${shortfall ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
-                                                        >
-                                                            {item.scannedQty}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
-                                                            {item.packedByName ||
-                                                                '—'}
-                                                        </td>
-                                                        <td className="px-3 py-2">
-                                                            {shortfall ? (
-                                                                <Tag className="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300">
-                                                                    Pending
-                                                                </Tag>
-                                                            ) : (
-                                                                <Tag className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                                                                    Complete
-                                                                </Tag>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                )
-                                            },
-                                        )}
-                                        {(!detailPkg.items ||
-                                            detailPkg.items.length === 0) && (
-                                            <tr>
-                                                <td
-                                                    colSpan={5}
-                                                    className="px-3 py-4 text-center text-gray-400"
-                                                >
-                                                    No items
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {(detailPkg.status === 'OPEN' ||
-                            detailPkg.status === 'PACKING') && (
-                            <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50">
-                                <div className="flex items-end gap-2">
-                                    <div className="flex-1">
-                                        <FormItem label="Scan QR / barcode">
-                                            <Input
-                                                size="sm"
-                                                placeholder="Scan or paste a QR / barcode, then press Enter"
-                                                value={qrCode}
-                                                onChange={(e) =>
-                                                    setQrCode(e.target.value)
-                                                }
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault()
-                                                        void handleQrScan()
-                                                    }
-                                                }}
-                                            />
-                                        </FormItem>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        icon={<HiOutlineQrcode />}
-                                        loading={qrLoading}
-                                        onClick={handleQrScan}
-                                        disabled={!qrCode.trim()}
-                                    >
-                                        Scan QR
-                                    </Button>
-                                </div>
-                                <div className="flex items-end gap-2">
-                                    <div className="flex-1">
-                                        <FormItem label="Or select material">
-                                            <Select<FilterOption>
-                                                size="sm"
-                                                placeholder="Select material to scan"
-                                                options={materialOptions}
-                                                value={materialOptions.find(
-                                                    (o) =>
-                                                        o.value ===
-                                                        scanMaterialId,
-                                                )}
-                                                onChange={(opt) =>
-                                                    setScanMaterialId(
-                                                        opt?.value ?? '',
-                                                    )
-                                                }
-                                            />
-                                        </FormItem>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        icon={<HiOutlineCheckCircle />}
-                                        loading={scanLoading}
-                                        onClick={handleScan}
-                                        disabled={!scanMaterialId}
-                                    >
-                                        Scan
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
+                        <PackagePackingWorkspace
+                            pkg={detailPkg}
+                            onChanged={refreshDetail}
+                            onListChanged={fetchPackages}
+                        />
 
                         {detailPkg.status === 'VERIFIED' && (
                             <div className="mt-4 space-y-2">
@@ -1482,6 +1202,7 @@ const PackingPage = () => {
                                 ) : null}
                             </div>
                         )}
+                    </div>
                     </div>
                 )}
             </FormDialog>

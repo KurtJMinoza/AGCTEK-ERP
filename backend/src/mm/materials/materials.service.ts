@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
@@ -37,6 +38,13 @@ function toNumber(value: unknown): number {
     return Number(value)
 }
 
+/** Live MM ledger totals for one material (MM-08 ATP authority). */
+export type LedgerTotals = {
+    onHandQty: number
+    reservedQty: number
+    availableQty: number
+}
+
 /** JSON-friendly material (Prisma Decimal → number). */
 function serializeMaterial<T extends object>(row: T): T {
     const out = { ...row } as unknown as Record<string, unknown>
@@ -63,7 +71,10 @@ function serializeMaterial<T extends object>(row: T): T {
 
 @Injectable()
 export class MaterialsService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private availability: InventoryAvailabilityService,
+    ) {}
 
     /** Sellable qty from material master thresholds (same source as Product Catalog). */
     private enrichCommercialStock<T extends Record<string, unknown>>(
@@ -79,10 +90,82 @@ export class MaterialsService {
         }
     }
 
-    private enrichCommercialStockBatch(
+    private async enrichCommercialStockBatch(
         rows: Array<Record<string, unknown>>,
-    ): Array<Record<string, unknown> & { availableQty: number }> {
-        return rows.map((row) => this.enrichCommercialStock(row))
+    ): Promise<Array<Record<string, unknown> & { availableQty: number }>> {
+        if (!rows.length) return []
+
+        // Live company-wide totals from the MM ledger (same source as the SD
+        // Product Catalog). `onHandQty` / `reservedQty` stay the material master
+        // cache; the `ledger*` fields are the authoritative display values.
+        const ledgerTotals = await this.getLedgerTotalsForMaterials(rows)
+
+        return rows.map((row) => {
+            const totals: LedgerTotals = ledgerTotals.get(row.id as string) ?? {
+                onHandQty: toNumber(row.onHandQty),
+                reservedQty: toNumber(row.reservedQty),
+                availableQty: 0,
+            }
+            return {
+                ...row,
+                onHandQty: toNumber(row.onHandQty),
+                reservedQty: toNumber(row.reservedQty),
+                /** Sellable = unrestricted MM on-hand − active reservations. */
+                availableQty: Math.max(0, totals.availableQty),
+                ledgerOnHandQty: totals.onHandQty,
+                ledgerReservedQty: totals.reservedQty,
+                ledgerAvailableQty: totals.availableQty,
+            }
+        })
+    }
+
+    /**
+     * Live MM ledger totals per material, grouped by the material's own company.
+     *
+     * Delegates to the single MM authority — `InventoryAvailabilityService` — so
+     * Material Master, the MM inventory screens and the SD Product Catalog all
+     * report the same on-hand / reserved / sellable numbers. The material master
+     * `onHandQty` / `reservedQty` columns are only a cache and must never be the
+     * display source for actual stock.
+     */
+    private async getLedgerTotalsForMaterials(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<Map<string, LedgerTotals>> {
+        const result = new Map<string, LedgerTotals>()
+
+        const byCompany = new Map<string, string[]>()
+        for (const row of rows) {
+            const materialId = row.id as string | undefined
+            const companyId = row.companyId as string | null | undefined
+            if (!materialId || !companyId) continue
+            const ids = byCompany.get(companyId) ?? []
+            ids.push(materialId)
+            byCompany.set(companyId, ids)
+        }
+
+        for (const [companyId, materialIds] of byCompany) {
+            const totals = await this.availability.getCompanyMaterialTotalsBatch(
+                companyId,
+                [...new Set(materialIds)],
+            )
+            for (const [materialId, total] of totals) {
+                result.set(materialId, total)
+            }
+        }
+
+        // Materials without a company (or without ledger rows) report an honest
+        // zero instead of falling back to the stale master cache.
+        for (const row of rows) {
+            const materialId = row.id as string | undefined
+            if (!materialId || result.has(materialId)) continue
+            result.set(materialId, {
+                onHandQty: 0,
+                reservedQty: 0,
+                availableQty: 0,
+            })
+        }
+
+        return result
     }
 
     /** Nullable FK scalars — empty string clears the relation. */
@@ -179,7 +262,7 @@ export class MaterialsService {
             this.prisma.mmMaterial.count({ where }),
         ])
 
-        const enriched = this.enrichCommercialStockBatch(
+        const enriched = await this.enrichCommercialStockBatch(
             data.map((row) => row as Record<string, unknown>),
         )
         return {
@@ -206,10 +289,39 @@ export class MaterialsService {
             },
         })
         if (!material) throw new NotFoundException('Material not found')
+
+        // Get live ledger totals for this material (same as Product Catalog)
+        const companyId = material.companyId
+        const ledger = companyId
+            ? await this.getLedgerTotalsForMaterials([
+                  { id: material.id, companyId: material.companyId },
+              ])
+            : null
+        // Get live ledger totals for this material (same source as the SD
+        // Product Catalog). A material without a company has no ledger rows, so
+        // it reports an honest zero rather than the stale master cache.
+        const ledgerTotals = ledger?.get(material.id) ?? {
+            onHandQty: 0,
+            reservedQty: 0,
+            availableQty: 0,
+        }
+
         const enriched = this.enrichCommercialStock(
             material as Record<string, unknown>,
         )
-        return serializeMaterial(enriched)
+        const serialized = serializeMaterial(enriched)
+        // Override availableQty with live ledger data (same as Product Catalog)
+        return {
+            ...serialized,
+            availableQty: Math.max(0, ledgerTotals.availableQty),
+            ledgerOnHandQty: ledgerTotals.onHandQty,
+            ledgerReservedQty: ledgerTotals.reservedQty,
+            ledgerAvailableQty: ledgerTotals.availableQty,
+        } as typeof serialized & {
+            ledgerOnHandQty: number
+            ledgerReservedQty: number
+            ledgerAvailableQty: number
+        }
     }
 
     async listBalances(materialId: string) {

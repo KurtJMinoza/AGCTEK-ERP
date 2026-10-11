@@ -4,9 +4,11 @@ import { RequirePermission } from '../permissions/permission.guard'
 
 const emptyBatch = (companyId: string, divisionId?: string) => ({
     materials: [],
+    failures: [],
     totals: {
         availableQty: 0,
         onHandQty: 0,
+        reservedQty: 0,
         maximumStock: 0,
         safetyStock: 0,
         stockAvailable: 0,
@@ -25,6 +27,8 @@ export class SdMaterialReferenceController {
         @Query('companyId') companyId: string,
         @Query('materialIds') materialIds?: string,
         @Query('divisionId') divisionId?: string,
+        @Query('warehouseId') warehouseId?: string,
+        @Query('plantId') plantId?: string,
     ) {
         if (!companyId?.trim()) {
             throw new BadRequestException('companyId is required')
@@ -36,7 +40,13 @@ export class SdMaterialReferenceController {
         if (!ids.length) {
             return emptyBatch(companyId, divisionId)
         }
-        return this.references.getBatchForProductCatalog(ids, companyId, divisionId)
+        return this.references.getBatchForProductCatalog(
+            ids,
+            companyId,
+            divisionId,
+            warehouseId,
+            plantId,
+        )
     }
 
     @Get(':materialId')
@@ -45,11 +55,15 @@ export class SdMaterialReferenceController {
         @Param('materialId') materialId: string,
         @Query('companyId') companyId: string,
         @Query('divisionId') divisionId?: string,
+        @Query('warehouseId') warehouseId?: string,
+        @Query('plantId') plantId?: string,
     ) {
         return this.references.getForProductCatalog(
             materialId,
             companyId,
             divisionId,
+            warehouseId,
+            plantId,
         )
     }
 }

@@ -155,11 +155,15 @@ class FakeDb {
                     )
                     return row ? { ...row } : null
                 },
-                count: async ({ where }: { where: { orderNumber: { startsWith: string } } }) => {
+                findMany: async ({ where }: { where: { orderNumber: { startsWith: string } } }) => {
                     await tick()
-                    return this.ordersVisible(tx).filter((o) =>
-                        String(o.orderNumber).startsWith(where.orderNumber.startsWith),
-                    ).length
+                    return this.ordersVisible(tx)
+                        .filter((o) =>
+                            String(o.orderNumber).startsWith(
+                                where.orderNumber.startsWith,
+                            ),
+                        )
+                        .map((o) => ({ orderNumber: o.orderNumber }))
                 },
                 create: ({ data }: { data: Row }) =>
                     run(async (t) => {
@@ -227,6 +231,7 @@ function setup() {
         {} as never,
         {} as never,
         quotations,
+        {} as never,
         {} as never,
     )
     const activities = { withNextActivity: async (rows: unknown[]) => rows } as unknown as CrmActivitiesService

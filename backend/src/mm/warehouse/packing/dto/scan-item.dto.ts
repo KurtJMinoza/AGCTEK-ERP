@@ -1,9 +1,26 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, MaxLength } from 'class-validator'
+import { IsIn, IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator'
 
+/**
+ * Scanner-first packing scan. The packer types / scans whatever the label
+ * carries — the server resolves `materialId`, `materialCode` or `barcode` to
+ * the material, so no material dropdown is needed and the client never decides
+ * which item a scan counts against. At least one of the three is required
+ * (validated in the service, which is the authority).
+ */
 export class ScanItemDto {
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    materialId!: string
+    materialId?: string
+
+    /** Material Master code, e.g. MAT-000008. */
+    @IsOptional()
+    @IsString()
+    materialCode?: string
+
+    /** Any barcode that resolves to the material (preferred for scanners). */
+    @IsOptional()
+    @IsString()
+    barcode?: string
 
     @IsOptional()
     @IsNumber()
@@ -17,6 +34,11 @@ export class ScanItemDto {
     @IsOptional()
     @IsString()
     serialId?: string
+
+    /** barcode (scanner) or manual (fallback controls). */
+    @IsOptional()
+    @IsIn(['barcode', 'manual'])
+    scanType?: 'barcode' | 'manual'
 
     @IsOptional()
     @IsString()

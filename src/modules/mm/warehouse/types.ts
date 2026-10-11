@@ -367,10 +367,41 @@ export interface PickingTask {
     /** Organization / MM company (from the Sales Order). */
     companyId?: string | null
     salesOrderId?: string | null
-    salesOrder?: { orderNumber: string; status: string } | null
-    salesOrderLine?: { id: string; sku: string } | null
+    salesOrder?: {
+        orderNumber: string
+        status: string
+        customerName?: string | null
+        customerEmail?: string | null
+        company?: { id: string; code: string; name: string } | null
+    } | null
+    salesOrderLine?: {
+        id: string
+        sku: string
+        productId?: string | null
+        productNameSnapshot?: string | null
+        productImageSnapshot?: string | null
+        productSkuSnapshot?: string | null
+        variantName?: string | null
+        variantSku?: string | null
+        materialCodeSnapshot?: string | null
+    } | null
+    /** Historical commercial identity resolved by the picking API. */
+    productDisplay?: {
+        name: string | null
+        sku: string | null
+        imageUrl: string | null
+        variantName: string | null
+        variantSku: string | null
+        materialCode: string | null
+        productId: string | null
+        productStatus: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | null
+        /** True only when the formerly linked catalog row no longer exists. */
+        productDeleted: boolean
+    }
     sourceBinId: string
     sourceBin?: StorageBin
+    /** Source document reference (e.g. `SALES_ORDER:…`) set at task creation. */
+    sourceDocument?: string | null
     materialId: string
     material?: { id: string; materialCode: string; materialName: string }
     batchId?: string
@@ -433,6 +464,7 @@ export interface PickingQueryParams {
     limit?: number
     search?: string
     warehouseId?: string
+    companyId?: string
     waveId?: string
     status?: string
     sortBy?: string
@@ -493,8 +525,24 @@ export interface WmPackage {
         shipToRegion?: string | null
         shipToPostalCode?: string | null
         shipToCountry?: string | null
+        /** Sold-product snapshots per line (kept for archived/deleted products). */
+        lines?: Array<{
+            id: string
+            lineNumber: number
+            materialId?: string | null
+            sku?: string | null
+            productId?: string | null
+            productNameSnapshot?: string | null
+            productImageSnapshot?: string | null
+            productSkuSnapshot?: string | null
+            variantName?: string | null
+            variantSku?: string | null
+            materialCodeSnapshot?: string | null
+        }>
     } | null
     shipment?: { id: string; reference: string; status: string } | null
+    /** Detail responses — most recent scans (barcode + manual) newest first. */
+    scanLogs?: PackageScanLogEntry[]
     /** Detail responses only — source picking task + its sales order (ship-to). */
     pickingTask?: {
         id: string
@@ -511,6 +559,17 @@ export interface WmPackage {
             shipToRegion?: string | null
             shipToPostalCode?: string | null
             shipToCountry?: string | null
+            lines?: Array<{
+                id: string
+                lineNumber: number
+                materialId?: string | null
+                sku?: string | null
+                productNameSnapshot?: string | null
+                productImageSnapshot?: string | null
+                productSkuSnapshot?: string | null
+                variantName?: string | null
+                materialCodeSnapshot?: string | null
+            }>
         } | null
     } | null
     /** Weight/carton suggestion from the Material Master physical fields. */
@@ -541,6 +600,75 @@ export interface WmPackageItem {
     status: string
     createdAt: string
     updatedAt: string
+}
+
+/** One packing scan audit entry (barcode scan or manual adjustment). */
+export interface PackageScanLogEntry {
+    id: string
+    packageId: string
+    packageItemId?: string | null
+    salesOrderId?: string | null
+    materialId: string
+    material?: { materialCode: string; materialName: string } | null
+    productId?: string | null
+    variantId?: string | null
+    scannedQuantity: number
+    scannedByUserId?: string | null
+    scannedByName?: string | null
+    scannedAt: string
+    /** barcode | manual */
+    scanType: string
+    /** add | remove | reset */
+    action: string
+    reason?: string | null
+}
+
+/** UI status token for one package item line. */
+export type PackingLineStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE'
+
+/** Response of POST /mm/packages/:id/scan | adjust | complete. */
+export interface PackingScanResult {
+    success: true
+    packageId: string
+    packageStatus: string
+    totalExpected: number
+    totalScanned: number
+    remaining: number
+    progressPercent: number
+    allScanned: boolean
+    line: {
+        id: string
+        materialId: string
+        materialCode: string | null
+        materialName: string | null
+        expectedQuantity: number
+        scannedQuantity: number
+        remainingQuantity: number
+        status: PackingLineStatus
+    } | null
+    recentlyScanned: PackageScanLogEntry[]
+    completed?: boolean
+    partial?: boolean
+    exceptions?: Array<{
+        id: string
+        materialId: string
+        materialCode: string | null
+        materialName: string | null
+        expectedQuantity: number
+        scannedQuantity: number
+        remainingQuantity: number
+    }>
+}
+
+export interface AdjustPackageItemPayload {
+    action: 'add' | 'remove' | 'reset'
+    quantity?: number
+    reason?: string
+}
+
+export interface CompletePackingPayload {
+    allowPartial?: boolean
+    reason?: string
 }
 
 export interface PackageListResponse {

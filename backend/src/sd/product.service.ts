@@ -30,6 +30,13 @@ const DIVISION_SKU_PREFIX: Record<string, string> = {
     DIV_APPLIANCES: 'MCO',
 }
 
+/** Product lifecycle statuses (column `sd_products.status`). */
+export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const
+
+/** 409 message when a referenced product cannot be hard-deleted. */
+export const PRODUCT_IN_USE_MESSAGE =
+    'This product cannot be deleted because it is already used in orders, picking, packing, shipment, invoice, or inventory. You can deactivate it instead.'
+
 /** Category for products without an MM material (non-stock / service). */
 const DEFAULT_PRODUCT_CATEGORY = 'General'
 
@@ -69,19 +76,39 @@ export class ProductService {
         return { divisionId, sku }
     }
 
+    /**
+     * Live ATP for the storefront / Product Catalog list.
+     *
+     * Stock is always read from the MM inventory ledger through
+     * `CommercialAvailabilityService` (never from material master cache fields):
+     *   available = unrestricted on-hand − active reservations.
+     *
+     * When the product has variants the stock item is the variant's linked
+     * material — the parent product's material is never used. The caller may
+     * pass the selected `variantId`; otherwise the default active variant (or
+     * the first active variant) is used.
+     */
     async getStorefrontAvailability(
         divisionId: string,
         sku: string,
         availability: CommercialAvailabilityService,
+        variantId?: string,
     ) {
         const normalized = sku.trim().toUpperCase()
         const product = await this.prisma.sdProduct.findUnique({
             where: { divisionId_sku: { divisionId, sku: normalized } },
-            select: { id: true, productType: true, isActive: true },
+            select: { id: true, productType: true, isActive: true, status: true },
         })
-        if (!product || !product.isActive) {
+        if (
+            !product ||
+            !product.isActive ||
+            (product.status !== undefined && product.status !== 'ACTIVE')
+        ) {
             return {
                 sku: normalized,
+                hasVariants: false,
+                variantId: null,
+                materialId: null,
                 availableQuantity: 0,
                 reservedQuantity: 0,
                 physicalStock: 0,
@@ -92,11 +119,53 @@ export class ProductService {
         if (product.productType !== 'STOCK_ITEM') {
             return {
                 sku: normalized,
+                hasVariants: false,
+                variantId: null,
+                materialId: null,
                 availableQuantity: 999_999,
                 reservedQuantity: 0,
                 physicalStock: 999_999,
                 state: 'NON_INVENTORY' as const,
             }
+        }
+
+        // Variants own the stock whenever the product has them.
+        const variants = await this.prisma.sdProductVariant.findMany({
+            where: { productId: product.id },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        })
+        if (variants.length) {
+            const selected =
+                (variantId
+                    ? variants.find((variant) => variant.id === variantId)
+                    : null) ??
+                variants.find((variant) => variant.isDefault && variant.isActive) ??
+                variants.find((variant) => variant.isActive) ??
+                null
+            if (!selected) {
+                return {
+                    sku: normalized,
+                    hasVariants: true,
+                    variantId: null,
+                    materialId: null,
+                    availableQuantity: 0,
+                    reservedQuantity: 0,
+                    physicalStock: 0,
+                    state: 'OUT_OF_STOCK' as const,
+                }
+            }
+            return this.availabilityForMaterial({
+                sku: normalized,
+                materialId: selected.materialId,
+                companyId: selected.companyId,
+                variantId: selected.id,
+                hasVariants: true,
+                availability,
+                fallbackCompanyId: await this.primaryAssignmentCompanyId(
+                    product.id,
+                    divisionId,
+                ),
+            })
         }
 
         const assignments =
@@ -111,6 +180,9 @@ export class ProductService {
         if (!assignments.length) {
             return {
                 sku: normalized,
+                hasVariants: false,
+                variantId: null,
+                materialId: null,
                 availableQuantity: 0,
                 reservedQuantity: 0,
                 physicalStock: 0,
@@ -155,10 +227,81 @@ export class ProductService {
 
         return {
             sku: normalized,
+            hasVariants: false,
+            variantId: null,
+            materialId: materialIds.length === 1 ? materialIds[0] : null,
             availableQuantity: available,
             reservedQuantity: Math.max(0, Math.floor(ledgerReserved)),
             physicalStock: Math.max(0, Math.floor(ledgerOnHand)),
             ledgerAvailable: Math.max(0, Math.floor(ledgerAvailable)),
+            state,
+        }
+    }
+
+    /** Company of the primary active product–material assignment, if any. */
+    private async primaryAssignmentCompanyId(
+        productId: string,
+        divisionId: string,
+    ) {
+        const assignment =
+            await this.prisma.sdProductMaterialAssignment.findFirst({
+                where: {
+                    productId,
+                    status: 'ACTIVE',
+                    OR: [{ divisionId: null }, { divisionId }],
+                },
+                orderBy: { effectiveFrom: 'desc' },
+            })
+        return assignment?.companyId ?? null
+    }
+
+    /**
+     * Ledger-backed availability for one variant's own MM material. A variant
+     * that links to no material of its own reports NOT_MAPPED — the parent
+     * product's stock must never be presented as the variant's stock.
+     */
+    private async availabilityForMaterial(args: {
+        sku: string
+        materialId: string | null
+        companyId: string | null
+        variantId: string
+        hasVariants: boolean
+        availability: CommercialAvailabilityService
+        fallbackCompanyId: string | null
+    }) {
+        const scopedCompanyId = args.companyId ?? args.fallbackCompanyId
+        const notMapped = {
+            sku: args.sku,
+            hasVariants: args.hasVariants,
+            variantId: args.variantId,
+            materialId: null,
+            availableQuantity: 0,
+            reservedQuantity: 0,
+            physicalStock: 0,
+            state: 'NOT_MAPPED' as const,
+        }
+        if (!args.materialId || !scopedCompanyId) return notMapped
+
+        const ledger = await args.availability.getCompanyMaterialLedger(
+            args.materialId,
+            scopedCompanyId,
+        )
+        const available = Math.max(0, Math.floor(ledger.availableQty))
+        const state =
+            available <= 0
+                ? ('OUT_OF_STOCK' as const)
+                : available < 10
+                  ? ('LOW_STOCK' as const)
+                  : ('IN_STOCK' as const)
+        return {
+            sku: args.sku,
+            hasVariants: args.hasVariants,
+            variantId: args.variantId,
+            materialId: args.materialId,
+            availableQuantity: available,
+            reservedQuantity: Math.max(0, Math.floor(ledger.reservedQty)),
+            physicalStock: Math.max(0, Math.floor(ledger.onHandQty)),
+            ledgerAvailable: available,
             state,
         }
     }
@@ -177,7 +320,10 @@ export class ProductService {
                       },
                   }
                 : {}),
-            ...(query.activeOnly === 'true' ? { isActive: true } : {}),
+            ...(query.activeOnly === 'true'
+                ? { isActive: true, status: 'ACTIVE' }
+                : {}),
+            ...(query.status ? { status: query.status } : {}),
             ...(query.sku ? { sku: query.sku } : {}),
             ...(search
                 ? {
@@ -281,6 +427,8 @@ export class ProductService {
     async create(dto: CreateProductDto) {
         this.assertOriginalPrice(dto.price, dto.originalPrice)
         const productType = dto.productType ?? 'STOCK_ITEM'
+        const status =
+            dto.status ?? (dto.isActive === false ? 'INACTIVE' : 'ACTIVE')
         const sku =
             dto.autoGenerateSku || !dto.sku?.trim()
                 ? await this.generateNextProductSku(dto.divisionId)
@@ -321,7 +469,8 @@ export class ProductService {
                         category,
                         imageUrl: dto.imageUrl ?? '',
                         badge: dto.badge ?? null,
-                        isActive: dto.isActive ?? true,
+                        isActive: status === 'ACTIVE',
+                        status,
                         sortOrder: dto.sortOrder ?? 0,
                         productType,
                         ...(materialLinks[0]?.salesUomId
@@ -497,6 +646,13 @@ export class ProductService {
         if (dto.badge !== undefined) data.badge = dto.badge
         if (dto.isActive !== undefined) data.isActive = dto.isActive
         if (dto.productType !== undefined) data.productType = dto.productType
+        // One lifecycle flag pair: status is authoritative, isActive mirrors it.
+        if (dto.status !== undefined) {
+            data.status = dto.status
+            data.isActive = dto.status === 'ACTIVE'
+        } else if (dto.isActive !== undefined) {
+            data.status = dto.isActive ? 'ACTIVE' : 'INACTIVE'
+        }
         if (dto.salesUomId !== undefined) {
             data.salesUom = dto.salesUomId
                 ? { connect: { id: dto.salesUomId } }
@@ -586,7 +742,12 @@ export class ProductService {
      */
     async activePriceMap(divisionId: string, skus: string[]) {
         const rows = await this.prisma.sdProduct.findMany({
-            where: { divisionId, isActive: true, sku: { in: skus } },
+            where: {
+                divisionId,
+                isActive: true,
+                status: 'ACTIVE',
+                sku: { in: skus },
+            },
             select: { sku: true, price: true },
         })
         return new Map(rows.map((row) => [row.sku, new Decimal(row.price)]))
@@ -595,11 +756,215 @@ export class ProductService {
     /** Hard delete; past orders keep their own SKU/description/price snapshot. */
     async remove(id: string) {
         const current = await this.findOne(id)
+        const references = await this.productUsageReferences(id, current)
+        if (references.length > 0) {
+            throw new ConflictException({
+                message: PRODUCT_IN_USE_MESSAGE,
+                references,
+            })
+        }
         await this.prisma.sdProduct.delete({ where: { id } })
         deleteProductImageByUrl(current.imageUrl)
         this.galleryOf(current.attributes).forEach(deleteProductImageByUrl)
         this.videosOf(current.attributes).forEach(deleteProductImageByUrl)
         return { id, deleted: true }
+    }
+
+    /**
+     * Lifecycle transition (Deactivate / Archive / Reactivate). INACTIVE and
+     * ARCHIVED also clear `isActive`, so storefront, POS, ATP and order search
+     * — all filtered on `isActive` — hide the product in one place, while the
+     * admin catalog keeps it (with its history) until it is deleted.
+     */
+    async setStatus(id: string, status: string, updatedBy?: string) {
+        if (!(PRODUCT_STATUSES as readonly string[]).includes(status)) {
+            throw new BadRequestException(
+                `status must be one of ${PRODUCT_STATUSES.join(', ')}`,
+            )
+        }
+        const current = await this.findOne(id)
+        if (current.status === status) return current
+        await this.prisma.sdProduct.update({
+            where: { id },
+            data: {
+                status,
+                isActive: status === 'ACTIVE',
+                updatedBy: updatedBy ?? current.updatedBy ?? null,
+            },
+        })
+        return this.findOne(id)
+    }
+
+    /**
+     * Operational records that still reference this product. A hard delete
+     * would leave them pointing at a product row that no longer exists, so the
+     * caller must archive/deactivate instead. Sales order lines, cart items,
+     * picking, packing, packages, shipments, invoices, returns, reservations,
+     * and inventory activity on a linked MM material all count. A merely
+     * configured variant/material assignment does not block deletion until it
+     * has operational history.
+     */
+    private async productUsageReferences(
+        productId: string,
+        product: { sku: string; divisionId: string },
+    ): Promise<string[]> {
+        const [variants, assignments] = await Promise.all([
+            this.prisma.sdProductVariant.findMany({
+                where: { productId },
+                select: { id: true, materialId: true },
+            }),
+            this.prisma.sdProductMaterialAssignment.findMany({
+                where: { productId },
+                select: { materialId: true },
+            }),
+        ])
+        const variantIds = variants.map((variant) => variant.id)
+        const materialIds = [
+            ...new Set(
+                [
+                    ...assignments.map((assignment) => assignment.materialId),
+                    ...variants
+                        .map((variant) => variant.materialId)
+                        .filter((id): id is string => Boolean(id)),
+                ].filter(Boolean),
+            ),
+        ]
+        const orderLines = await this.prisma.sdSalesOrderLine.findMany({
+            where: {
+                OR: [
+                    { productId },
+                    ...(variantIds.length
+                        ? [{ variantId: { in: variantIds } }]
+                        : []),
+                ],
+            },
+            select: { id: true, salesOrderId: true, reservationHeaderId: true },
+        })
+        const orderLineIds = orderLines.map((line) => line.id)
+        const orderIds = [
+            ...new Set(orderLines.map((line) => line.salesOrderId)),
+        ]
+        const counts = await Promise.all([
+            Promise.resolve(orderLines.length),
+            this.prisma.sdFulfillmentLine.count({
+                where: {
+                    OR: [
+                        { productId },
+                        ...(orderLineIds.length
+                            ? [{ salesOrderLineId: { in: orderLineIds } }]
+                            : []),
+                    ],
+                },
+            }),
+            orderIds.length
+                ? this.prisma.sdShipment.count({
+                      where: { salesOrderId: { in: orderIds } },
+                  })
+                : Promise.resolve(0),
+            orderIds.length
+                ? this.prisma.wmPackingSession.count({
+                      where: { salesOrderId: { in: orderIds } },
+                  })
+                : Promise.resolve(0),
+            orderIds.length || materialIds.length
+                ? this.prisma.wmPackage.count({
+                      where: {
+                          OR: [
+                              ...(orderIds.length
+                                  ? [{ salesOrderId: { in: orderIds } }]
+                                  : []),
+                              ...(materialIds.length
+                                  ? [
+                                        {
+                                            items: {
+                                                some: {
+                                                    materialId: {
+                                                        in: materialIds,
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    ]
+                                  : []),
+                          ],
+                      },
+                  })
+                : Promise.resolve(0),
+            orderLineIds.length || materialIds.length
+                ? this.prisma.wmPickingTask.count({
+                      where: {
+                          OR: [
+                              ...(orderLineIds.length
+                                  ? [
+                                        {
+                                            salesOrderLineId: {
+                                                in: orderLineIds,
+                                            },
+                                        },
+                                    ]
+                                  : []),
+                              ...(materialIds.length
+                                  ? [{ materialId: { in: materialIds } }]
+                                  : []),
+                          ],
+                      },
+                  })
+                : Promise.resolve(0),
+            orderLineIds.length
+                ? this.prisma.sdSalesInvoiceLine.count({
+                      where: { salesOrderLineId: { in: orderLineIds } },
+                  })
+                : Promise.resolve(0),
+            orderLineIds.length
+                ? this.prisma.sdSalesReturnLine.count({
+                      where: { salesOrderLineId: { in: orderLineIds } },
+                  })
+                : Promise.resolve(0),
+            orderLineIds.length
+                ? this.prisma.sdReturnRequestLine.count({
+                      where: { salesOrderLineId: { in: orderLineIds } },
+                  })
+                : Promise.resolve(0),
+            materialIds.length
+                ? this.prisma.mmInventoryReservationHeader.count({
+                      where: {
+                          lines: {
+                              some: { materialId: { in: materialIds } },
+                          },
+                      },
+                  })
+                : Promise.resolve(0),
+            materialIds.length
+                ? this.prisma.mmInventoryReservation.count({
+                      where: { materialId: { in: materialIds } },
+                  })
+                : Promise.resolve(0),
+            materialIds.length
+                ? this.prisma.mmInventoryTransaction.count({
+                      where: { materialId: { in: materialIds } },
+                  })
+                : Promise.resolve(0),
+            this.prisma.retailCartItem.count({
+                where: { sku: product.sku },
+            }),
+        ])
+
+        const labels = [
+            'sales order lines',
+            'fulfillment lines',
+            'shipments',
+            'packing sessions',
+            'packages',
+            'picking task lines',
+            'sales invoice lines',
+            'sales return lines',
+            'return request lines',
+            'inventory reservations',
+            'legacy inventory reservations',
+            'inventory transactions',
+            'active cart items',
+        ]
+        return labels.filter((_, index) => counts[index] > 0)
     }
 
     /** Stores an uploaded product video and returns the URL to list in `attributes.videos`. */

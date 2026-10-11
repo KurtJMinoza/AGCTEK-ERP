@@ -34,7 +34,7 @@ export function downloadProductCatalogCsv(
             p.originalPrice == null ? '' : String(p.originalPrice),
             p.badge ?? '',
             p.isActive ? 'yes' : 'no',
-            stock ? String(stock.availableQty) : '',
+            stock?.availableQty == null ? '' : String(stock.availableQty),
             stock?.state ?? '',
         ]
             .map(escapeCsv)

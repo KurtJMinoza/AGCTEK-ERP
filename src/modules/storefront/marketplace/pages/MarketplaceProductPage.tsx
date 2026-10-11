@@ -172,10 +172,10 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
     )
 
     const [quantity, setQuantity] = useState(1)
-    const { stock, loading, available, soldOut, maxQuantity } =
-        useProductAvailability(product)
     const [selectedVariant, setSelectedVariant] =
         useState<ProductVariantDefinition | null>(null)
+    const { stock, loading, available, soldOut, maxQuantity } =
+        useProductAvailability(product, selectedVariant?.id ?? null)
     const [hasVariants, setHasVariants] = useState(false)
     /** Admin setting: variant image replaces the main product photo. */
     const [variantImageMode, setVariantImageMode] =

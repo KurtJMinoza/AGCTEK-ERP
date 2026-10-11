@@ -489,6 +489,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         ReservationEngineService,
         AllocationEngineService,
         UomConversionsService,
+        ReorderRuleService,
         CustomerReturnService,
     ],
 })

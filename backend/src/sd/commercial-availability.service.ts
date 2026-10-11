@@ -27,6 +27,15 @@ export type CompanyMaterialLedger = {
     reservedQty: number
 }
 
+/**
+ * Live MM ledger quantities for one material at one warehouse. The values are
+ * in the material base UOM; callers that present sales quantities must convert
+ * them through UomConversionsService.
+ */
+export type WarehouseMaterialLedger = CompanyMaterialLedger & {
+    warehouseId: string
+}
+
 @Injectable()
 export class CommercialAvailabilityService {
     constructor(
@@ -43,7 +52,7 @@ export class CommercialAvailabilityService {
         materialId: string,
         companyId: string,
     ): Promise<CompanyMaterialLedger> {
-        const totals = await this.inventoryAtp.getCommercialMaterialTotals(
+        const totals = await this.inventoryAtp.getPickableMaterialTotals(
             companyId,
             materialId,
         )
@@ -52,6 +61,41 @@ export class CommercialAvailabilityService {
             availableQty: totals.availableQty,
             reservedQty: totals.reservedQty,
         }
+    }
+
+    /**
+     * The same MM ATP/ledger authority as getCompanyMaterialLedger, split by
+     * an already-authorized warehouse scope. This lets Product Catalog show a
+     * default warehouse when configured, or an honest active-warehouse
+     * aggregate, without querying material-master cache columns.
+     */
+    async getCompanyMaterialLedgerByWarehouses(
+        materialId: string,
+        companyId: string,
+        warehouseIds: string[],
+    ): Promise<WarehouseMaterialLedger[]> {
+        const uniqueWarehouseIds = [
+            ...new Set(warehouseIds.map((id) => id.trim()).filter(Boolean)),
+        ]
+        if (!uniqueWarehouseIds.length) return []
+
+        const availability = await this.inventoryAtp.getPickableAvailabilityBatch(
+            companyId,
+            uniqueWarehouseIds.map((warehouseId) => ({
+                warehouseId,
+                materialId,
+            })),
+        )
+
+        return uniqueWarehouseIds.map((warehouseId) => {
+            const totals = availability.get(atpPairKey(warehouseId, materialId))
+            return {
+                warehouseId,
+                onHandQty: totals?.onHand ?? 0,
+                reservedQty: totals?.reserved ?? 0,
+                availableQty: Math.max(0, totals?.available ?? 0),
+            }
+        })
     }
 
     /**
@@ -175,13 +219,14 @@ export class CommercialAvailabilityService {
         }
 
         const requirements = [...requiredByMaterialWarehouse.values()]
-        const availabilityByPair = await this.inventoryAtp.getAvailabilityBatch(
-            args.companyId,
-            requirements.map(({ warehouseId, materialId }) => ({
-                warehouseId,
-                materialId,
-            })),
-        )
+        const availabilityByPair =
+            await this.inventoryAtp.getPickableAvailabilityBatch(
+                args.companyId,
+                requirements.map(({ warehouseId, materialId }) => ({
+                    warehouseId,
+                    materialId,
+                })),
+            )
 
         for (const requirement of requirements) {
             const available =
@@ -250,13 +295,14 @@ export class CommercialAvailabilityService {
                 orderBy: { code: 'asc' },
             })
             if (warehouses.length) {
-                const batch = await this.inventoryAtp.getAvailabilityBatch(
-                    args.companyId,
-                    warehouses.map((w) => ({
-                        warehouseId: w.id,
-                        materialId: args.materialId,
-                    })),
-                )
+                const batch =
+                    await this.inventoryAtp.getPickableAvailabilityBatch(
+                        args.companyId,
+                        warehouses.map((w) => ({
+                            warehouseId: w.id,
+                            materialId: args.materialId,
+                        })),
+                    )
                 let bestId = warehouses[0].id
                 let bestAvail = -1
                 for (const wh of warehouses) {

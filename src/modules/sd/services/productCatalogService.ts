@@ -26,6 +26,8 @@ export type SdProductRecord = {
     imageUrl: string
     badge: string | null
     isActive: boolean
+    /** ACTIVE | INACTIVE | ARCHIVED. Only ACTIVE products are sellable. */
+    status: ProductLifecycleStatus
     sortOrder: number
     /** Division-specific storefront content (features, specs, reviews, …). */
     attributes: ProductAttributes | null
@@ -33,10 +35,13 @@ export type SdProductRecord = {
     updatedAt: string
 }
 
+export type ProductLifecycleStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
+
 export type ProductListParams = {
     divisionId?: string
     companyId?: string
     activeOnly?: boolean
+    status?: ProductLifecycleStatus
     sku?: string
     search?: string
 }
@@ -55,6 +60,7 @@ export type ProductInput = {
     imageUrl?: string
     badge?: string | null
     isActive?: boolean
+    status?: ProductLifecycleStatus
     sortOrder?: number
     attributes?: ProductAttributes | null
     productType?: SdProductType
@@ -141,6 +147,7 @@ export async function listProducts(
                 divisionId: params.divisionId || undefined,
                 companyId: params.companyId || undefined,
                 activeOnly: params.activeOnly ? 'true' : undefined,
+                status: params.status,
                 sku: params.sku || undefined,
                 search: params.search?.trim() || undefined,
             },
@@ -160,6 +167,10 @@ export type StorefrontAvailability = {
     physicalStock: number
     /** Company available across warehouses (MM ledger). */
     ledgerAvailable?: number
+    /** Live MM ledger fields. */
+    hasVariants?: boolean
+    variantId?: string | null
+    materialId?: string | null
     state?:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -172,6 +183,7 @@ export type StorefrontAvailability = {
 export async function fetchStorefrontAvailability(
     divisionId: string,
     sku: string,
+    variantId?: string,
 ): Promise<StorefrontAvailability> {
     const empty: StorefrontAvailability = {
         sku,
@@ -184,7 +196,13 @@ export async function fetchStorefrontAvailability(
     try {
         const { data } = await ErpAxiosBase.get<StorefrontAvailability>(
             '/sd/products/storefront/availability',
-            { params: { divisionId, sku } },
+            {
+                params: {
+                    divisionId,
+                    sku,
+                    variantId: variantId?.trim() || undefined,
+                },
+            },
         )
         return {
             ...empty,
@@ -303,6 +321,22 @@ export async function deleteProduct(id: string): Promise<void> {
     }
 }
 
+/** Archive/deactivate/reactivate while retaining all historical records. */
+export async function setProductStatus(
+    id: string,
+    status: ProductLifecycleStatus,
+): Promise<SdProductRecord> {
+    try {
+        const { data } = await ErpAxiosBase.patch<ApiProduct>(
+            `/sd/products/${encodeURIComponent(id)}/status`,
+            { status },
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Unable to change product status')
+    }
+}
+
 /** @deprecated Prefer multipart update; kept for legacy gallery URL uploads. */
 export async function uploadProductImage(file: File): Promise<string> {
     const formData = new FormData()
@@ -318,10 +352,18 @@ export async function uploadProductImage(file: File): Promise<string> {
     }
 }
 
-/** Uploads a product video (MP4/WEBM/MOV); returns the URL for `attributes.videos`. */
+/** MM stock snapshot for one catalog product (never a silent fake zero). */
 export type CatalogStockSnapshot = {
-    availableQty: number
+    /** null means the MM stock request failed; it is never a real zero. */
+    availableQty: number | null
     state: string
+    error?: string
+    /** Live MM ledger context from the availability endpoint. */
+    onHandQty?: number
+    reservedQty?: number
+    hasVariants?: boolean
+    variantId?: string | null
+    materialId?: string | null
 }
 
 /** MM-backed available qty per product (storefront ATP by division + SKU). */
@@ -332,26 +374,35 @@ export async function fetchProductCatalogStock(
     const pairs = await Promise.all(
         products.map(async (product) => {
             try {
-                const { data } = await ErpAxiosBase.get<{
-                    availableQuantity: number
-                    state: string
-                }>('/sd/products/storefront/availability', {
-                    params: {
-                        divisionId: product.divisionId,
-                        sku: product.sku,
+                const { data } = await ErpAxiosBase.get<StorefrontAvailability>(
+                    '/sd/products/storefront/availability',
+                    {
+                        params: {
+                            divisionId: product.divisionId,
+                            sku: product.sku,
+                        },
                     },
-                })
+                )
                 return [
                     product.id,
                     {
                         availableQty: data.availableQuantity ?? 0,
                         state: data.state ?? 'OUT_OF_STOCK',
+                        onHandQty: data.physicalStock,
+                        reservedQty: data.reservedQuantity,
+                        hasVariants: data.hasVariants ?? false,
+                        variantId: data.variantId ?? null,
+                        materialId: data.materialId ?? null,
                     },
                 ] as const
-            } catch {
+            } catch (error) {
                 return [
                     product.id,
-                    { availableQty: 0, state: 'NOT_MAPPED' },
+                    {
+                        availableQty: null,
+                        state: 'ERROR',
+                        error: toError(error, 'Unable to load MM stock').message,
+                    },
                 ] as const
             }
         }),

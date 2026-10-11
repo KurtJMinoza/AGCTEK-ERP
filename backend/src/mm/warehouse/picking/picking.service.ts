@@ -1,4 +1,5 @@
-import { Injectable,
+import {
+    Injectable,
     NotFoundException,
     BadRequestException,
     Inject,
@@ -36,10 +37,41 @@ export class PickingService {
         material: true,
         sourceBin: true,
         wave: true,
-        warehouse: true,
+        warehouse: {
+            select: {
+                id: true,
+                code: true,
+                name: true,
+                companyId: true,
+                company: { select: { id: true, code: true, name: true } },
+            },
+        },
         reservation: true,
-        salesOrder: { select: { orderNumber: true, status: true } },
-        salesOrderLine: { select: { id: true, sku: true } },
+        salesOrder: {
+            select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                customerId: true,
+                customerName: true,
+                customerEmail: true,
+                companyId: true,
+                company: { select: { id: true, code: true, name: true } },
+            },
+        },
+        salesOrderLine: {
+            select: {
+                id: true,
+                sku: true,
+                productId: true,
+                productNameSnapshot: true,
+                productImageSnapshot: true,
+                productSkuSnapshot: true,
+                variantName: true,
+                variantSku: true,
+                materialCodeSnapshot: true,
+            },
+        },
     }
 
     async findAll(query: PickingQueryDto) {
@@ -49,21 +81,48 @@ export class PickingService {
             status,
             waveId,
             warehouseId,
+            companyId,
             search,
             sortBy = 'createdAt',
             sortOrder = 'desc',
         } = query
 
-        const where: any = {}
-        if (status) where.status = status
-        if (waveId) where.waveId = waveId
-        if (warehouseId) where.warehouseId = warehouseId
-        if (search) {
-            where.OR = [
-                { taskNumber: { contains: search, mode: 'insensitive' } },
-                { sourceDocument: { contains: search, mode: 'insensitive' } },
-            ]
+        const andClauses: any[] = []
+        if (status) andClauses.push({ status })
+        if (waveId) andClauses.push({ waveId })
+        if (warehouseId) andClauses.push({ warehouseId })
+        if (companyId) {
+            andClauses.push({
+                OR: [
+                    { companyId },
+                    { salesOrder: { companyId } },
+                    { warehouse: { companyId } },
+                ],
+            })
         }
+        if (search) {
+            andClauses.push({
+                OR: [
+                    { taskNumber: { contains: search, mode: 'insensitive' } },
+                    {
+                        sourceDocument: {
+                            contains: search,
+                            mode: 'insensitive',
+                        },
+                    },
+                    {
+                        salesOrder: {
+                            orderNumber: {
+                                contains: search,
+                                mode: 'insensitive',
+                            },
+                        },
+                    },
+                ],
+            })
+        }
+
+        const where = andClauses.length > 0 ? { AND: andClauses } : {}
 
         const [data, total] = await Promise.all([
             this.prisma.wmPickingTask.findMany({
@@ -77,7 +136,9 @@ export class PickingService {
         ])
 
         return {
-            data: await this.withAssignedWorkerProfiles(data),
+            data: await this.withProductDisplayInfo(
+                await this.withAssignedWorkerProfiles(data),
+            ),
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         }
     }
@@ -88,8 +149,72 @@ export class PickingService {
             include: this.includes,
         })
         if (!task) throw new NotFoundException('Picking task not found')
-        const [enrichedTask] = await this.withAssignedWorkerProfiles([task])
+        const [enrichedTask] = await this.withProductDisplayInfo(
+            await this.withAssignedWorkerProfiles([task]),
+        )
         return enrichedTask
+    }
+
+    /**
+     * Product identity for pick lists. Order-line snapshots come first so an
+     * archived, deactivated or already-deleted catalog product still shows the
+     * sold name — never a blank item. `productStatus` drives the
+     * "Archived product" / "Inactive product" badge; `productDeleted` is true
+     * only when the order line points at a product row that no longer exists.
+     */
+    private async withProductDisplayInfo<
+        T extends {
+            salesOrderLine?: {
+                productId: string | null
+                productNameSnapshot: string | null
+                productImageSnapshot: string | null
+                productSkuSnapshot: string | null
+                sku: string | null
+                variantName: string | null
+                variantSku: string | null
+                materialCodeSnapshot: string | null
+            } | null
+        },
+    >(tasks: T[]) {
+        const productIds = [
+            ...new Set(
+                tasks
+                    .map((task) => task.salesOrderLine?.productId)
+                    .filter((id): id is string => Boolean(id)),
+            ),
+        ]
+        const products = productIds.length
+            ? await this.prisma.sdProduct.findMany({
+                  where: { id: { in: productIds } },
+                  select: { id: true, status: true, isActive: true },
+              })
+            : []
+        const statusById = new Map(
+            products.map((product) => [product.id, product.status]),
+        )
+
+        return tasks.map((task) => {
+            const line = task.salesOrderLine
+            const productId = line?.productId ?? null
+            return {
+                ...task,
+                productDisplay: {
+                    name: line?.productNameSnapshot ?? null,
+                    sku: line?.productSkuSnapshot ?? line?.sku ?? null,
+                    imageUrl: line?.productImageSnapshot ?? null,
+                    variantName: line?.variantName ?? null,
+                    variantSku: line?.variantSku ?? null,
+                    materialCode: line?.materialCodeSnapshot ?? null,
+                    productId,
+                    productStatus: productId
+                        ? (statusById.get(productId) ?? null)
+                        : null,
+                    productDeleted: productId
+                        ? !statusById.has(productId)
+                        : false,
+                },
+            }
+        })
     }
 
     /**
@@ -160,12 +285,16 @@ export class PickingService {
         let uomId = dto.uomId ?? null
 
         if (reservationId) {
-            const reservation = await this.prisma.mmInventoryReservation.findUnique({
-                where: { id: reservationId },
-            })
-            if (!reservation) throw new BadRequestException('Reservation not found')
+            const reservation =
+                await this.prisma.mmInventoryReservation.findUnique({
+                    where: { id: reservationId },
+                })
+            if (!reservation)
+                throw new BadRequestException('Reservation not found')
             if (!['OPEN', 'PARTIAL'].includes(reservation.status)) {
-                throw new BadRequestException(`Reservation is ${reservation.status}`)
+                throw new BadRequestException(
+                    `Reservation is ${reservation.status}`,
+                )
             }
             companyId = reservation.companyId
             if (reservation.storageBinId && !sourceBinId) {
@@ -214,7 +343,9 @@ export class PickingService {
         }
 
         if (!sourceBinId) {
-            throw new BadRequestException('sourceBinId is required (no stock location found)')
+            throw new BadRequestException(
+                'sourceBinId is required (no stock location found)',
+            )
         }
 
         const onHand = await this.prisma.mmInventoryBalance.findFirst({
@@ -283,11 +414,15 @@ export class PickingService {
         strategy = 'FIFO',
         zoneCode?: string | null,
     ) {
-        const reservation = await this.prisma.mmInventoryReservation.findUnique({
-            where: { id: reservationId },
-        })
+        const reservation = await this.prisma.mmInventoryReservation.findUnique(
+            {
+                where: { id: reservationId },
+            },
+        )
         if (!reservation) throw new NotFoundException('Reservation not found')
-        const openQty = new Decimal(reservation.quantity).minus(reservation.fulfilledQuantity)
+        const openQty = new Decimal(reservation.quantity).minus(
+            reservation.fulfilledQuantity,
+        )
         if (openQty.lte(0)) {
             throw new BadRequestException('Reservation has no open quantity')
         }
@@ -425,6 +560,14 @@ export class PickingService {
     async confirmPick(id: string, dto: ConfirmPickingDto) {
         const task = await this.findOne(id)
 
+        // A previous confirmation may have completed the pick but failed while
+        // opening packing. Retrying heals the downstream package idempotently
+        // instead of leaving the order stuck at COMPLETED.
+        if (task.status === 'COMPLETED') {
+            await this.autoOpenPacking(id)
+            return task
+        }
+
         if (task.warehouseTaskId) {
             await this.warehouseTasks.complete(task.warehouseTaskId, {
                 quantity: dto.pickedQty,
@@ -462,8 +605,10 @@ export class PickingService {
             }
         }
 
-        if (task.status === 'COMPLETED' || task.status === 'CANCELLED') {
-            throw new BadRequestException(`Cannot confirm a ${task.status} task`)
+        if (task.status === 'CANCELLED') {
+            throw new BadRequestException(
+                `Cannot confirm a ${task.status} task`,
+            )
         }
 
         if (dto.scannedBinId !== task.sourceBinId) {
@@ -529,8 +674,11 @@ export class PickingService {
                 status: newStatus,
                 batchId: task.batchId ?? dto.scannedBatchId ?? null,
                 serialId: task.serialId ?? dto.scannedSerialId ?? null,
-                lastIdempotencyKey: dto.idempotencyKey ?? task.lastIdempotencyKey,
-                ...(newStatus === 'COMPLETED' ? { completedAt: new Date() } : {}),
+                lastIdempotencyKey:
+                    dto.idempotencyKey ?? task.lastIdempotencyKey,
+                ...(newStatus === 'COMPLETED'
+                    ? { completedAt: new Date() }
+                    : {}),
             },
             include: this.includes,
         })
@@ -559,17 +707,15 @@ export class PickingService {
     /** Idempotent: opens the packing session exactly once per picking task. */
     private async autoOpenPacking(pickingTaskId: string) {
         if (!this.packing) return
-        try {
-            await this.packing.createFromPickingTask(pickingTaskId)
-        } catch {
-            /* packing already open / not packable — pick confirmation still succeeds */
-        }
+        await this.packing.createFromPickingTask(pickingTaskId)
     }
 
     async cancel(id: string) {
         const task = await this.findOne(id)
         if (task.status !== 'OPEN' && task.status !== 'ASSIGNED') {
-            throw new BadRequestException('Can only cancel OPEN or ASSIGNED tasks')
+            throw new BadRequestException(
+                'Can only cancel OPEN or ASSIGNED tasks',
+            )
         }
         if (task.warehouseTaskId) {
             await this.warehouseTasks.cancel(task.warehouseTaskId)
@@ -619,7 +765,8 @@ export class PickingService {
                 b.storageBinId &&
                 b.storageBin?.pickingAllowed !== false &&
                 b.storageBin?.status === 'ACTIVE' &&
-                (new Decimal(b.quantity).gte(requiredQty) || new Decimal(b.quantity).gt(0)),
+                (new Decimal(b.quantity).gte(requiredQty) ||
+                    new Decimal(b.quantity).gt(0)),
         )
 
         const strat = strategy.toUpperCase()
@@ -638,13 +785,17 @@ export class PickingService {
         }
 
         if (eligible.length === 0) {
-            throw new BadRequestException('No unrestricted stock locations found for material')
+            throw new BadRequestException(
+                'No unrestricted stock locations found for material',
+            )
         }
 
         if (strat === 'FEFO') {
             eligible.sort((a, b) => {
-                const ae = a.batch?.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER
-                const be = b.batch?.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER
+                const ae =
+                    a.batch?.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER
+                const be =
+                    b.batch?.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER
                 return ae - be
             })
         } else if (
@@ -658,15 +809,23 @@ export class PickingService {
                 const ac = a.storageBin?.code ?? ''
                 const bc = b.storageBin?.code ?? ''
                 if (ac !== bc) return ac.localeCompare(bc)
-                const am = a.batch?.manufacturingDate?.getTime() ?? a.updatedAt.getTime()
-                const bm = b.batch?.manufacturingDate?.getTime() ?? b.updatedAt.getTime()
+                const am =
+                    a.batch?.manufacturingDate?.getTime() ??
+                    a.updatedAt.getTime()
+                const bm =
+                    b.batch?.manufacturingDate?.getTime() ??
+                    b.updatedAt.getTime()
                 return am - bm
             })
         } else {
             // FIFO
             eligible.sort((a, b) => {
-                const am = a.batch?.manufacturingDate?.getTime() ?? a.updatedAt.getTime()
-                const bm = b.batch?.manufacturingDate?.getTime() ?? b.updatedAt.getTime()
+                const am =
+                    a.batch?.manufacturingDate?.getTime() ??
+                    a.updatedAt.getTime()
+                const bm =
+                    b.batch?.manufacturingDate?.getTime() ??
+                    b.updatedAt.getTime()
                 return am - bm
             })
         }
@@ -689,10 +848,14 @@ export class PickingService {
             where: { waveId },
             select: { status: true },
         })
-        const completedCount = tasks.filter((t) => t.status === 'COMPLETED').length
+        const completedCount = tasks.filter(
+            (t) => t.status === 'COMPLETED',
+        ).length
         const allDone =
             tasks.length > 0 &&
-            tasks.every((t) => t.status === 'COMPLETED' || t.status === 'CANCELLED')
+            tasks.every(
+                (t) => t.status === 'COMPLETED' || t.status === 'CANCELLED',
+            )
         await this.prisma.wmPickWave.update({
             where: { id: waveId },
             data: {

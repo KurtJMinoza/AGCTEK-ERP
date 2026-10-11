@@ -40,6 +40,7 @@ describe('MRP Netting Phase 2B', () => {
         procurementType: 'BUY',
         leadTimeDays: 7,
         source: 'RULE',
+        scope: 'WAREHOUSE',
     }
 
     function buildSepExampleSnap(): PairSnapshot {

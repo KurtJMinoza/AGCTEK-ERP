@@ -114,11 +114,16 @@ const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewD
 
             <ViewSection title="Stock thresholds" icon={<HiOutlineTag />}>
                 <StockThresholdSummary
-                    onHand={Number(material.onHandQty ?? 0)}
-                    reserved={Number(material.reservedQty ?? 0)}
+                    onHand={Number(material.ledgerOnHandQty ?? 0)}
+                    reserved={Number(material.ledgerReservedQty ?? 0)}
+                    available={Number(material.ledgerAvailableQty ?? 0)}
                     maxStock={Number(material.maximumStock)}
                     safetyStock={Number(material.safetyStock)}
                 />
+                <p className="mt-2 text-xs text-gray-500">
+                    Live on-hand / available come from the MM inventory ledger.
+                    Max stock and Safety stock are thresholds, not stock.
+                </p>
             </ViewSection>
 
             <ViewSection title="Valuation" icon={<HiOutlineCurrencyDollar />}>

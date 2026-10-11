@@ -23,9 +23,14 @@ class BinTransferLineDto {
     @IsNotEmpty()
     uomId!: string
 
+    /**
+     * Source storage bin. Omit (or send null) for warehouse-level stock that
+     * was never assigned to a bin — the OUT leg then posts at warehouse level,
+     * moving that stock into the destination bin.
+     */
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    sourceBinId!: string
+    sourceBinId?: string | null
 
     @IsString()
     @IsNotEmpty()

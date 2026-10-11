@@ -73,6 +73,7 @@ const ProductCatalogMaterialSection = ({
         ensure: ensureMmRefs,
         companies,
         materials,
+        warehouses,
         loading: mmRefsLoading,
     } = useLazyMmRefs()
     const materialLinkMode = useWatch({ control, name: 'materialLinkMode' })
@@ -84,9 +85,15 @@ const ProductCatalogMaterialSection = ({
     )
     const [batchLoading, setBatchLoading] = useState(false)
     const [batchError, setBatchError] = useState<string | null>(null)
+    const [manualStockRefreshKey, setManualStockRefreshKey] = useState(0)
+    /**
+     * MM warehouse scope for the stock preview. Empty = aggregate sellable
+     * stock across the company's active warehouses (no default warehouse).
+     */
+    const [warehouseScope, setWarehouseScope] = useState('')
 
     useEffect(() => {
-        void ensureMmRefs('companies', 'materials')
+        void ensureMmRefs('companies', 'materials', 'warehouses')
     }, [ensureMmRefs])
 
     const effectiveDivision = divisionId || productDivisionId || ''
@@ -102,6 +109,24 @@ const ProductCatalogMaterialSection = ({
     }, [materialIds, editing, initialMaterialIds])
     const effectiveCompany = companyId?.trim() || initialCompanyId?.trim() || ''
 
+    /** Active warehouses of the selected MM company (stock scope options). */
+    const companyWarehouses = useMemo(
+        () =>
+            warehouses.filter((option) => {
+                const meta = option.meta as { companyId?: string } | undefined
+                if (!effectiveCompany) return false
+                return meta?.companyId === effectiveCompany
+            }),
+        [warehouses, effectiveCompany],
+    )
+
+    /** A warehouse that no longer belongs to the company must not scope stock. */
+    const effectiveWarehouseScope = companyWarehouses.some(
+        (option) => option.value === warehouseScope,
+    )
+        ? warehouseScope
+        : ''
+
     useEffect(() => {
         if (!effectiveCompany || !ids.length) {
             setBatch(null)
@@ -115,7 +140,10 @@ const ProductCatalogMaterialSection = ({
             ids,
             effectiveCompany,
             effectiveDivision,
-            mmStockRefreshKey > 0 ? mmStockRefreshKey : undefined,
+            Math.max(mmStockRefreshKey, manualStockRefreshKey) > 0
+                ? Math.max(mmStockRefreshKey, manualStockRefreshKey)
+                : undefined,
+            { warehouseId: effectiveWarehouseScope || undefined },
         )
             .then((data) => {
                 if (cancelled) return
@@ -138,7 +166,14 @@ const ProductCatalogMaterialSection = ({
         return () => {
             cancelled = true
         }
-    }, [ids.join(','), effectiveCompany, effectiveDivision, mmStockRefreshKey])
+    }, [
+        ids.join(','),
+        effectiveCompany,
+        effectiveDivision,
+        effectiveWarehouseScope,
+        mmStockRefreshKey,
+        manualStockRefreshKey,
+    ])
 
     useEffect(() => {
         if (editing && initialMaterialIds?.length && !ids.length) {
@@ -282,35 +317,92 @@ const ProductCatalogMaterialSection = ({
             {ids.length && effectiveCompany ? (
                 <div className="md:col-span-2">
                     {batchError ? (
-                        <p className="text-sm text-red-600">{batchError}</p>
+                        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                            <p>{batchError}</p>
+                            <Button
+                                type="button"
+                                size="sm"
+                                onClick={() =>
+                                    setManualStockRefreshKey((key) => key + 1)
+                                }
+                            >
+                                Retry MM stock
+                            </Button>
+                        </div>
                     ) : (
-                        <MmInventoryCompanyMetrics
-                            loading={batchLoading}
-                            available={
-                                batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory
-                                          .availableQty ?? 0)
-                                    : (batch?.totals.stockAvailable ?? 0)
-                            }
-                            onHand={
-                                batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory.onHandQty ??
-                                      0)
-                                    : (batch?.totals.onHandQty ?? 0)
-                            }
-                            maxStock={
-                                batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory
-                                          .maximumStock ?? 0)
-                                    : (batch?.totals.maximumStock ?? 0)
-                            }
-                            safetyStock={
-                                batch?.materials.length === 1
-                                    ? (batch.materials[0].inventory
-                                          .safetyStock ?? 0)
-                                    : (batch?.totals.safetyStock ?? 0)
-                            }
-                        />
+                        <div className="space-y-2">
+                            <div className="flex flex-wrap items-end justify-between gap-3">
+                                <FormItem
+                                    label="Stock warehouse scope"
+                                    className="w-full max-w-xs"
+                                >
+                                    <Select<Option>
+                                        isSearchable
+                                        isLoading={mmRefsLoading}
+                                        placeholder="All active warehouses (company)"
+                                        options={companyWarehouses}
+                                        value={
+                                            companyWarehouses.find(
+                                                (option) =>
+                                                    option.value ===
+                                                    effectiveWarehouseScope,
+                                            ) ?? null
+                                        }
+                                        onChange={(option) =>
+                                            setWarehouseScope(option?.value ?? '')
+                                        }
+                                    />
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        {effectiveWarehouseScope
+                                            ? 'Stock for the selected MM warehouse only.'
+                                            : 'Sellable stock aggregated across the active warehouses of this company.'}
+                                    </p>
+                                </FormItem>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    loading={batchLoading}
+                                    onClick={() =>
+                                        setManualStockRefreshKey((key) => key + 1)
+                                    }
+                                >
+                                    Refresh MM stock
+                                </Button>
+                            </div>
+                            <MmInventoryCompanyMetrics
+                                loading={batchLoading}
+                                available={
+                                    batch?.materials.length === 1
+                                        ? (batch.materials[0].inventory
+                                              .availableQty ?? 0)
+                                        : (batch?.totals.stockAvailable ?? 0)
+                                }
+                                onHand={
+                                    batch?.materials.length === 1
+                                        ? (batch.materials[0].inventory
+                                              .onHandQty ?? 0)
+                                        : (batch?.totals.onHandQty ?? 0)
+                                }
+                                reserved={
+                                    batch?.materials.length === 1
+                                        ? (batch.materials[0].inventory
+                                              .reservedQty ?? 0)
+                                        : (batch?.totals.reservedQty ?? 0)
+                                }
+                                maxStock={
+                                    batch?.materials.length === 1
+                                        ? (batch.materials[0].inventory
+                                              .maximumStock ?? 0)
+                                        : (batch?.totals.maximumStock ?? 0)
+                                }
+                                safetyStock={
+                                    batch?.materials.length === 1
+                                        ? (batch.materials[0].inventory
+                                              .safetyStock ?? 0)
+                                        : (batch?.totals.safetyStock ?? 0)
+                                }
+                            />
+                        </div>
                     )}
                 </div>
             ) : null}
@@ -323,7 +415,7 @@ const ProductCatalogMaterialSection = ({
                             Loading inventory from MM…
                         </div>
                     ) : batch ? (
-                        <table className="w-full min-w-[880px] text-left text-sm">
+                        <table className="w-full min-w-[980px] text-left text-sm">
                             <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
                                 <tr>
                                     <th className="px-3 py-2">Material</th>
@@ -334,6 +426,9 @@ const ProductCatalogMaterialSection = ({
                                     <th className="px-3 py-2">Expiry</th>
                                     <th className="px-3 py-2 text-right">
                                         On hand
+                                    </th>
+                                    <th className="px-3 py-2 text-right">
+                                        Reserved
                                     </th>
                                     <th className="px-3 py-2 text-right">
                                         Available (sellable)
@@ -347,6 +442,22 @@ const ProductCatalogMaterialSection = ({
                                 </tr>
                             </thead>
                             <tbody>
+                                {batch.failures.map((failure) => (
+                                    <tr
+                                        key={`failed-${failure.materialId}`}
+                                        className="border-t border-red-100 bg-red-50/60 dark:border-red-900/60 dark:bg-red-950/20"
+                                    >
+                                        <td className="px-3 py-2 text-sm text-red-700 dark:text-red-300">
+                                            {failure.materialId}
+                                        </td>
+                                        <td
+                                            className="px-3 py-2 text-sm text-red-700 dark:text-red-300"
+                                            colSpan={8}
+                                        >
+                                            MM stock unavailable — {failure.error}
+                                        </td>
+                                    </tr>
+                                ))}
                                 {batch.materials.map(
                                     (row: MaterialCatalogReference) => (
                                         <tr
@@ -355,10 +466,11 @@ const ProductCatalogMaterialSection = ({
                                         >
                                             <td className="px-3 py-2">
                                                 <Link
-                                                    href={`${MM_MATERIALS_SKUS_PATH}/${row.materialId}`}
+                                                    href={`${MM_MATERIALS_SKUS_PATH}/${encodeURIComponent(row.materialId)}`}
                                                     className="font-medium text-primary hover:underline"
                                                     target="_blank"
                                                     rel="noopener noreferrer"
+                                                    title={`Open ${row.general.materialCode} in Materials Management`}
                                                 >
                                                     {row.general.materialCode}
                                                 </Link>
@@ -385,6 +497,9 @@ const ProductCatalogMaterialSection = ({
                                             <td className="px-3 py-2 text-right tabular-nums">
                                                 {fmt(row.inventory.onHandQty)}
                                             </td>
+                                            <td className="px-3 py-2 text-right tabular-nums">
+                                                {fmt(row.inventory.reservedQty)}
+                                            </td>
                                             <td className="px-3 py-2 text-right tabular-nums font-semibold text-primary">
                                                 {fmt(
                                                     row.inventory.availableQty,
@@ -409,6 +524,9 @@ const ProductCatalogMaterialSection = ({
                                         </td>
                                         <td className="px-3 py-2 text-right tabular-nums">
                                             {fmt(batch.totals.onHandQty)}
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums">
+                                            {fmt(batch.totals.reservedQty)}
                                         </td>
                                         <td className="px-3 py-2 text-right tabular-nums">
                                             {fmt(batch.totals.stockAvailable)}
@@ -452,10 +570,11 @@ const ProductCatalogMaterialSection = ({
                                     </p>
                                 </div>
                                 <Link
-                                    href={`${MM_MATERIALS_SKUS_PATH}/${row.materialId}`}
+                                    href={`${MM_MATERIALS_SKUS_PATH}/${encodeURIComponent(row.materialId)}`}
                                     className="text-xs font-medium text-primary hover:underline"
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    title={`Open ${row.general.materialCode} (MM SKU ${row.general.sku ?? '—'}) in Materials Management`}
                                 >
                                     Open in MM
                                 </Link>

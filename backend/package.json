@@ -20,6 +20,7 @@
     "prisma:seed-org-warehouse": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-org-warehouse.ts",
     "prisma:repair-order-companies": "ts-node --project prisma/tsconfig.seed.json prisma/repair-order-companies.ts",
     "prisma:repair-default-packing-packages": "ts-node --project prisma/tsconfig.seed.json prisma/repair-default-packing-packages.ts",
+    "prisma:repair-unassigned-warehouse-stock": "ts-node --project prisma/tsconfig.seed.json prisma/repair-unassigned-warehouse-stock.ts",
     "prisma:seed-mm-reference": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reference-essentials-run.ts",
     "prisma:seed-material-samples": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-material-samples-run.ts",
     "prisma:seed-sd-mm-stock": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-test-stock.ts",

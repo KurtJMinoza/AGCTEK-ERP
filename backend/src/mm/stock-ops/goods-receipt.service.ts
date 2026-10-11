@@ -130,6 +130,14 @@ export class GoodsReceiptService {
             samplingOverride?: 'FULL' | 'FIXED' | 'PERCENTAGE'
         }> = []
         for (const line of doc.lines) {
+            // Putaway is disabled by design: stock must be received straight
+            // into a storage bin to stay pickable. A GR posted without a bin
+            // lands in warehouse limbo — counted by ATP but invisible to
+            // allocation, so orders fail at "start fulfillment". Fall back to
+            // the warehouse's receiving bin so posted stock is always pickable.
+            const effectiveBinId =
+                line.storageBinId ??
+                (await this.resolveReceivingBinId(doc.warehouseId))
             const inspection = await this.inspectionRequirement.resolveInspectionRequirement({
                 companyId: doc.companyId,
                 materialId: line.materialId,
@@ -157,7 +165,7 @@ export class GoodsReceiptService {
                 const txn = await this.postingService.postTransaction({
                     companyId: doc.companyId,
                     warehouseId: doc.warehouseId,
-                    storageBinId: line.storageBinId ?? undefined,
+                    storageBinId: effectiveBinId ?? undefined,
                     materialId: line.materialId,
                     batchId: line.batchId ?? undefined,
                     serialNumberId: line.serialNumberId ?? undefined,
@@ -192,7 +200,7 @@ export class GoodsReceiptService {
                 await this.postingService.postTransaction({
                     companyId: doc.companyId,
                     warehouseId: doc.warehouseId,
-                    storageBinId: line.storageBinId ?? undefined,
+                    storageBinId: effectiveBinId ?? undefined,
                     materialId: line.materialId,
                     batchId: line.batchId ?? undefined,
                     serialNumberId: line.serialNumberId ?? undefined,
@@ -676,6 +684,43 @@ export class GoodsReceiptService {
         })
         if (!doc) throw new NotFoundException('Goods receipt not found')
         return doc
+    }
+
+    /**
+     * Storage bin a receipt line falls back to when none was scanned:
+     * the warehouse's receiving-area bin (first ACTIVE one). Receiving-dock
+     * stock is still pickable, so ATP and allocation stay consistent. Without
+     * any bin the receipt would be invisible to picking — a clear error beats
+     * silently un-fulfillable stock.
+     */
+    private async resolveReceivingBinId(warehouseId: string): Promise<string> {
+        const receiving = await this.prisma.wmStorageBin.findFirst({
+            where: {
+                status: 'ACTIVE',
+                storageSection: {
+                    storageType: { warehouseId, receivingAllowed: true },
+                },
+            },
+            orderBy: { code: 'asc' },
+            select: { id: true },
+        })
+        if (receiving) return receiving.id
+
+        const anyActive = await this.prisma.wmStorageBin.findFirst({
+            where: {
+                status: 'ACTIVE',
+                storageSection: { storageType: { warehouseId } },
+            },
+            orderBy: { code: 'asc' },
+            select: { id: true },
+        })
+        if (anyActive) return anyActive.id
+
+        throw new BadRequestException(
+            `No storage bin is configured for warehouse ${warehouseId}. ` +
+                'Assign a receiving-area bin before posting a goods receipt — ' +
+                'stock posted without a storage bin cannot be picked.',
+        )
     }
 
     private async generateDocNumber(prefix: string): Promise<string> {

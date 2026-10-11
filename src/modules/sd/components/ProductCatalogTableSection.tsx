@@ -23,6 +23,7 @@ import Progress from '@/components/ui/Progress'
 import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import {
     fetchProductCatalogStock,
+    type ProductLifecycleStatus,
     type SdProductRecord,
 } from '../services/productCatalogService'
 import type { CatalogStockSnapshot } from '../utils/productCatalogTableColors'
@@ -33,6 +34,7 @@ import {
     categoryTextClass,
     priceTextClass,
     stockBarClass,
+    stockDetail,
     stockLabel,
     stockPercent,
     stockTextClass,
@@ -101,14 +103,19 @@ const StockRemainingMeter = ({
     snapshot: CatalogStockSnapshot | undefined
 }) => {
     const label = stockLabel(snapshot)
+    const detail = stockDetail(snapshot)
     const state = snapshot?.state ?? 'NOT_MAPPED'
     return (
         <div className="min-w-[7rem]">
             <p
                 className={`mb-1.5 text-sm font-semibold ${stockTextClass(state)}`}
+                title={snapshot?.error}
             >
                 {label}
             </p>
+            {detail ? (
+                <p className="mb-1.5 text-[11px] text-gray-500">{detail}</p>
+            ) : null}
             <Progress
                 percent={stockPercent(snapshot)}
                 showInfo={false}
@@ -144,6 +151,8 @@ export type ProductCatalogTableSectionProps = {
     companyFilter: string
     onCompanyFilterChange: (value: string) => void
     companyFilterOptions: FilterOption[]
+    statusFilter: 'all' | ProductLifecycleStatus
+    onStatusFilterChange: (value: 'all' | ProductLifecycleStatus) => void
     togglingId: string | null
     onToggleActive: (product: SdProductRecord, isActive: boolean) => void
     onEdit: (product: SdProductRecord) => void
@@ -161,6 +170,8 @@ const ProductCatalogTableSection = ({
     companyFilter,
     onCompanyFilterChange,
     companyFilterOptions,
+    statusFilter,
+    onStatusFilterChange,
     togglingId,
     onToggleActive,
     onEdit,
@@ -226,7 +237,8 @@ const ProductCatalogTableSection = ({
                 case 'visible':
                     return compareNumber(Number(a.isActive), Number(b.isActive))
                 case 'stock': {
-                    const qty = (id: string) => stockByProductId[id]?.availableQty ?? -1
+                    const qty = (id: string) =>
+                        stockByProductId[id]?.availableQty ?? -1
                     return compareNumber(qty(a.id), qty(b.id))
                 }
                 default:
@@ -509,6 +521,31 @@ const ProductCatalogTableSection = ({
                         )}
                         onChange={(option) => {
                             onCompanyFilterChange(option?.value ?? 'all')
+                            setPage(1)
+                        }}
+                    />
+                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Lifecycle
+                    </label>
+                    <Select<FilterOption>
+                        isSearchable={false}
+                        options={[
+                            { value: 'all', label: 'All statuses' },
+                            { value: 'ACTIVE', label: 'Active' },
+                            { value: 'INACTIVE', label: 'Inactive' },
+                            { value: 'ARCHIVED', label: 'Archived' },
+                        ]}
+                        value={[
+                            { value: 'all', label: 'All statuses' },
+                            { value: 'ACTIVE', label: 'Active' },
+                            { value: 'INACTIVE', label: 'Inactive' },
+                            { value: 'ARCHIVED', label: 'Archived' },
+                        ].find((option) => option.value === statusFilter)}
+                        onChange={(option) => {
+                            const value = option?.value ?? 'all'
+                            onStatusFilterChange(
+                                value as 'all' | ProductLifecycleStatus,
+                            )
                             setPage(1)
                         }}
                     />

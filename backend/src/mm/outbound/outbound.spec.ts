@@ -9,11 +9,13 @@ import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { WarehouseTaskService } from '../warehouse/tasks/warehouse-task.service'
 import { PutawayStrategyRegistry } from '../warehouse/tasks/strategies/putaway-strategy.registry'
 import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
+import { ReservationEngineService } from '../inventory/reservation-allocation/reservation-engine.service'
 import { PickingService } from '../warehouse/picking/picking.service'
 import { PackingService } from '../warehouse/packing/packing.service'
 import { ShipmentsService } from '../../scm/shipments/shipments.service'
 import { GoodsIssueService } from '../stock-ops/goods-issue.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 const mockPrisma: any = {
     mmInventoryBalance: {
@@ -132,6 +134,14 @@ describe('MM-10 Outbound', () => {
                 {
                     provide: AllocationEngineService,
                     useValue: { recordIssue: jest.fn() },
+                },
+                {
+                    provide: ReservationEngineService,
+                    useValue: { recordIssue: jest.fn() },
+                },
+                {
+                    provide: MmPostingPeriodGuard,
+                    useValue: { assertCanPost: jest.fn() },
                 },
             ],
         }).compile()
@@ -432,6 +442,7 @@ describe('MM-10 Outbound', () => {
             mockPrisma.wmPackage.findUnique.mockResolvedValue({
                 id: 'pkg-1',
                 status: 'VERIFIED',
+                shipToAddress: '123 Test Street',
                 items: [
                     {
                         expectedQty: new Decimal(5),

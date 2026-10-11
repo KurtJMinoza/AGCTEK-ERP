@@ -1,4 +1,11 @@
-import { Injectable, BadRequestException, Inject, Logger, Optional } from '@nestjs/common'
+import {
+    Injectable,
+    BadRequestException,
+    InternalServerErrorException,
+    Inject,
+    Logger,
+    Optional,
+} from '@nestjs/common'
 import { InventoryAvailabilityService } from '../../inventory/inventory-availability.service'
 import { ReservationEngineService } from '../../inventory/reservation-allocation/reservation-engine.service'
 import { AllocationEngineService } from '../../inventory/reservation-allocation/allocation-engine.service'
@@ -10,7 +17,10 @@ import {
     SdReleaseBySourceDto,
     SdReserveDemandDto,
 } from './dto/sd-integration.dto'
-import { SD_ORDER_GUARD_PORT, type SdOrderGuardPort } from './sd-order-guard.port'
+import {
+    SD_ORDER_GUARD_PORT,
+    type SdOrderGuardPort,
+} from './sd-order-guard.port'
 
 const SD_SOURCE_MODULE = 'SD'
 const SD_SOURCE_DOCUMENT_TYPE = 'SALES_ORDER'
@@ -44,7 +54,9 @@ export class SdIntegrationService {
             ok: check.ok,
             available: check.available,
             required: dto.quantity,
-            shortage: check.ok ? 0 : Math.max(0, dto.quantity - check.available),
+            shortage: check.ok
+                ? 0
+                : Math.max(0, dto.quantity - check.available),
             materialId: dto.materialId,
             warehouseId: dto.warehouseId,
         }
@@ -80,29 +92,33 @@ export class SdIntegrationService {
     async reserveDemand(dto: SdReserveDemandDto) {
         await this.assertOrderActive(dto.sourceDocumentId)
 
-        const header = await this.reservations.createIdempotent({
-            companyId: dto.companyId,
-            warehouseId: dto.warehouseId,
-            sourceModule: SD_SOURCE_MODULE,
-            sourceDocumentType: SD_SOURCE_DOCUMENT_TYPE,
-            sourceDocumentId: dto.sourceDocumentId,
-            demandReferenceType: SD_SOURCE_DOCUMENT_TYPE,
-            demandReferenceId: dto.demandReferenceId ?? dto.sourceDocumentId,
-            idempotencyKey: dto.idempotencyKey,
-            allowPartialReservation: dto.allowPartialReservation ?? false,
-            lines: dto.lines.map((line) => ({
-                materialId: line.materialId,
-                quantity: line.quantity,
-                batchId: line.batchId,
-                serialNumberId: line.serialNumberId,
-                uomId: line.uomId,
-                stockStatus: line.stockStatus,
-                demandReferenceLineId: line.demandReferenceLineId,
-            })),
-        }, {
-            correlationId: dto.correlationId,
-            causationId: dto.causationId,
-        })
+        const header = await this.reservations.createIdempotent(
+            {
+                companyId: dto.companyId,
+                warehouseId: dto.warehouseId,
+                sourceModule: SD_SOURCE_MODULE,
+                sourceDocumentType: SD_SOURCE_DOCUMENT_TYPE,
+                sourceDocumentId: dto.sourceDocumentId,
+                demandReferenceType: SD_SOURCE_DOCUMENT_TYPE,
+                demandReferenceId:
+                    dto.demandReferenceId ?? dto.sourceDocumentId,
+                idempotencyKey: dto.idempotencyKey,
+                allowPartialReservation: dto.allowPartialReservation ?? false,
+                lines: dto.lines.map((line) => ({
+                    materialId: line.materialId,
+                    quantity: line.quantity,
+                    batchId: line.batchId,
+                    serialNumberId: line.serialNumberId,
+                    uomId: line.uomId,
+                    stockStatus: line.stockStatus,
+                    demandReferenceLineId: line.demandReferenceLineId,
+                })),
+            },
+            {
+                correlationId: dto.correlationId,
+                causationId: dto.causationId,
+            },
+        )
 
         return {
             reservationHeaderId: header.id,
@@ -201,7 +217,9 @@ export class SdIntegrationService {
             lines: lines.map((l) => ({
                 materialId: String(l.materialId),
                 quantity: Number(l.quantity),
-                demandReferenceLineId: String(l.demandReferenceLineId ?? l.lineId),
+                demandReferenceLineId: String(
+                    l.demandReferenceLineId ?? l.lineId,
+                ),
             })),
         })
 
@@ -217,24 +235,32 @@ export class SdIntegrationService {
 
     /**
      * Confirm = reserve only (no stock deduction). Allocation picks physical
-     * bins and generates the picking tasks; retries never duplicate tasks.
+     * bins and generates the picking tasks. A failure must reach SD so the
+     * event receipt stays retryable; silently logging here created orders that
+     * were reserved but never visible in the Picking queue.
      */
     private async autoReleaseToWarehouse(reservationHeaderId: string) {
-        if (!this.allocations) return
-        try {
-            const allocation = await this.allocations.allocateHeader(
-                reservationHeaderId,
-                { strategy: 'FIFO' } as never,
+        if (!this.allocations) {
+            throw new InternalServerErrorException(
+                'Warehouse allocation service is unavailable',
             )
-            if (allocation?.id) {
-                await this.allocations.generatePickTasks(allocation.id)
+        }
+        try {
+            const tasks = await this.allocations.ensurePickTasksForHeader(
+                reservationHeaderId,
+                'FIFO',
+            )
+            if (tasks.length === 0) {
+                throw new BadRequestException(
+                    `No picking tasks were created for reservation ${reservationHeaderId}`,
+                )
             }
         } catch (err) {
-            this.logger.warn(
-                `Auto picking failed for reservation ${reservationHeaderId}: ${
-                    err instanceof Error ? err.message : 'unknown'
-                }`,
+            const message = err instanceof Error ? err.message : 'unknown error'
+            this.logger.error(
+                `Auto picking failed for reservation ${reservationHeaderId}: ${message}`,
             )
+            throw err
         }
     }
 

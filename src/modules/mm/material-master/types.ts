@@ -201,6 +201,12 @@ export interface Material {
     reservedQty: number
     /** Live sellable qty (ledger); present on API list/detail reads. */
     availableQty?: number
+    /** Live ledger on-hand (unrestricted) qty from mmInventoryBalance. */
+    ledgerOnHandQty?: number
+    /** Live ledger reserved qty from mmInventoryBalance. */
+    ledgerReservedQty?: number
+    /** Live ledger available qty (unrestricted on-hand - reserved) from mmInventoryBalance. */
+    ledgerAvailableQty?: number
     minimumStock: number
     maximumStock: number
     safetyStock: number

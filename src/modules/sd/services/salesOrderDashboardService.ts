@@ -29,10 +29,10 @@ export type CheckoutPaymentMethod = (typeof CHECKOUT_PAYMENT_METHODS)[number]
 
 export const PAYMENT_METHOD_LABEL: Record<CheckoutPaymentMethod, string> = {
     COD: 'Cash on Delivery',
-    CARD_DEMO: 'Credit/Debit Card (Demo Only)',
-    WALLET_DEMO: 'Digital Wallet (Demo Only)',
-    QR_DEMO: 'QR Payment (Demo Only)',
-    BANK_TRANSFER_DEMO: 'Bank Transfer (Demo Only)',
+    CARD_DEMO: 'Credit or Debit Card',
+    WALLET_DEMO: 'Digital Wallet',
+    QR_DEMO: 'QR Payment',
+    BANK_TRANSFER_DEMO: 'Bank Transfer',
 }
 
 /** Customer's checkout selection, sent to the backend with the order. */
@@ -507,6 +507,30 @@ export async function confirmSalesOrder(id: string): Promise<SalesOrderRecord> {
         return toRecord(data)
     } catch (error) {
         throw toError(error, 'Unable to confirm sales order')
+    }
+}
+
+export type StartFulfillmentResult = {
+    created: boolean
+    orderId: string
+    pickingTask: { id: string; taskNumber: string }
+}
+
+/**
+ * Idempotent SD fallback used by Go to Picking. It returns the active task
+ * when one already exists, otherwise asks the canonical SD-to-MM pipeline to
+ * create the missing reservation/allocation/picking work.
+ */
+export async function startSalesOrderFulfillment(
+    id: string,
+): Promise<StartFulfillmentResult> {
+    try {
+        const { data } = await ErpAxiosBase.post<StartFulfillmentResult>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/fulfillment`,
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to start fulfillment')
     }
 }
 

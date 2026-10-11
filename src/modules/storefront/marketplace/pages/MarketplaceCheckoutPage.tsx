@@ -17,7 +17,11 @@ import {
     type EcommerceOrderResult,
     type PricingItem,
 } from '@/modules/sd/services/ecommerceService'
-import { newIdempotencyKey } from '@/modules/sd/services/salesOrderDashboardService'
+import {
+    PAYMENT_METHOD_LABEL,
+    newIdempotencyKey,
+    type CheckoutPaymentMethod,
+} from '@/modules/sd/services/salesOrderDashboardService'
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
 import {
     RetailSessionExpiredError,
@@ -43,6 +47,12 @@ import {
 import { useMarketplaceCartStore } from '../store/useMarketplaceCartStore'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
 import MarketplaceHeader from '../components/MarketplaceHeader'
+import MarketplacePaymentMethodSelector from '../components/MarketplacePaymentMethodSelector'
+
+const paymentMethodLabel = (method: string | null | undefined) =>
+    method && method in PAYMENT_METHOD_LABEL
+        ? PAYMENT_METHOD_LABEL[method as CheckoutPaymentMethod]
+        : method ?? 'Payment'
 
 const addressToShipping = (
     address: RetailClientAddress,
@@ -97,6 +107,10 @@ const MarketplaceCheckoutPageContent = () => {
     const [submitting, setSubmitting] = useState(false)
     const [submitError, setSubmitError] = useState<string | null>(null)
     const [placed, setPlaced] = useState<EcommerceOrderResult | null>(null)
+    const [paymentMethod, setPaymentMethod] =
+        useState<CheckoutPaymentMethod | null>(null)
+    const [cardDemoSimulateFailure, setCardDemoSimulateFailure] =
+        useState(false)
     const checkoutIdRef = useRef<string | null>(null)
 
     // Buy Now handoff (fully detached from the cart): params carry the item.
@@ -187,7 +201,15 @@ const MarketplaceCheckoutPageContent = () => {
     }, [hydrated, signedInClient, sessionToken])
 
     const placeOrder = async () => {
-        if (!signedInClient || !sessionToken || !shipping || !pricing) return
+        if (
+            !signedInClient ||
+            !sessionToken ||
+            !shipping ||
+            !pricing ||
+            !paymentMethod
+        ) {
+            return
+        }
         setSubmitting(true)
         setSubmitError(null)
         try {
@@ -198,7 +220,11 @@ const MarketplaceCheckoutPageContent = () => {
                     customerId: signedInClient.customerId,
                     items: pricingItems,
                     shipping,
-                    paymentMethod: 'COD',
+                    paymentMethod,
+                    cardDemoSimulateFailure:
+                        paymentMethod === 'CARD_DEMO'
+                            ? cardDemoSimulateFailure
+                            : undefined,
                 },
                 sessionToken,
             )
@@ -256,12 +282,28 @@ const MarketplaceCheckoutPageContent = () => {
                             </span>{' '}
                             is pending delivery.
                         </p>
-                        <p className="mt-2 text-sm">
-                            Total due on delivery:{' '}
-                            <span className="font-semibold text-gray-900">
-                                {formatPrice(placed.grandTotal)}
-                            </span>
-                        </p>
+                        <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-3 text-left text-sm">
+                            <p className="font-medium text-gray-900">
+                                Payment:{' '}
+                                {paymentMethodLabel(placed.payment?.method)}
+                                {placed.payment?.isDemo ? (
+                                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                        Demo
+                                    </span>
+                                ) : null}
+                            </p>
+                            <p className="mt-1 text-gray-600">
+                                Status: {placed.payment?.status ?? 'Pending'}
+                            </p>
+                            {placed.payment?.method === 'COD' ? (
+                                <p className="mt-1 text-gray-600">
+                                    Total due on delivery:{' '}
+                                    <span className="font-semibold text-gray-900">
+                                        {formatPrice(placed.grandTotal)}
+                                    </span>
+                                </p>
+                            ) : null}
+                        </div>
                         <div className="mt-5 flex flex-col gap-2">
                             <Button
                                 block
@@ -483,6 +525,27 @@ const MarketplaceCheckoutPageContent = () => {
                             </section>
 
                             <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <h2 className="text-sm font-semibold text-gray-900">
+                                    Payment method
+                                </h2>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Select how this order should be recorded.
+                                </p>
+                                <div className="mt-4">
+                                    <MarketplacePaymentMethodSelector
+                                        value={paymentMethod}
+                                        onChange={setPaymentMethod}
+                                        cardDemoSimulateFailure={
+                                            cardDemoSimulateFailure
+                                        }
+                                        onCardDemoSimulateFailureChange={
+                                            setCardDemoSimulateFailure
+                                        }
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                                 <h2 className="mb-4 text-sm font-semibold text-gray-900">
                                     Items to order
                                 </h2>
@@ -576,15 +639,18 @@ const MarketplaceCheckoutPageContent = () => {
                                     PRIMARY_BUTTON_CLASS,
                                 )}
                                 customColorClass={PRIMARY_BUTTON}
-                                disabled={!shipping || submitting}
+                                disabled={
+                                    !shipping || !paymentMethod || submitting
+                                }
                                 loading={submitting}
                                 onClick={() => void placeOrder()}
                             >
                                 Place Order
                             </Button>
                             <p className="mt-2 text-center text-xs text-gray-400">
-                                Cash on delivery — pay each store when your
-                                order arrives.
+                                {paymentMethod
+                                    ? `Selected: ${PAYMENT_METHOD_LABEL[paymentMethod]}`
+                                    : 'Select a payment method to place your order.'}
                             </p>
                         </aside>
                     </div>

@@ -18,6 +18,7 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
     }
     const inventoryAtp = {
         getAvailabilityBatch: jest.fn(),
+        getPickableAvailabilityBatch: jest.fn(),
     }
     const uom = { toBaseUom: jest.fn() }
 
@@ -65,7 +66,7 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
     })
 
     it('rejects an out-of-stock material before checkout persists an order', async () => {
-        inventoryAtp.getAvailabilityBatch.mockResolvedValue(
+        inventoryAtp.getPickableAvailabilityBatch.mockResolvedValue(
             new Map([
                 [
                     atpPairKey('warehouse-1', 'material-1'),
@@ -98,7 +99,7 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
                 quantity: new Decimal(3),
                 baseUomId: 'uom-each',
             })
-        inventoryAtp.getAvailabilityBatch.mockResolvedValue(
+        inventoryAtp.getPickableAvailabilityBatch.mockResolvedValue(
             new Map([
                 [
                     atpPairKey('warehouse-1', 'material-1'),
@@ -114,9 +115,10 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
             }),
         ).rejects.toThrow('Available: 4; requested: 5')
 
-        expect(inventoryAtp.getAvailabilityBatch).toHaveBeenCalledWith(
-            'company-1',
-            [{ warehouseId: 'warehouse-1', materialId: 'material-1' }],
-        )
+        expect(
+            inventoryAtp.getPickableAvailabilityBatch,
+        ).toHaveBeenCalledWith('company-1', [
+            { warehouseId: 'warehouse-1', materialId: 'material-1' },
+        ])
     })
 })

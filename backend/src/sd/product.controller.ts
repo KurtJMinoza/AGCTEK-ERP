@@ -19,6 +19,7 @@ import {
     ListProductsQueryDto,
     PRODUCT_GALLERY_MAX,
     UpdateProductDto,
+    UpdateProductStatusDto,
 } from './dto/product.dto'
 import { UpdateProductOptionsVariantsDto } from './dto/product-option-variants.dto'
 import { ProductService } from './product.service'
@@ -174,11 +175,13 @@ export class ProductController {
     storefrontAvailability(
         @Query('divisionId') divisionId: string,
         @Query('sku') sku: string,
+        @Query('variantId') variantId?: string,
     ) {
         return this.products.getStorefrontAvailability(
             divisionId,
             sku,
             this.availabilityService,
+            variantId,
         )
     }
 
@@ -222,6 +225,20 @@ export class ProductController {
             UpdateProductDto,
         )
         return this.products.update(id, dto, image, gallery)
+    }
+
+    /**
+     * Lifecycle transition: Deactivate (INACTIVE) / Archive (ARCHIVED) /
+     * Reactivate (ACTIVE). Archived and inactive products stay in the admin
+     * catalog but are hidden from storefront, POS and new-order product search.
+     */
+    @Patch(':id/status')
+    @RequirePermission('sd.product-catalog', 'update')
+    setStatus(
+        @Param('id') id: string,
+        @Body() dto: UpdateProductStatusDto,
+    ) {
+        return this.products.setStatus(id, dto.status, dto.updatedBy)
     }
 
     @Delete(':id')

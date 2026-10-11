@@ -43,25 +43,64 @@ function checkoutDto(
 
 function setup() {
     const salesOrders: Record<string, unknown> = {}
-    const payments: unknown[] = []
+    const payments: Array<Record<string, unknown>> = []
+    let fulfillmentEmitted = false
+    const invoices = {
+        markPaidForSalesOrder: jest.fn().mockResolvedValue({ count: 0 }),
+    }
     const mmPipeline = {
-        enrichOrderForMmIntegration: jest.fn().mockResolvedValue({
-            id: 'so-1',
-            companyId: 'company-1',
-            warehouseId: 'wh-1',
-            customerId: 'client-1',
-            totalAmount: new Decimal(200),
-            lines: [{ materialId: 'm-1', baseQuantity: new Decimal(2) }],
+        enrichOrderForMmIntegration: jest.fn(async (orderId: string) => {
+            const order = salesOrders[orderId] as
+                | {
+                      id: string
+                      channel: string
+                      paymentMethod?: string | null
+                      paymentStatus?: string | null
+                      companyId: string | null
+                      warehouseId?: string | null
+                      customerId: string
+                      totalAmount: Decimal
+                      lines: Array<{
+                          quantity: Decimal
+                          integrationStatus?: string | null
+                      }>
+                  }
+                | undefined
+            if (!order) return null
+            return {
+                id: order.id,
+                channel: order.channel,
+                paymentMethod: order.paymentMethod ?? null,
+                paymentStatus: order.paymentStatus ?? null,
+                companyId: order.companyId,
+                warehouseId: order.warehouseId ?? 'wh-1',
+                customerId: order.customerId,
+                totalAmount: order.totalAmount,
+                lines: order.lines.map((line) => ({
+                    id: (line as { id?: string }).id ?? 'line-1',
+                    lineNumber:
+                        (line as { lineNumber?: number }).lineNumber ?? 1,
+                    materialId: 'm-1',
+                    quantity: line.quantity,
+                    baseQuantity: line.quantity,
+                    integrationStatus: line.integrationStatus ?? 'OPEN',
+                })),
+            }
         }),
         isMmLinked: jest.fn().mockReturnValue(true),
-        emitSalesOrderConfirmedIntegration: jest.fn().mockResolvedValue(true),
+        emitSalesOrderConfirmedIntegration: jest.fn().mockImplementation(() => {
+            fulfillmentEmitted = true
+            return Promise.resolve(true)
+        }),
         integrateConfirmedOrder: jest
             .fn()
             .mockResolvedValue({ integrated: false }),
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest.fn().mockResolvedValue(undefined),
+        assertMarketplaceCheckoutAvailability: jest
+            .fn()
+            .mockResolvedValue(undefined),
     }
     const prisma = {
         sdSalesOrder: {
@@ -72,6 +111,7 @@ function setup() {
             findMany: jest.fn().mockResolvedValue([]),
             count: jest.fn().mockResolvedValue(0),
             create: jest.fn((args: { data: Record<string, unknown> }) => {
+                const idempotencyKey = args.data.idempotencyKey
                 const nestedLines = (
                     args.data.lines as {
                         create: Array<Record<string, unknown>>
@@ -88,9 +128,13 @@ function setup() {
                         unitPrice: line.unitPrice,
                         lineTotal: line.lineTotal,
                         quantity: line.quantity,
+                        integrationStatus: line.integrationStatus,
                     })),
                 }
                 salesOrders[order.id as string] = order
+                if (typeof idempotencyKey === 'string') {
+                    salesOrders[idempotencyKey] = order
+                }
                 return Promise.resolve(order)
             }),
             update: jest.fn((args: { where: { id: string }; data: unknown }) =>
@@ -103,16 +147,20 @@ function setup() {
         },
         sdSalesOrderPayment: {
             findFirst: jest.fn().mockResolvedValue(null),
-            create: jest.fn((args: { data: Record<string, unknown> }) => {
-                const record = { id: 'pay-1', ...args.data }
-                payments.push(record)
-                return Promise.resolve(record)
-            }),
-            update: jest.fn((args: { data: Record<string, unknown> }) =>
-                Promise.resolve({
-                    id: 'pay-1',
-                    ...(args.data as Record<string, unknown>),
-                }),
+            upsert: jest.fn(
+                (args: {
+                    where: { salesOrderId: string }
+                    create: Record<string, unknown>
+                }) => {
+                    const existing = payments.find(
+                        (payment) =>
+                            payment.salesOrderId === args.where.salesOrderId,
+                    )
+                    if (existing) return Promise.resolve(existing)
+                    const record = { id: 'pay-1', ...args.create }
+                    payments.push(record)
+                    return Promise.resolve(record)
+                },
             ),
         },
         sdProduct: {
@@ -121,8 +169,36 @@ function setup() {
         sdProductVariant: {
             findMany: jest.fn().mockResolvedValue([]),
         },
-        $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+        wmPickingTask: {
+            findMany: jest.fn().mockImplementation(() => {
+                if (!fulfillmentEmitted) return Promise.resolve([])
+                const order = salesOrders['so-1'] as
+                    | {
+                          lines: Array<{
+                              id: string
+                              quantity: Decimal
+                          }>
+                      }
+                    | undefined
+                return Promise.resolve(
+                    (order?.lines ?? []).map((line, index) => ({
+                        id: `pick-${index + 1}`,
+                        taskNumber: `PK-${index + 1}`,
+                        salesOrderId: 'so-1',
+                        salesOrderLineId: line.id,
+                        requiredQty: line.quantity,
+                        status: 'OPEN',
+                    })),
+                )
+            }),
+        },
+        $transaction: jest.fn(),
     }
+    prisma.$transaction.mockImplementation((operation: unknown) =>
+        typeof operation === 'function'
+            ? (operation as (tx: unknown) => unknown)(prisma)
+            : Promise.all(operation as Promise<unknown>[]),
+    )
     const retailClients = {
         getProfile: jest.fn().mockResolvedValue({ email: 'shopper@test.ph' }),
     }
@@ -139,8 +215,16 @@ function setup() {
         mmPipeline as never,
         {} as never,
         commercialAvailability as never,
+        invoices as never,
     )
-    return { prisma, mmPipeline, commercialAvailability, payments, service }
+    return {
+        prisma,
+        mmPipeline,
+        commercialAvailability,
+        invoices,
+        payments,
+        service,
+    }
 }
 
 describe('SalesOrderService demo checkout payments', () => {
@@ -161,19 +245,27 @@ describe('SalesOrderService demo checkout payments', () => {
             'client-1',
         )
         expect(result.orderNumber).toBeTruthy()
-        expect(prisma.sdSalesOrderPayment.create).toHaveBeenCalledWith(
+        expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
+                where: { salesOrderId: 'so-1' },
+                create: expect.objectContaining({
                     companyId: 'company-1',
                     salesOrderId: 'so-1',
                     customerId: 'client-1',
                     paymentMethod: 'COD',
                     status: 'Pending Collection',
-                    isDemo: true,
+                    isDemo: false,
                 }),
+                update: {},
             }),
         )
         expect(mmPipeline.emitSalesOrderConfirmedIntegration).toHaveBeenCalled()
+        expect(
+            prisma.sdSalesOrderPayment.upsert.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+            mmPipeline.emitSalesOrderConfirmedIntegration.mock
+                .invocationCallOrder[0],
+        )
     })
 
     it('stores the payment on the sales order for display', async () => {
@@ -189,7 +281,7 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(data).toMatchObject({
             paymentMethod: 'COD',
             paymentStatus: 'Pending Collection',
-            isDemoPayment: true,
+            isDemoPayment: false,
         })
         expect(data.paymentReference).toContain('DEMO-')
     })
@@ -204,9 +296,9 @@ describe('SalesOrderService demo checkout payments', () => {
             }),
             'client-1',
         )
-        expect(prisma.sdSalesOrderPayment.create).toHaveBeenCalledWith(
+        expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
+                create: expect.objectContaining({
                     paymentMethod: 'CARD_DEMO',
                     paymentProvider: 'DemoCard',
                     status: 'Paid',
@@ -227,9 +319,9 @@ describe('SalesOrderService demo checkout payments', () => {
             'client-1',
         )
         expect(result.order.paymentStatus).toBe('Failed')
-        expect(prisma.sdSalesOrderPayment.create).toHaveBeenCalledWith(
+        expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
+                create: expect.objectContaining({
                     status: 'Failed',
                     paidAt: null,
                 }),
@@ -246,9 +338,9 @@ describe('SalesOrderService demo checkout payments', () => {
             checkoutDto({ paymentMethod: 'BANK_TRANSFER_DEMO' }),
             'client-1',
         )
-        expect(prisma.sdSalesOrderPayment.create).toHaveBeenCalledWith(
+        expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
+                create: expect.objectContaining({
                     status: 'Pending Verification',
                     paidAt: null,
                 }),
@@ -399,6 +491,7 @@ describe('SalesOrderService demo checkout payments', () => {
     it('admin verification of a pending payment triggers reservation + picking', async () => {
         const paymentRow = {
             id: 'pay-1',
+            paymentMethod: 'BANK_TRANSFER_DEMO',
             status: 'Pending Verification',
             paidAt: null,
         }
@@ -407,6 +500,8 @@ describe('SalesOrderService demo checkout payments', () => {
             orderNumber: 'SO-000001',
             channel: 'ECOMMERCE',
             status: 'CONFIRMED',
+            paymentMethod: 'BANK_TRANSFER_DEMO',
+            paymentStatus: 'Pending Verification',
             companyId: 'company-1',
             warehouseId: 'wh-1',
             totalAmount: new Decimal(200),
@@ -425,18 +520,46 @@ describe('SalesOrderService demo checkout payments', () => {
                 update: jest.fn().mockResolvedValue(orderWithPayment),
             },
             sdSalesOrderPayment: {
-                update: jest.fn((args: { data: Record<string, unknown> }) =>
-                    Promise.resolve({ id: 'pay-1', ...args.data }),
-                ),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
-            $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+            wmPickingTask: {
+                findMany: jest
+                    .fn()
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([
+                        {
+                            id: 'pick-1',
+                            salesOrderLineId: 'line-1',
+                            requiredQty: new Decimal(2),
+                            status: 'OPEN',
+                        },
+                    ]),
+            },
+            $transaction: jest.fn(),
         }
+        prismaState.$transaction.mockImplementation((operation: unknown) =>
+            typeof operation === 'function'
+                ? (operation as (tx: unknown) => unknown)(prismaState)
+                : Promise.all(operation as Promise<unknown>[]),
+        )
         const mmPipeline = {
             enrichOrderForMmIntegration: jest.fn().mockResolvedValue({
                 id: 'so-1',
+                channel: 'ECOMMERCE',
+                paymentMethod: 'BANK_TRANSFER_DEMO',
+                paymentStatus: 'Paid',
                 companyId: 'company-1',
                 warehouseId: 'wh-1',
-                lines: [{ materialId: 'm-1', baseQuantity: new Decimal(2) }],
+                lines: [
+                    {
+                        id: 'line-1',
+                        lineNumber: 1,
+                        materialId: 'm-1',
+                        quantity: new Decimal(2),
+                        baseQuantity: new Decimal(2),
+                        integrationStatus: 'OPEN',
+                    },
+                ],
             }),
             isMmLinked: jest.fn().mockReturnValue(true),
             emitSalesOrderConfirmedIntegration: jest
@@ -451,6 +574,11 @@ describe('SalesOrderService demo checkout payments', () => {
             mmPipeline as never,
             {} as never,
             {} as never,
+            {
+                markPaidForSalesOrder: jest
+                    .fn()
+                    .mockResolvedValue({ count: 1 }),
+            } as never,
         )
 
         const updated = await service.updateOrderPaymentStatus('so-1', {
@@ -458,28 +586,33 @@ describe('SalesOrderService demo checkout payments', () => {
             updatedBy: 'admin-1',
         })
 
-        expect(prismaState.sdSalesOrderPayment.update).toHaveBeenCalledWith(
-            expect.objectContaining({
-                data: expect.objectContaining({
-                    status: 'Paid',
-                    paidAt: expect.any(Date),
-                }),
-            }),
+        expect(prismaState.sdSalesOrderPayment.updateMany).toHaveBeenCalledWith(
+            {
+                where: { id: 'pay-1', status: 'Pending Verification' },
+                data: { status: 'Paid', paidAt: expect.any(Date) },
+            },
         )
         expect(mmPipeline.emitSalesOrderConfirmedIntegration).toHaveBeenCalled()
         expect(updated.paymentStatus).toBe('Paid')
     })
 
-    it('does not re-emit fulfillment for an already-reserved order', async () => {
+    it('re-emits an already-reserved order so MM can repair missing picking work idempotently', async () => {
         const orderWithPayment = {
             id: 'so-1',
             orderNumber: 'SO-000001',
             channel: 'ECOMMERCE',
             status: 'CONFIRMED',
+            paymentMethod: 'COD',
+            paymentStatus: 'Pending Collection',
             totalAmount: new Decimal(200),
             lines: [{ integrationStatus: 'RESERVED' }],
             payments: [
-                { id: 'pay-1', status: 'Pending Collection', paidAt: null },
+                {
+                    id: 'pay-1',
+                    paymentMethod: 'COD',
+                    status: 'Pending Collection',
+                    paidAt: null,
+                },
             ],
         }
         const prismaState = {
@@ -495,11 +628,156 @@ describe('SalesOrderService demo checkout payments', () => {
                 update: jest.fn().mockResolvedValue(orderWithPayment),
             },
             sdSalesOrderPayment: {
-                update: jest.fn((args: { data: Record<string, unknown> }) =>
-                    Promise.resolve({ id: 'pay-1', ...args.data }),
-                ),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
-            $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+            wmPickingTask: {
+                findMany: jest
+                    .fn()
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([
+                        {
+                            id: 'pick-1',
+                            salesOrderLineId: 'line-1',
+                            requiredQty: new Decimal(2),
+                            status: 'OPEN',
+                        },
+                    ]),
+            },
+            $transaction: jest.fn(),
+        }
+        prismaState.$transaction.mockImplementation((operation: unknown) =>
+            typeof operation === 'function'
+                ? (operation as (tx: unknown) => unknown)(prismaState)
+                : Promise.all(operation as Promise<unknown>[]),
+        )
+        const mmPipeline = {
+            enrichOrderForMmIntegration: jest.fn().mockResolvedValue({
+                id: 'so-1',
+                channel: 'ECOMMERCE',
+                paymentMethod: 'COD',
+                paymentStatus: 'Paid',
+                companyId: 'company-1',
+                warehouseId: 'wh-1',
+                lines: [
+                    {
+                        id: 'line-1',
+                        lineNumber: 1,
+                        materialId: 'm-1',
+                        quantity: new Decimal(2),
+                        baseQuantity: new Decimal(2),
+                        integrationStatus: 'RESERVED',
+                    },
+                ],
+            }),
+            isMmLinked: jest.fn().mockReturnValue(true),
+            emitSalesOrderConfirmedIntegration: jest.fn(),
+        }
+        const service = new SalesOrderService(
+            prismaState as unknown as PrismaService,
+            {} as never,
+            {} as never,
+            {} as never,
+            mmPipeline as never,
+            {} as never,
+            {} as never,
+            {
+                markPaidForSalesOrder: jest
+                    .fn()
+                    .mockResolvedValue({ count: 1 }),
+            } as never,
+        )
+        await service.updateOrderPaymentStatus('so-1', { status: 'Paid' })
+        expect(mmPipeline.emitSalesOrderConfirmedIntegration).toHaveBeenCalled()
+    })
+
+    it('does not emit fulfillment when another request already marked the payment paid', async () => {
+        const orderWithPayment = {
+            id: 'so-1',
+            orderNumber: 'SO-000001',
+            channel: 'ECOMMERCE',
+            status: 'CONFIRMED',
+            paymentMethod: 'BANK_TRANSFER_DEMO',
+            paymentStatus: 'Pending Verification',
+            companyId: 'company-1',
+            warehouseId: 'wh-1',
+            totalAmount: new Decimal(200),
+            lines: [{ integrationStatus: 'OPEN' }],
+            payments: [
+                {
+                    id: 'pay-1',
+                    paymentMethod: 'BANK_TRANSFER_DEMO',
+                    status: 'Pending Verification',
+                    paidAt: null,
+                },
+            ],
+        }
+        const prismaState = {
+            sdSalesOrder: {
+                findUnique: jest
+                    .fn()
+                    .mockResolvedValueOnce(orderWithPayment)
+                    .mockResolvedValueOnce({
+                        ...orderWithPayment,
+                        paymentStatus: 'Paid',
+                    }),
+                update: jest.fn(),
+            },
+            sdSalesOrderPayment: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            $transaction: jest.fn(),
+        }
+        prismaState.$transaction.mockImplementation((operation: unknown) =>
+            typeof operation === 'function'
+                ? (operation as (tx: unknown) => unknown)(prismaState)
+                : Promise.all(operation as Promise<unknown>[]),
+        )
+        const mmPipeline = {
+            enrichOrderForMmIntegration: jest.fn(),
+            isMmLinked: jest.fn(),
+            emitSalesOrderConfirmedIntegration: jest.fn(),
+        }
+        const invoices = { markPaidForSalesOrder: jest.fn() }
+        const service = new SalesOrderService(
+            prismaState as unknown as PrismaService,
+            {} as never,
+            {} as never,
+            {} as never,
+            mmPipeline as never,
+            {} as never,
+            {} as never,
+            invoices as never,
+        )
+
+        const updated = await service.updateOrderPaymentStatus('so-1', {
+            status: 'Paid',
+        })
+
+        expect(prismaState.sdSalesOrderPayment.updateMany).toHaveBeenCalled()
+        expect(invoices.markPaidForSalesOrder).not.toHaveBeenCalled()
+        expect(mmPipeline.enrichOrderForMmIntegration).not.toHaveBeenCalled()
+        expect(
+            mmPipeline.emitSalesOrderConfirmedIntegration,
+        ).not.toHaveBeenCalled()
+        expect(updated.paymentStatus).toBe('Paid')
+    })
+
+    it('does not release a confirmed order whose bank transfer is still pending verification', async () => {
+        const pendingOrder = {
+            id: 'so-1',
+            orderNumber: 'SO-000001',
+            channel: 'ECOMMERCE',
+            status: 'CONFIRMED',
+            paymentMethod: 'BANK_TRANSFER_DEMO',
+            paymentStatus: 'Pending Verification',
+            companyId: 'company-1',
+            warehouseId: 'wh-1',
+            lines: [{ integrationStatus: 'OPEN' }],
+        }
+        const prismaState = {
+            sdSalesOrder: {
+                findUnique: jest.fn().mockResolvedValue(pendingOrder),
+            },
         }
         const mmPipeline = {
             enrichOrderForMmIntegration: jest.fn(),
@@ -514,8 +792,11 @@ describe('SalesOrderService demo checkout payments', () => {
             mmPipeline as never,
             {} as never,
             {} as never,
+            {} as never,
         )
-        await service.updateOrderPaymentStatus('so-1', { status: 'Paid' })
+
+        await expect(service.confirm('so-1')).resolves.toBe(pendingOrder)
+        expect(mmPipeline.enrichOrderForMmIntegration).not.toHaveBeenCalled()
         expect(
             mmPipeline.emitSalesOrderConfirmedIntegration,
         ).not.toHaveBeenCalled()
@@ -554,6 +835,7 @@ describe('SalesOrderService demo checkout payments', () => {
             }
             const service = new SalesOrderService(
                 prismaState as unknown as PrismaService,
+                {} as never,
                 {} as never,
                 {} as never,
                 {} as never,

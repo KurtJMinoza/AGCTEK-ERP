@@ -368,15 +368,18 @@ const InventoryTab = ({ material }: { material: Material }) => {
             <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
             <div className="mb-6">
                 <StockThresholdSummary
-                    onHand={Number(material.onHandQty ?? 0)}
-                    reserved={Number(material.reservedQty ?? 0)}
+                    onHand={Number(material.ledgerOnHandQty ?? 0)}
+                    reserved={Number(material.ledgerReservedQty ?? 0)}
+                    available={Number(material.ledgerAvailableQty ?? 0)}
                     maxStock={Number(material.maximumStock)}
                     safetyStock={Number(material.safetyStock)}
                 />
             </div>
             <p className="mb-6 text-xs text-gray-500">
-                Values are stored on this material (stock thresholds). Product Catalog and
-                ecommerce read these fields — edit in Material form to add or change stock.
+                On hand, Available and Reserved come from the live Materials
+                Management inventory ledger (the same source the Product Catalog
+                reads). Max stock and Safety stock are the thresholds configured
+                on this material — they are planning limits, not sellable stock.
             </p>
             <h6 className="mb-3 text-sm font-semibold heading-text">Live balances</h6>
             {loading ? (
@@ -483,8 +486,9 @@ const PlanningTab = ({ material }: { material: Material }) => (
     <div>
         <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
         <StockThresholdSummary
-            onHand={Number(material.onHandQty ?? 0)}
-            reserved={Number(material.reservedQty ?? 0)}
+            onHand={Number(material.ledgerOnHandQty ?? 0)}
+            reserved={Number(material.ledgerReservedQty ?? 0)}
+            available={Number(material.ledgerAvailableQty ?? 0)}
             maxStock={Number(material.maximumStock)}
             safetyStock={Number(material.safetyStock)}
         />

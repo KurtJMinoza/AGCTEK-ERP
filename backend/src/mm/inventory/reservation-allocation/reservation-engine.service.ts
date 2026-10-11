@@ -72,7 +72,13 @@ export class ReservationEngineService {
             activeOnly: true,
         })
         if (active.length > 0 && dto.idempotencyKey) {
-            return active[0]
+            // One SO may legitimately split between warehouses.  Reuse only
+            // the reservation for this exact source warehouse; returning the
+            // first active header would incorrectly place every segment in it.
+            const activeForWarehouse = active.find(
+                (header) => header.warehouseId === dto.warehouseId,
+            )
+            if (activeForWarehouse) return activeForWarehouse
         }
 
         return this.create(dto, opts)

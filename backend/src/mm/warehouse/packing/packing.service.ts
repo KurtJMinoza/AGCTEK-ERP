@@ -5,6 +5,7 @@ import {
     Inject,
     forwardRef,
     Logger,
+    Optional,
 } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { CreatePackageDto } from './dto/create-package.dto'
@@ -13,9 +14,11 @@ import {
     OpenPackingSessionDto,
     PackingSessionQueryDto,
 } from './dto/packing-session.dto'
+import { AdjustPackageItemDto, CompletePackingDto } from './dto/adjust-package-item.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { Prisma } from '@prisma/client'
 import { ShipmentsService } from '../../../scm/shipments/shipments.service'
+import { BarcodeResolveService } from '../../scanner/barcode-resolve.service'
 
 /**
  * Pack flow: Pick → Packing → Package → Verification → READY_FOR_DISPATCH
@@ -30,6 +33,9 @@ export class PackingService {
         private prisma: PrismaService,
         @Inject(forwardRef(() => ShipmentsService))
         private readonly shipmentsService: ShipmentsService,
+        /** Resolves scanned barcodes / material codes server-side (never trust the client's material choice). */
+        @Optional()
+        private readonly barcodes?: BarcodeResolveService,
     ) {}
 
     private readonly listIncludes = {
@@ -44,7 +50,25 @@ export class PackingService {
         },
         warehouse: true,
         salesOrder: {
-            select: { orderNumber: true, customerName: true, shipToName: true },
+            select: {
+                orderNumber: true,
+                customerName: true,
+                shipToName: true,
+                lines: {
+                    select: {
+                        id: true,
+                        lineNumber: true,
+                        sku: true,
+                        productId: true,
+                        productNameSnapshot: true,
+                        productSkuSnapshot: true,
+                        variantName: true,
+                        variantSku: true,
+                        materialCodeSnapshot: true,
+                    },
+                    orderBy: { lineNumber: 'asc' as const },
+                },
+            },
         },
         pickingTask: {
             select: {
@@ -55,6 +79,20 @@ export class PackingService {
                         orderNumber: true,
                         customerName: true,
                         shipToName: true,
+                        lines: {
+                            select: {
+                                id: true,
+                                lineNumber: true,
+                                sku: true,
+                                productId: true,
+                                productNameSnapshot: true,
+                                productSkuSnapshot: true,
+                                variantName: true,
+                                variantSku: true,
+                                materialCodeSnapshot: true,
+                            },
+                            orderBy: { lineNumber: 'asc' as const },
+                        },
                     },
                 },
             },
@@ -84,8 +122,6 @@ export class PackingService {
                 },
             },
         },
-        reservation: true,
-        packingSession: true,
         salesOrder: {
             select: {
                 orderNumber: true,
@@ -98,16 +134,56 @@ export class PackingService {
                 shipToRegion: true,
                 shipToPostalCode: true,
                 shipToCountry: true,
+                lines: {
+                    select: {
+                        id: true,
+                        lineNumber: true,
+                        materialId: true,
+                        sku: true,
+                        productId: true,
+                        productNameSnapshot: true,
+                        productImageSnapshot: true,
+                        productSkuSnapshot: true,
+                        variantName: true,
+                        variantSku: true,
+                        materialCodeSnapshot: true,
+                    },
+                    orderBy: { lineNumber: 'asc' as const },
+                },
             },
         },
         shipment: { select: { id: true, reference: true, status: true } },
+        scanLogs: {
+            take: 25,
+            orderBy: { scannedAt: 'desc' as const },
+            include: { material: { select: { materialCode: true, materialName: true } } },
+        },
     }
 
     private readonly sessionIncludes = {
         warehouse: true,
         pickingTask: true,
         salesOrder: {
-            select: { id: true, orderNumber: true, customerName: true },
+            select: {
+                id: true,
+                orderNumber: true,
+                customerName: true,
+                lines: {
+                    select: {
+                        id: true,
+                        lineNumber: true,
+                        sku: true,
+                        productId: true,
+                        productNameSnapshot: true,
+                        productImageSnapshot: true,
+                        productSkuSnapshot: true,
+                        variantName: true,
+                        variantSku: true,
+                        materialCodeSnapshot: true,
+                    },
+                    orderBy: { lineNumber: 'asc' as const },
+                },
+            },
         },
         warehouseTask: true,
         packages: { include: { items: true } },
@@ -735,15 +811,30 @@ export class PackingService {
         return this.findOne(packageId)
     }
 
+    /**
+     * Barcode / manual-code scan against one package item.
+     *
+     * Server is authoritative: the material is resolved from `materialId`,
+     * `materialCode` or `barcode` here (never trusted from the client), the
+     * item must belong to this package, the quantity may not exceed the
+     * expected quantity, and the update + audit log happen in one serializable
+     * transaction so concurrent scanners cannot over-count.
+     */
     async scanItem(
         packageId: string,
-        materialId: string,
-        quantity = 1,
-        batchId?: string | null,
-        serialId?: string | null,
-        idempotencyKey?: string,
+        input: {
+            materialId?: string
+            materialCode?: string
+            barcode?: string
+            batchId?: string | null
+            serialId?: string | null
+            quantity?: number
+            scanType?: 'barcode' | 'manual'
+            idempotencyKey?: string
+        },
         user?: { id: string; userName: string } | null,
     ) {
+        const quantity = input.quantity && input.quantity > 0 ? input.quantity : 1
         const pkg = await this.findOne(packageId)
         if (
             ['SEALED', 'READY_FOR_DISPATCH', 'DISPATCHED'].includes(pkg.status)
@@ -753,84 +844,478 @@ export class PackingService {
             )
         }
 
-        const item = await this.prisma.wmPackageItem.findFirst({
-            where: {
+        const materialId = await this.resolveScanMaterial(input)
+        const trace = await this.resolveScanTrace(input)
+        const resolvedBatchId = input.batchId ?? trace.batchId
+        const resolvedSerialId = input.serialId ?? trace.serialNumberId
+        return this.inSerializablePackingTransaction(async (tx) => {
+            const item = await tx.wmPackageItem.findFirst({
+                where: {
+                    packageId,
+                    materialId,
+                    ...(resolvedBatchId ? { batchId: resolvedBatchId } : {}),
+                    ...(resolvedSerialId ? { serialId: resolvedSerialId } : {}),
+                },
+                include: { material: { select: { materialCode: true, materialName: true, batchManaged: true, serialManaged: true } } },
+            })
+            if (!item) {
+                throw new BadRequestException(
+                    'Wrong item: this material is not part of the package',
+                )
+            }
+
+            if (input.idempotencyKey) {
+                const replayed = await tx.wmPackageScanLog.findUnique({
+                    where: { idempotencyKey: input.idempotencyKey },
+                })
+                if (replayed) {
+                    const freshItems = await tx.wmPackageItem.findMany({
+                        where: { packageId },
+                        include: {
+                            material: { select: { materialCode: true, materialName: true } },
+                        },
+                    })
+                    return this.withScanProgress(
+                        packageId,
+                        freshItems.find((i) => i.id === item.id) ?? item,
+                        { id: pkg.id, status: pkg.status, items: freshItems },
+                    )
+                }
+            }
+
+            if (item.material.batchManaged && !resolvedBatchId && !item.batchId) {
+                throw new BadRequestException(
+                    'Batch is required when packing batch-managed material',
+                )
+            }
+            if (item.material.serialManaged && !resolvedSerialId && !item.serialId) {
+                throw new BadRequestException(
+                    'Serial is required when packing serial-managed material',
+                )
+            }
+
+            const newScanned = new Decimal(item.scannedQty).plus(quantity)
+            if (newScanned.gt(item.expectedQty)) {
+                throw new BadRequestException(
+                    `Overpacked: ${item.material.materialCode} expected ${item.expectedQty}, ` +
+                        `already scanned ${item.scannedQty} (+${quantity} would exceed it)`,
+                )
+            }
+
+            // Packer tracking — stamped once, from the first scan; the name is a
+            // snapshot so it survives user renames.
+            let packedById: string | null = null
+            let packedByName: string | null = null
+            if (user?.id && !item.packedById) {
+                packedById = user.id
+                packedByName = await this.resolveUserName(user)
+            }
+
+            const updated = await tx.wmPackageItem.update({
+                where: { id: item.id },
+                data: {
+                    scannedQty: newScanned,
+                    status: this.itemStatus(newScanned, item.expectedQty),
+                    ...(resolvedBatchId && !item.batchId ? { batchId: resolvedBatchId } : {}),
+                    ...(resolvedSerialId && !item.serialId ? { serialId: resolvedSerialId } : {}),
+                    ...(packedById ? { packedById, packedByName } : {}),
+                },
+                include: { material: { select: { materialCode: true, materialName: true } } },
+            })
+
+            await this.writeScanLog(tx, {
+                pkg,
+                item,
+                quantity: new Decimal(quantity),
+                user,
+                scanType: input.scanType ?? 'barcode',
+                action: 'add',
+                idempotencyKey: input.idempotencyKey,
+            })
+
+            // Re-read inside the transaction so the returned progress reflects
+            // THIS scan (never the pre-transaction snapshot).
+            const freshItems = await tx.wmPackageItem.findMany({
+                where: { packageId },
+                include: {
+                    material: { select: { materialCode: true, materialName: true } },
+                },
+            })
+            return this.withScanProgress(
                 packageId,
-                materialId,
-                ...(batchId ? { batchId } : {}),
-                ...(serialId ? { serialId } : {}),
+                freshItems.find((i) => i.id === updated.id) ?? updated,
+                { id: pkg.id, status: pkg.status, items: freshItems },
+            )
+        })
+    }
+
+    /**
+     * Manual adjustment of one package item when no barcode scanner is
+     * available: +1 / −1 / add an exact quantity / reset. Same over-scan guard
+     * as barcode scans, plus an audit-log entry (`scanType: manual`).
+     */
+    async adjustItem(
+        packageId: string,
+        itemId: string,
+        dto: AdjustPackageItemDto,
+        user?: { id: string; userName: string } | null,
+    ) {
+        const pkg = await this.findOne(packageId)
+        if (
+            ['SEALED', 'READY_FOR_DISPATCH', 'DISPATCHED'].includes(pkg.status)
+        ) {
+            throw new BadRequestException(
+                `Cannot adjust items on a ${pkg.status} package`,
+            )
+        }
+
+        return this.inSerializablePackingTransaction(async (tx) => {
+            const item = await tx.wmPackageItem.findFirst({
+                where: { id: itemId, packageId },
+                include: { material: { select: { materialCode: true, materialName: true } } },
+            })
+            if (!item) throw new NotFoundException('Package item not found')
+
+            const current = new Decimal(item.scannedQty)
+            let next: Decimal
+            if (dto.action === 'reset') {
+                next = new Decimal(0)
+            } else if (dto.action === 'add') {
+                next = current.plus(dto.quantity ?? 1)
+            } else {
+                next = current.minus(dto.quantity ?? 1)
+                if (next.lt(0)) next = new Decimal(0)
+            }
+            if (next.gt(item.expectedQty)) {
+                throw new BadRequestException(
+                    `Overpacked: ${item.material.materialCode} expected ${item.expectedQty}`,
+                )
+            }
+
+            const updated = await tx.wmPackageItem.update({
+                where: { id: item.id },
+                data: {
+                    scannedQty: next,
+                    status: this.itemStatus(next, item.expectedQty),
+                },
+                include: { material: { select: { materialCode: true, materialName: true } } },
+            })
+
+            await this.writeScanLog(tx, {
+                pkg,
+                item,
+                quantity: next.minus(current),
+                user,
+                scanType: 'manual',
+                action: dto.action,
+                reason: dto.reason,
+            })
+
+            const freshItems = await tx.wmPackageItem.findMany({
+                where: { packageId },
+                include: {
+                    material: { select: { materialCode: true, materialName: true } },
+                },
+            })
+            return this.withScanProgress(
+                packageId,
+                freshItems.find((i) => i.id === updated.id) ?? updated,
+                { id: pkg.id, status: pkg.status, items: freshItems },
+            )
+        })
+    }
+
+    /**
+     * "Complete Packing". Refuses unless every required quantity is scanned
+     * (remaining = 0); an explicit partial completion needs a reason and is
+     * still recorded as an exception package so the shortfall cannot silently
+     * ship. On success the package moves OPEN/PACKING → VERIFIED.
+     */
+    async completePacking(
+        packageId: string,
+        dto?: CompletePackingDto,
+    ) {
+        const pkg = await this.findOne(packageId)
+        if (pkg.status !== 'OPEN' && pkg.status !== 'PACKING') {
+            throw new BadRequestException(
+                `Cannot complete packing for a ${pkg.status} package`,
+            )
+        }
+
+        const items = pkg.items ?? []
+        const exceptions = items
+            .filter((item) => !new Decimal(item.scannedQty).eq(item.expectedQty))
+            .map((item) => ({
+                id: item.id,
+                materialId: item.materialId,
+                materialCode: item.material?.materialCode ?? null,
+                materialName: item.material?.materialName ?? null,
+                expectedQuantity: Number(item.expectedQty),
+                scannedQuantity: Number(item.scannedQty),
+                remainingQuantity: Number(item.expectedQty) - Number(item.scannedQty),
+            }))
+
+        if (exceptions.length > 0) {
+            const remaining = exceptions.reduce(
+                (sum, e) => sum + e.remainingQuantity,
+                0,
+            )
+            const partialReason = dto?.reason?.trim() ?? ''
+            if (!dto?.allowPartial || !partialReason) {
+                throw new BadRequestException(
+                    `${remaining} unit(s) still to scan across ${exceptions.length} item(s). ` +
+                        'Complete Packing is only allowed after every item is fully scanned.',
+                )
+            }
+            // Partial completion is explicit: verify the package but keep the
+            // shortfall visible so Seal / READY_FOR_DISPATCH must disposition it.
+            await this.prisma.wmPackageScanLog.createMany({
+                data: exceptions.map((e) => ({
+                    packageId,
+                    packageItemId: e.id,
+                    materialId: e.materialId,
+                    scannedQuantity: 0,
+                    scannedByName: partialReason,
+                    scanType: 'manual',
+                    action: 'reset',
+                    reason: `SHORT_PACK: ${e.remainingQuantity} unit(s) not packed — ${partialReason}`,
+                })),
+            })
+            const partial = await this.prisma.wmPackage.update({
+                where: { id: packageId },
+                data: { status: 'VERIFIED' },
+                include: this.detailIncludes,
+            })
+            return this.withScanProgress(packageId, null, partial, {
+                completed: true,
+                partial: true,
+                exceptions,
+            })
+        }
+
+        const verified = await this.prisma.wmPackage.update({
+            where: { id: packageId },
+            data: { status: 'VERIFIED' },
+            include: this.detailIncludes,
+        })
+        return this.withScanProgress(packageId, null, verified, {
+            completed: true,
+            partial: false,
+            exceptions: [],
+        })
+    }
+
+    /** Recent scans for the "Recently scanned" feed (newest first). */
+    async recentScanLogs(packageId: string, take = 25) {
+        return this.prisma.wmPackageScanLog.findMany({
+            where: { packageId },
+            orderBy: { scannedAt: 'desc' },
+            take,
+            include: {
+                material: { select: { materialCode: true, materialName: true } },
             },
         })
-        if (!item)
-            throw new NotFoundException('Matching package item not found')
+    }
 
-        if (idempotencyKey) {
-            // Exact match already fully scanned — treat as idempotent no-op
-            if (
-                new Decimal(item.scannedQty).gte(item.expectedQty) &&
-                new Decimal(item.scannedQty).eq(item.expectedQty)
-            ) {
-                return this.prisma.wmPackageItem.findUnique({
-                    where: { id: item.id },
-                    include: { material: true },
-                })
+    /** Resolve the scanned material server-side: id → code → barcode. */
+    private async resolveScanMaterial(input: {
+        materialId?: string
+        materialCode?: string
+        barcode?: string
+    }): Promise<string> {
+        if (input.materialId?.trim()) return input.materialId.trim()
+        const code = (input.materialCode ?? input.barcode ?? '').trim()
+        if (!code) {
+            throw new BadRequestException(
+                'Scan requires materialId, materialCode or barcode',
+            )
+        }
+        if (this.barcodes) {
+            try {
+                const hit = await this.barcodes.resolve(code)
+                if (hit.materialId) return hit.materialId
+            } catch {
+                // fall through to the direct material-code lookup
             }
         }
-
-        const material = await this.prisma.mmMaterial.findUnique({
-            where: { id: materialId },
-        })
-        if (material?.batchManaged && !batchId && !item.batchId) {
-            throw new BadRequestException(
-                'Batch is required when packing batch-managed material',
-            )
-        }
-        if (material?.serialManaged && !serialId && !item.serialId) {
-            throw new BadRequestException(
-                'Serial is required when packing serial-managed material',
-            )
-        }
-
-        // Packer tracking — stamped once, from the first scan (dropdown, QR or
-        // barcode); the name is a snapshot so it survives user renames.
-        let packedById: string | null = null
-        let packedByName: string | null = null
-        if (user?.id && !item.packedById) {
-            const packer = await this.prisma.user.findUnique({
-                where: { id: user.id },
-                select: { firstName: true, lastName: true, userName: true },
-            })
-            packedById = user.id
-            packedByName =
-                [packer?.firstName, packer?.lastName]
-                    .filter(Boolean)
-                    .join(' ')
-                    .trim() ||
-                packer?.userName ||
-                user.userName
-        }
-
-        const newScanned = new Decimal(item.scannedQty).plus(quantity)
-        if (newScanned.gt(item.expectedQty)) {
-            throw new BadRequestException(
-                `Scan exceeds expected qty. Expected: ${item.expectedQty}, Would be: ${newScanned}`,
-            )
-        }
-        const newStatus = newScanned.gte(item.expectedQty)
-            ? 'SCANNED'
-            : 'PARTIAL'
-
-        return this.prisma.wmPackageItem.update({
-            where: { id: item.id },
-            data: {
-                scannedQty: newScanned,
-                status: newStatus,
-                ...(batchId && !item.batchId ? { batchId } : {}),
-                ...(serialId && !item.serialId ? { serialId } : {}),
-                ...(packedById ? { packedById, packedByName } : {}),
+        const material = await this.prisma.mmMaterial.findFirst({
+            where: {
+                deletedAt: null,
+                OR: [{ materialCode: code }, { sku: code }],
             },
-            include: { material: true },
+            select: { id: true },
         })
+        if (!material) {
+            throw new BadRequestException(
+                `Unknown material code or barcode: ${code}`,
+            )
+        }
+        return material.id
+    }
+
+    /**
+     * Batch / serial carried by the scanned code (batch or serial labels).
+     * Only used to match the right package item — never to choose one.
+     */
+    private async resolveScanTrace(input: {
+        materialId?: string
+        materialCode?: string
+        barcode?: string
+    }): Promise<{ batchId: string | null; serialNumberId: string | null }> {
+        const empty = { batchId: null, serialNumberId: null }
+        if (input.materialId?.trim()) return empty
+        const code = (input.barcode ?? input.materialCode ?? '').trim()
+        if (!code || !this.barcodes) return empty
+        try {
+            const hit = await this.barcodes.resolve(code)
+            return {
+                batchId: hit.batchId ?? null,
+                serialNumberId: hit.serialNumberId ?? null,
+            }
+        } catch {
+            return empty
+        }
+    }
+
+    private async resolveUserName(user: { id: string; userName: string }) {
+        const packer = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { firstName: true, lastName: true, userName: true },
+        })
+        return (
+            [packer?.firstName, packer?.lastName].filter(Boolean).join(' ').trim() ||
+            packer?.userName ||
+            user.userName
+        )
+    }
+
+    /** PENDING (0) · IN_PROGRESS (partial) · COMPLETE (expected). */
+    private itemStatus(scanned: Decimal, expected: Decimal) {
+        if (scanned.lte(0)) return 'PENDING'
+        return scanned.gte(expected) ? 'COMPLETE' : 'IN_PROGRESS'
+    }
+
+    private async writeScanLog(
+        tx: Prisma.TransactionClient,
+        args: {
+            pkg: { id: string; salesOrderId: string | null; packingSessionId: string | null }
+            item: { id: string; materialId: string }
+            quantity: Decimal
+            user?: { id: string; userName: string } | null
+            scanType: 'barcode' | 'manual'
+            action: 'add' | 'remove' | 'reset'
+            reason?: string | null
+            idempotencyKey?: string
+        },
+    ) {
+        const { pkg, item, quantity, user, scanType, action, reason } = args
+        if (quantity.eq(0) && action !== 'reset') return null
+
+        // Sold product/variant identity (snapshot ids — the catalog product may
+        // later be archived or deleted; the log keeps what was sold).
+        let productId: string | null = null
+        let variantId: string | null = null
+        if (pkg.salesOrderId) {
+            const orderLine = await tx.sdSalesOrderLine.findFirst({
+                where: { salesOrderId: pkg.salesOrderId, materialId: item.materialId },
+                select: { productId: true, variantId: true },
+                orderBy: { lineNumber: 'asc' },
+            })
+            productId = orderLine?.productId ?? null
+            variantId = orderLine?.variantId ?? null
+        }
+
+        return tx.wmPackageScanLog.create({
+            data: {
+                packageId: pkg.id,
+                packageItemId: item.id,
+                salesOrderId: pkg.salesOrderId,
+                packingSessionId: pkg.packingSessionId,
+                materialId: item.materialId,
+                productId,
+                variantId,
+                scannedQuantity: action === 'reset' ? new Decimal(0) : quantity,
+                scannedByUserId: user?.id ?? null,
+                scannedByName: user ? await this.resolveUserName(user) : null,
+                scanType,
+                action,
+                reason: reason ?? null,
+                idempotencyKey: args.idempotencyKey ?? null,
+            },
+        })
+    }
+
+    /**
+     * Scan responses always carry the whole package progress so the packing
+     * screen can update the header bar, item card and remaining count from one
+     * authoritative payload (never recomputed from a stale list).
+     */
+    private async withScanProgress(
+        packageId: string,
+        item: {
+            id: string
+            materialId: string
+            material?: { materialCode: string; materialName: string } | null
+            expectedQty: Decimal | unknown
+            scannedQty: Decimal | unknown
+            status?: string
+        } | null,
+        pkg: { id: string; status: string; items?: unknown[] },
+        extra?: {
+            completed?: boolean
+            partial?: boolean
+            exceptions?: Array<Record<string, unknown>>
+        },
+    ) {
+        const items = (pkg.items ?? []) as Array<{
+            id: string
+            materialId: string
+            material?: { materialCode: string; materialName: string } | null
+            expectedQty: unknown
+            scannedQty: unknown
+        }>
+        const totalExpected = items.reduce(
+            (sum, i) => sum + (Number(i.expectedQty) || 0),
+            0,
+        )
+        const totalScanned = items.reduce(
+            (sum, i) => sum + (Number(i.scannedQty) || 0),
+            0,
+        )
+        const remaining = Math.max(0, totalExpected - totalScanned)
+        const line = item
+            ? {
+                  id: item.id,
+                  materialId: item.materialId,
+                  materialCode: item.material?.materialCode ?? null,
+                  materialName: item.material?.materialName ?? null,
+                  expectedQuantity: Number(item.expectedQty) || 0,
+                  scannedQuantity: Number(item.scannedQty) || 0,
+                  remainingQuantity:
+                      (Number(item.expectedQty) || 0) -
+                      (Number(item.scannedQty) || 0),
+                  status: this.itemStatus(
+                      new Decimal(Number(item.scannedQty) || 0),
+                      new Decimal(Number(item.expectedQty) || 0),
+                  ),
+              }
+            : null
+
+        return {
+            success: true as const,
+            packageId,
+            packageStatus: pkg.status,
+            totalExpected,
+            totalScanned,
+            remaining,
+            progressPercent: totalExpected
+                ? Math.round((totalScanned / totalExpected) * 100)
+                : 0,
+            allScanned: remaining === 0 && totalExpected > 0,
+            line,
+            recentlyScanned: await this.recentScanLogs(packageId, 10),
+            ...(extra ?? {}),
+        }
     }
 
     async verify(id: string) {

@@ -46,7 +46,9 @@ function setup() {
     const prisma = {
         sdSalesOrder: {
             findUnique: jest.fn().mockResolvedValue(null),
-            count: jest.fn().mockResolvedValue(7),
+            findMany: jest
+                .fn()
+                .mockResolvedValue([{ orderNumber: 'SO-000007' }]),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
                 Promise.resolve({ id: 'so-1', ...args.data }),
             ),
@@ -70,6 +72,7 @@ function setup() {
         {} as never,
         {} as never,
         quotations as unknown as QuotationService,
+        {} as never,
         {} as never,
     )
     return { prisma, service, quotations }

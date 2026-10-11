@@ -31,6 +31,7 @@ const mockPrisma = {
 
 const mockAvailability = {
     getForLinkedMaterial: jest.fn(),
+    getCompanyMaterialLedger: jest.fn(),
 }
 
 const mockMaterialResolution = {
@@ -134,6 +135,11 @@ describe('ProductOptionVariantsService', () => {
         mockPrisma.sdProductVariant.findFirst.mockResolvedValue(null)
         mockPrisma.mmMaterial.findUnique.mockResolvedValue({ id: 'mat-1' })
         mockPrisma.company.findUnique.mockResolvedValue({ id: 'c-1' })
+        mockAvailability.getCompanyMaterialLedger.mockResolvedValue({
+            onHandQty: 0,
+            reservedQty: 0,
+            availableQty: 0,
+        })
 
         let optionSeq = 0
         let valueSeq = 0
@@ -299,9 +305,16 @@ describe('ProductOptionVariantsService', () => {
             availableBaseQty: 7,
             state: 'IN_STOCK',
         })
+        mockAvailability.getCompanyMaterialLedger.mockResolvedValueOnce({
+            onHandQty: 9,
+            reservedQty: 2,
+            availableQty: 7,
+        })
         const result = await service.variantAvailability('v-1', 'c-1')
         expect(result.materialId).toBe('mat-1')
         expect(result.availableQuantity).toBe(7)
+        expect(result.physicalStock).toBe(9)
+        expect(result.reservedQuantity).toBe(2)
     })
 
     it('rejects duplicate variant combinations (Conflict)', async () => {
@@ -456,9 +469,16 @@ describe('ProductOptionVariantsService', () => {
             state: 'IN_STOCK',
             lowStockThreshold: 10,
         })
+        mockAvailability.getCompanyMaterialLedger.mockResolvedValue({
+            onHandQty: 50,
+            reservedQty: 8,
+            availableQty: 42,
+        })
 
         const result = await service.variantAvailability('v-1')
         expect(result.availableQuantity).toBe(42)
+        expect(result.physicalStock).toBe(50)
+        expect(result.reservedQuantity).toBe(8)
         expect(mockAvailability.getForLinkedMaterial).toHaveBeenCalledWith(
             expect.objectContaining({ materialId: 'mat-1', companyId: 'c-1' }),
         )

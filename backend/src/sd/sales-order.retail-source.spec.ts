@@ -41,6 +41,7 @@ function setup() {
         mmPipeline as never,
         {} as never,
         {} as never,
+        {} as never,
     )
     return { prisma, service }
 }

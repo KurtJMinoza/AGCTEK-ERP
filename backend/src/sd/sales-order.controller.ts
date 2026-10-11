@@ -161,6 +161,13 @@ export class SalesOrderController {
         return this.salesOrders.confirm(id)
     }
 
+    /** Idempotently create the missing MM reservation/allocation/picking work. */
+    @Post(':id/fulfillment')
+    @RequirePermission('sd.sales-orders', 'update')
+    createMissingFulfillment(@Param('id') id: string) {
+        return this.salesOrders.createMissingFulfillment(id)
+    }
+
     /** Admin: mark a demo payment Paid / Failed / Cancelled / Refunded. */
     @Patch(':id/payment')
     @RequirePermission('sd.sales-orders', 'update')

@@ -12,11 +12,14 @@ import { WarehouseTransferOrderService } from './warehouse-transfer-order.servic
 import { AdjustmentService } from './adjustment.service'
 import { ReservationService } from '../outbound/reservation.service'
 import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
+import { ReservationEngineService } from '../inventory/reservation-allocation/reservation-engine.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
 import { InspectionLotService } from '../receiving/inspection-lot.service'
 import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
+import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 let seq = 0
 function nextId() { return `id-${++seq}` }
@@ -139,6 +142,11 @@ const mockPrisma: any = {
     wmPutawayTask: {
         updateMany: jest.fn(),
     },
+    wmStorageBin: {
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+    },
 }
 
 const mockPostingService: any = {
@@ -165,8 +173,11 @@ let wtoService: WarehouseTransferOrderService
 let adjService: AdjustmentService
 let mockDomainEvents: {
     goodsReceiptPosted: jest.Mock
+    goodsReceiptReversed: jest.Mock
     goodsIssuePosted: jest.Mock
+    goodsIssueReversed: jest.Mock
     inventoryAdjusted: jest.Mock
+    inventoryTransferred: jest.Mock
 }
 
 beforeEach(async () => {
@@ -175,8 +186,11 @@ beforeEach(async () => {
 
     mockDomainEvents = {
         goodsReceiptPosted: jest.fn(),
+        goodsReceiptReversed: jest.fn(),
         goodsIssuePosted: jest.fn(),
+        goodsIssueReversed: jest.fn(),
         inventoryAdjusted: jest.fn(),
+        inventoryTransferred: jest.fn(),
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -194,11 +208,18 @@ beforeEach(async () => {
             { provide: QualityInspectionService, useValue: mockQi },
             { provide: MmDomainEventsService, useValue: mockDomainEvents },
             { provide: AllocationEngineService, useValue: { recordIssue: jest.fn() } },
+            { provide: ReservationEngineService, useValue: { recordIssue: jest.fn() } },
             {
                 provide: InspectionLotService,
                 useValue: {
                     createFromGoodsReceipt: jest.fn(),
                     cancelForGoodsReceipt: jest.fn(),
+                },
+            },
+            {
+                provide: InspectionLotLifecycleService,
+                useValue: {
+                    cancelOpenLotsForGr: jest.fn(),
                 },
             },
             {
@@ -210,6 +231,10 @@ beforeEach(async () => {
                         inspectionRequired: false,
                     }),
                 },
+            },
+            {
+                provide: MmPostingPeriodGuard,
+                useValue: { assertCanPost: jest.fn().mockResolvedValue(undefined) },
             },
             {
                 provide: StockTransferOrderService,
@@ -242,6 +267,7 @@ describe('GoodsReceiptService', () => {
         mockPrisma.mmGoodsReceipt.create.mockResolvedValue(doc)
         mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
         mockPrisma.mmGoodsReceipt.update.mockResolvedValue({ ...doc, status: 'POSTED' })
+        mockPrisma.wmStorageBin.findFirst.mockResolvedValue({ id: 'bin-recv' })
 
         const posted = await grService.post('gr-1')
 
@@ -255,6 +281,57 @@ describe('GoodsReceiptService', () => {
             }),
         )
         expect(mockDomainEvents.goodsReceiptPosted).toHaveBeenCalled()
+    })
+
+    it('a receipt line without a storage bin lands in the warehouse receiving bin (pickable, not warehouse limbo)', async () => {
+        const grLine = makeGrLine({ storageBinId: null })
+        const doc = makeDoc({ id: 'gr-1b', status: 'DRAFT', lines: [grLine] })
+
+        mockPrisma.mmGoodsReceipt.findFirst.mockResolvedValue(null)
+        mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
+        mockPrisma.mmGoodsReceipt.update.mockResolvedValue({ ...doc, status: 'POSTED' })
+        mockPrisma.wmStorageBin.findFirst.mockResolvedValue({ id: 'bin-recv' })
+
+        await grService.post('gr-1b')
+
+        expect(mockPrisma.wmStorageBin.findFirst).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    status: 'ACTIVE',
+                    storageSection: {
+                        storageType: {
+                            warehouseId: 'wh-1',
+                            receivingAllowed: true,
+                        },
+                    },
+                }),
+            }),
+        )
+        expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                movementType: 'RECEIPT',
+                storageBinId: 'bin-recv',
+            }),
+        )
+    })
+
+    it('a receipt line carries its scanned storage bin when one is given', async () => {
+        const grLine = makeGrLine({ storageBinId: 'bin-scan' })
+        const doc = makeDoc({ id: 'gr-1c', status: 'DRAFT', lines: [grLine] })
+
+        mockPrisma.mmGoodsReceipt.findFirst.mockResolvedValue(null)
+        mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
+        mockPrisma.mmGoodsReceipt.update.mockResolvedValue({ ...doc, status: 'POSTED' })
+
+        await grService.post('gr-1c')
+
+        expect(mockPrisma.wmStorageBin.findFirst).not.toHaveBeenCalled()
+        expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                movementType: 'RECEIPT',
+                storageBinId: 'bin-scan',
+            }),
+        )
     })
 
     it('reverse: POSTED -> REVERSED, ledger + ER + QI + accounting', async () => {
@@ -317,14 +394,8 @@ describe('GoodsReceiptService', () => {
                 data: { status: 'CANCELLED' },
             }),
         )
-        expect(mockPrisma.mmAccountingEvent.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                data: expect.objectContaining({ eventType: 'GOODS_RECEIPT_REVERSED' }),
-            }),
-        )
-        expect(mockEvents.emit).toHaveBeenCalledWith(
-            'accounting.entry.requested',
-            expect.objectContaining({ eventType: 'GOODS_RECEIPT_REVERSED' }),
+        expect(mockDomainEvents.goodsReceiptReversed).toHaveBeenCalledWith(
+            expect.objectContaining({ goodsReceiptId: 'gr-2' }),
         )
     })
 })
@@ -414,6 +485,77 @@ describe('BinTransferService', () => {
         )
         expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
             expect.objectContaining({ movementType: 'TRANSFER_IN', storageBinId: 'bin-2' }),
+        )
+    })
+
+    it('supports a null source bin: warehouse-level (unassigned) stock moves into the destination bin', async () => {
+        const btLine = {
+            id: 'btl-2',
+            materialId: 'mat-1',
+            quantity: new Decimal(90),
+            uomId: 'uom-1',
+            sourceBinId: null,
+            destinationBinId: 'bin-2',
+            batchId: null,
+            serialNumberId: null,
+            material: { id: 'mat-1', name: 'Widget' },
+            uom: { id: 'uom-1', code: 'EA' },
+            sourceBin: null,
+            destinationBin: { id: 'bin-2', code: 'B01' },
+        }
+        const doc = makeDoc({ id: 'bt-2', status: 'DRAFT', lines: [btLine] })
+
+        mockPrisma.mmBinTransfer.findFirst.mockResolvedValue(null)
+        mockPrisma.mmBinTransfer.findUnique.mockResolvedValue(doc)
+        mockPrisma.mmBinTransfer.update.mockResolvedValue({ ...doc, status: 'POSTED' })
+
+        const posted = await btService.post('bt-2')
+
+        expect(posted.status).toBe('POSTED')
+        expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                movementType: 'TRANSFER_OUT',
+                storageBinId: undefined,
+            }),
+        )
+        expect(mockPostingService.postTransaction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                movementType: 'TRANSFER_IN',
+                storageBinId: 'bin-2',
+            }),
+        )
+    })
+
+    it('create: an omitted source bin is stored as null', async () => {
+        mockPrisma.mmBinTransfer.findFirst.mockResolvedValue(null)
+        mockPrisma.mmBinTransfer.create.mockImplementation((args: {
+            data: Record<string, unknown>
+        }) => Promise.resolve({ id: 'bt-3', ...args.data }))
+
+        await btService.create({
+            companyId: 'co-1',
+            warehouseId: 'wh-1',
+            postingDate: new Date().toISOString(),
+            lines: [
+                {
+                    materialId: 'mat-1',
+                    quantity: 5,
+                    uomId: 'uom-1',
+                    destinationBinId: 'bin-2',
+                },
+            ],
+        })
+
+        expect(mockPrisma.mmBinTransfer.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    lines: {
+                        create: [
+                            expect.objectContaining({ sourceBinId: null }),
+                        ],
+                    },
+                }),
+            }),
         )
     })
 })

@@ -38,30 +38,47 @@ export class SdDemandListener {
                     : undefined,
         })
 
+        // An explicit SD repair is a separate, deterministic command.  It
+        // must be able to heal an older successfully-consumed event whose
+        // reservation exists but whose allocation/task creation was partial.
+        // The repair consumer remains idempotent, while normal event delivery
+        // retains the canonical MM_SD_DEMAND receipt key.
+        const consumerId =
+            typeof envelope.payload.fulfillmentRepairKey === 'string' &&
+            envelope.payload.fulfillmentRepairKey.trim()
+                ? `MM_SD_DEMAND_REPAIR:${envelope.payload.fulfillmentRepairKey.trim()}`
+                : 'MM_SD_DEMAND'
+
         await this.consumer.handleIdempotent({
-            consumerId: 'MM_SD_DEMAND',
+            consumerId,
             envelope: mmEnvelope,
             handler: async () => {
-                const batch = await this.sdIntegration.checkAvailabilityBatch({
-                    companyId: String(envelope.payload.companyId),
-                    warehouseId: String(envelope.payload.warehouseId),
-                    lines: (
-                        (envelope.payload.lines as Array<Record<string, unknown>>) ?? []
-                    ).map((l) => ({
-                        materialId: String(l.materialId),
-                        quantity: Number(l.quantity),
-                        lineRef: String(l.lineId),
-                    })),
-                })
-                if (!batch.ok) {
-                    this.logger.warn(
-                        `ATP short for SO ${envelope.payload.salesOrderId}`,
-                    )
+                const segments = Array.isArray(envelope.payload.fulfillments)
+                    ? (envelope.payload.fulfillments as Array<
+                          Record<string, unknown>
+                      >)
+                    : [envelope.payload]
+
+                for (const segment of segments) {
+                    const batch = await this.sdIntegration.checkAvailabilityBatch({
+                        companyId: String(segment.companyId),
+                        warehouseId: String(segment.warehouseId),
+                        lines: (
+                            (segment.lines as Array<Record<string, unknown>>) ?? []
+                        ).map((l) => ({
+                            materialId: String(l.materialId),
+                            quantity: Number(l.quantity),
+                            lineRef: String(l.lineId),
+                        })),
+                    })
+                    if (!batch.ok) {
+                        this.logger.warn(
+                            `ATP short for SO ${envelope.payload.salesOrderId}`,
+                        )
+                    }
+                    await this.sdIntegration.reserveFromSalesOrderPayload(segment)
+                    await this.syncDemandFromPayload(segment)
                 }
-                await this.sdIntegration.reserveFromSalesOrderPayload(
-                    envelope.payload,
-                )
-                await this.syncDemandFromPayload(envelope.payload)
             },
         })
     }

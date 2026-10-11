@@ -575,6 +575,12 @@ export class ProductOptionVariantsService {
                 state: variant.isActive ? 'NOT_MAPPED' : 'INACTIVE',
             }
         }
+        // Live MM ledger for the variant's own material — the parent product's
+        // stock is never used while variants exist.
+        const ledger = await this.availability.getCompanyMaterialLedger(
+            materialId,
+            company,
+        )
         const availability = await this.availability.getForLinkedMaterial({
             materialId,
             companyId: company,
@@ -587,8 +593,8 @@ export class ProductOptionVariantsService {
             materialId,
             companyId: company,
             availableQuantity: availability.availableBaseQty,
-            reservedQuantity: 0,
-            physicalStock: availability.availableBaseQty,
+            reservedQuantity: Math.max(0, ledger.reservedQty),
+            physicalStock: Math.max(0, ledger.onHandQty),
             state: availability.state as
                 | 'IN_STOCK'
                 | 'LOW_STOCK'

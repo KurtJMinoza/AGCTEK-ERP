@@ -31,6 +31,7 @@ describe('MRP Explainability Phase 2D', () => {
         procurementType: 'BUY',
         leadTimeDays: 7,
         source: 'RULE',
+        scope: 'WAREHOUSE',
     }
 
     function buildCanonicalSnap(): PairSnapshot {

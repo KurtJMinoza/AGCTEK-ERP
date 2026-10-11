@@ -17,12 +17,25 @@ export type SdSalesOrderLinePayload = {
 export type SdSalesOrderEventPayload = {
     salesOrderId: string
     orderNumber: string
+    channel: string
     companyId: string
     warehouseId: string
     customerId: string
     correlationId: string
     idempotencyKey?: string | null
+    /** Deterministic key for an explicit idempotent fulfillment repair. */
+    fulfillmentRepairKey?: string
     lines: SdSalesOrderLinePayload[]
+    /**
+     * A marketplace order can be fulfilled from more than one warehouse. The
+     * parent event stays one SalesOrderConfirmed message (one consumer receipt)
+     * while each segment carries the exact warehouse and line set to reserve.
+     */
+    fulfillments?: Array<
+        Omit<SdSalesOrderEventPayload, 'fulfillments'> & {
+            fulfillmentId: string
+        }
+    >
 }
 
 export type SdSalesDemandChangedPayload = SdSalesOrderEventPayload & {

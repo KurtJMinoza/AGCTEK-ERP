@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { ConflictException, BadRequestException } from '@nestjs/common'
 import { MaterialsService } from './materials.service'
 import { PrismaService } from '../../prisma/prisma.service'
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 
 describe('MaterialsService MM-01 lifecycle (mocked)', () => {
     let service: MaterialsService
@@ -10,17 +11,21 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
             findFirst: jest.fn(),
             findMany: jest.fn(),
             findUnique: jest.fn(),
+            count: jest.fn(),
             create: jest.fn(),
             update: jest.fn(),
         },
         mmMaterialType: { findFirst: jest.fn() },
         mmMaterialCategory: { findFirst: jest.fn() },
         mmUom: { findFirst: jest.fn() },
-        mmCurrency: { findFirst: jest.fn() },
         mmMaterialAudit: { create: jest.fn() },
         mmBatch: { count: jest.fn() },
         mmSerialNumber: { count: jest.fn() },
         mmBarcode: { count: jest.fn() },
+        mmCurrency: { findFirst: jest.fn() },
+    }
+    const availability = {
+        getCompanyMaterialTotalsBatch: jest.fn(),
     }
 
     const draftMaterial = {
@@ -45,6 +50,10 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
             providers: [
                 MaterialsService,
                 { provide: PrismaService, useValue: prisma },
+                {
+                    provide: InventoryAvailabilityService,
+                    useValue: availability,
+                },
             ],
         }).compile()
         service = module.get(MaterialsService)
@@ -55,6 +64,7 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         prisma.mmCurrency.findFirst.mockResolvedValue({ id: 'php' })
         prisma.mmMaterialAudit.create.mockResolvedValue({})
         prisma.mmMaterial.findMany.mockResolvedValue([])
+        availability.getCompanyMaterialTotalsBatch.mockResolvedValue(new Map())
     })
 
     it('rejects duplicate SKU on create', async () => {
@@ -78,6 +88,8 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         prisma.mmMaterial.findFirst
             .mockResolvedValueOnce(null) // code unique
             .mockResolvedValueOnce(null) // sku unique
+            .mockResolvedValueOnce(null) // no soft-deleted code to restore
+            .mockResolvedValueOnce(null) // no soft-deleted sku to restore
         prisma.mmMaterial.create.mockResolvedValue({
             ...draftMaterial,
             sku: 'SKU-000001',
@@ -210,5 +222,82 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
 
         const unblocked = await service.unblock('mat-1')
         expect(unblocked.status).toBe('INACTIVE')
+    })
+
+    describe('live ledger stock (never the material master cache)', () => {
+        beforeEach(() => {
+            prisma.mmMaterial.findFirst.mockResolvedValue({
+                ...draftMaterial,
+                companyId: 'company-1',
+                // Stale cache: the ledger is the authority.
+                onHandQty: 999,
+                reservedQty: 999,
+            })
+            prisma.mmMaterial.findMany.mockResolvedValue([
+                {
+                    ...draftMaterial,
+                    companyId: 'company-1',
+                    onHandQty: 999,
+                    reservedQty: 999,
+                },
+            ])
+            prisma.mmMaterial.count.mockResolvedValue(1)
+        })
+
+        it('findOne reports on-hand / available / reserved from the MM ledger', async () => {
+            availability.getCompanyMaterialTotalsBatch.mockResolvedValue(
+                new Map([
+                    [
+                        'mat-1',
+                        { onHandQty: 50, reservedQty: 10, availableQty: 40 },
+                    ],
+                ]),
+            )
+
+            const result = await service.findOne('mat-1')
+
+            expect(availability.getCompanyMaterialTotalsBatch).toHaveBeenCalledWith(
+                'company-1',
+                ['mat-1'],
+            )
+            expect(result.ledgerOnHandQty).toBe(50)
+            expect(result.ledgerReservedQty).toBe(10)
+            expect(result.ledgerAvailableQty).toBe(40)
+            expect(result.availableQty).toBe(40)
+        })
+
+        it('findAll reports the live ledger quantities per material', async () => {
+            availability.getCompanyMaterialTotalsBatch.mockResolvedValue(
+                new Map([
+                    [
+                        'mat-1',
+                        { onHandQty: 12, reservedQty: 2, availableQty: 10 },
+                    ],
+                ]),
+            )
+
+            const result = await service.findAll({} as never)
+            const rows = result.data as unknown as Array<{
+                ledgerOnHandQty: number
+                ledgerReservedQty: number
+                ledgerAvailableQty: number
+            }>
+
+            expect(rows[0].ledgerOnHandQty).toBe(12)
+            expect(rows[0].ledgerReservedQty).toBe(2)
+            expect(rows[0].ledgerAvailableQty).toBe(10)
+            expect(result.data[0].availableQty).toBe(10)
+        })
+
+        it('reports an honest zero for a material with no ledger rows', async () => {
+            availability.getCompanyMaterialTotalsBatch.mockResolvedValue(new Map())
+
+            const result = await service.findOne('mat-1')
+
+            expect(result.ledgerOnHandQty).toBe(0)
+            expect(result.ledgerReservedQty).toBe(0)
+            expect(result.ledgerAvailableQty).toBe(0)
+            expect(result.availableQty).toBe(0)
+        })
     })
 })

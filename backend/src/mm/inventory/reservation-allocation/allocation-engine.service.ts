@@ -17,6 +17,7 @@ import {
 import { AllocationCandidate } from './strategies/allocation-strategy.interface'
 import { ACTIVE_RESERVATION_STATUSES } from './reservation-allocation.constants'
 import { PickingService } from '../../warehouse/picking/picking.service'
+import { CreatePickingDto } from '../../warehouse/picking/dto/create-picking.dto'
 import { ReservationEngineService } from './reservation-engine.service'
 import { MmDomainEventsService } from '../../common/mm-domain-events.service'
 
@@ -77,14 +78,23 @@ export class AllocationEngineService {
         return this.allocateHeader(dto.reservationHeaderId, dto)
     }
 
-    async allocateHeader(headerId: string, dto: AllocateReservationDto | CreateAllocationDto) {
-        const header = await this.prisma.mmInventoryReservationHeader.findUnique({
-            where: { id: headerId },
-            include: { lines: true },
-        })
+    async allocateHeader(
+        headerId: string,
+        dto: AllocateReservationDto | CreateAllocationDto,
+    ) {
+        const header =
+            await this.prisma.mmInventoryReservationHeader.findUnique({
+                where: { id: headerId },
+                include: { lines: true },
+            })
         if (!header) throw new NotFoundException('Reservation not found')
-        if (!ACTIVE_RESERVATION_STATUSES.has(header.status) && header.status !== 'DRAFT') {
-            throw new BadRequestException(`Cannot allocate reservation in status ${header.status}`)
+        if (
+            !ACTIVE_RESERVATION_STATUSES.has(header.status) &&
+            header.status !== 'DRAFT'
+        ) {
+            throw new BadRequestException(
+                `Cannot allocate reservation in status ${header.status}`,
+            )
         }
 
         const strategy = dto.strategy ?? 'FIFO'
@@ -114,7 +124,9 @@ export class AllocationEngineService {
             }> = []
 
             for (const line of header.lines) {
-                const openReserve = new Decimal(line.reservedQuantity).minus(line.allocatedQuantity)
+                const openReserve = new Decimal(line.reservedQuantity).minus(
+                    line.allocatedQuantity,
+                )
                 if (openReserve.lte(0)) continue
 
                 const custom = customByLine.get(line.id)
@@ -128,37 +140,104 @@ export class AllocationEngineService {
                     line.serialNumberId,
                 )
 
-                await this.validateMaterialTraceability(line.materialId, custom, candidates)
+                await this.validateMaterialTraceability(
+                    line.materialId,
+                    custom,
+                    candidates,
+                )
 
-                const picks = this.strategies.plan(strategy, {
-                    companyId: header.companyId,
-                    warehouseId: header.warehouseId,
-                    materialId: line.materialId,
-                    quantity: custom ? new Decimal(custom.quantity) : openReserve,
-                    batchId: line.batchId,
-                    serialNumberId: line.serialNumberId,
-                    stockStatus: line.stockStatus,
-                    customLines: custom
-                        ? [{ storageBinId: custom.storageBinId, quantity: custom.quantity, batchId: custom.batchId, serialNumberId: custom.serialNumberId }]
-                        : undefined,
-                }, candidates)
+                // A reservation proves that warehouse-level ATP existed when
+                // the order was accepted.  It does not prove that the stock
+                // was put away into a pickable bin.  Never create an empty
+                // allocation in that case: it incorrectly moves the header
+                // to PICKING while the order remains invisible to operators.
+                if (candidates.length === 0) {
+                    const unlocated = await tx.mmInventoryBalance.aggregate({
+                        where: {
+                            companyId: header.companyId,
+                            warehouseId: header.warehouseId,
+                            materialId: line.materialId,
+                            stockStatus: line.stockStatus,
+                            storageBinId: null,
+                            ...(line.batchId ? { batchId: line.batchId } : {}),
+                            ...(line.serialNumberId
+                                ? { serialNumberId: line.serialNumberId }
+                                : {}),
+                        },
+                        _sum: { availableQuantity: true },
+                    })
+                    const unlocatedQty = new Decimal(
+                        unlocated._sum.availableQuantity ?? 0,
+                    )
+                    if (unlocatedQty.gt(0)) {
+                        throw new BadRequestException(
+                            `No pickable stock location for ${line.materialId}. ` +
+                                `${unlocatedQty.toString()} unit(s) are not assigned to a storage bin. Complete putaway before picking.`,
+                        )
+                    }
+                    throw new BadRequestException(
+                        `Insufficient pickable stock for ${line.materialId}. ` +
+                            `Required: ${openReserve.toString()}, Available: 0.`,
+                    )
+                }
+
+                const picks = this.strategies.plan(
+                    strategy,
+                    {
+                        companyId: header.companyId,
+                        warehouseId: header.warehouseId,
+                        materialId: line.materialId,
+                        quantity: custom
+                            ? new Decimal(custom.quantity)
+                            : openReserve,
+                        batchId: line.batchId,
+                        serialNumberId: line.serialNumberId,
+                        stockStatus: line.stockStatus,
+                        customLines: custom
+                            ? [
+                                  {
+                                      storageBinId: custom.storageBinId,
+                                      quantity: custom.quantity,
+                                      batchId: custom.batchId,
+                                      serialNumberId: custom.serialNumberId,
+                                  },
+                              ]
+                            : undefined,
+                    },
+                    candidates,
+                )
 
                 let plannedQty = new Decimal(0)
                 for (const pick of picks) {
-                    await this.assertBinAvailable(tx, header.companyId, header.warehouseId, line.materialId, pick)
+                    await this.assertBinAvailable(
+                        tx,
+                        header.companyId,
+                        header.warehouseId,
+                        line.materialId,
+                        pick,
+                    )
                     plannedLines.push({
                         reservationLineId: line.id,
                         storageBinId: pick.storageBinId,
                         materialId: line.materialId,
                         batchId: pick.batchId ?? line.batchId,
-                        serialNumberId: pick.serialNumberId ?? line.serialNumberId,
+                        serialNumberId:
+                            pick.serialNumberId ?? line.serialNumberId,
                         quantity: pick.availableQuantity,
                     })
                     plannedQty = plannedQty.plus(pick.availableQuantity)
                 }
 
                 if (plannedQty.gt(openReserve)) {
-                    throw new BadRequestException('Allocation exceeds open reserved quantity')
+                    throw new BadRequestException(
+                        'Allocation exceeds open reserved quantity',
+                    )
+                }
+                if (plannedQty.lt(openReserve)) {
+                    throw new BadRequestException(
+                        `Insufficient pickable stock for ${line.materialId}. ` +
+                            `Required: ${openReserve.toString()}, Available: ${plannedQty.toString()}.`,
+                    )
                 }
             }
 
@@ -177,13 +256,19 @@ export class AllocationEngineService {
                     },
                 })
 
-                const rLine = header.lines.find((l) => l.id === pl.reservationLineId)!
-                const newAllocated = new Decimal(rLine.allocatedQuantity).plus(pl.quantity)
+                const rLine = header.lines.find(
+                    (l) => l.id === pl.reservationLineId,
+                )!
+                const newAllocated = new Decimal(rLine.allocatedQuantity).plus(
+                    pl.quantity,
+                )
                 await tx.mmInventoryReservationLine.update({
                     where: { id: pl.reservationLineId },
                     data: {
                         allocatedQuantity: newAllocated,
-                        status: newAllocated.gte(rLine.reservedQuantity) ? 'ALLOCATED' : 'PARTIALLY_ALLOCATED',
+                        status: newAllocated.gte(rLine.reservedQuantity)
+                            ? 'ALLOCATED'
+                            : 'PARTIALLY_ALLOCATED',
                     },
                 })
             }
@@ -228,7 +313,9 @@ export class AllocationEngineService {
 
         const updated = await this.prisma.$transaction(async (tx) => {
             for (const line of allocation.lines) {
-                const open = new Decimal(line.quantity).minus(line.issuedQuantity)
+                const open = new Decimal(line.quantity).minus(
+                    line.issuedQuantity,
+                )
                 if (open.lte(0)) continue
                 const rLine = await tx.mmInventoryReservationLine.findUnique({
                     where: { id: line.reservationLineId },
@@ -239,7 +326,9 @@ export class AllocationEngineService {
                         data: {
                             allocatedQuantity: Decimal.max(
                                 new Decimal(0),
-                                new Decimal(rLine.allocatedQuantity).minus(open),
+                                new Decimal(rLine.allocatedQuantity).minus(
+                                    open,
+                                ),
                             ),
                         },
                     })
@@ -297,9 +386,13 @@ export class AllocationEngineService {
             // split stock can produce MANY allocation lines per reservation
             // line (one per serial), so the dedupe must be per allocation
             // line — keying on the reservation line would collapse all serial
-            // tasks into one and under-pick the order.
+            // tasks into one and under-pick the order. A CANCELLED task does
+            // not count: it must not block repair/re-picking of the line.
             const existing = await this.prisma.wmPickingTask.findFirst({
-                where: { allocationLineId: line.id },
+                where: {
+                    allocationLineId: line.id,
+                    status: { not: 'CANCELLED' },
+                },
                 select: { id: true },
             })
             if (existing) continue
@@ -317,11 +410,10 @@ export class AllocationEngineService {
                         where: { id: line.reservationLineId },
                         select: { demandReferenceLineId: true },
                     })
-                salesOrderLineId =
-                    rLine?.demandReferenceLineId ?? undefined
+                salesOrderLineId = rLine?.demandReferenceLineId ?? undefined
             }
 
-            const pick = await this.picking.create({
+            const pickInput: CreatePickingDto = {
                 warehouseId: line.warehouseId,
                 companyId: header.companyId,
                 sourceBinId: line.storageBinId,
@@ -334,10 +426,13 @@ export class AllocationEngineService {
                 reservationLineId: line.reservationLineId,
                 allocationLineId: line.id,
                 sourceDocument: header.reservationNumber,
-                salesOrderId: isSalesOrder ? header.sourceDocumentId : undefined,
+                salesOrderId: isSalesOrder
+                    ? header.sourceDocumentId
+                    : undefined,
                 salesOrderLineId,
                 lastIdempotencyKey: `PICK:ALLOC_LINE:${line.id}`,
-            } as any)
+            }
+            const pick = await this.picking.create(pickInput)
 
             tasks.push(pick)
         }
@@ -348,6 +443,79 @@ export class AllocationEngineService {
         })
 
         return tasks
+    }
+
+    /**
+     * Idempotently bring one reservation header to the warehouse-picking
+     * stage.  A checkout retry can encounter a reservation that was created
+     * before allocation or task generation failed.  Reusing active allocation
+     * lines is essential: creating a new allocation alone sees zero remaining
+     * quantity and would leave the original, taskless allocation stranded.
+     */
+    async ensurePickTasksForHeader(headerId: string, strategy = 'FIFO') {
+        const header =
+            await this.prisma.mmInventoryReservationHeader.findUnique({
+                where: { id: headerId },
+                include: { lines: true },
+            })
+        if (!header) throw new NotFoundException('Reservation not found')
+        if (!ACTIVE_RESERVATION_STATUSES.has(header.status)) {
+            throw new BadRequestException(
+                `Cannot create picking tasks for reservation in status ${header.status}`,
+            )
+        }
+
+        const allocations = await this.prisma.mmInventoryAllocation.findMany({
+            where: { headerId, status: { not: 'RELEASED' } },
+            select: { id: true, lines: { select: { id: true } } },
+        })
+
+        // Older releases could persist an ACTIVE allocation with no allocation
+        // lines when stock existed only at the warehouse level.  It owns no
+        // stock, so release it before creating the missing real allocation.
+        const emptyAllocationIds = allocations
+            .filter(
+                (allocation) =>
+                    Array.isArray(allocation.lines) &&
+                    allocation.lines.length === 0,
+            )
+            .map((allocation) => allocation.id)
+        if (emptyAllocationIds.length) {
+            await this.prisma.mmInventoryAllocation.updateMany({
+                where: { id: { in: emptyAllocationIds } },
+                data: { status: 'RELEASED' },
+            })
+        }
+        const activeAllocations = allocations.filter(
+            (allocation) => !emptyAllocationIds.includes(allocation.id),
+        )
+
+        const hasUnallocatedQuantity = header.lines.some((line) =>
+            new Decimal(line.reservedQuantity).gt(line.allocatedQuantity),
+        )
+        if (hasUnallocatedQuantity) {
+            const created = await this.allocateHeader(headerId, {
+                reservationHeaderId: headerId,
+                strategy,
+                generatePickTasks: false,
+            })
+            activeAllocations.push({ id: created.id, lines: [] })
+        }
+
+        for (const allocation of activeAllocations) {
+            await this.generatePickTasks(allocation.id)
+        }
+
+        // `generatePickTasks` returns only newly-created rows. An ensure call
+        // must instead return the complete active result so callers can prove
+        // that an idempotent retry really has warehouse work to display.
+        return this.prisma.wmPickingTask.findMany({
+            where: {
+                reservationHeaderId: headerId,
+                status: { not: 'CANCELLED' },
+            },
+            orderBy: { createdAt: 'asc' },
+        })
     }
 
     async recordPick(allocationLineId: string, quantity: Decimal) {
@@ -369,7 +537,9 @@ export class AllocationEngineService {
         await this.prisma.mmInventoryReservationLine.update({
             where: { id: line.reservationLineId },
             data: {
-                pickedQuantity: new Decimal(line.reservationLine.pickedQuantity).plus(quantity),
+                pickedQuantity: new Decimal(
+                    line.reservationLine.pickedQuantity,
+                ).plus(quantity),
             },
         })
 
@@ -386,7 +556,11 @@ export class AllocationEngineService {
         })
     }
 
-    async recordIssue(allocationLineId: string, quantity: Decimal, tx?: import('@prisma/client').Prisma.TransactionClient) {
+    async recordIssue(
+        allocationLineId: string,
+        quantity: Decimal,
+        tx?: import('@prisma/client').Prisma.TransactionClient,
+    ) {
         const client = tx ?? this.prisma
         const line = await client.mmInventoryAllocationLine.findUnique({
             where: { id: allocationLineId },
@@ -396,15 +570,23 @@ export class AllocationEngineService {
         const updated = await client.mmInventoryAllocationLine.updateMany({
             where: { id: line.id, version: line.version ?? 0 },
             data: {
-                issuedQuantity: new Decimal(line.issuedQuantity ?? 0).plus(quantity),
+                issuedQuantity: new Decimal(line.issuedQuantity ?? 0).plus(
+                    quantity,
+                ),
                 version: { increment: 1 },
             },
         })
         if (updated.count === 0) {
-            throw new BadRequestException('Concurrent allocation issue conflict — retry')
+            throw new BadRequestException(
+                'Concurrent allocation issue conflict — retry',
+            )
         }
 
-        await this.reservations.recordIssue(line.reservationLineId, quantity, client)
+        await this.reservations.recordIssue(
+            line.reservationLineId,
+            quantity,
+            client,
+        )
     }
 
     private async loadCandidates(
@@ -443,7 +625,8 @@ export class AllocationEngineService {
                 availableQuantity: new Decimal(b.availableQuantity),
                 binCode: b.storageBin?.code,
                 batchExpiry: b.batch?.expiryDate ?? null,
-                priority: material?.defaultWarehouseId === warehouseId ? 0 : 999,
+                priority:
+                    material?.defaultWarehouseId === warehouseId ? 0 : 999,
             }))
     }
 
@@ -465,7 +648,10 @@ export class AllocationEngineService {
                 stockStatus: 'UNRESTRICTED',
             },
         })
-        if (!bal || new Decimal(bal.availableQuantity).lt(pick.availableQuantity)) {
+        if (
+            !bal ||
+            new Decimal(bal.availableQuantity).lt(pick.availableQuantity)
+        ) {
             throw new BadRequestException(
                 `Insufficient bin stock at ${pick.storageBinId} for allocation`,
             )
@@ -477,13 +663,19 @@ export class AllocationEngineService {
         custom: CustomAllocationLineDto | undefined,
         candidates: AllocationCandidate[],
     ) {
-        const material = await this.prisma.mmMaterial.findUnique({ where: { id: materialId } })
+        const material = await this.prisma.mmMaterial.findUnique({
+            where: { id: materialId },
+        })
         if (!material) throw new BadRequestException('Material not found')
         if (material.batchManaged && custom && !custom.batchId) {
-            throw new BadRequestException('Batch is required for batch-managed material')
+            throw new BadRequestException(
+                'Batch is required for batch-managed material',
+            )
         }
         if (material.serialManaged && custom && !custom.serialNumberId) {
-            throw new BadRequestException('Serial is required for serial-managed material')
+            throw new BadRequestException(
+                'Serial is required for serial-managed material',
+            )
         }
         void candidates
     }
@@ -492,12 +684,20 @@ export class AllocationEngineService {
         tx: import('@prisma/client').Prisma.TransactionClient,
         headerId: string,
     ) {
-        const lines = await tx.mmInventoryReservationLine.findMany({ where: { headerId } })
+        const lines = await tx.mmInventoryReservationLine.findMany({
+            where: { headerId },
+        })
         const allAllocated = lines.every((l) =>
             new Decimal(l.allocatedQuantity).gte(l.reservedQuantity),
         )
-        const anyAllocated = lines.some((l) => new Decimal(l.allocatedQuantity).gt(0))
-        const status = allAllocated ? 'ALLOCATED' : anyAllocated ? 'PARTIALLY_ALLOCATED' : 'RESERVED'
+        const anyAllocated = lines.some((l) =>
+            new Decimal(l.allocatedQuantity).gt(0),
+        )
+        const status = allAllocated
+            ? 'ALLOCATED'
+            : anyAllocated
+              ? 'PARTIALLY_ALLOCATED'
+              : 'RESERVED'
         await tx.mmInventoryReservationHeader.update({
             where: { id: headerId },
             data: { status },

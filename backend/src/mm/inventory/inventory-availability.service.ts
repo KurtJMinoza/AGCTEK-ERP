@@ -253,6 +253,29 @@ export class InventoryAvailabilityService {
     }
 
     /**
+     * Company totals restricted to stock that physically sits in a storage bin.
+     * Warehouse-level (bin-less) balances — e.g. a goods receipt posted without
+     * a destination bin — exist on the ledger and count as on-hand, but they
+     * cannot be picked: allocation has no bin to pick from, so promising them
+     * to the storefront produces orders that fail at "start fulfillment".
+     * Sellable stock is bin-assigned stock.
+     */
+    async getPickableMaterialTotals(
+        companyId: string,
+        materialId: string,
+    ): Promise<CompanyMaterialTotals> {
+        const balances = await this.prisma.mmInventoryBalance.findMany({
+            where: { companyId, materialId, storageBinId: { not: null } },
+            select: {
+                stockStatus: true,
+                quantity: true,
+                reservedQuantity: true,
+            },
+        })
+        return this.aggregateBalancesCompany(balances)
+    }
+
+    /**
      * Commercial stock for SD Product Catalog / ecommerce.
      * Computed from the LIVE ledger — the ATP authority. The material master
      * onHand/reserved cache only re-syncs on stock postings and drifts after
@@ -262,7 +285,47 @@ export class InventoryAvailabilityService {
         companyId: string,
         materialId: string,
     ): Promise<CompanyMaterialTotals> {
-        return this.getCompanyMaterialTotals(companyId, materialId)
+        return this.getPickableMaterialTotals(companyId, materialId)
+    }
+
+    /** Per-warehouse ATP restricted to bin-assigned (pickable) balances. */
+    async getPickableAvailabilityBatch(
+        companyId: string,
+        pairs: Array<{ warehouseId: string; materialId: string }>,
+    ): Promise<Map<string, AtpResult>> {
+        if (!pairs.length) return new Map()
+        const orClauses = pairs.map((pair) => ({
+            warehouseId: pair.warehouseId,
+            materialId: pair.materialId,
+        }))
+        const balances = await this.prisma.mmInventoryBalance.findMany({
+            where: {
+                companyId,
+                storageBinId: { not: null },
+                OR: orClauses,
+            },
+        })
+        const grouped = new Map<string, typeof balances>()
+        for (const b of balances) {
+            const key = atpPairKey(b.warehouseId, b.materialId)
+            const list = grouped.get(key) ?? []
+            list.push(b)
+            grouped.set(key, list)
+        }
+        const result = new Map<string, AtpResult>()
+        for (const pair of pairs) {
+            const key = atpPairKey(pair.warehouseId, pair.materialId)
+            result.set(
+                key,
+                this.aggregateBalances(
+                    companyId,
+                    pair.warehouseId,
+                    pair.materialId,
+                    grouped.get(key) ?? [],
+                ),
+            )
+        }
+        return result
     }
 
     async getCompanyMaterialTotalsBatch(

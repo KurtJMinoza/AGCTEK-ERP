@@ -25,6 +25,10 @@ export class PickingQueryDto {
 
     @IsOptional()
     @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
     search?: string
 
     @IsOptional()

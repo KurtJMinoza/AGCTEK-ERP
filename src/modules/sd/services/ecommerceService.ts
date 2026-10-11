@@ -17,6 +17,7 @@ import {
 import {
     createMarketplaceCheckout,
     newIdempotencyKey,
+    type SalesOrderRecord,
 } from './salesOrderDashboardService'
 
 /** Promo codes are issued by one division and only discount that division's items. */
@@ -52,6 +53,8 @@ export type EcommerceOrderResult = CartPricing & {
     checkoutId: string
     /** Business number of the single master sales order (SO-000001). */
     salesOrderId: string
+    /** Authoritative payment snapshot from the Sales Order. */
+    payment: SalesOrderRecord['payment']
     status: 'PENDING_DELIVERY'
     message: string
 }
@@ -176,6 +179,7 @@ export async function processEcommerceOrder(
         grandTotal: saved.totalAmount,
         checkoutId,
         salesOrderId: saved.orderId,
+        payment: saved.payment,
         status: 'PENDING_DELIVERY',
         message: `Sales order ${saved.orderId} created — pending delivery.`,
     }

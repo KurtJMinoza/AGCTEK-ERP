@@ -6,6 +6,7 @@ const fmt = (n: number) =>
 export type MmInventoryCompanyMetricsProps = {
     available: number
     onHand: number
+    reserved: number
     maxStock: number
     safetyStock: number
     loading?: boolean
@@ -37,30 +38,34 @@ const Metric = ({
     </div>
 )
 
-/** Matches MM “Inventory (company)” + Product Catalog sellable fields. */
+/** Product Catalog view of live MM ledger quantities and thresholds. */
 const MmInventoryCompanyMetrics = ({
     available,
     onHand,
+    reserved,
     maxStock,
     safetyStock,
     loading,
     className = '',
 }: MmInventoryCompanyMetricsProps) => (
     <div className={className}>
-        <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Metric label="On hand" value={loading ? '…' : fmt(onHand)} />
+        <h6 className="mb-3 text-sm font-semibold heading-text">
+            MM inventory & stock thresholds
+        </h6>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <Metric label="On hand" value={loading ? 'Loading...' : fmt(onHand)} />
             <Metric
                 label="Available"
-                value={loading ? '…' : fmt(available)}
+                value={loading ? 'Loading...' : fmt(available)}
                 highlight
             />
-            <Metric label="Max stock" value={loading ? '…' : fmt(maxStock)} />
-            <Metric label="Safety stock" value={loading ? '…' : fmt(safetyStock)} />
+            <Metric label="Reserved" value={loading ? 'Loading...' : fmt(reserved)} />
+            <Metric label="Max stock" value={loading ? 'Loading...' : fmt(maxStock)} />
+            <Metric label="Safety stock" value={loading ? 'Loading...' : fmt(safetyStock)} />
         </div>
         <p className="mt-2 text-xs text-gray-500">
-            Read from MM stock thresholds on the linked material(s). Edit stock in
-            Materials Management → Inventory → Stock thresholds.
+            Live on-hand, available, and reserved values come from the MM ledger.
+            Thresholds come from MM stock settings for the selected warehouse scope.
         </p>
     </div>
 )

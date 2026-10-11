@@ -105,7 +105,7 @@ export class SdMmPipelineService {
 
             const material = await this.prisma.mmMaterial.findUnique({
                 where: { id: materialId },
-                select: { baseUomId: true },
+                select: { materialCode: true, baseUomId: true },
             })
             if (!material) continue
 
@@ -163,6 +163,11 @@ export class SdMmPipelineService {
                     salesUomId,
                     baseQuantity: baseQty,
                     baseUomId,
+                    // Snapshots so historical picking / packing / shipment / invoice
+                    // / report rows keep the sold identity even if the catalog
+                    // product is later deleted.
+                    materialCodeSnapshot: material.materialCode,
+                    ...(line.productSkuSnapshot ? {} : { productSkuSnapshot: line.sku ?? undefined }),
                     // Organization / MM company scope, mirrored on every line so
                     // picking/packing/shipment/invoice/return all derive it.
                     ...(effectiveCompanyId
@@ -241,6 +246,7 @@ export class SdMmPipelineService {
 
     async emitSalesOrderConfirmedIntegration(
         order: NonNullable<Awaited<ReturnType<typeof this.enrichOrderForMmIntegration>>>,
+        options?: { fulfillmentRepairKey?: string },
     ) {
         if (!this.isMmLinked(order)) {
             this.logger.warn(
@@ -249,7 +255,51 @@ export class SdMmPipelineService {
             return false
         }
 
-        await this.sdEvents.emit(SD_EVENTS.SALES_ORDER_CONFIRMED, this.toEventPayload(order))
+        const payload = {
+            ...this.toEventPayload(order),
+            ...(options?.fulfillmentRepairKey
+                ? {
+                      fulfillmentRepairKey: options.fulfillmentRepairKey,
+                      idempotencyKey: options.fulfillmentRepairKey,
+                  }
+                : {}),
+        }
+        const fulfillments = await this.prisma.sdFulfillment.findMany({
+            where: {
+                salesOrderId: order.id,
+                status: { in: ['OPEN', 'CONFIRMED'] },
+            },
+            include: { lines: true },
+            orderBy: { createdAt: 'asc' },
+        })
+
+        // `SdFulfillment` is the existing SD owner of warehouse splits.  The
+        // old event used the header's primary warehouse for every line, so a
+        // cart with material defaults in different warehouses could pass its
+        // per-line ATP checks yet fail before Picking.  Carry exact warehouse
+        // segments into the one idempotent SD → MM handoff instead.
+        const fulfillmentPayloads = fulfillments.map((fulfillment) => ({
+            ...payload,
+            fulfillmentId: fulfillment.id,
+            warehouseId: fulfillment.warehouseId,
+            idempotencyKey: `${payload.idempotencyKey ?? `confirm:${order.id}`}:warehouse:${fulfillment.warehouseId}`,
+            lines: fulfillment.lines
+                .filter((line) => line.materialId)
+                .map((line) => ({
+                    lineId: line.salesOrderLineId,
+                    lineNumber: 0,
+                    materialId: line.materialId!,
+                    quantity: line.baseQty.toString(),
+                    demandReferenceLineId: line.salesOrderLineId,
+                })),
+        }))
+
+        await this.sdEvents.emit(SD_EVENTS.SALES_ORDER_CONFIRMED, {
+            ...payload,
+            ...(fulfillmentPayloads.length
+                ? { fulfillments: fulfillmentPayloads }
+                : {}),
+        })
         return true
     }
 
@@ -291,6 +341,7 @@ export class SdMmPipelineService {
     toEventPayload(order: {
         id: string
         orderNumber: string
+        channel: string
         companyId: string | null
         warehouseId: string | null
         customerId: string
@@ -307,6 +358,7 @@ export class SdMmPipelineService {
         return {
             salesOrderId: order.id,
             orderNumber: order.orderNumber,
+            channel: order.channel,
             companyId: order.companyId,
             warehouseId: order.warehouseId,
             customerId: order.customerId,

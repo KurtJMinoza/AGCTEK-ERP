@@ -53,6 +53,11 @@ export class ListProductsQueryDto {
     @IsIn(['true', 'false'])
     activeOnly?: 'true' | 'false'
 
+    /** Lifecycle filter for the admin catalog: ACTIVE | INACTIVE | ARCHIVED. */
+    @IsOptional()
+    @IsIn(['ACTIVE', 'INACTIVE', 'ARCHIVED'])
+    status?: string
+
     @IsOptional()
     @Transform(upperTrim)
     @IsString()
@@ -133,6 +138,11 @@ export class CreateProductDto {
     @IsOptional()
     @IsBoolean()
     isActive?: boolean
+
+    /** Lifecycle status: ACTIVE | INACTIVE | ARCHIVED (defaults to ACTIVE). */
+    @IsOptional()
+    @IsIn(['ACTIVE', 'INACTIVE', 'ARCHIVED'])
+    status?: string
 
     @IsOptional()
     @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
@@ -238,6 +248,14 @@ export class UpdateProductDto {
     @IsBoolean()
     isActive?: boolean
 
+    /**
+     * Lifecycle status. INACTIVE / ARCHIVED also set `isActive = false` so
+     * storefront, POS and ATP filtering keep working through one flag.
+     */
+    @IsOptional()
+    @IsIn(['ACTIVE', 'INACTIVE', 'ARCHIVED'])
+    status?: string
+
     @IsOptional()
     @IsIn(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE'])
     productType?: string
@@ -271,6 +289,16 @@ export class UpdateProductDto {
     @IsOptional()
     @IsString({ each: true })
     imageGallery?: string[]
+
+    @IsOptional()
+    @IsString()
+    updatedBy?: string
+}
+
+/** Lifecycle transition: ACTIVE | INACTIVE | ARCHIVED (PATCH /sd/products/:id/status). */
+export class UpdateProductStatusDto {
+    @IsIn(['ACTIVE', 'INACTIVE', 'ARCHIVED'])
+    status!: string
 
     @IsOptional()
     @IsString()

@@ -191,8 +191,13 @@ function toFormValues(material?: Material | null): FormShape {
         inventoryManaged: material.inventoryManaged,
         purchasable: material.purchasable,
         sellable: material.sellable,
-        onHandQty: Number(material.onHandQty ?? 0),
-        reservedQty: Number(material.reservedQty ?? 0),
+        // On-hand / reserved are owned by the MM inventory ledger, never typed
+        // by hand. Show the live ledger values (master cache is only a fallback
+        // for records the API has not enriched yet).
+        onHandQty: Number(material.ledgerOnHandQty ?? material.onHandQty ?? 0),
+        reservedQty: Number(
+            material.ledgerReservedQty ?? material.reservedQty ?? 0,
+        ),
         minimumStock: Number(material.minimumStock),
         maximumStock: Number(material.maximumStock),
         safetyStock: Number(material.safetyStock),
@@ -216,7 +221,7 @@ const TABS: TabDef[] = [
     { value: 'uom', label: 'UOM', icon: <HiOutlineScale />, fields: ['baseUomId', 'purchaseUomId', 'salesUomId'] },
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
-    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'reservedQty', 'maximumStock', 'safetyStock'] },
+    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
 ]
 
@@ -878,9 +883,11 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         </div>
                         <SectionHeader title="Stock thresholds" className="mt-4" />
                         <p className="mb-3 text-xs text-gray-500">
-                            Stock thresholds are the source for Product Catalog and ecommerce.
-                            Change on hand here when receiving stock (goods receipts can also
-                            update WM ledger separately).
+                            On hand and Reserved are read from the live Materials
+                            Management inventory ledger — change stock through goods
+                            receipts, goods issues, transfers or adjustments.
+                            Max stock and Safety stock below are planning thresholds
+                            for this material.
                         </p>
                         <StockThresholdSummary
                             variant="form"
@@ -888,52 +895,6 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                             reserved={Number(reservedWatch)}
                             maxStock={Number(maximumStockWatch)}
                             safetyStock={Number(safetyStockWatch)}
-                            onHandInput={
-                                <FormItem
-                                    label="On hand"
-                                    invalid={Boolean(errors.onHandQty)}
-                                    errorMessage={errors.onHandQty?.message}
-                                >
-                                    <Controller
-                                        name="onHandQty"
-                                        control={control}
-                                        render={({ field }) => (
-                                            <NumericInput
-                                                placeholder="0"
-                                                allowNegative={false}
-                                                decimalScale={2}
-                                                value={field.value ?? 0}
-                                                onValueChange={(v) =>
-                                                    field.onChange(v.floatValue ?? 0)
-                                                }
-                                            />
-                                        )}
-                                    />
-                                </FormItem>
-                            }
-                            reservedInput={
-                                <FormItem
-                                    label="Reserved"
-                                    invalid={Boolean(errors.reservedQty)}
-                                    errorMessage={errors.reservedQty?.message}
-                                >
-                                    <Controller
-                                        name="reservedQty"
-                                        control={control}
-                                        render={({ field }) => (
-                                            <NumericInput
-                                                placeholder="0"
-                                                allowNegative={false}
-                                                decimalScale={2}
-                                                value={field.value ?? 0}
-                                                onValueChange={(v) =>
-                                                    field.onChange(v.floatValue ?? 0)
-                                                }
-                                            />
-                                        )}
-                                    />
-                                </FormItem>
-                            }
                             maxStockInput={
                                 <FormItem
                                     label="Max stock"

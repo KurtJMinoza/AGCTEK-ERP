@@ -3,6 +3,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing'
 import { BadRequestException } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../../inventory/inventory-availability.service'
@@ -300,6 +301,7 @@ describe('SD ↔ MM Integration (Phase 3B)', () => {
                 SdIntegrationService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: MmDomainEventsService, useValue: domainEvents },
+                { provide: EventEmitter2, useValue: { emit: jest.fn() } },
                 { provide: PickingService, useValue: { create: jest.fn() } },
                 {
                     provide: SD_ORDER_GUARD_PORT,
@@ -379,6 +381,7 @@ describe('SD ↔ MM Integration (Phase 3B)', () => {
                 SdIntegrationService,
                 { provide: PrismaService, useValue: { mmInventoryBalance: { findFirst: jest.fn(), findMany: jest.fn() } } },
                 { provide: MmDomainEventsService, useValue: domainEvents },
+                { provide: EventEmitter2, useValue: { emit: jest.fn() } },
                 { provide: PickingService, useValue: { create: jest.fn() } },
                 { provide: SD_ORDER_GUARD_PORT, useValue: guard },
             ],

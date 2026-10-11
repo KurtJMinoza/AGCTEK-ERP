@@ -5,6 +5,24 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 type Tx = Prisma.TransactionClient
 
 /**
+ * Payment remains owned by the sales order/payment record. Invoices expose
+ * that authoritative state through their existing sales-order relation rather
+ * than carrying a second, drifting payment model.
+ */
+const invoiceInclude = {
+    lines: { orderBy: { lineNumber: 'asc' as const } },
+    salesOrder: {
+        select: {
+            paymentMethod: true,
+            paymentStatus: true,
+            paymentReference: true,
+            paymentProvider: true,
+            isDemoPayment: true,
+        },
+    },
+} satisfies Prisma.SdSalesInvoiceInclude
+
+/**
  * Customer sales invoice (AR) — one per sales order (unique `salesOrderId`),
  * auto-created when the shipment is dispatched (goods issue posted) and
  * finalized on delivery. All methods are idempotent.
@@ -18,7 +36,7 @@ export class SalesInvoiceService {
     async createForSalesOrder(salesOrderId: string) {
         const existing = await this.prisma.sdSalesInvoice.findUnique({
             where: { salesOrderId },
-            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+            include: invoiceInclude,
         })
         if (existing) return existing
 
@@ -63,7 +81,7 @@ export class SalesInvoiceService {
                         })),
                     },
                 },
-                include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                include: invoiceInclude,
             })
             return created
         })
@@ -71,6 +89,24 @@ export class SalesInvoiceService {
 
     /** DRAFT → ISSUED (dispatch or delivery per business rule). Idempotent. */
     async issueForSalesOrder(salesOrderId: string) {
+        const payment = await this.prisma.sdSalesOrder.findUnique({
+            where: { id: salesOrderId },
+            select: {
+                paymentStatus: true,
+                payments: {
+                    where: { status: 'Paid' },
+                    orderBy: { paidAt: 'desc' },
+                    take: 1,
+                    select: { paidAt: true },
+                },
+            },
+        })
+        const paidAt = payment?.payments[0]?.paidAt ?? null
+        const issueData = {
+            status: payment?.paymentStatus === 'Paid' ? 'PAID' : 'ISSUED',
+            issuedAt: new Date(),
+            ...(paidAt ? { paidAt } : {}),
+        }
         const invoice = await this.prisma.sdSalesInvoice.findUnique({
             where: { salesOrderId },
         })
@@ -78,23 +114,41 @@ export class SalesInvoiceService {
             return this.createForSalesOrder(salesOrderId).then((created) =>
                 this.prisma.sdSalesInvoice.update({
                     where: { id: created.id },
-                    data: { status: 'ISSUED', issuedAt: new Date() },
+                    data: issueData,
+                    include: invoiceInclude,
                 }),
             )
         }
         if (invoice.status === 'DRAFT') {
             return this.prisma.sdSalesInvoice.update({
                 where: { id: invoice.id },
-                data: { status: 'ISSUED', issuedAt: new Date() },
+                data: issueData,
+                include: invoiceInclude,
             })
         }
         return invoice
     }
 
+    /**
+     * A later COD collection or bank-transfer verification updates an already
+     * issued invoice without duplicating the payment record. If no invoice has
+     * been issued yet, `issueForSalesOrder` reads the order payment and marks
+     * it paid when dispatch eventually creates the invoice.
+     */
+    async markPaidForSalesOrder(salesOrderId: string, paidAt: Date) {
+        return this.prisma.sdSalesInvoice.updateMany({
+            where: {
+                salesOrderId,
+                status: { notIn: ['CANCELLED', 'REFUNDED'] },
+            },
+            data: { status: 'PAID', paidAt },
+        })
+    }
+
     async listByCompany(companyId: string) {
         return this.prisma.sdSalesInvoice.findMany({
             where: { companyId },
-            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+            include: invoiceInclude,
             orderBy: { createdAt: 'desc' },
             take: 200,
         })

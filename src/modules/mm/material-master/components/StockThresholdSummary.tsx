@@ -8,6 +8,13 @@ export type StockThresholdValues = {
     reserved: number
     maxStock: number
     safetyStock: number
+    /**
+     * Sellable qty from the live MM inventory ledger. Optional so callers that
+     * only have the two inputs keep the derived value; the Product Catalog and
+     * Material Master always pass the ledger value so stale master fields can
+     * never drive the "Available" number.
+     */
+    available?: number
 }
 
 const availableQty = (onHand: number, reserved: number) =>
@@ -26,13 +33,14 @@ const StockThresholdSummary = ({
     reserved,
     maxStock,
     safetyStock,
+    available,
     variant = 'cards',
     onHandInput,
     reservedInput,
     maxStockInput,
     safetyStockInput,
 }: Props) => {
-    const available = availableQty(onHand, reserved)
+    const sellable = available ?? availableQty(onHand, reserved)
 
     if (variant === 'form') {
         return (
@@ -45,7 +53,7 @@ const StockThresholdSummary = ({
                 )}
                 <ReadOnlyField
                     label="Available"
-                    value={fmt(available)}
+                    value={fmt(sellable)}
                     hint="Calculated: On hand − Reserved (sellable)."
                 />
                 {maxStockInput}
@@ -57,7 +65,7 @@ const StockThresholdSummary = ({
     return (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
             <MetricCard label="On hand" value={fmt(onHand)} />
-            <MetricCard label="Available" value={fmt(available)} />
+            <MetricCard label="Available" value={fmt(sellable)} />
             <MetricCard label="Max stock" value={fmt(maxStock)} />
             <MetricCard label="Safety stock" value={fmt(safetyStock)} />
         </div>

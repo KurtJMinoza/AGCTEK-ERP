@@ -25,7 +25,7 @@ export class BinTransferService {
             materialId: l.materialId,
             quantity: new Decimal(l.quantity),
             uomId: l.uomId,
-            sourceBinId: l.sourceBinId,
+            sourceBinId: l.sourceBinId?.trim() ? l.sourceBinId.trim() : null,
             destinationBinId: l.destinationBinId,
             batchId: l.batchId ?? null,
             serialNumberId: l.serialNumberId ?? null,
@@ -73,7 +73,7 @@ export class BinTransferService {
 
             await this.postingService.postTransaction({
                 ...baseFields,
-                storageBinId: line.sourceBinId,
+                storageBinId: line.sourceBinId ?? undefined,
                 movementType: 'TRANSFER_OUT',
                 idempotencyKey: idempotencyKey
                     ? `${idempotencyKey}:${line.id}:out`

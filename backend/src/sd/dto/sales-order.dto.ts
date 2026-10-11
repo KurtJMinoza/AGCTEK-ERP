@@ -442,6 +442,8 @@ export class UpdateRetailSalesOrderStatusDto {
 /** Admin transitions on an order's demo payment record. */
 export const ORDER_PAYMENT_TARGETS = [
     'Paid',
+    'Verified',
+    'Authorized',
     'Failed',
     'Cancelled',
     'Refunded',

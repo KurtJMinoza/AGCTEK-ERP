@@ -6,6 +6,7 @@ describe('SdMmPipelineService', () => {
     const prisma = {
         sdSalesOrder: { findUnique: jest.fn(), update: jest.fn() },
         sdSalesOrderLine: { update: jest.fn() },
+        sdFulfillment: { findMany: jest.fn() },
         sdProduct: { findUnique: jest.fn() },
         mmMaterial: { findUnique: jest.fn() },
     }
@@ -59,6 +60,7 @@ describe('SdMmPipelineService', () => {
         const payload = service.toEventPayload({
             id: 'so-1',
             orderNumber: 'SO-000001',
+            channel: 'ECOMMERCE',
             companyId: 'co-1',
             warehouseId: 'wh-1',
             customerId: 'cust',
@@ -74,7 +76,93 @@ describe('SdMmPipelineService', () => {
                 },
             ],
         })
+        expect(payload.channel).toBe('ECOMMERCE')
         expect(payload.lines[0].quantity).toBe('240')
+    })
+
+    it('emits each persisted fulfillment against its own warehouse and order lines', async () => {
+        prisma.sdFulfillment.findMany.mockResolvedValue([
+            {
+                id: 'fulfillment-a',
+                warehouseId: 'wh-a',
+                lines: [
+                    {
+                        salesOrderLineId: 'line-a',
+                        materialId: 'mat-a',
+                        baseQty: new Decimal(2),
+                    },
+                ],
+            },
+            {
+                id: 'fulfillment-b',
+                warehouseId: 'wh-b',
+                lines: [
+                    {
+                        salesOrderLineId: 'line-b',
+                        materialId: 'mat-b',
+                        baseQty: new Decimal(1),
+                    },
+                ],
+            },
+        ])
+        const order = {
+            id: 'so-1',
+            orderNumber: 'SO-000001',
+            channel: 'ECOMMERCE',
+            companyId: 'co-1',
+            warehouseId: 'wh-a',
+            customerId: 'cust-1',
+            correlationId: 'corr-1',
+            idempotencyKey: 'checkout-1',
+            lines: [
+                {
+                    id: 'line-a',
+                    lineNumber: 1,
+                    materialId: 'mat-a',
+                    quantity: new Decimal(2),
+                    baseQuantity: new Decimal(2),
+                },
+                {
+                    id: 'line-b',
+                    lineNumber: 2,
+                    materialId: 'mat-b',
+                    quantity: new Decimal(1),
+                    baseQuantity: new Decimal(1),
+                },
+            ],
+        }
+
+        await service.emitSalesOrderConfirmedIntegration(order as never)
+
+        expect(sdEvents.emit).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                fulfillments: [
+                    expect.objectContaining({
+                        fulfillmentId: 'fulfillment-a',
+                        warehouseId: 'wh-a',
+                        lines: [
+                            expect.objectContaining({
+                                lineId: 'line-a',
+                                materialId: 'mat-a',
+                                quantity: '2',
+                            }),
+                        ],
+                    }),
+                    expect.objectContaining({
+                        fulfillmentId: 'fulfillment-b',
+                        warehouseId: 'wh-b',
+                        lines: [
+                            expect.objectContaining({
+                                lineId: 'line-b',
+                                materialId: 'mat-b',
+                                quantity: '1',
+                            }),
+                        ],
+                    }),
+                ],
+            }),
+        )
     })
 })
 

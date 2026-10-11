@@ -5,6 +5,7 @@ import {
     ConflictException,
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import {
     CreateReorderRuleDto,
@@ -26,6 +27,17 @@ export type ResolvedPlanningParams = {
     procurementType: string
     leadTimeDays: number
     source: 'RULE' | 'MATERIAL'
+    scope: 'WAREHOUSE' | 'COMPANY' | 'MATERIAL'
+}
+
+type ThresholdMaterial = {
+    safetyStock: Decimal | number
+    reorderPoint: Decimal | number
+    reorderQuantity: Decimal | number
+    minimumOrderQuantity: Decimal | number
+    leadTimeDays: number
+    /** Material Master max-stock threshold when no scoped rule exists. */
+    maximumStock?: Decimal | number
 }
 
 export function isRuleEffective(
@@ -59,13 +71,7 @@ type RuleRow = {
 export function resolveParamsFromRules(
     rules: RuleRow[],
     warehouseId: string,
-    material: {
-        safetyStock: Decimal | number
-        reorderPoint: Decimal | number
-        reorderQuantity: Decimal | number
-        minimumOrderQuantity: Decimal | number
-        leadTimeDays: number
-    },
+    material: ThresholdMaterial,
     asOf: Date = new Date(),
 ): ResolvedPlanningParams {
     const effective = rules.filter((r) =>
@@ -92,6 +98,7 @@ export function resolveParamsFromRules(
             procurementType: rule.procurementType ?? 'BUY',
             leadTimeDays: rule.leadTimeDays,
             source: 'RULE',
+            scope: whRule ? 'WAREHOUSE' : 'COMPANY',
         }
     }
     return {
@@ -100,7 +107,7 @@ export function resolveParamsFromRules(
         reorderQuantity: new Decimal(material.reorderQuantity),
         minimumOrderQuantity: new Decimal(material.minimumOrderQuantity),
         minStock: new Decimal(0),
-        maxStock: new Decimal(0),
+        maxStock: new Decimal(material.maximumStock ?? 0),
         lotSize: new Decimal(0),
         reviewPeriodDays: 0,
         planningHorizonDays: null,
@@ -108,6 +115,7 @@ export function resolveParamsFromRules(
         procurementType: 'BUY',
         leadTimeDays: material.leadTimeDays,
         source: 'MATERIAL',
+        scope: 'MATERIAL',
     }
 }
 
@@ -136,7 +144,7 @@ export class ReorderRuleService {
     async findAll(query: ReorderRuleQueryDto) {
         const page = query.page ?? 1
         const limit = query.limit ?? 50
-        const where: any = {}
+        const where: Prisma.MmReorderRuleWhereInput = {}
         if (query.companyId) where.companyId = query.companyId
         if (query.materialId) where.materialId = query.materialId
         if (query.warehouseId !== undefined) {
@@ -218,7 +226,7 @@ export class ReorderRuleService {
 
     async update(id: string, dto: UpdateReorderRuleDto) {
         await this.findOne(id)
-        const data: any = {}
+        const data: Prisma.MmReorderRuleUncheckedUpdateInput = {}
         if (dto.reorderPoint !== undefined) data.reorderPoint = new Decimal(dto.reorderPoint)
         if (dto.safetyStock !== undefined) data.safetyStock = new Decimal(dto.safetyStock)
         if (dto.reorderQuantity !== undefined)
@@ -264,13 +272,7 @@ export class ReorderRuleService {
         companyId: string,
         materialId: string,
         warehouseId: string,
-        material?: {
-            safetyStock: Decimal | number
-            reorderPoint: Decimal | number
-            reorderQuantity: Decimal | number
-            minimumOrderQuantity: Decimal | number
-            leadTimeDays: number
-        },
+        material?: ThresholdMaterial,
         asOf: Date = new Date(),
     ): Promise<ResolvedPlanningParams> {
         const rules = await this.prisma.mmReorderRule.findMany({
@@ -292,6 +294,7 @@ export class ReorderRuleService {
                     reorderQuantity: true,
                     minimumOrderQuantity: true,
                     leadTimeDays: true,
+                    maximumStock: true,
                 },
             })
             if (!row) throw new NotFoundException('Material not found')
@@ -299,5 +302,61 @@ export class ReorderRuleService {
         }
 
         return resolveParamsFromRules(rules, warehouseId, mat, asOf)
+    }
+
+    /**
+     * Resolve planning/stock thresholds for a set of already-scoped active
+     * warehouses in one query. Product Catalog uses this read-only MM API for
+     * its warehouse breakdown instead of duplicating threshold precedence.
+     */
+    async resolveParamsForWarehouses(args: {
+        companyId: string
+        materialId: string
+        warehouseIds: string[]
+        material?: ThresholdMaterial
+        asOf?: Date
+    }): Promise<Map<string, ResolvedPlanningParams>> {
+        const warehouseIds = [
+            ...new Set(args.warehouseIds.map((id) => id.trim()).filter(Boolean)),
+        ]
+        const result = new Map<string, ResolvedPlanningParams>()
+        if (!warehouseIds.length) return result
+
+        const [rules, material] = await Promise.all([
+            this.prisma.mmReorderRule.findMany({
+                where: {
+                    companyId: args.companyId,
+                    materialId: args.materialId,
+                    isActive: true,
+                    OR: [
+                        { warehouseId: { in: warehouseIds } },
+                        { warehouseId: null },
+                    ],
+                },
+            }),
+            args.material
+                ? Promise.resolve(args.material)
+                : this.prisma.mmMaterial.findUnique({
+                      where: { id: args.materialId },
+                      select: {
+                          safetyStock: true,
+                          reorderPoint: true,
+                          reorderQuantity: true,
+                          minimumOrderQuantity: true,
+                          leadTimeDays: true,
+                          maximumStock: true,
+                      },
+                  }),
+        ])
+        if (!material) throw new NotFoundException('Material not found')
+
+        const asOf = args.asOf ?? new Date()
+        for (const warehouseId of warehouseIds) {
+            result.set(
+                warehouseId,
+                resolveParamsFromRules(rules, warehouseId, material, asOf),
+            )
+        }
+        return result
     }
 }

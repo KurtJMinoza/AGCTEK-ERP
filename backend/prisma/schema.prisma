@@ -840,6 +840,7 @@ model WmPackage {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   items            WmPackageItem[]
+  scanLogs         WmPackageScanLog[]
   goodsIssues      MmGoodsIssue[]
   shipment         Shipment?
 
@@ -868,9 +869,45 @@ model WmPackageItem {
   status       String     @default("PENDING")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  scanLogs     WmPackageScanLog[]
 
   @@index([packageId])
   @@map("wm_package_items")
+}
+
+/// Append-only packing scan audit trail — every barcode scan and manual
+/// adjustment (+1 / −1 / add quantity / reset / short pack) is recorded so the
+/// "Recently scanned" panel can prove a scan was counted, by whom and when.
+model WmPackageScanLog {
+  id               String     @id @default(cuid())
+  packageId        String
+  package          WmPackage  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  packageItemId    String?
+  packageItem      WmPackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
+  salesOrderId     String?
+  packingSessionId String?
+  materialId       String
+  material         MmMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  /// SD product / variant this material was sold as (snapshot ids; the product
+  /// row may later be archived — logs never depend on it).
+  productId        String?
+  variantId        String?
+  scannedQuantity  Decimal    @db.Decimal(18, 3)
+  scannedByUserId  String?
+  scannedByName    String?
+  scannedAt        DateTime   @default(now())
+  /// barcode | manual
+  scanType         String     @default("manual")
+  /// add | remove | reset
+  action           String     @default("add")
+  /// Justification for manual overrides / short packs.
+  reason           String?
+  idempotencyKey   String?    @unique
+
+  @@index([packageId, scannedAt])
+  @@index([packageItemId])
+  @@index([materialId])
+  @@map("wm_package_scan_logs")
 }
 
 // ΓöÇΓöÇΓöÇ Warehouse Transfers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -1124,6 +1161,7 @@ model MmMaterial {
   valuationClassId  String?
   valuationClass    MmValuationClass?  @relation(fields: [valuationClassId], references: [id])
   sdProductVariants SdProductVariant[] @relation("SdVariantMaterial")
+  packageScanLogs   WmPackageScanLog[]
 
   companyId          String?
   company            Company?   @relation(fields: [companyId], references: [id])
@@ -1791,8 +1829,10 @@ model MmBinTransferLine {
   quantity         Decimal
   uomId            String
   uom              MmUom           @relation("BtLineUom", fields: [uomId], references: [id])
-  sourceBinId      String
-  sourceBin        WmStorageBin    @relation("BtLineSourceBin", fields: [sourceBinId], references: [id])
+  /// Source storage bin. Null = warehouse-level stock that was never assigned
+  /// to a bin (e.g. a legacy receipt); the OUT leg then posts at warehouse level.
+  sourceBinId      String?
+  sourceBin        WmStorageBin?   @relation("BtLineSourceBin", fields: [sourceBinId], references: [id])
   destinationBinId String
   destinationBin   WmStorageBin    @relation("BtLineDestBin", fields: [destinationBinId], references: [id])
   batchId          String?
@@ -3735,6 +3775,10 @@ model SdProduct {
   imageUrl            String                        @default("")
   badge               String?
   isActive            Boolean                       @default(true)
+  /// Lifecycle: ACTIVE | INACTIVE | ARCHIVED. `isActive` mirrors `status = ACTIVE`
+  /// so storefront/POS/ATP filters keep working; INACTIVE/ARCHIVED products stay
+  /// in the admin catalog (filterable) but are not sellable.
+  status              String                        @default("ACTIVE")
   sortOrder           Int                           @default(0)
   /// STOCK_ITEM | NON_STOCK_ITEM | SERVICE
   productType         String                        @default("STOCK_ITEM")
@@ -3998,6 +4042,10 @@ model SdSalesOrderLine {
   /// even when the catalog product or its image changes later.
   productNameSnapshot  String?
   productImageSnapshot String?
+  /// Sold SKU / material code frozen at order time (display fallback if the
+  /// catalog product is later deleted — the productId is not an FK relation).
+  productSkuSnapshot   String?
+  materialCodeSnapshot String?
   unitPrice            Decimal?
   lineTotal            Decimal?
   /// Commercial sales quantity (sales UOM).
@@ -4365,7 +4413,7 @@ model SdSalesOrderPayment {
   id              String       @id @default(cuid())
   companyId       String
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  salesOrderId    String
+  salesOrderId    String       @unique
   salesOrder      SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   customerId      String
   /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO
@@ -4383,7 +4431,6 @@ model SdSalesOrderPayment {
   updatedAt       DateTime     @updatedAt
 
   @@index([companyId, status])
-  @@index([salesOrderId])
   @@map("sd_sales_order_payments")
 }
 

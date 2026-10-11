@@ -92,7 +92,16 @@ describe('SD quotations on PostgreSQL', () => {
         quotations = new QuotationService(prisma as never)
         const messages = new CrmMessagesService(prisma as never, new CrmActivitiesService(prisma as never), quotations, {} as never)
         opps = new CrmOpportunitiesService(prisma as never, new CrmActivitiesService(prisma as never), quotations, messages)
-        salesOrders = new SalesOrderService(prisma as never, {} as never, {} as never, {} as never, {} as never, quotations)
+        salesOrders = new SalesOrderService(
+            prisma as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            quotations,
+            {} as never,
+            {} as never,
+        )
         handoff = new CrmOpportunityHandoffService(prisma as never, opps, salesOrders, allow as never, quotations, messages)
         oppQuotes = new CrmOpportunityQuotationsService(prisma as never, quotations, allow as never)
     })
