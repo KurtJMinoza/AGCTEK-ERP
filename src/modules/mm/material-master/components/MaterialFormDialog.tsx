@@ -103,6 +103,14 @@ const baseMaterialSchema = z
         path: ['reservedQty'],
         message: 'Reserved cannot exceed on hand',
     })
+    .refine(
+        (d) => d.onHandQty <= 0 || Boolean(d.storageBinId),
+        {
+            path: ['storageBinId'],
+            message:
+                'A storage bin is required when on-hand is set — choose where the stock is stored.',
+        },
+    )
 
 type FormShape = z.infer<typeof baseMaterialSchema>
 type SelectOption = { value: string; label: string }
@@ -227,7 +235,7 @@ const TABS: TabDef[] = [
     { value: 'uom', label: 'UOM', icon: <HiOutlineScale />, fields: ['baseUomId', 'purchaseUomId', 'salesUomId'] },
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
-    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'maximumStock', 'safetyStock'] },
+    { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'storageBinId', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
 ]
 
@@ -469,28 +477,36 @@ const BinStockSelector = ({
 
     return (
         <div className="space-y-2">
-            <Select
-                isLoading={loading}
-                placeholder="Select a storage bin (auto if empty)"
-                options={bins
-                    .filter(
-                        (b) =>
-                            b.status === 'ACTIVE' &&
-                            (b.pickingAllowed || b.putawayAllowed),
-                    )
-                    .map((b) => ({
-                        value: b.id,
-                        label: optionLabel(b),
-                    }))}
-                value={
-                    selected
-                        ? { value: selected.id, label: optionLabel(selected) }
-                        : null
-                }
-                onChange={(opt) =>
-                    onChange((opt as { value?: string })?.value ?? '')
-                }
-            />
+            {!warehouseId ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    Set the material&apos;s <span className="font-semibold">Default
+                    warehouse</span> (Valuation step) first — the storage bin list
+                    loads from that warehouse. On-hand stock requires a bin.
+                </div>
+            ) : (
+                <Select
+                    isLoading={loading}
+                    placeholder="Select a storage bin (required when on-hand is set)"
+                    options={bins
+                        .filter(
+                            (b) =>
+                                b.status === 'ACTIVE' &&
+                                (b.pickingAllowed || b.putawayAllowed),
+                        )
+                        .map((b) => ({
+                            value: b.id,
+                            label: optionLabel(b),
+                        }))}
+                    value={
+                        selected
+                            ? { value: selected.id, label: optionLabel(selected) }
+                            : null
+                    }
+                    onChange={(opt) =>
+                        onChange((opt as { value?: string })?.value ?? '')
+                    }
+                />
+            )}
             {selected ? (
                 <div
                     className={`flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs ${
@@ -1159,31 +1175,34 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                 </FormItem>
                             }
                         />
-                        {Number(onHandWatch) > 0 && defaultWarehouseWatch ? (
-                            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-600 dark:bg-gray-800/40">
-                                <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
-                                    Storage bin (opening stock destination)
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-600 dark:bg-gray-800/40">
+                            <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                                Storage bin (stock destination)
+                            </p>
+                            <Controller
+                                name="storageBinId"
+                                control={control}
+                                render={({ field }) => (
+                                    <BinStockSelector
+                                        warehouseId={defaultWarehouseWatch}
+                                        onHandQty={Number(onHandWatch)}
+                                        value={field.value ?? ''}
+                                        onChange={field.onChange}
+                                    />
+                                )}
+                            />
+                            {errors.storageBinId?.message ? (
+                                <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
+                                    {errors.storageBinId.message}
                                 </p>
-                                <Controller
-                                    name="storageBinId"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <BinStockSelector
-                                            warehouseId={defaultWarehouseWatch}
-                                            onHandQty={Number(onHandWatch)}
-                                            value={field.value ?? ''}
-                                            onChange={field.onChange}
-                                        />
-                                    )}
-                                />
-                                <p className="mt-2 text-[11px] text-gray-400">
-                                    Leave empty to auto-assign the first bin with
-                                    free capacity. If a bin is full, the on-hand
-                                    quantity is rejected until you choose another
-                                    bin or lower it.
-                                </p>
-                            </div>
-                        ) : null}
+                            ) : null}
+                            <p className="mt-2 text-[11px] text-gray-400">
+                                Required when on-hand is set — choose the bin this
+                                material&apos;s stock is stored in. Picking capacity,
+                                reservations, allocations and open tasks are shown
+                                per bin. Leave empty only when no stock is entered.
+                            </p>
+                        </div>
                     </TabPanel>
 
                     {/* VALUATION */}
