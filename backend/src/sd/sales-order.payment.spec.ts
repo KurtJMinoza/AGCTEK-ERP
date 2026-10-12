@@ -309,24 +309,21 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(mmPipeline.emitSalesOrderConfirmedIntegration).toHaveBeenCalled()
     })
 
-    it('demo card failure: records Failed and does NOT trigger picking', async () => {
+    it('demo card failure: rejects the checkout, no order is created nor picking triggered', async () => {
         const { prisma, mmPipeline, service } = setup()
-        const result = await service.createMarketplaceCheckout(
-            checkoutDto({
-                paymentMethod: 'CARD_DEMO',
-                cardDemoSimulateFailure: true,
-            }),
-            'client-1',
-        )
-        expect(result.order.paymentStatus).toBe('Failed')
-        expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                create: expect.objectContaining({
-                    status: 'Failed',
-                    paidAt: null,
+        await expect(
+            service.createMarketplaceCheckout(
+                checkoutDto({
+                    paymentMethod: 'CARD_DEMO',
+                    cardDemoSimulateFailure: true,
                 }),
-            }),
-        )
+                'client-1',
+            ),
+        ).rejects.toThrow('Payment declined')
+        // A declined demo card must not persist an order or a payment record:
+        // standard ERP behavior — payment failed means the transaction ends.
+        expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
+        expect(prisma.sdSalesOrderPayment.upsert).not.toHaveBeenCalled()
         expect(
             mmPipeline.emitSalesOrderConfirmedIntegration,
         ).not.toHaveBeenCalled()

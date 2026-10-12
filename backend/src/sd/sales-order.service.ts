@@ -560,6 +560,16 @@ export class SalesOrderService {
             return this.checkoutResult(dto, existing)
         }
 
+        // A declined demo card creates no order. Standard ERP behavior: when
+        // payment fails at checkout, nothing is persisted — the cart stays and
+        // the shopper can retry another method. Creating a CONFIRMED order for
+        // a Failed payment would leave a phantom order that can never fulfill.
+        if (payment.status === 'Failed') {
+            throw new BadRequestException(
+                'Payment declined. No order was placed — please try another payment method.',
+            )
+        }
+
         for (const [divisionId, items] of groupLinesByDivision(
             dto.cartItems.map((line, idx) => ({
                 ...line,

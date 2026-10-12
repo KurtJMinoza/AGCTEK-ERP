@@ -280,7 +280,9 @@ const MarketplaceCheckoutPageContent = () => {
                             <span className="font-mono font-medium text-gray-900">
                                 {placed.salesOrderId}
                             </span>{' '}
-                            is pending delivery.
+                            {placed.payment?.status === 'Pending Verification'
+                                ? 'is awaiting payment verification. Stock will be reserved once the bank transfer is verified.'
+                                : 'is pending delivery.'}
                         </p>
                         <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-3 text-left text-sm">
                             <p className="font-medium text-gray-900">

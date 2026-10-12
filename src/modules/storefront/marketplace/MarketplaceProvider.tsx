@@ -700,7 +700,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                             <span className="font-mono font-medium text-gray-900">
                                 {placedOrder.salesOrderId}
                             </span>{' '}
-                            is pending delivery.
+                            {placedOrder.payment?.status === 'Pending Verification'
+                                ? 'is awaiting payment verification. Stock will be reserved once the bank transfer is verified.'
+                                : placedOrder.payment?.status === 'Pending Collection'
+                                  ? 'is pending delivery. Total due on delivery.'
+                                  : 'is pending delivery.'}
                         </p>
                         <ul className="flex w-full flex-col gap-2 text-sm">
                             {placedOrder.divisions.map((division) => (
