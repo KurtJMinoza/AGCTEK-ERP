@@ -41,6 +41,7 @@ import {
     HiOutlineTrash,
 } from 'react-icons/hi'
 import StockThresholdSummary from '../components/StockThresholdSummary'
+import AdjustStockDialog from '../components/AdjustStockDialog'
 import { useMaterial } from '../hooks/useMaterial'
 import { materialService } from '../services/materialService'
 import { barcodeService, batchService, serialNumberService } from '../services/referenceService'
@@ -202,7 +203,7 @@ const MaterialDetailPage = () => {
 
                     <div className="p-5">
                         <TabPanel active={tab === 'overview'}><OverviewTab material={material} /></TabPanel>
-                        <TabPanel active={tab === 'inventory'}><InventoryTab material={material} /></TabPanel>
+                        <TabPanel active={tab === 'inventory'}><InventoryTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'suppliers'}><SuppliersTab materialId={material.id} /></TabPanel>
                         <TabPanel active={tab === 'purchasing'}><PurchasingTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'planning'}><PlanningTab material={material} /></TabPanel>
@@ -296,19 +297,35 @@ const OverviewTab = ({ material }: { material: Material }) => (
     </div>
 )
 
-const InventoryTab = ({ material }: { material: Material }) => {
+const InventoryTab = ({
+    material,
+    onRefresh,
+}: {
+    material: Material
+    onRefresh: () => Promise<void> | void
+}) => {
     const [balances, setBalances] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [adjustOpen, setAdjustOpen] = useState(false)
+
+    const loadBalances = useCallback(async () => {
+        setLoading(true)
+        try {
+            setBalances(asList(await materialService.balances(material.id)))
+        } catch {
+            setBalances([])
+        } finally {
+            setLoading(false)
+        }
+    }, [material.id])
 
     useEffect(() => {
-        let cancelled = false
-        setLoading(true)
-        materialService.balances(material.id)
-            .then((res) => { if (!cancelled) setBalances(asList(res)) })
-            .catch(() => { if (!cancelled) setBalances([]) })
-            .finally(() => { if (!cancelled) setLoading(false) })
-        return () => { cancelled = true }
-    }, [material.id])
+        loadBalances()
+    }, [loadBalances])
+
+    const handleAdjusted = useCallback(() => {
+        void Promise.resolve(onRefresh()).then(() => loadBalances())
+    }, [onRefresh, loadBalances])
 
     const cols: ColumnDef<any>[] = useMemo(() => [
         {
@@ -365,7 +382,12 @@ const InventoryTab = ({ material }: { material: Material }) => {
                 <FlagTag label="Purchasable" active={material.purchasable} />
                 <FlagTag label="Sellable" active={material.sellable} />
             </div>
-            <h6 className="mb-3 text-sm font-semibold heading-text">Stock thresholds</h6>
+            <div className="mb-3 flex items-center justify-between gap-3">
+                <h6 className="text-sm font-semibold heading-text">Stock thresholds</h6>
+                <Button size="sm" variant="solid" onClick={() => setAdjustOpen(true)}>
+                    Adjust stock
+                </Button>
+            </div>
             <div className="mb-6">
                 <StockThresholdSummary
                     onHand={Number(material.ledgerOnHandQty ?? 0)}
@@ -380,6 +402,8 @@ const InventoryTab = ({ material }: { material: Material }) => {
                 Management inventory ledger (the same source the Product Catalog
                 reads). Max stock and Safety stock are the thresholds configured
                 on this material — they are planning limits, not sellable stock.
+                Use <span className="font-medium">Adjust stock</span> to post a
+                manual on-hand change through the inventory ledger.
             </p>
             <h6 className="mb-3 text-sm font-semibold heading-text">Live balances</h6>
             {loading ? (
@@ -389,6 +413,13 @@ const InventoryTab = ({ material }: { material: Material }) => {
             ) : (
                 <DataTable columns={cols} data={balances} compact />
             )}
+
+            <AdjustStockDialog
+                material={material}
+                isOpen={adjustOpen}
+                onClose={() => setAdjustOpen(false)}
+                onPosted={handleAdjusted}
+            />
         </div>
     )
 }
