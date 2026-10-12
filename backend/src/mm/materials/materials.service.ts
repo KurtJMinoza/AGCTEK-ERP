@@ -760,10 +760,50 @@ export class MaterialsService {
                 'Opening stock requires the material to have a Company and a Default warehouse. Save those first, then set On hand.',
             )
         }
+        // Opening/adjustment stock must land on a storage bin so Product
+        // Catalog ATP (which only counts bin-scoped balances) sees it. For a
+        // positive delta pick the default active pick/putaway bin without an
+        // existing balance (fallback: any active bin, then warehouse-level);
+        // for a removal, post OUT from the bin currently holding the balance.
+        const binWhere = {
+            status: 'ACTIVE',
+            deletedAt: null,
+            OR: [{ pickingAllowed: true }, { putawayAllowed: true }],
+            storageSection: { storageType: { warehouseId: args.warehouseId } },
+        }
+        const holders = delta < 0
+            ? await this.prisma.mmInventoryBalance.findMany({
+                  where: { companyId: args.companyId, warehouseId: args.warehouseId, materialId: args.materialId, quantity: { gt: 0 } },
+                  select: { storageBinId: true },
+              })
+            : []
+        const holderBinId =
+            delta < 0 && holders.some((h) => h.storageBinId !== null)
+                ? (holders.find((h) => h.storageBinId !== null)?.storageBinId ?? null)
+                : null
+        let storageBin: { id: string } | null = null
+        if (holderBinId) {
+            storageBin = { id: holderBinId }
+        } else if (delta >= 0) {
+            storageBin = await this.prisma.wmStorageBin.findFirst({
+                where: { ...binWhere, NOT: { mmInvBalances: { some: { materialId: args.materialId } } } },
+                orderBy: { code: 'asc' },
+                select: { id: true },
+            })
+        }
+        if (!storageBin && delta >= 0) {
+            storageBin = await this.prisma.wmStorageBin.findFirst({
+                where: binWhere,
+                orderBy: { code: 'asc' },
+                select: { id: true },
+            })
+        }
+
         const key = `material-stock:${args.materialId}:${delta}`
         await this.posting.postTransaction({
             companyId: args.companyId,
             warehouseId: args.warehouseId,
+            storageBinId: storageBin?.id ?? undefined,
             materialId: args.materialId,
             stockStatus: 'UNRESTRICTED',
             movementType: delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
