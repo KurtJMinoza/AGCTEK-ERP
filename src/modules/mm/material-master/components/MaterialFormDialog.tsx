@@ -883,11 +883,11 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         </div>
                         <SectionHeader title="Stock thresholds" className="mt-4" />
                         <p className="mb-3 text-xs text-gray-500">
-                            On hand and Reserved are read from the live Materials
-                            Management inventory ledger — change stock through goods
-                            receipts, goods issues, transfers or adjustments.
-                            Max stock and Safety stock below are planning thresholds
-                            for this material.
+                            On hand is posted to the live Materials Management
+                            inventory ledger when you save (requires Company and
+                            Default warehouse). Reserved is derived from
+                            reservations — read-only. Max stock and Safety stock
+                            are planning thresholds for this material.
                         </p>
                         <StockThresholdSummary
                             variant="form"
@@ -895,6 +895,31 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                             reserved={Number(reservedWatch)}
                             maxStock={Number(maximumStockWatch)}
                             safetyStock={Number(safetyStockWatch)}
+                            onHandInput={
+                                <FormItem
+                                    label="On hand (opening / manual stock)"
+                                    invalid={Boolean(errors.onHandQty)}
+                                    errorMessage={errors.onHandQty?.message}
+                                >
+                                    <Controller
+                                        name="onHandQty"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <NumericInput
+                                                placeholder="0"
+                                                allowNegative={false}
+                                                decimalScale={2}
+                                                value={field.value ?? 0}
+                                                onValueChange={(v) =>
+                                                    field.onChange(
+                                                        v.floatValue ?? 0,
+                                                    )
+                                                }
+                                            />
+                                        )}
+                                    />
+                                </FormItem>
+                            }
                             maxStockInput={
                                 <FormItem
                                     label="Max stock"

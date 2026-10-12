@@ -3,6 +3,7 @@ import { ConflictException, BadRequestException } from '@nestjs/common'
 import { MaterialsService } from './materials.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
+import { InventoryPostingService } from '../inventory/inventory-posting.service'
 
 describe('MaterialsService MM-01 lifecycle (mocked)', () => {
     let service: MaterialsService
@@ -53,6 +54,17 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
                 {
                     provide: InventoryAvailabilityService,
                     useValue: availability,
+                },
+                {
+                    provide: InventoryPostingService,
+                    useValue: {
+                        postTransaction: jest
+                            .fn()
+                            .mockResolvedValue({
+                                id: 'txn-mock',
+                                movementType: 'ADJUSTMENT_IN',
+                            }),
+                    },
                 },
             ],
         }).compile()

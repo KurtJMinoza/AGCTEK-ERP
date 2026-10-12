@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
+import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
@@ -74,6 +75,7 @@ export class MaterialsService {
     constructor(
         private prisma: PrismaService,
         private availability: InventoryAvailabilityService,
+        private posting: InventoryPostingService,
     ) {}
 
     /** Sellable qty from material master thresholds (same source as Product Catalog). */
@@ -441,8 +443,8 @@ export class MaterialsService {
             sku,
             status,
             currencyId,
-            onHandQty: new Decimal(dto.onHandQty ?? 0),
-            reservedQty: new Decimal(dto.reservedQty ?? 0),
+            onHandQty: new Decimal(0),
+            reservedQty: new Decimal(0),
         }
 
         const deletedMaterial = deletedByCode ?? deletedBySku
@@ -460,6 +462,23 @@ export class MaterialsService {
                       data,
                       include: this.includes,
                   })
+
+            // Opening stock entered on the material form is ledger-owned: post
+            // it through the inventory engine (cache only mirrors the ledger).
+            if (Number(dto.onHandQty ?? 0) > 0) {
+                await this.postStockChange({
+                    materialId: material.id,
+                    onHandQty: Number(dto.onHandQty),
+                    currentlyOnHand: 0,
+                    companyId:
+                        material.companyId ?? dto.companyId ?? null,
+                    warehouseId:
+                        material.defaultWarehouseId ??
+                        dto.defaultWarehouseId ??
+                        null,
+                    createdBy: 'material-form',
+                })
+            }
 
             await this.writeAudit(
                 material.id,
@@ -535,11 +554,45 @@ export class MaterialsService {
         const merged = { ...existing, ...dto }
         this.validateThresholds(merged)
 
+        // On-hand is ledger-owned: takes the target from the form, posts the
+        // delta through InventoryPostingService, and never writes the master
+        // cache directly (reservedQty also stays read-only).
+        const targetOnHand =
+            dto.onHandQty !== undefined ? Number(dto.onHandQty) : undefined
+        const targetReserved =
+            dto.reservedQty !== undefined ? Number(dto.reservedQty) : undefined
+        delete (dto as any).onHandQty
+        delete (dto as any).reservedQty
+
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
             data: this.mapUpdateDto(dto),
             include: this.includes,
         })
+
+        if (targetOnHand !== undefined) {
+            await this.postStockChange({
+                materialId: id,
+                onHandQty: targetOnHand,
+                currentlyOnHand:
+                    Number(existing.ledgerOnHandQty ?? existing.onHandQty ?? 0),
+                companyId:
+                    (dto.companyId ?? existing.companyId ?? null) as
+                        | string
+                        | null,
+                warehouseId:
+                    (dto.defaultWarehouseId ??
+                        existing.defaultWarehouseId ??
+                        null) as string | null,
+                createdBy: 'material-form',
+            })
+        }
+
+        if (targetReserved !== undefined) {
+            // Reserved is derived from reservations — never typed by hand.
+            // Only the audit below records the attempt for traceability.
+            void targetReserved
+        }
 
         if (dto.currencyId !== undefined || dto.standardCost !== undefined) {
             const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput = {}
@@ -681,6 +734,56 @@ export class MaterialsService {
         })
         if (existing) {
             throw new ConflictException('SKU already exists')
+        }
+    }
+
+    /**
+     * Opening/adjusted on-hand from the material form. Stock is ledger-owned:
+     * a positive target posts an ADJUSTMENT_IN through InventoryPostingService
+     * (and the diff for edits), never a direct master-cache write. Requires
+     * company + warehouse scope so the transaction lands on a real balance.
+     */
+    private async postStockChange(args: {
+        materialId: string
+        onHandQty: number
+        currentlyOnHand: number
+        companyId?: string | null
+        warehouseId?: string | null
+        createdBy?: string | null
+    }) {
+        const delta = new Decimal(args.onHandQty)
+            .minus(new Decimal(args.currentlyOnHand))
+            .toNumber()
+        if (delta === 0) return
+        if (!args.companyId || !args.warehouseId) {
+            throw new BadRequestException(
+                'Opening stock requires the material to have a Company and a Default warehouse. Save those first, then set On hand.',
+            )
+        }
+        const key = `material-stock:${args.materialId}:${delta}`
+        await this.posting.postTransaction({
+            companyId: args.companyId,
+            warehouseId: args.warehouseId,
+            materialId: args.materialId,
+            stockStatus: 'UNRESTRICTED',
+            movementType: delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
+            quantity: Math.abs(delta),
+            uomId: (await this.prisma.mmMaterial.findUnique({
+                where: { id: args.materialId },
+                select: { baseUomId: true },
+            }))?.baseUomId ?? '',
+            postingDate: new Date().toISOString(),
+            documentDate: new Date().toISOString(),
+            sourceModule: 'MATERIAL_MASTER',
+            sourceDocumentType: 'MATERIAL_STOCK_THRESHOLD',
+            sourceDocumentId: args.materialId,
+            reasonCode: 'THRESHOLD_EDIT',
+            idempotencyKey: key,
+            createdBy: args.createdBy ?? undefined,
+        })
+        // Keep the master cache aligned with the ledger after the posting.
+        if (args.companyId) {
+            await this.availability.syncMaterialMasterFromLedger(args.materialId)
         }
     }
 

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { MaterialsService } from './materials.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
+import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common'
 
 describe('MaterialsService', () => {
@@ -14,7 +15,20 @@ describe('MaterialsService', () => {
 
     beforeAll(async () => {
         const module: TestingModule = await Test.createTestingModule({
-            providers: [MaterialsService, PrismaService, InventoryAvailabilityService],
+            providers: [
+                MaterialsService,
+                PrismaService,
+                InventoryAvailabilityService,
+                {
+                    provide: InventoryPostingService,
+                    useValue: {
+                        postTransaction: jest.fn().mockResolvedValue({
+                            id: 'txn-mock',
+                            movementType: 'ADJUSTMENT_IN',
+                        }),
+                    },
+                },
+            ],
         }).compile()
 
         service = module.get(MaterialsService)
