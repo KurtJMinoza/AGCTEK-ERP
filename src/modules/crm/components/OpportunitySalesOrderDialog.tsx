@@ -81,7 +81,7 @@ export function LinkedSalesOrderInfo({
             </Alert>
         )
     }
-    if (!order) return <p className="text-sm text-gray-500">Loading SD sales orderâ€¦</p>
+    if (!order) return <p className="text-sm text-gray-500">Loading SD sales order…</p>
     return (
         <div className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
             <div className="flex flex-wrap items-center gap-2">

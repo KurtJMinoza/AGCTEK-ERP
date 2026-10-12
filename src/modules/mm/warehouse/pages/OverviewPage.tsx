@@ -114,7 +114,7 @@ const OverviewPage = () => {
                     const m = row.original.material
                     return (
                         <span className="truncate text-sm">
-                            {m ? `${m.materialCode} â€” ${m.materialName}` : 'â€”'}
+                            {m ? `${m.materialCode} — ${m.materialName}` : '—'}
                         </span>
                     )
                 },

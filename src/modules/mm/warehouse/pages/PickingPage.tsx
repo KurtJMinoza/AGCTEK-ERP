@@ -396,7 +396,7 @@ const PickingPage = () => {
         () =>
             materials.map((m) => ({
                 value: m.id,
-                label: `${m.materialCode} â€” ${m.materialName}`,
+                label: `${m.materialCode} — ${m.materialName}`,
             })),
         [materials],
     )
@@ -1152,7 +1152,7 @@ const PickingPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Picking"
-                description="Reservation â†’ pick task â†’ bin strategy (FIFO/FEFO/Wave/Zone/Nearest) â†’ scan confirm. Partial picks stay PARTIALLY_PICKED. Stock posts on Goods Issue."
+                description="Create pick tasks or waves, then scan items to confirm picks. Stock posts from Goods Issue."
                 actions={
                     <div className="flex gap-2">
                         <Button
@@ -1197,7 +1197,7 @@ const PickingPage = () => {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <Input
                         prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search task #, materialâ€¦"
+                        placeholder="Search task #, material…"
                         value={search}
                         onChange={(e) => {
                             setSearch(e.target.value)
@@ -1307,14 +1307,14 @@ const PickingPage = () => {
                         placeholder="Select warehouse"
                         options={warehouses.map((w) => ({
                             value: w.id,
-                            label: `${w.code} â€” ${w.name}`,
+                            label: `${w.code} — ${w.name}`,
                         }))}
                         value={
                             warehouses
                                 .filter((w) => w.id === createForm.warehouseId)
                                 .map((w) => ({
                                     value: w.id,
-                                    label: `${w.code} â€” ${w.name}`,
+                                    label: `${w.code} — ${w.name}`,
                                 }))[0]
                         }
                         onChange={(opt) => {
@@ -1462,14 +1462,14 @@ const PickingPage = () => {
                         placeholder="Select warehouse"
                         options={warehouses.map((w) => ({
                             value: w.id,
-                            label: `${w.code} â€” ${w.name}`,
+                            label: `${w.code} — ${w.name}`,
                         }))}
                         value={
                             warehouses
                                 .filter((w) => w.id === waveForm.warehouseId)
                                 .map((w) => ({
                                     value: w.id,
-                                    label: `${w.code} â€” ${w.name}`,
+                                    label: `${w.code} — ${w.name}`,
                                 }))[0]
                         }
                         onChange={(opt) => {
@@ -1504,7 +1504,7 @@ const PickingPage = () => {
                     </p>
                     {waveTasksLoading && (
                         <p className="text-sm text-gray-400">
-                            Loading tasksâ€¦
+                            Loading tasks…
                         </p>
                     )}
                     {!waveTasksLoading &&
@@ -1932,7 +1932,7 @@ const PickingPage = () => {
                 </p>
             </ConfirmDialog>
 
-            {/* Confirm Pick Dialog â€” scan bin â†’ material â†’ batch/serial â†’ qty */}
+            {/* Confirm Pick Dialog — scan bin → material → batch/serial → qty */}
             <FormDialog
                 isOpen={confirmOpen}
                 onClose={() => setConfirmOpen(false)}
