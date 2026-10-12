@@ -566,8 +566,23 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const { materialTypes, materialCategories, uoms, uomConversions, valuationClasses, companies, warehouses } = useReferenceData()
     const { options: supplierOptions } = useSupplierOptions({ enabled: isOpen })
 
-    const typeOptions = useMemo<SelectOption[]>(() => materialTypes.map((t) => ({ value: t.id, label: `${t.code} — ${t.name}` })), [materialTypes])
-    const categoryOptions = useMemo<SelectOption[]>(() => materialCategories.map((c) => ({ value: c.id, label: c.name })), [materialCategories])
+    const sortAlpha = (a: SelectOption, b: SelectOption) =>
+        a.label.localeCompare(b.label, 'en', { sensitivity: 'base' })
+
+    const typeOptions = useMemo<SelectOption[]>(
+        () =>
+            materialTypes
+                .map((t) => ({ value: t.id, label: `${t.code} — ${t.name}` }))
+                .sort(sortAlpha),
+        [materialTypes],
+    )
+    const categoryOptions = useMemo<SelectOption[]>(
+        () =>
+            materialCategories
+                .map((c) => ({ value: c.id, label: c.name }))
+                .sort(sortAlpha),
+        [materialCategories],
+    )
     const groupedBaseUomOptions = useMemo(() => buildGroupedBaseUomOptions(uoms), [uoms])
     const flatBaseUomOptions = useMemo(
         () => groupedBaseUomOptions.flatMap((g) => g.options),
