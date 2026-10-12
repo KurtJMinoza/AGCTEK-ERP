@@ -496,21 +496,6 @@ const PackingPage = () => {
                 ),
             },
             {
-                header: 'Sales Order Number',
-                accessorKey: 'orderNumber',
-                size: 130,
-                minSize: 110,
-                meta: { className: 'hidden lg:table-cell' },
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-sm">
-                        {row.original.salesOrder?.orderNumber ||
-                            row.original.pickingTask?.salesOrder?.orderNumber ||
-                            row.original.orderNumber ||
-                            '—'}
-                    </span>
-                ),
-            },
-            {
                 header: 'Total Items',
                 id: 'totalItems',
                 size: 90,
@@ -531,7 +516,6 @@ const PackingPage = () => {
                 id: 'customer',
                 size: 180,
                 minSize: 140,
-                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const order =
                         row.original.salesOrder ??
@@ -545,53 +529,6 @@ const PackingPage = () => {
                         </span>
                     )
                 },
-            },
-            {
-                header: 'Packed By',
-                id: 'packedBy',
-                size: 150,
-                minSize: 120,
-                meta: { className: 'hidden xl:table-cell' },
-                cell: ({ row }) => {
-                    const names = Array.from(
-                        new Set(
-                            (row.original.items ?? [])
-                                .map((it) => it.packedByName)
-                                .filter((n): n is string => Boolean(n)),
-                        ),
-                    )
-                    return (
-                        <span className="text-sm">
-                            {names.length ? names.join(', ') : '—'}
-                        </span>
-                    )
-                },
-            },
-            {
-                header: 'Warehouse',
-                id: 'warehouse',
-                size: 180,
-                minSize: 140,
-                meta: { className: 'hidden lg:table-cell' },
-                cell: ({ row }) => (
-                    <span className="text-sm">
-                        {row.original.warehouse
-                            ? `${row.original.warehouse.code} — ${row.original.warehouse.name}`
-                            : '—'}
-                    </span>
-                ),
-            },
-            {
-                header: 'Shipment Reference',
-                id: 'shipmentReference',
-                size: 160,
-                minSize: 130,
-                meta: { className: 'hidden 2xl:table-cell' },
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap font-mono text-xs text-gray-500">
-                        {row.original.shipment?.reference || '—'}
-                    </span>
-                ),
             },
             {
                 header: 'Status',
