@@ -311,6 +311,8 @@ export interface CreateMaterialPayload {
     companyId?: string
     defaultWarehouseId?: string
     preferredSupplierId?: string
+    /** Storage bin used for the initial on-hand posting (company scope). */
+    storageBinId?: string | null
 }
 
 export type UpdateMaterialPayload = Partial<CreateMaterialPayload>

@@ -38,6 +38,7 @@ import { LPG_DIVISION_ID, isLpgAddon } from '../catalogs/lpgCatalog'
 import {
     productImageGallery,
     productVideos,
+    listProducts,
     suggestProductSku,
     type ProductInput,
     type SdProductRecord,
@@ -561,6 +562,32 @@ const ProductFormDialog = ({
             measurements,
             ...rest
         } = values
+        // Duplicate-SKU guard: the backend enforces `divisionId_sku` uniqueness,
+        // surface it here as a field error before the multipart save.
+        if (!editing && !autoSku) {
+            const typedSku = values.sku.trim().toUpperCase()
+            if (typedSku) {
+                try {
+                    const existing = await listProducts({
+                        divisionId: values.divisionId,
+                        sku: typedSku,
+                    })
+                    if (
+                        existing.some(
+                            (product) => product.sku.toUpperCase() === typedSku,
+                        )
+                    ) {
+                        setError('sku', {
+                            message: `SKU ${typedSku} already exists — product SKUs must be unique in this division`,
+                        })
+                        if (createWizard) setWizardStep(0)
+                        return
+                    }
+                } catch {
+                    // Lookup failure: fall back to the server-side unique check.
+                }
+            }
+        }
         const attributes: Record<string, unknown> = {
             ...(editing ? (product?.attributes ?? {}) : {}),
         }
