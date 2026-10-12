@@ -807,7 +807,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             }
             icon={<HiOutlineCube />}
             headerExtra={
-                <div className="w-full max-w-xl">
+                <div className="w-full max-w-2xl overflow-x-auto pb-1">
                     <Steps
                         current={stepIndex}
                         onChange={(index) => {
@@ -818,9 +818,11 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         }}
                     >
                         {TABS.map((t) => (
-                            <Steps.Item key={t.value} title={t.label}>
-                                <span className="hidden sm:inline">{t.label}</span>
-                            </Steps.Item>
+                            <Steps.Item
+                                key={t.value}
+                                title={t.label}
+                                className="min-w-[7rem]"
+                            />
                         ))}
                     </Steps>
                 </div>
