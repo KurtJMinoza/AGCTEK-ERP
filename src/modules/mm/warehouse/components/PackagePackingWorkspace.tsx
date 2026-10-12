@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import {
     HiOutlineCube,
+    HiOutlineClock,
     HiOutlineMinus,
     HiOutlinePlus,
     HiOutlineRefresh,
@@ -568,69 +569,80 @@ const PackagePackingWorkspace = ({
                                 }
                             />
 
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                {lastScan ? (
-                                    <span className="mr-auto text-[11px] text-gray-400">
-                                        Last scanned by{' '}
-                                        <span className="font-medium text-gray-500">
-                                            {lastScan.scannedByName}
-                                        </span>{' '}
-                                        at {formatTime(lastScan.scannedAt)}
+                            <div className="mt-3 border-t border-gray-100 dark:border-gray-700">
+                                <div className="flex items-center justify-between gap-2 pt-2.5 pb-1">
+                                    {lastScan ? (
+                                        <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                                            <HiOutlineClock className="text-xs" />
+                                            Last scanned by{' '}
+                                            <span className="font-medium text-gray-500">
+                                                {lastScan.scannedByName}
+                                            </span>{' '}
+                                            at {formatTime(lastScan.scannedAt)}
+                                        </span>
+                                    ) : (
+                                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                                            Not scanned yet
+                                        </span>
+                                    )}
+                                    <span className="text-[11px] tabular-nums text-gray-400">
+                                        {scanned}/{expected} scanned
                                     </span>
-                                ) : (
-                                    <span className="mr-auto rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                                        Not scanned yet
-                                    </span>
-                                )}
+                                </div>
                                 {editable ? (
-                                    <>
-                                        <Button
-                                            size="xs"
-                                            variant="plain"
-                                            icon={<HiOutlinePlus />}
-                                            disabled={!!adjustingId}
-                                            onClick={() =>
-                                                void adjust(item, 'add', 1)
-                                            }
-                                        >
-                                            +1
-                                        </Button>
-                                        <Button
-                                            size="xs"
-                                            variant="plain"
-                                            icon={<HiOutlineMinus />}
-                                            disabled={
-                                                !!adjustingId || scanned <= 0
-                                            }
-                                            onClick={() =>
-                                                void adjust(item, 'remove', 1)
-                                            }
-                                        >
-                                            −1
-                                        </Button>
-                                        <Button
-                                            size="xs"
-                                            variant="plain"
-                                            disabled={!!adjustingId}
-                                            onClick={() => {
-                                                setAddQtyItem(item)
-                                                setAddQtyValue('1')
-                                                setAddQtyReason('')
-                                            }}
-                                        >
-                                            Add quantity
-                                        </Button>
-                                        <Button
-                                            size="xs"
-                                            variant="plain"
-                                            icon={<HiOutlineRefresh />}
-                                            disabled={
-                                                !!adjustingId || scanned <= 0
-                                            }
-                                            onClick={() => setResetItem(item)}
-                                        >
-                                            Reset
-                                        </Button>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-2.5 dark:border-gray-700">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <Button
+                                                size="xs"
+                                                variant="solid"
+                                                className="!px-2.5"
+                                                icon={<HiOutlinePlus />}
+                                                disabled={!!adjustingId}
+                                                onClick={() =>
+                                                    void adjust(item, 'add', 1)
+                                                }
+                                            >
+                                                +1
+                                            </Button>
+                                            <Button
+                                                size="xs"
+                                                variant="solid"
+                                                className="!px-2.5"
+                                                icon={<HiOutlineMinus />}
+                                                disabled={
+                                                    !!adjustingId || scanned <= 0
+                                                }
+                                                onClick={() =>
+                                                    void adjust(item, 'remove', 1)
+                                                }
+                                            >
+                                                −1
+                                            </Button>
+                                            <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
+                                            <Button
+                                                size="xs"
+                                                variant="plain"
+                                                disabled={!!adjustingId}
+                                                onClick={() => {
+                                                    setAddQtyItem(item)
+                                                    setAddQtyValue('1')
+                                                    setAddQtyReason('')
+                                                }}
+                                            >
+                                                Add qty
+                                            </Button>
+                                            <Button
+                                                size="xs"
+                                                variant="plain"
+                                                icon={<HiOutlineRefresh />}
+                                                disabled={
+                                                    !!adjustingId || scanned <= 0
+                                                }
+                                                onClick={() => setResetItem(item)}
+                                            >
+                                                Reset
+                                            </Button>
+                                        </div>
                                         <Button
                                             size="xs"
                                             variant="solid"
@@ -643,7 +655,7 @@ const PackagePackingWorkspace = ({
                                         >
                                             Scan this item
                                         </Button>
-                                    </>
+                                    </div>
                                 ) : null}
                             </div>
                         </div>
