@@ -34,6 +34,7 @@ import {
     getConvertibleUomIds,
 } from '@/modules/mm/shared/uomHelpers'
 import StockThresholdSummary from './StockThresholdSummary'
+import { materialService } from '../services/materialService'
 import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
 import type { Material, CreateMaterialPayload } from '../types'
