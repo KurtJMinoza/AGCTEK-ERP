@@ -590,6 +590,8 @@ export interface WmPackage {
         height: number | null
         source: 'MATERIAL_MASTER'
     }
+    /** Detail responses only — delivery pin from the customer's registered e-commerce address. */
+    suggestedShipTo?: { lat: number; lng: number } | null
     /** Present on ready-for-dispatch / retry responses */
     scmShipment?: { id: string; reference: string; status: string } | null
     scmReleaseError?: string | null

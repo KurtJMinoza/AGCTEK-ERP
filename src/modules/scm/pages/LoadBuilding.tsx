@@ -399,6 +399,11 @@ export default function LoadBuildingPage() {
                                 data={plan.lines}
                                 noData={plan.lines.length === 0}
                                 hidePagination
+                                pagingData={{
+                                    total: plan.lines.length,
+                                    pageIndex: 1,
+                                    pageSize: Math.max(plan.lines.length, 10),
+                                }}
                             />
                         </AdaptiveCard>
 
@@ -424,6 +429,11 @@ export default function LoadBuildingPage() {
                                     loading={lb.linesLoading}
                                     noData={!lb.linesLoading && lb.available.length === 0}
                                     hidePagination
+                                    pagingData={{
+                                        total: lb.available.length,
+                                        pageIndex: 1,
+                                        pageSize: Math.max(lb.available.length, 10),
+                                    }}
                                 />
                             </AdaptiveCard>
                         ) : null}
