@@ -401,6 +401,10 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             setCheckoutOpen(false)
             closeCart()
             setPlacedOrder(result)
+            // Availability changed the moment the reservation landed: refresh
+            // the storefront catalog so product stock stays truthful after
+            // every payment method (COD, card, wallet, QR, verified bank).
+            void catalog.reload?.()
         } catch (error) {
             if (error instanceof RetailSessionExpiredError) {
                 logout()

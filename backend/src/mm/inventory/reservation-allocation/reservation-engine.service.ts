@@ -1,10 +1,13 @@
 import { Injectable,
     BadRequestException,
+    ConflictException,
     NotFoundException,
     Inject,
     forwardRef,
 } from '@nestjs/common'
+import { randomUUID } from 'crypto'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import { InventoryAvailabilityService } from '../inventory-availability.service'
@@ -110,8 +113,31 @@ export class ReservationEngineService {
             }
         }
 
-        const reservationNumber = await this.nextReservationNumber()
+        // Retry on a reservationNumber unique collision. Concurrent checkouts
+        // may compute the same max+1 number; the regenerated number (with a
+        // random suffix on retries) can then never equal the winner's row.
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const reservationNumber = await this.nextReservationNumber(attempt)
+            try {
+                return await this.persistReservation(dto, reservationNumber, opts)
+            } catch (error) {
+                if (attempt < 2 && this.isReservationNumberConflict(error)) {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw new ConflictException(
+            'Could not allocate a reservation number; retry',
+        )
+    }
 
+    /** Creates the header, reservation lines and legacy rows inside one transaction. */
+    private async persistReservation(
+        dto: CreateReservationHeaderDto,
+        reservationNumber: string,
+        opts?: { correlationId?: string; causationId?: string | null },
+    ) {
         const header = await this.prisma.$transaction(async (tx) => {
             const created = await tx.mmInventoryReservationHeader.create({
                 data: {
@@ -610,7 +636,7 @@ export class ReservationEngineService {
         })
     }
 
-    private async nextReservationNumber() {
+    private async nextReservationNumber(attempt = 0) {
         const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
         const pfx = `RSV-${today}-`
         const last = await this.prisma.mmInventoryReservationHeader.findFirst({
@@ -622,6 +648,30 @@ export class ReservationEngineService {
             const n = parseInt(last.reservationNumber.replace(pfx, ''), 10)
             if (!isNaN(n)) seq = n + 1
         }
-        return `${pfx}${String(seq).padStart(5, '0')}`
+        const number = `${pfx}${String(seq).padStart(5, '0')}`
+        // Concurrent checkouts can read the same max and collide on the unique
+        // reservationNumber. On a retry, append a short random suffix so the
+        // regenerated number can never equal the row another request created
+        // in between (same pattern as the SD order-number generator).
+        return attempt === 0
+            ? number
+            : `${number}-${randomUUID().slice(0, 4).toUpperCase()}`
+    }
+
+    /** True when the failure is a P2002 unique collision on reservationNumber. */
+    private isReservationNumberConflict(error: unknown): boolean {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            const target = error.meta?.target
+            const fields = Array.isArray(target)
+                ? target.map(String)
+                : typeof target === 'string'
+                  ? [target]
+                  : []
+            return fields.includes('reservationNumber')
+        }
+        return false
     }
 }
