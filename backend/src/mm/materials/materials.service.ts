@@ -797,14 +797,28 @@ export class MaterialsService {
             if (delta > 0) {
                 const occupied = await this.prisma.mmInventoryBalance.aggregate({
                     where: { storageBinId: bin.id, stockStatus: 'UNRESTRICTED' },
-                    _sum: { quantity: true },
+                    _sum: { quantity: true, reservedQuantity: true },
                 })
+                const allocatedAgg = await this.prisma.mmInventoryAllocationLine.aggregate({
+                    where: { storageBinId: bin.id, status: 'ACTIVE' },
+                    _sum: { quantity: true },
+                }).catch(() => ({ _sum: { quantity: null } }))
                 const capacity = Number(bin.capacityQuantity ?? 0)
                 const used = Number(occupied._sum.quantity ?? 0)
-                const remaining = Math.max(0, capacity - used)
+                const reservedQty = Number(occupied._sum.reservedQuantity ?? 0)
+                const allocatedQty = Number(
+                    (allocatedAgg._sum as { quantity: number | null })
+                        .quantity ?? 0,
+                )
+                // Free capacity accounts for on-hand PLUS reserved and active
+                // allocations — the connected workload of the bin.
+                const remaining = Math.max(
+                    0,
+                    capacity - used - reservedQty - allocatedQty,
+                )
                 if (capacity > 0 && delta > remaining) {
                     throw new BadRequestException(
-                        `Storage bin ${bin.code} is full. Free capacity: ${remaining}; trying to add ${delta}.`,
+                        `Storage bin ${bin.code} is full. Free capacity: ${remaining} (${used} on hand + ${reservedQty} reserved + ${allocatedQty} allocated); trying to add ${delta}.`,
                     )
                 }
             }

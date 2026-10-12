@@ -10,6 +10,7 @@ import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
 import Tabs from '@/components/ui/Tabs'
+import Steps from '@/components/ui/Steps'
 import Tag from '@/components/ui/Tag'
 import Segment from '@/components/ui/Segment'
 import { Form, FormItem } from '@/components/ui/Form'
@@ -430,21 +431,41 @@ const BinStockSelector = ({
 
     const selected = bins.find((b) => b.id === value) ?? null
     const capacity = Number(selected?.capacityQuantity ?? 0)
-    const current =
-        Number(selected?.currentQuantity ?? 0) +
-        (selected && value ? 0 : 0)
+    const current = Number(selected?.currentQuantity ?? 0)
     const free = Number(selected?.remainingQuantity ?? 0)
+    const reserved = Number(selected?.reservedQuantity ?? 0)
+    const allocated = Number(selected?.allocatedQuantity ?? 0)
+    const activePicks = Number(selected?.activePickingCount ?? 0)
+    const activeTasks = Number(selected?.activeTaskCount ?? 0)
     const utilization = Number(selected?.utilizationPct ?? 0)
+
+    // Committed space: on-hand + reserved + allocated must fit capacity.
+    // Real-time: the entered on-hand must not exceed the free space, and the
+    // bin's reserved/allocated workload must not already exceed capacity.
+    const committed = current + reserved + allocated
     const exceedsCapacity = Boolean(
-        selected && capacity > 0 && onHandQty > free,
+        selected &&
+            (capacity > 0 ? onHandQty > free || committed > capacity : false),
     )
 
     const optionLabel = (b: StorageBin) => {
         const cap = Number(b.capacityQuantity ?? 0)
         const rem = Number(b.remainingQuantity ?? 0)
         const used = Number(b.utilizationPct ?? 0)
-        return `${b.code} — Free ${rem} / Cap ${cap} (${used}% used)`
+        const rsv = Number(b.reservedQuantity ?? 0)
+        const alq = Number(b.allocatedQuantity ?? 0)
+        const suffix =
+            rsv + alq > 0
+                ? ` · ${rsv} reserved${alq > 0 ? ` + ${alq} allocated` : ''}`
+                : ''
+        return `${b.code} — Free ${rem} / Cap ${cap} (${used}% used)${suffix}`
     }
+
+    const connectionLabels: string[] = []
+    if (reserved > 0) connectionLabels.push(`${reserved} reserved`)
+    if (allocated > 0) connectionLabels.push(`${allocated} allocated`)
+    if (activePicks > 0) connectionLabels.push(`${activePicks} open pick${activePicks === 1 ? '' : 's'}`)
+    if (activeTasks > 0) connectionLabels.push(`${activeTasks} warehouse task${activeTasks === 1 ? '' : 's'}`)
 
     return (
         <div className="space-y-2">
@@ -483,6 +504,9 @@ const BinStockSelector = ({
                     <span>
                         {selected.code} · used {current} · free {free} of{' '}
                         {capacity}
+                        {connectionLabels.length > 0
+                            ? ` · ${connectionLabels.join(' · ')}`
+                            : ''}
                     </span>
                     <span className="font-semibold tabular-nums">
                         {utilization}%
@@ -492,8 +516,11 @@ const BinStockSelector = ({
             {exceedsCapacity ? (
                 <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
                     Bin is full — free space is {free}, but on hand is{' '}
-                    {onHandQty}. Choose another bin or reduce the on-hand
-                    quantity.
+                    {onHandQty}
+                    {reserved + allocated > 0
+                        ? ` (and ${reserved + allocated} is reserved/allocated)`
+                        : ''}
+                    . Choose another bin or reduce the on-hand quantity.
                 </p>
             ) : null}
             {loadError ? (
@@ -550,7 +577,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
 
     const schema = useMemo(() => baseMaterialSchema, [])
 
-    const { control, handleSubmit, reset, setValue, watch, setError, clearErrors, formState: { errors, isSubmitting, isDirty, isValid, submitCount, touchedFields } } = useForm<FormShape>({
+    const { control, handleSubmit, reset, setValue, watch, setError, clearErrors, trigger, formState: { errors, isSubmitting, isDirty, isValid, submitCount, touchedFields } } = useForm<FormShape>({
         defaultValues: initialValues,
         resolver: zodResolver(schema),
         mode: 'onChange',
@@ -604,6 +631,28 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
         }
         return counts
     }, [errors])
+
+    const stepIndex = Math.max(0, TABS.findIndex((t) => t.value === tab))
+    const isLastStep = stepIndex === TABS.length - 1
+    const currentStep = TABS[stepIndex] ?? TABS[0]
+
+    /** Validate only the current step's fields before moving forward. */
+    const goNextStep = async () => {
+        const ok = await trigger(currentStep.fields as never[])
+        if (!ok) {
+            setTab(currentStep.value)
+            return
+        }
+        const next = TABS[stepIndex + 1]
+        if (next) {
+            setTab(next.value)
+        }
+    }
+
+    const goBackStep = () => {
+        if (stepIndex <= 0) return
+        setTab(TABS[stepIndex - 1].value)
+    }
 
     useEffect(() => {
         if (!baseUomId) return
@@ -757,19 +806,23 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             }
             icon={<HiOutlineCube />}
             headerExtra={
-                <Tabs value={tab} onChange={(v) => setTab(v)}>
-                    <Tabs.TabList className="!overflow-visible">
-                        {TABS.map((t) => {
-                            const count = tabErrorCounts[t.value] ?? 0
-                            return (
-                                <Tabs.TabNav key={t.value} value={t.value} icon={t.icon}>
-                                    <span className="hidden sm:inline">{t.label}</span>
-                                    {count > 0 && <span className="ms-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">{count}</span>}
-                                </Tabs.TabNav>
-                            )
-                        })}
-                    </Tabs.TabList>
-                </Tabs>
+                <div className="w-full max-w-xl">
+                    <Steps
+                        current={stepIndex}
+                        onChange={(index) => {
+                            const target = TABS[index]
+                            if (target) {
+                                setTab(target.value)
+                            }
+                        }}
+                    >
+                        {TABS.map((t) => (
+                            <Steps.Item key={t.value} title={t.label}>
+                                <span className="hidden sm:inline">{t.label}</span>
+                            </Steps.Item>
+                        ))}
+                    </Steps>
+                </div>
             }
             footerClassName="!justify-between"
             footer={
@@ -788,10 +841,21 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                        {stepIndex > 0 ? (
+                            <Button type="button" size="sm" variant="plain" onClick={goBackStep} disabled={isSubmitting}>
+                                Back
+                            </Button>
+                        ) : null}
                         <Button type="button" size="sm" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-                        <Button size="sm" variant="solid" type="submit" form={FORM_ID} loading={isSubmitting}>
-                            {mode === 'create' ? (template ? 'Create copy' : 'Create material') : 'Save changes'}
-                        </Button>
+                        {!isLastStep ? (
+                            <Button size="sm" variant="solid" type="button" onClick={() => void goNextStep()}>
+                                Next
+                            </Button>
+                        ) : (
+                            <Button size="sm" variant="solid" type="submit" form={FORM_ID} loading={isSubmitting}>
+                                {mode === 'create' ? (template ? 'Create copy' : 'Create material') : 'Save changes'}
+                            </Button>
+                        )}
                     </div>
                 </>
             }

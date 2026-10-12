@@ -199,23 +199,132 @@ export class StorageBinsService {
                       storageBinId: { in: binIds },
                       stockStatus: 'UNRESTRICTED',
                   },
-                  select: { storageBinId: true, quantity: true },
+                  select: {
+                      storageBinId: true,
+                      quantity: true,
+                      reservedQuantity: true,
+                      availableQuantity: true,
+                  },
               })
             : []
         const occupiedByBin = new Map<string, number>()
+        const reservedByBin = new Map<string, number>()
+        const availableByBin = new Map<string, number>()
         for (const bal of balances) {
             if (!bal.storageBinId) continue
             occupiedByBin.set(
                 bal.storageBinId,
                 (occupiedByBin.get(bal.storageBinId) ?? 0) + Number(bal.quantity),
             )
+            reservedByBin.set(
+                bal.storageBinId,
+                (reservedByBin.get(bal.storageBinId) ?? 0) +
+                    Number(bal.reservedQuantity),
+            )
+            availableByBin.set(
+                bal.storageBinId,
+                (availableByBin.get(bal.storageBinId) ?? 0) +
+                    Number(bal.availableQuantity),
+            )
         }
+
+        // Connected operational records per bin: active allocations (picked
+        // from the bin), open picking tasks and in-flight warehouse tasks.
+        // These reference the same bin+material pairs and must be visible so
+        // stock changes never silently conflict with them. Each query is
+        // guarded so a missing capability can never break occupancy.
+        const allocByBin = binIds.length &&
+            typeof this.prisma.mmInventoryAllocationLine?.groupBy === 'function'
+            ? await this.prisma.mmInventoryAllocationLine
+                  .groupBy({
+                      by: ['storageBinId'],
+                      where: {
+                          storageBinId: { in: binIds },
+                          status: 'ACTIVE',
+                      },
+                      _sum: { quantity: true },
+                  })
+                  .catch(() => [])
+            : []
+        const pickByBin = binIds.length &&
+            typeof this.prisma.wmPickingTask?.groupBy === 'function'
+            ? await this.prisma.wmPickingTask
+                  .groupBy({
+                      by: ['sourceBinId'],
+                      where: {
+                          sourceBinId: { in: binIds },
+                          status: { in: ['OPEN', 'IN_PROGRESS'] },
+                      },
+                      _count: { _all: true },
+                  })
+                  .catch(() => [])
+            : []
+        const taskByBin = binIds.length &&
+            typeof this.prisma.wmWarehouseTask?.groupBy === 'function'
+            ? await this.prisma.wmWarehouseTask
+                  .groupBy({
+                      by: ['sourceBinId', 'destinationBinId'],
+                      where: {
+                          OR: [
+                              { sourceBinId: { in: binIds } },
+                              { destinationBinId: { in: binIds } },
+                          ],
+                          status: {
+                              in: [
+                                  'PENDING',
+                                  'ASSIGNED',
+                                  'IN_PROGRESS',
+                                  'PARTIALLY_COMPLETED',
+                              ],
+                          },
+                      },
+                      _count: { _all: true },
+                  })
+                  .catch(() => [])
+            : []
+        const allocQtyByBin = new Map<string, number>()
+        for (const row of allocByBin) {
+            allocQtyByBin.set(
+                row.storageBinId,
+                Number(row._sum.quantity ?? 0),
+            )
+        }
+        const pickCountByBin = new Map<string, number>()
+        for (const row of pickByBin) {
+            pickCountByBin.set(
+                row.sourceBinId ?? '',
+                (pickCountByBin.get(row.sourceBinId ?? '') ?? 0) + row._count._all,
+            )
+        }
+        const taskCountByBin = new Map<string, number>()
+        for (const row of taskByBin) {
+            if (row.sourceBinId) {
+                taskCountByBin.set(
+                    row.sourceBinId,
+                    (taskCountByBin.get(row.sourceBinId) ?? 0) + row._count._all,
+                )
+            }
+            if (row.destinationBinId) {
+                taskCountByBin.set(
+                    row.destinationBinId,
+                    (taskCountByBin.get(row.destinationBinId) ?? 0) + row._count._all,
+                )
+            }
+        }
+
         return bins.map((b) => {
             const currentQuantity = occupiedByBin.get(b.id) ?? 0
+            const reservedQuantity = reservedByBin.get(b.id) ?? 0
+            const availableQuantity = availableByBin.get(b.id) ?? 0
             const capacity = Number(b.capacityQuantity)
             return {
                 ...b,
                 currentQuantity,
+                reservedQuantity,
+                availableQuantity,
+                allocatedQuantity: allocQtyByBin.get(b.id) ?? 0,
+                activePickingCount: pickCountByBin.get(b.id) ?? 0,
+                activeTaskCount: taskCountByBin.get(b.id) ?? 0,
                 remainingQuantity: Math.max(0, capacity - currentQuantity),
                 utilizationPct:
                     capacity > 0 ? Math.min(100, Math.round((currentQuantity / capacity) * 100)) : 0,

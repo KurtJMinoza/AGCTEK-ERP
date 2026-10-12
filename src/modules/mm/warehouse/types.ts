@@ -101,6 +101,16 @@ export interface StorageBin {
     currentQuantity?: number
     remainingQuantity?: number
     utilizationPct?: number
+    /** Reserved qty in this bin (mirrors ledger reservedQuantity). */
+    reservedQuantity?: number
+    /** Sellable qty in this bin (on-hand − reserved). */
+    availableQuantity?: number
+    /** Qty on active (unpicked) allocation lines pointing at this bin. */
+    allocatedQuantity?: number
+    /** Open / in-progress picking tasks sourcing this bin. */
+    activePickingCount?: number
+    /** In-flight warehouse tasks (putaway/pick/transfer) touching this bin. */
+    activeTaskCount?: number
     createdAt: string
     updatedAt: string
 }
