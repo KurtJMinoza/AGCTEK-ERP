@@ -796,7 +796,11 @@ export class MaterialsService {
             }
             if (delta > 0) {
                 const occupied = await this.prisma.mmInventoryBalance.aggregate({
-                    where: { storageBinId: bin.id, stockStatus: 'UNRESTRICTED' },
+                    where: {
+                        storageBinId: bin.id,
+                        stockStatus: 'UNRESTRICTED',
+                        material: { deletedAt: null },
+                    },
                     _sum: { quantity: true, reservedQuantity: true },
                 })
                 const allocatedAgg = await this.prisma.mmInventoryAllocationLine.aggregate({
@@ -828,7 +832,13 @@ export class MaterialsService {
             // picks the first free pick/putaway bin.
             const holders = delta < 0
                 ? await this.prisma.mmInventoryBalance.findMany({
-                      where: { companyId: args.companyId, warehouseId: args.warehouseId, materialId: args.materialId, quantity: { gt: 0 } },
+                      where: {
+                          companyId: args.companyId,
+                          warehouseId: args.warehouseId,
+                          materialId: args.materialId,
+                          quantity: { gt: 0 },
+                          material: { deletedAt: null },
+                      },
                       select: { storageBinId: true },
                   })
                 : []
