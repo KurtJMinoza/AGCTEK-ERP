@@ -28,6 +28,9 @@ const input = {
 const setup = () => {
     const tx = {
         $queryRaw: jest.fn().mockResolvedValue([{ id: 'client-1' }]),
+        retailClient: {
+            update: jest.fn().mockResolvedValue({}),
+        },
         retailClientAddress: {
             count: jest.fn().mockResolvedValue(0),
             updateMany: jest.fn(),
@@ -39,9 +42,13 @@ const setup = () => {
     }
     const prisma = {
         $transaction: jest.fn((run) => run(tx)),
+        retailClient: {
+            findUnique: jest.fn().mockResolvedValue(null),
+        },
         retailClientAddress: {
             findMany: jest.fn().mockResolvedValue([address]),
             findFirst: jest.fn().mockResolvedValue(address),
+            create: jest.fn().mockResolvedValue(address),
         },
     }
     return {
@@ -96,5 +103,37 @@ describe('RetailClientAddressService', () => {
                 data: { isDefault: true },
             }),
         )
+    })
+
+    it('auto-heals and creates default address from client profile address when address book is empty', async () => {
+        const { prisma, service } = setup()
+        prisma.retailClientAddress.findMany.mockResolvedValueOnce([])
+        prisma.retailClient.findUnique.mockResolvedValueOnce({
+            addressLine1: 'COR. INIGO ST. OBRERO',
+            city: 'CITY OF DAVAO',
+            region: 'DAVAO DEL SUR',
+            postalCode: '8000',
+            country: 'PH',
+        })
+
+        const result = await service.list('client-1')
+
+        expect(prisma.retailClientAddress.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    clientId: 'client-1',
+                    addressType: 'HOME',
+                    isDefault: true,
+                    addressLine: 'COR. INIGO ST. OBRERO',
+                    cityOrMunicipality: 'CITY OF DAVAO',
+                    provinceOrState: 'DAVAO DEL SUR',
+                    postalCode: '8000',
+                    country: 'PH',
+                    latitude: 7.0731,
+                    longitude: 125.6128,
+                }),
+            }),
+        )
+        expect(result).toEqual([address])
     })
 })

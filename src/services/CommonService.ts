@@ -2,15 +2,19 @@ import ErpAxiosBase from './axios/ErpAxiosBase'
 import type { NotificationItem } from '@/@types/notification'
 import { searchPages, type SearchResultGroup } from '@/configs/search.config'
 
-export async function apiGetNotificationCount() {
+export async function apiGetNotificationCount(params?: { userId?: string }) {
     const response = await ErpAxiosBase.get<{ count: number }>(
         '/notifications/count',
+        { params },
     )
 
     return response.data
 }
 
-export async function apiGetNotificationList(params?: { limit?: number }) {
+export async function apiGetNotificationList(params?: {
+    limit?: number
+    userId?: string
+}) {
     const response = await ErpAxiosBase.get<NotificationItem[]>('/notifications', {
         params,
     })

@@ -21,6 +21,7 @@ import { useMarketplace } from '../MarketplaceProvider'
 import { MARKETPLACE_NAME } from '../marketplaceUi'
 import { useMarketplaceBrowseStore } from '../store/useMarketplaceBrowseStore'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
+import MarketplaceNotificationBell from './MarketplaceNotificationBell'
 
 type MarketplaceHeaderProps = {
     /** Enter in the search box; defaults to opening the products page with the query. */
@@ -183,6 +184,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                             </span>
                         </Button>
                     )}
+                    <MarketplaceNotificationBell />
                     {itemCount > 0 ? (
                         <Badge
                             content={itemCount}

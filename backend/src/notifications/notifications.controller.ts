@@ -10,8 +10,12 @@ import {
 import { NotificationsService } from './notifications.service'
 
 type CreateNotificationBody = {
-    target: string
-    description: string
+    userId?: string
+    title?: string
+    message?: string
+    isRead?: boolean
+    target?: string
+    description?: string
     type?: number
     image?: string
     location?: string
@@ -26,15 +30,18 @@ export class NotificationsController {
     ) {}
 
     @Get()
-    findAll(@Query('limit') limit?: string) {
+    findAll(
+        @Query('limit') limit?: string,
+        @Query('userId') userId?: string,
+    ) {
         const parsedLimit = limit ? Number(limit) : undefined
 
-        return this.notificationsService.findAll(parsedLimit)
+        return this.notificationsService.findAll(parsedLimit, userId)
     }
 
     @Get('count')
-    async getCount() {
-        const count = await this.notificationsService.getUnreadCount()
+    async getCount(@Query('userId') userId?: string) {
+        const count = await this.notificationsService.getUnreadCount(userId)
 
         return { count }
     }
@@ -45,12 +52,24 @@ export class NotificationsController {
     }
 
     @Patch('read-all')
-    markAllAsRead() {
-        return this.notificationsService.markAllAsRead()
+    markAllAsRead(@Query('userId') userId?: string) {
+        return this.notificationsService.markAllAsRead(userId)
     }
 
     @Patch(':id/read')
     markAsRead(@Param('id') id: string) {
         return this.notificationsService.markAsRead(id)
     }
+
+    @Patch(':id')
+    update(
+        @Param('id') id: string,
+        @Body() body: { isRead?: boolean; readed?: boolean },
+    ) {
+        if (body.isRead || body.readed) {
+            return this.notificationsService.markAsRead(id)
+        }
+        return this.notificationsService.markAsRead(id)
+    }
 }
+

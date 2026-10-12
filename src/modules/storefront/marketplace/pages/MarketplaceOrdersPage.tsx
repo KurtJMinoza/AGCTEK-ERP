@@ -2,16 +2,32 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { HiOutlineClipboardList } from 'react-icons/hi'
+import {
+    HiOutlineArrowLeft,
+    HiOutlineArrowRight,
+    HiOutlineCheck,
+    HiOutlineCheckCircle,
+    HiOutlineClipboardList,
+    HiOutlineClock,
+    HiOutlineCreditCard,
+    HiOutlineCurrencyDollar,
+    HiOutlineDuplicate,
+    HiOutlineExclamationCircle,
+    HiOutlineLocationMarker,
+    HiOutlineRefresh,
+    HiOutlineSearch,
+    HiOutlineShoppingBag,
+    HiOutlineTruck,
+    HiOutlineX,
+    HiOutlineXCircle,
+} from 'react-icons/hi'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
-import Card from '@/components/ui/Card'
 import Spinner from '@/components/ui/Spinner'
-import Tabs from '@/components/ui/Tabs'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import MarketplaceHeader from '../components/MarketplaceHeader'
 import {
     CUSTOMER_CANCEL_REASONS,
     PAYMENT_METHOD_LABEL,
@@ -30,36 +46,6 @@ import {
 } from '../host'
 import { formatPrice } from '../marketplaceUi'
 
-const { TabList, TabNav } = Tabs
-
-const STATUS_COPY: Record<
-    SalesOrderRecord['status'],
-    { label: string; tone: StatusTone }
-> = {
-    'Pending Delivery': { label: 'To be delivered', tone: 'warning' },
-    Dispatched: { label: 'Dispatched', tone: 'info' },
-    Delivered: { label: 'Delivered', tone: 'success' },
-    Completed: { label: 'Completed', tone: 'success' },
-    Cancelled: { label: 'Cancelled', tone: 'danger' },
-    Draft: { label: 'Processing', tone: 'default' },
-}
-
-const PAYMENT_TONE: Record<string, StatusTone> = {
-    Paid: 'success',
-    Authorized: 'success',
-    'Pending Collection': 'warning',
-    'Pending Verification': 'warning',
-    Pending: 'warning',
-    Failed: 'danger',
-    Cancelled: 'danger',
-    Refunded: 'default',
-}
-
-const paymentLabel = (method: string | null) =>
-    method && method in PAYMENT_METHOD_LABEL
-        ? PAYMENT_METHOD_LABEL[method as keyof typeof PAYMENT_METHOD_LABEL]
-        : (method ?? '—')
-
 const formatDate = (iso: string) =>
     new Intl.DateTimeFormat('en-PH', {
         dateStyle: 'medium',
@@ -74,13 +60,28 @@ type OrdersFilter =
     | 'Completed'
     | 'Cancelled'
 
-const FILTER_LABEL: Record<OrdersFilter, string> = {
-    all: 'All orders',
-    'Pending Delivery': 'To be delivered',
-    Dispatched: 'Dispatched',
-    Delivered: 'Delivered',
-    Completed: 'Completed',
-    Cancelled: 'Cancelled',
+const FILTER_CONFIG: Record<
+    OrdersFilter,
+    { label: string; icon: any; color: string }
+> = {
+    all: { label: 'All orders', icon: HiOutlineShoppingBag, color: 'emerald' },
+    'Pending Delivery': {
+        label: 'To be delivered',
+        icon: HiOutlineClock,
+        color: 'amber',
+    },
+    Dispatched: { label: 'Dispatched', icon: HiOutlineTruck, color: 'blue' },
+    Delivered: {
+        label: 'Delivered',
+        icon: HiOutlineCheckCircle,
+        color: 'teal',
+    },
+    Completed: {
+        label: 'Completed',
+        icon: HiOutlineCheckCircle,
+        color: 'emerald',
+    },
+    Cancelled: { label: 'Cancelled', icon: HiOutlineXCircle, color: 'rose' },
 }
 
 const FILTERS: OrdersFilter[] = [
@@ -95,51 +96,105 @@ const FILTERS: OrdersFilter[] = [
 const productLookupKey = (divisionId: string | null, sku: string) =>
     `${divisionId ?? '?'}:${sku}`
 
-const SummaryStat = ({
-    label,
-    value,
-    hint,
-}: {
-    label: string
-    value: string
-    hint?: string
-}) => (
-    <Card>
-        <div className="px-4 py-3">
-            <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                {label}
-            </div>
-            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
-                {value}
-            </div>
-            {hint ? (
-                <div className="mt-0.5 text-xs text-gray-500">{hint}</div>
-            ) : null}
-        </div>
-    </Card>
-)
+const paymentLabel = (method: string | null) =>
+    method && method in PAYMENT_METHOD_LABEL
+        ? PAYMENT_METHOD_LABEL[method as keyof typeof PAYMENT_METHOD_LABEL]
+        : (method ?? '—')
 
-/**
- * Storefront "My orders": a clean e-commerce order history. Every order card
- * shows its status, payment state and delivery address; each line item is a
- * product row with its snapshot image (falling back to the live catalog, then
- * a placeholder) — no admin-style table, no nested bordered boxes.
- */
+/** Order Tracker Stepper */
+function OrderProgressStepper({ status }: { status: string }) {
+    if (status === 'Cancelled') {
+        return (
+            <div className="flex items-center gap-2 rounded-xl bg-rose-50/80 px-4 py-2.5 text-xs font-medium text-rose-700 border border-rose-100">
+                <HiOutlineXCircle className="text-base shrink-0 text-rose-600" />
+                <span>
+                    This order was cancelled. Reserved inventory has been released.
+                </span>
+            </div>
+        )
+    }
+
+    const steps = [
+        { id: 'placed', label: 'Order Placed', icon: HiOutlineShoppingBag },
+        { id: 'confirmed', label: 'Confirmed & Prepared', icon: HiOutlineClock },
+        { id: 'dispatched', label: 'Dispatched', icon: HiOutlineTruck },
+        { id: 'delivered', label: 'Delivered', icon: HiOutlineCheckCircle },
+    ]
+
+    // Determine current step index (0-based)
+    let activeIndex = 0
+    if (status === 'Pending Delivery') activeIndex = 1
+    else if (status === 'Dispatched') activeIndex = 2
+    else if (status === 'Delivered' || status === 'Completed') activeIndex = 3
+
+    return (
+        <div className="w-full py-2">
+            <div className="relative flex items-center justify-between">
+                {/* Background Connecting Bar */}
+                <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-1 bg-gray-100 -z-0">
+                    <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500 rounded-full"
+                        style={{
+                            width: `${(activeIndex / (steps.length - 1)) * 100}%`,
+                        }}
+                    />
+                </div>
+
+                {steps.map((step, idx) => {
+                    const isPassed = idx <= activeIndex
+                    const isCurrent = idx === activeIndex
+                    const StepIcon = step.icon
+
+                    return (
+                        <div
+                            key={step.id}
+                            className="relative z-10 flex flex-col items-center group"
+                        >
+                            <div
+                                className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 shadow-sm ${
+                                    isPassed
+                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-4 ring-emerald-50'
+                                        : 'bg-white border-2 border-gray-200 text-gray-400'
+                                }`}
+                            >
+                                <StepIcon
+                                    className={`text-sm ${
+                                        isCurrent ? 'animate-pulse' : ''
+                                    }`}
+                                />
+                            </div>
+                            <span
+                                className={`mt-1.5 text-[11px] font-medium tracking-tight transition-colors ${
+                                    isPassed
+                                        ? 'text-gray-900 font-semibold'
+                                        : 'text-gray-400'
+                                }`}
+                            >
+                                {step.label}
+                            </span>
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
+
 const MarketplaceOrdersPage = () => {
     const { signedInClient, sessionToken } = useMarketplace()
     const catalog = useMarketplaceProducts()
     const customerId = signedInClient?.customerId ?? null
+
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState<OrdersFilter>('all')
-    const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(
-        null,
-    )
+    const [searchQuery, setSearchQuery] = useState('')
+    const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+
+    const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(null)
     const [returnMessage, setReturnMessage] = useState<string | null>(null)
-    const [cancelOrder, setCancelOrder] = useState<SalesOrderRecord | null>(
-        null,
-    )
+    const [cancelOrder, setCancelOrder] = useState<SalesOrderRecord | null>(null)
     const [cancelReason, setCancelReason] = useState<string>(
         CUSTOMER_CANCEL_REASONS[0],
     )
@@ -171,9 +226,7 @@ const MarketplaceOrdersPage = () => {
             setOrders(await getSalesOrders({ customerId }))
         } catch (err) {
             setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Unable to load your orders',
+                err instanceof Error ? err.message : 'Unable to load your orders',
             )
         } finally {
             setLoading(false)
@@ -184,7 +237,6 @@ const MarketplaceOrdersPage = () => {
         if (customerId) void load()
     }, [customerId, load])
 
-    /** Submits the customer cancellation; reloads the list on success. */
     const submitCancellation = useCallback(async () => {
         if (!cancelOrder || !sessionToken) return
         setCancelling(true)
@@ -216,6 +268,12 @@ const MarketplaceOrdersPage = () => {
         setReturnMessage(null)
     }, [customerId])
 
+    const copyOrderNumber = (orderId: string) => {
+        navigator.clipboard.writeText(orderId)
+        setCopiedOrderId(orderId)
+        setTimeout(() => setCopiedOrderId(null), 2000)
+    }
+
     const summary = useMemo(() => {
         const rows = orders ?? []
         return {
@@ -230,13 +288,27 @@ const MarketplaceOrdersPage = () => {
         }
     }, [orders])
 
-    const visibleOrders = useMemo(
-        () =>
-            filter === 'all'
-                ? (orders ?? [])
-                : (orders ?? []).filter((order) => order.status === filter),
-        [orders, filter],
-    )
+    const visibleOrders = useMemo(() => {
+        let list = orders ?? []
+        if (filter !== 'all') {
+            list = list.filter((order) => order.status === filter)
+        }
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim()
+            list = list.filter(
+                (order) =>
+                    order.orderId.toLowerCase().includes(q) ||
+                    order.lines.some(
+                        (l) =>
+                            l.name.toLowerCase().includes(q) ||
+                            (l.productName &&
+                                l.productName.toLowerCase().includes(q)) ||
+                            l.sku.toLowerCase().includes(q),
+                    ),
+            )
+        }
+        return list
+    }, [orders, filter, searchQuery])
 
     const countFor = (value: OrdersFilter) =>
         value === 'all'
@@ -257,378 +329,605 @@ const MarketplaceOrdersPage = () => {
 
     if (!signedInClient) {
         return (
-            <div className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
-                <HiOutlineClipboardList
-                    className="text-5xl text-gray-300"
-                    aria-hidden
-                />
-                <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-                    Your orders, one page
-                </h1>
-                <p className="text-sm text-gray-500">
-                    Sign in to review your order contents, payment method and
-                    delivery status.
-                </p>
-                <Button
-                    customColorClass={() =>
-                        'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    }
-                >
+            <div className="min-h-screen bg-gray-50 flex flex-col">
+                <MarketplaceHeader />
+                <div className="mx-auto flex flex-1 w-full max-w-md flex-col items-center justify-center gap-5 px-4 py-16 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 shadow-inner">
+                        <HiOutlineClipboardList className="text-3xl" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+                            Track Your Orders
+                        </h1>
+                        <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
+                            Sign in to your account to review live delivery status,
+                            order history, and receipts.
+                        </p>
+                    </div>
                     <Link
                         href={marketplaceAuthHref(
                             MARKETPLACE_SIGN_IN_PATH,
                             MARKETPLACE_ORDERS_PATH,
                         )}
+                        className="w-full inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-[1.02]"
                     >
-                        Sign in to view orders
+                        Sign in to view orders &rarr;
                     </Link>
-                </Button>
+                </div>
             </div>
         )
     }
 
     return (
-        <div className="mx-auto w-full max-w-4xl px-4 py-8">
-            <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-                <div>
-                    <div className="text-xs text-gray-400">
+        <div className="min-h-screen bg-[#f8fafc] text-gray-700 flex flex-col antialiased">
+            <MarketplaceHeader />
+
+            <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {/* Breadcrumbs & Page Header */}
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                        <nav className="flex items-center gap-2 text-xs font-medium text-gray-400 mb-1.5">
+                            <Link
+                                href={MARKETPLACE_PATH}
+                                className="hover:text-emerald-600 transition-colors"
+                            >
+                                Marketplace
+                            </Link>
+                            <span>/</span>
+                            <span className="text-gray-700 font-semibold">
+                                My Orders
+                            </span>
+                        </nav>
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900">
+                                My Orders
+                            </h1>
+                            <span className="rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                                {summary.total} {summary.total === 1 ? 'Order' : 'Orders'}
+                            </span>
+                        </div>
+                        <p className="mt-0.5 text-sm text-gray-500">
+                            Logged in as{' '}
+                            <span className="font-semibold text-gray-800">
+                                {signedInClient.fullName ?? signedInClient.email}
+                            </span>
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <Button
+                            size="sm"
+                            loading={loading}
+                            icon={<HiOutlineRefresh className={loading ? 'animate-spin' : ''} />}
+                            onClick={() => void load()}
+                            className="!rounded-xl !border-gray-200 !bg-white hover:!bg-gray-50 text-gray-700 shadow-sm"
+                        >
+                            Refresh
+                        </Button>
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="hover:text-gray-600"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all"
                         >
-                            AGC Marketplace
-                        </Link>{' '}
-                        / Orders
+                            <HiOutlineShoppingBag className="text-sm" />
+                            Browse Shop
+                        </Link>
                     </div>
-                    <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-                        My Orders
-                    </h1>
-                    <p className="mt-1 text-sm text-gray-500">
-                        {signedInClient.fullName ?? signedInClient.email}
-                    </p>
                 </div>
-                <Button size="sm" loading={loading} onClick={() => void load()}>
-                    Refresh
-                </Button>
-            </div>
 
-            <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <SummaryStat label="Orders" value={String(summary.total)} />
-                <SummaryStat
-                    label="To be delivered"
-                    value={String(summary.pending)}
-                    hint="Confirmed and reserved"
-                />
-                <SummaryStat
-                    label="Delivered"
-                    value={String(summary.delivered)}
-                />
-                <SummaryStat
-                    label="Total spent"
-                    value={formatPrice(summary.spent)}
-                    hint="Excludes cancelled"
-                />
-            </div>
-
-            {error ? (
-                <Alert showIcon type="danger" className="mb-4">
-                    <div className="flex items-center justify-between gap-2">
-                        <span>{error}</span>
-                        <Button size="xs" onClick={() => void load()}>
-                            Retry
-                        </Button>
+                {/* Elevated Metric Cards */}
+                <div className="mb-8 grid grid-cols-2 gap-3.5 sm:grid-cols-4">
+                    {/* Total Orders */}
+                    <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                                Total Orders
+                            </span>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                                <HiOutlineShoppingBag className="text-lg" />
+                            </div>
+                        </div>
+                        <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-gray-900">
+                            {summary.total}
+                        </div>
+                        <span className="mt-1 inline-block text-[11px] font-medium text-gray-400">
+                            Lifetime orders placed
+                        </span>
                     </div>
-                </Alert>
-            ) : null}
 
-            {returnMessage ? (
-                <Alert showIcon type="success" className="mb-4">
-                    {returnMessage}
-                </Alert>
-            ) : null}
+                    {/* To Be Delivered */}
+                    <div className="relative overflow-hidden rounded-2xl border border-amber-100/80 bg-gradient-to-br from-white via-white to-amber-50/30 p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                                To Be Delivered
+                            </span>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100/70 text-amber-600">
+                                <HiOutlineClock className="text-lg" />
+                            </div>
+                        </div>
+                        <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-amber-900">
+                            {summary.pending}
+                        </div>
+                        <span className="mt-1 inline-block text-[11px] font-semibold text-amber-600">
+                            Confirmed &amp; reserved
+                        </span>
+                    </div>
 
-            <Tabs
-                value={filter}
-                onChange={(value) => setFilter(value as OrdersFilter)}
-            >
-                <TabList>
-                    {FILTERS.map((value) => (
-                        <TabNav
-                            key={value}
-                            value={value}
-                            className="shrink-0 whitespace-nowrap"
+                    {/* Delivered & Completed */}
+                    <div className="relative overflow-hidden rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white via-white to-emerald-50/30 p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                                Completed
+                            </span>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100/70 text-emerald-600">
+                                <HiOutlineCheckCircle className="text-lg" />
+                            </div>
+                        </div>
+                        <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-emerald-900">
+                            {summary.completed + summary.delivered}
+                        </div>
+                        <span className="mt-1 inline-block text-[11px] font-semibold text-emerald-600">
+                            Delivered packages
+                        </span>
+                    </div>
+
+                    {/* Total Spent */}
+                    <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                                Total Spent
+                            </span>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                                <HiOutlineCurrencyDollar className="text-lg" />
+                            </div>
+                        </div>
+                        <div className="mt-2 text-xl sm:text-2xl font-extrabold text-gray-900 truncate">
+                            {formatPrice(summary.spent)}
+                        </div>
+                        <span className="mt-1 inline-block text-[11px] font-medium text-gray-400">
+                            Excludes cancelled
+                        </span>
+                    </div>
+                </div>
+
+                {/* Notifications and Alerts */}
+                {error && (
+                    <Alert showIcon type="danger" className="mb-6 rounded-2xl">
+                        <div className="flex items-center justify-between gap-2">
+                            <span>{error}</span>
+                            <Button size="xs" onClick={() => void load()}>
+                                Retry
+                            </Button>
+                        </div>
+                    </Alert>
+                )}
+
+                {returnMessage && (
+                    <Alert showIcon type="success" className="mb-6 rounded-2xl">
+                        {returnMessage}
+                    </Alert>
+                )}
+
+                {/* Search & Status Filter Controls */}
+                <div className="mb-6 space-y-3.5">
+                    {/* Search box */}
+                    <div className="relative max-w-md">
+                        <HiOutlineSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-lg" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search by Order # or item name..."
+                            className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-9 text-xs sm:text-sm text-gray-800 placeholder-gray-400 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                        />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                <HiOutlineX className="text-sm" />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Custom Pill Tabs Bar */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar rounded-2xl bg-gray-100/90 p-1.5">
+                        {FILTERS.map((tabKey) => {
+                            const config = FILTER_CONFIG[tabKey]
+                            const isActive = filter === tabKey
+                            const count = countFor(tabKey)
+                            const TabIcon = config.icon
+
+                            return (
+                                <button
+                                    key={tabKey}
+                                    type="button"
+                                    onClick={() => setFilter(tabKey)}
+                                    className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
+                                        isActive
+                                            ? 'bg-white text-emerald-800 shadow-sm'
+                                            : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <TabIcon
+                                        className={`text-sm ${
+                                            isActive
+                                                ? 'text-emerald-600'
+                                                : 'text-gray-400'
+                                        }`}
+                                    />
+                                    <span>{config.label}</span>
+                                    <span
+                                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                            isActive
+                                                ? 'bg-emerald-50 text-emerald-700'
+                                                : 'bg-gray-200/70 text-gray-600'
+                                        }`}
+                                    >
+                                        {count}
+                                    </span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+
+                {/* Orders Content Feed */}
+                {loading && !orders ? (
+                    <div className="flex h-64 flex-col items-center justify-center gap-3">
+                        <Spinner size="lg" />
+                        <span className="text-xs font-medium text-gray-400">
+                            Loading your orders...
+                        </span>
+                    </div>
+                ) : visibleOrders.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-200 bg-white py-16 px-4 text-center shadow-sm">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-50 text-gray-400 mb-3">
+                            <HiOutlineClipboardList className="text-3xl" />
+                        </div>
+                        <h3 className="text-base font-bold text-gray-900">
+                            No {FILTER_CONFIG[filter].label.toLowerCase()} found
+                        </h3>
+                        <p className="mt-1 max-w-sm text-xs text-gray-500 leading-relaxed">
+                            {searchQuery
+                                ? `No orders matched "${searchQuery}". Try a different keyword.`
+                                : "You haven't placed any orders in this category yet."}
+                        </p>
+                        <Link
+                            href={MARKETPLACE_PATH}
+                            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-105"
                         >
-                            {FILTER_LABEL[value]} ({countFor(value)})
-                        </TabNav>
-                    ))}
-                </TabList>
-            </Tabs>
+                            <HiOutlineShoppingBag className="text-sm" />
+                            Start shopping now
+                        </Link>
+                    </div>
+                ) : (
+                    <div className="space-y-5">
+                        {visibleOrders.map((order) => {
+                            const payment = order.payment
+                            const ship = order.shippingAddress
+                            const isPending = order.status === 'Pending Delivery'
+                            const isDispatched = order.status === 'Dispatched'
+                            const isCompleted = order.status === 'Completed'
+                            const isDelivered = order.status === 'Delivered'
+                            const isCancelled = order.status === 'Cancelled'
 
-            {loading && !orders ? (
-                <div className="flex h-48 items-center justify-center">
-                    <Spinner size={32} />
-                </div>
-            ) : visibleOrders.length === 0 ? (
-                <Card bodyClass="flex flex-col items-center gap-2 p-10 text-center text-gray-500">
-                    <HiOutlineClipboardList className="text-4xl" aria-hidden />
-                    <p>No {FILTER_LABEL[filter].toLowerCase()} yet.</p>
-                    <Link
-                        href={MARKETPLACE_PATH}
-                        className="mt-1 text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-400"
-                    >
-                        Start shopping
-                    </Link>
-                </Card>
-            ) : (
-                <ul className="mt-4 flex flex-col gap-4">
-                    {visibleOrders.map((order) => {
-                        const status = STATUS_COPY[order.status]
-                        const payment = order.payment
-                        const ship = order.shippingAddress
-                        return (
-                            <li key={order.id}>
-                                <Card bodyClass="p-4 sm:p-6">
-                                    {/* Order header */}
-                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                        <div className="min-w-0">
-                                            <div className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                                {order.orderId}
-                                            </div>
-                                            <div className="mt-0.5 text-xs text-gray-500">
-                                                Placed{' '}
-                                                {formatDate(order.createdAt)}
-                                            </div>
-                                            <div className="mt-1.5 text-xs text-gray-500">
-                                                Sold by{' '}
-                                                <span className="font-medium text-gray-900 dark:text-gray-100">
-                                                    {order.company?.name ?? '—'}
+                            return (
+                                <article
+                                    key={order.id}
+                                    className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-all duration-200"
+                                >
+                                    {/* Order Top Ribbon */}
+                                    <div className="border-b border-gray-100 bg-gray-50/80 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="font-mono font-bold text-gray-900 text-sm">
+                                                    #{order.orderId}
                                                 </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => copyOrderNumber(order.orderId)}
+                                                    className="rounded p-1 text-gray-400 hover:bg-gray-200/60 hover:text-gray-700 transition-colors"
+                                                    title="Copy order number"
+                                                >
+                                                    {copiedOrderId === order.orderId ? (
+                                                        <HiOutlineCheck className="text-emerald-600 text-sm" />
+                                                    ) : (
+                                                        <HiOutlineDuplicate className="text-sm" />
+                                                    )}
+                                                </button>
                                             </div>
+
+                                            <span className="text-gray-300">|</span>
+
+                                            <span className="text-gray-500 flex items-center gap-1">
+                                                <HiOutlineClock className="text-xs text-gray-400" />
+                                                {formatDate(order.createdAt)}
+                                            </span>
+
+                                            <span className="text-gray-300">|</span>
+
+                                            <span className="text-gray-500">
+                                                Sold by{' '}
+                                                <span className="font-semibold text-gray-800">
+                                                    {order.company?.name || 'AGC Marketplace'}
+                                                </span>
+                                            </span>
                                         </div>
-                                        <StatusBadge tone={status.tone}>
-                                            {status.label}
-                                        </StatusBadge>
+
+                                        {/* Status Tag Pill */}
+                                        <div className="flex items-center gap-2">
+                                            {isPending && (
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                                    <HiOutlineClock className="text-sm" />
+                                                    To be delivered
+                                                </span>
+                                            )}
+                                            {isDispatched && (
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                                                    <HiOutlineTruck className="text-sm" />
+                                                    Dispatched
+                                                </span>
+                                            )}
+                                            {(isCompleted || isDelivered) && (
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                                                    <HiOutlineCheckCircle className="text-sm" />
+                                                    {isCompleted ? 'Completed' : 'Delivered'}
+                                                </span>
+                                            )}
+                                            {isCancelled && (
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                                                    <HiOutlineXCircle className="text-sm" />
+                                                    Cancelled
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* Product rows — no inner boxes */}
-                                    <ul className="mt-4">
-                                        {order.lines.map((line, index) => {
+                                    {/* Order Stepper Tracker */}
+                                    <div className="px-5 pt-4 pb-2 border-b border-gray-50 bg-white">
+                                        <OrderProgressStepper status={order.status} />
+                                    </div>
+
+                                    {/* Products Line Items */}
+                                    <div className="px-5 py-4 divide-y divide-gray-100">
+                                        {order.lines.map((line) => {
                                             const product = productsByKey.get(
                                                 productLookupKey(
                                                     line.divisionId,
-                                                    line.sku === '—'
-                                                        ? ''
-                                                        : line.sku,
+                                                    line.sku === '—' ? '' : line.sku,
                                                 ),
                                             )
                                             const image =
-                                                line.productImage ??
-                                                product?.imageUrl
+                                                line.productImage || product?.imageUrl
+
                                             return (
-                                                <li
+                                                <div
                                                     key={line.lineId}
-                                                    className={`flex items-center gap-3 py-2.5 ${
-                                                        index > 0
-                                                            ? 'border-t border-gray-50 dark:border-gray-800'
-                                                            : ''
-                                                    }`}
+                                                    className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0"
                                                 >
                                                     {image ? (
                                                         <img
                                                             src={image}
-                                                            alt={
-                                                                line.productName ??
-                                                                line.name
-                                                            }
-                                                            className="h-14 w-14 shrink-0 rounded-lg bg-gray-50 object-cover"
+                                                            alt={line.productName ?? line.name}
+                                                            className="h-16 w-16 shrink-0 rounded-xl border border-gray-100 bg-gray-50 object-cover shadow-sm"
                                                         />
                                                     ) : (
-                                                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-300 dark:bg-gray-800">
-                                                            <HiOutlineClipboardList
-                                                                className="text-2xl"
-                                                                aria-hidden
-                                                            />
+                                                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-gray-100 bg-gray-50 text-gray-300">
+                                                            <HiOutlineShoppingBag className="text-2xl" />
                                                         </div>
                                                     )}
+
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                            {line.productName ??
-                                                                line.name}
-                                                        </div>
+                                                        <h4 className="truncate text-sm font-semibold text-gray-900">
+                                                            {line.productName ?? line.name}
+                                                        </h4>
                                                         {line.variantName &&
-                                                        line.variantName
-                                                            .trim()
-                                                            .toLowerCase() !==
-                                                            (
-                                                                line.productName ??
-                                                                line.name
-                                                            )
-                                                                .trim()
-                                                                .toLowerCase() ? (
-                                                            <div className="text-xs text-gray-500">
-                                                                {
-                                                                    line.variantName
-                                                                }
-                                                            </div>
-                                                        ) : null}
-                                                        <div className="mt-0.5 font-mono text-xs text-gray-400">
-                                                            {line.sku} ·{' '}
-                                                            {line.quantity} ×{' '}
-                                                            {formatPrice(
-                                                                line.unitPrice,
+                                                            line.variantName.trim().toLowerCase() !==
+                                                                (line.productName ?? line.name)
+                                                                    .trim()
+                                                                    .toLowerCase() && (
+                                                                <span className="inline-block mt-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                                                                    {line.variantName}
+                                                                </span>
                                                             )}
+                                                        <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 font-mono">
+                                                            <span>SKU: {line.sku}</span>
+                                                            <span>·</span>
+                                                            <span>
+                                                                {line.quantity} × {formatPrice(line.unitPrice)}
+                                                            </span>
                                                         </div>
                                                     </div>
-                                                    <div className="shrink-0 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                                        {formatPrice(
-                                                            line.lineTotal,
-                                                        )}
+
+                                                    <div className="text-right">
+                                                        <div className="text-sm font-bold text-gray-900">
+                                                            {formatPrice(line.lineTotal)}
+                                                        </div>
                                                     </div>
-                                                </li>
+                                                </div>
                                             )
                                         })}
-                                    </ul>
+                                    </div>
 
-                                    {/* Order footer: payment, delivery, total */}
-                                    <div className="mt-2 flex flex-col gap-1 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                                        <div className="text-xs text-gray-500">
-                                            {payment ? (
-                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                    <span>
-                                                        Payment:{' '}
-                                                        <span className="font-medium text-gray-900 dark:text-gray-100">
-                                                            {paymentLabel(
-                                                                payment.method,
-                                                            )}
-                                                        </span>
-                                                    </span>
-                                                    {payment.isDemo ? (
-                                                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:bg-gray-800">
-                                                            Demo
-                                                        </span>
-                                                    ) : null}
-                                                    <span>Status:</span>
-                                                    <StatusBadge
-                                                        tone={
-                                                            PAYMENT_TONE[
-                                                                payment.status ??
-                                                                    ''
-                                                            ] ?? 'default'
-                                                        }
-                                                    >
-                                                        {payment.status ?? '—'}
-                                                    </StatusBadge>
-                                                </div>
-                                            ) : null}
-                                            {ship ? (
-                                                <div className="mt-1.5">
-                                                    <span>Deliver to</span>
-                                                    <span className="mt-0.5 block font-medium text-gray-900 dark:text-gray-100">
-                                                        {ship.name}
-                                                    </span>
-                                                    <span className="block">
-                                                        {[
-                                                            ship.line1,
-                                                            ship.city,
-                                                            ship.region,
-                                                            ship.postalCode,
-                                                        ]
-                                                            .filter(Boolean)
-                                                            .join(', ')}
-                                                        {ship.phone
-                                                            ? ` · ${ship.phone}`
-                                                            : ''}
-                                                    </span>
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                        <div className="flex shrink-0 items-baseline justify-between gap-3 sm:flex-col sm:items-end sm:gap-0">
-                                            <div className="text-xs text-gray-500">
-                                                Subtotal{' '}
-                                                {formatPrice(order.subtotal)}
+                                    {/* Order Metadata & Summary Bar */}
+                                    <div className="border-t border-gray-100 bg-gray-50/40 px-5 py-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                                            {/* Delivery Address */}
+                                            <div className="space-y-1">
+                                                <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+                                                    <HiOutlineLocationMarker className="text-emerald-600 text-xs" />
+                                                    Delivery Address
+                                                </span>
+                                                {ship ? (
+                                                    <div>
+                                                        <p className="font-semibold text-gray-900">
+                                                            {ship.name}
+                                                        </p>
+                                                        <p className="text-gray-500 line-clamp-2 leading-relaxed mt-0.5">
+                                                            {[
+                                                                ship.line1,
+                                                                ship.city,
+                                                                ship.region,
+                                                                ship.postalCode,
+                                                            ]
+                                                                .filter(Boolean)
+                                                                .join(', ')}
+                                                        </p>
+                                                        {ship.phone && (
+                                                            <p className="text-gray-400 font-mono mt-0.5">
+                                                                {ship.phone}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-gray-400 italic">
+                                                        Standard fulfillment address
+                                                    </p>
+                                                )}
                                             </div>
-                                            {order.discountAmount > 0 ? (
-                                                <div className="text-xs text-emerald-600 dark:text-emerald-400">
-                                                    Discount (
-                                                    {order.promoCode ?? 'promo'}
-                                                    ) −
-                                                    {formatPrice(
-                                                        order.discountAmount,
-                                                    )}
+
+                                            {/* Payment Information */}
+                                            <div className="space-y-1">
+                                                <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+                                                    <HiOutlineCreditCard className="text-emerald-600 text-xs" />
+                                                    Payment Method
+                                                </span>
+                                                {payment ? (
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-gray-900">
+                                                                {paymentLabel(payment.method)}
+                                                            </span>
+                                                            {payment.isDemo && (
+                                                                <span className="rounded bg-gray-200/70 px-1.5 py-0.2 text-[9px] font-bold uppercase text-gray-500">
+                                                                    Demo
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="mt-1 flex items-center gap-1.5">
+                                                            <span className="text-gray-400">Status:</span>
+                                                            <span
+                                                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                                                    payment.status === 'Paid'
+                                                                        ? 'bg-emerald-100 text-emerald-800'
+                                                                        : 'bg-amber-100 text-amber-800'
+                                                                }`}
+                                                            >
+                                                                {payment.status ?? 'Pending'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-gray-400 italic">
+                                                        Standard payment
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {/* Price Breakdown */}
+                                            <div className="md:text-right space-y-1">
+                                                <div className="flex justify-between md:justify-end gap-3 text-gray-500">
+                                                    <span>Subtotal:</span>
+                                                    <span className="font-medium text-gray-800">
+                                                        {formatPrice(order.subtotal)}
+                                                    </span>
                                                 </div>
-                                            ) : null}
-                                            {order.shipping > 0 ? (
-                                                <div className="text-xs text-gray-500">
-                                                    Delivery{' '}
-                                                    {formatPrice(
-                                                        order.shipping,
-                                                    )}
+                                                {order.discountAmount > 0 && (
+                                                    <div className="flex justify-between md:justify-end gap-3 text-emerald-600">
+                                                        <span>
+                                                            Discount ({order.promoCode ?? 'promo'}):
+                                                        </span>
+                                                        <span className="font-semibold">
+                                                            −{formatPrice(order.discountAmount)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="flex justify-between md:justify-end gap-3 text-gray-500">
+                                                    <span>Delivery Fee:</span>
+                                                    <span className="font-medium text-gray-800">
+                                                        {order.shipping > 0
+                                                            ? formatPrice(order.shipping)
+                                                            : 'FREE'}
+                                                    </span>
                                                 </div>
-                                            ) : null}
-                                            <div className="border-t border-gray-100 pt-1 text-base font-bold text-gray-900 dark:border-gray-700 dark:text-gray-100">
-                                                {formatPrice(order.totalAmount)}
+                                                <div className="flex justify-between md:justify-end gap-3 pt-1 border-t border-gray-200 text-sm font-extrabold text-gray-900">
+                                                    <span>Total:</span>
+                                                    <span className="text-emerald-700 text-base">
+                                                        {formatPrice(order.totalAmount)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions Footer */}
+                                        <div className="mt-4 pt-3.5 border-t border-gray-200/80 flex flex-wrap items-center justify-between gap-3">
+                                            <div className="text-xs text-gray-400">
+                                                {isPending && !order.customerCancel?.canCancel && (
+                                                    <span className="flex items-center gap-1 text-gray-400">
+                                                        <HiOutlineExclamationCircle className="text-amber-500 text-sm" />
+                                                        Processing in warehouse · Cannot be cancelled
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2.5 ml-auto">
+                                                {order.customerCancel?.canCancel && (
+                                                    <Button
+                                                        size="xs"
+                                                        variant="plain"
+                                                        className="!text-rose-600 hover:!bg-rose-50 !rounded-lg px-2.5 font-semibold"
+                                                        onClick={() => {
+                                                            setCancelOrder(order)
+                                                            setCancelReason(CUSTOMER_CANCEL_REASONS[0])
+                                                            setCancelError(null)
+                                                        }}
+                                                    >
+                                                        Cancel order
+                                                    </Button>
+                                                )}
+
+                                                {isCompleted && sessionToken && (
+                                                    <Button
+                                                        size="xs"
+                                                        variant="default"
+                                                        className="!rounded-lg !border-emerald-600 !text-emerald-700 hover:!bg-emerald-50 font-semibold"
+                                                        onClick={() => {
+                                                            setReturnMessage(null)
+                                                            setReturnOrder(order)
+                                                        }}
+                                                    >
+                                                        Return items
+                                                    </Button>
+                                                )}
+
+                                                <Link
+                                                    href={MARKETPLACE_PATH}
+                                                    className="inline-flex items-center gap-1 rounded-lg bg-gray-100 hover:bg-gray-200/80 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors"
+                                                >
+                                                    Buy Again &rarr;
+                                                </Link>
                                             </div>
                                         </div>
                                     </div>
+                                </article>
+                            )
+                        })}
+                    </div>
+                )}
+            </main>
 
-                                    {order.customerCancel?.canCancel ? (
-                                        <div className="mt-3 flex items-center justify-end border-t border-gray-100 pt-3 dark:border-gray-700">
-                                            <Button
-                                                size="xs"
-                                                variant="plain"
-                                                className="!px-0 !text-red-600 hover:underline dark:!text-red-400"
-                                                onClick={() => {
-                                                    setCancelOrder(order)
-                                                    setCancelReason(
-                                                        CUSTOMER_CANCEL_REASONS[0],
-                                                    )
-                                                    setCancelError(null)
-                                                }}
-                                            >
-                                                Cancel order
-                                            </Button>
-                                        </div>
-                                    ) : order.status === 'Pending Delivery' ? (
-                                        <div className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-400 dark:border-gray-700">
-                                            This order can no longer be
-                                            cancelled because it is already
-                                            being processed.
-                                        </div>
-                                    ) : null}
-
-                                    {order.status === 'Completed' &&
-                                    sessionToken ? (
-                                        <div className="mt-3 flex items-center justify-end">
-                                            <Button
-                                                size="xs"
-                                                variant="plain"
-                                                className="!px-0 !text-emerald-700 dark:!text-emerald-400"
-                                                onClick={() => {
-                                                    setReturnMessage(null)
-                                                    setReturnOrder(order)
-                                                }}
-                                            >
-                                                Return items
-                                            </Button>
-                                        </div>
-                                    ) : null}
-                                </Card>
-                            </li>
-                        )
-                    })}
-                </ul>
-            )}
-
-            {cancelOrder ? (
+            {/* Cancel Confirmation Dialog */}
+            {cancelOrder && (
                 <ConfirmDialog
                     isOpen={cancelOrder !== null}
-                    type="warning"
-                    title="Are you sure you want to cancel this order?"
-                    confirmText={cancelling ? 'Cancelling…' : 'Cancel order'}
-                    cancelText="Keep order"
+                    type="danger"
+                    title="Cancel Sales Order"
+                    confirmText={cancelling ? 'Cancelling...' : 'Confirm Cancellation'}
+                    cancelText="Keep Order"
                     confirmButtonProps={{
                         customColorClass: () =>
-                            'bg-red-500 hover:bg-red-600 text-white',
+                            'bg-rose-600 hover:bg-rose-700 text-white font-semibold',
                     }}
                     onClose={() => {
                         setCancelOrder(null)
@@ -644,55 +943,51 @@ const MarketplaceOrdersPage = () => {
                     }}
                     onConfirm={() => void submitCancellation()}
                 >
-                    <div className="flex flex-col gap-3 text-sm">
+                    <div className="space-y-4 text-sm text-gray-600">
                         <p>
-                            {cancelOrder.orderId} will be cancelled and its
-                            reserved stock released back for other buyers. This
-                            cannot be undone from the storefront.
+                            Are you sure you want to cancel order{' '}
+                            <strong className="text-gray-900 font-mono">
+                                #{cancelOrder.orderId}
+                            </strong>
+                            ? Reserved warehouse items will be returned to available inventory.
                         </p>
-                        {cancelError ? (
-                            <Alert showIcon type="danger">
-                                {cancelError}
-                            </Alert>
-                        ) : null}
-                        <FormItem label="Reason (optional)">
+                        <FormItem label="Reason for cancellation">
                             <Select
-                                isSearchable={false}
+                                value={cancelReasonOptions.find(
+                                    (o) => o.value === cancelReason,
+                                )}
                                 options={cancelReasonOptions}
-                                value={
-                                    cancelReasonOptions.find(
-                                        (option) =>
-                                            option.value === cancelReason,
-                                    ) ?? null
-                                }
                                 onChange={(option) =>
-                                    setCancelReason(
-                                        option?.value ??
-                                            CUSTOMER_CANCEL_REASONS[0],
-                                    )
+                                    setCancelReason(option?.value ?? '')
                                 }
                             />
                         </FormItem>
+                        {cancelError && (
+                            <Alert type="danger" showIcon>
+                                {cancelError}
+                            </Alert>
+                        )}
                     </div>
                 </ConfirmDialog>
-            ) : null}
+            )}
 
-            {returnOrder ? (
+            {/* Return Request Dialog */}
+            {returnOrder && sessionToken && (
                 <StorefrontReturnDialog
-                    isOpen={returnOrder !== null}
                     order={returnOrder}
-                    token={sessionToken ?? ''}
+                    token={sessionToken}
+                    isOpen={returnOrder !== null}
                     onClose={() => setReturnOrder(null)}
+                    onError={(msg) => setError(msg)}
                     onSubmitted={(requestNumber) => {
                         setReturnOrder(null)
                         setReturnMessage(
-                            `Return request ${requestNumber} submitted — it will be reviewed before processing.`,
+                            `Return request ${requestNumber} submitted for order ${returnOrder.orderId}.`,
                         )
                         void load()
                     }}
-                    onError={() => setReturnMessage(null)}
                 />
-            ) : null}
+            )}
         </div>
     )
 }

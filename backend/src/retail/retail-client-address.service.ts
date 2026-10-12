@@ -72,11 +72,73 @@ export class RetailClientAddressService {
     constructor(private readonly prisma: PrismaService) {}
 
     async list(clientId: string) {
-        return this.prisma.retailClientAddress.findMany({
+        const addresses = await this.prisma.retailClientAddress.findMany({
             where: { clientId },
             select: ADDRESS_SELECT,
             orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
         })
+        if (addresses.length > 0) {
+            return addresses
+        }
+
+        // Auto-heal / sync from RetailClient profile address if client has one saved
+        const client = await this.prisma.retailClient.findUnique({
+            where: { id: clientId },
+            select: {
+                addressLine1: true,
+                city: true,
+                region: true,
+                postalCode: true,
+                country: true,
+            },
+        })
+
+        const hasProfileAddress =
+            Boolean(client?.addressLine1?.trim()) ||
+            Boolean(client?.city?.trim()) ||
+            Boolean(client?.region?.trim())
+
+        if (client && hasProfileAddress) {
+            const formatted = [
+                client.addressLine1?.trim(),
+                client.city?.trim(),
+                client.region?.trim(),
+                client.postalCode?.trim(),
+                client.country?.trim() || 'PH',
+            ]
+                .filter(Boolean)
+                .join(', ')
+
+            const coords = this.resolveCoordinates(client.city, client.region)
+
+            try {
+                const created = await this.prisma.retailClientAddress.create({
+                    data: {
+                        clientId,
+                        addressType: 'HOME',
+                        formattedAddress: formatted || null,
+                        addressLine: client.addressLine1?.trim() || null,
+                        cityOrMunicipality: client.city?.trim() || null,
+                        provinceOrState: client.region?.trim() || null,
+                        postalCode: client.postalCode?.trim() || null,
+                        country: client.country?.trim() || 'PH',
+                        latitude: coords.latitude,
+                        longitude: coords.longitude,
+                        isDefault: true,
+                    },
+                    select: ADDRESS_SELECT,
+                })
+                return [created]
+            } catch {
+                return this.prisma.retailClientAddress.findMany({
+                    where: { clientId },
+                    select: ADDRESS_SELECT,
+                    orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+                })
+            }
+        }
+
+        return []
     }
 
     async findOne(clientId: string, addressId: string) {
@@ -96,7 +158,7 @@ export class RetailClientAddressService {
                     data: { isDefault: false },
                 })
             }
-            return tx.retailClientAddress.create({
+            const created = await tx.retailClientAddress.create({
                 data: {
                     clientId,
                     addressType: input.addressType,
@@ -107,6 +169,17 @@ export class RetailClientAddressService {
                 },
                 select: ADDRESS_SELECT,
             })
+            if (makeDefault) {
+                await this.syncProfileDefaultAddress(tx, clientId, {
+                    addressLine: input.addressLine,
+                    formattedAddress: input.formattedAddress,
+                    cityOrMunicipality: input.cityOrMunicipality,
+                    provinceOrState: input.provinceOrState,
+                    postalCode: input.postalCode,
+                    country: input.country,
+                })
+            }
+            return created
         })
     }
 
@@ -130,7 +203,7 @@ export class RetailClientAddressService {
             }
             // A default cannot be unset through edit: use another address as
             // the default, or delete it (which promotes the oldest remaining).
-            return tx.retailClientAddress.update({
+            const updated = await tx.retailClientAddress.update({
                 where: { id: address.id },
                 data: {
                     ...addressData(input),
@@ -138,6 +211,17 @@ export class RetailClientAddressService {
                 },
                 select: ADDRESS_SELECT,
             })
+            if (input.isDefault === true || address.isDefault) {
+                await this.syncProfileDefaultAddress(tx, clientId, {
+                    addressLine: updated.addressLine,
+                    formattedAddress: updated.formattedAddress,
+                    cityOrMunicipality: updated.cityOrMunicipality,
+                    provinceOrState: updated.provinceOrState,
+                    postalCode: updated.postalCode,
+                    country: updated.country,
+                })
+            }
+            return updated
         })
     }
 
@@ -154,10 +238,29 @@ export class RetailClientAddressService {
                     orderBy: { createdAt: 'asc' },
                 })
                 if (replacement) {
-                    await tx.retailClientAddress.update({
+                    const nextDefault = await tx.retailClientAddress.update({
                         where: { id: replacement.id },
                         data: { isDefault: true },
+                        select: ADDRESS_SELECT,
                     })
+                    await this.syncProfileDefaultAddress(tx, clientId, {
+                        addressLine: nextDefault.addressLine,
+                        formattedAddress: nextDefault.formattedAddress,
+                        cityOrMunicipality: nextDefault.cityOrMunicipality,
+                        provinceOrState: nextDefault.provinceOrState,
+                        postalCode: nextDefault.postalCode,
+                        country: nextDefault.country,
+                    })
+                } else {
+                    await tx.retailClient.update({
+                        where: { id: clientId },
+                        data: {
+                            addressLine1: '',
+                            city: '',
+                            region: '',
+                            postalCode: '',
+                        },
+                    }).catch(() => {})
                 }
             }
         })
@@ -171,12 +274,61 @@ export class RetailClientAddressService {
                 where: { clientId, isDefault: true, NOT: { id: address.id } },
                 data: { isDefault: false },
             })
-            return tx.retailClientAddress.update({
+            const updated = await tx.retailClientAddress.update({
                 where: { id: address.id },
                 data: { isDefault: true },
                 select: ADDRESS_SELECT,
             })
+            await this.syncProfileDefaultAddress(tx, clientId, {
+                addressLine: updated.addressLine,
+                formattedAddress: updated.formattedAddress,
+                cityOrMunicipality: updated.cityOrMunicipality,
+                provinceOrState: updated.provinceOrState,
+                postalCode: updated.postalCode,
+                country: updated.country,
+            })
+            return updated
         })
+    }
+
+    private resolveCoordinates(city?: string | null, region?: string | null) {
+        const text = `${city ?? ''} ${region ?? ''}`.toLowerCase()
+        if (text.includes('davao')) return { latitude: 7.0731, longitude: 125.6128 }
+        if (text.includes('cebu')) return { latitude: 10.3157, longitude: 123.8854 }
+        if (text.includes('cagayan de oro') || text.includes('cdo'))
+            return { latitude: 8.4542, longitude: 124.6319 }
+        if (text.includes('iloilo')) return { latitude: 10.7202, longitude: 122.5621 }
+        if (text.includes('baguio')) return { latitude: 16.4023, longitude: 120.596 }
+        if (text.includes('zamboanga')) return { latitude: 6.9214, longitude: 122.079 }
+        if (text.includes('general santos') || text.includes('gensan'))
+            return { latitude: 6.1164, longitude: 125.1716 }
+        return { latitude: 14.5995, longitude: 120.9842 }
+    }
+
+    private async syncProfileDefaultAddress(
+        tx: Tx,
+        clientId: string,
+        data: {
+            addressLine?: string | null
+            formattedAddress?: string | null
+            cityOrMunicipality?: string | null
+            provinceOrState?: string | null
+            postalCode?: string | null
+            country?: string | null
+        },
+    ) {
+        const addressLine1 =
+            data.addressLine?.trim() || data.formattedAddress?.trim() || ''
+        await tx.retailClient.update({
+            where: { id: clientId },
+            data: {
+                addressLine1,
+                city: data.cityOrMunicipality?.trim() ?? '',
+                region: data.provinceOrState?.trim() ?? '',
+                postalCode: data.postalCode?.trim() ?? '',
+                country: data.country?.trim() || 'PH',
+            },
+        }).catch(() => {})
     }
 
     private async findOwnedOrThrow(

@@ -5,8 +5,11 @@ import { HiOutlineShoppingCart } from 'react-icons/hi'
 import MarketplaceHeader from '@/modules/storefront/marketplace/components/MarketplaceHeader'
 import { CART_PATH } from '@/modules/storefront/marketplace/host'
 
+import MarketplaceNotificationBell from '@/modules/storefront/marketplace/components/MarketplaceNotificationBell'
+
 export { MarketplaceHeader as default }
 export { MarketplaceHeader as Navbar }
+export { MarketplaceNotificationBell, MarketplaceNotificationBell as NotificationNavIcon }
 
 /** Standalone Cart link helper for navbars */
 export const CartNavIcon = ({ itemCount = 0 }: { itemCount?: number }) => (
@@ -23,3 +26,4 @@ export const CartNavIcon = ({ itemCount = 0 }: { itemCount?: number }) => (
         )}
     </Link>
 )
+

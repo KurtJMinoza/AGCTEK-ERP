@@ -1472,6 +1472,11 @@ export class SalesOrderService {
         // stock rises again; on-hand is untouched) and cancels planning
         // demand. The consumer is idempotent per order.
         const updated = await this.findOne(order.id)
+        await this.createOrderNotification(
+            updated,
+            'Order Cancelled',
+            `Your order #${updated.orderNumber} has been cancelled.`,
+        )
         if (this.mmPipeline.isMmLinked(updated)) {
             await this.sdEvents.emit(
                 SD_EVENTS.SALES_ORDER_CANCELLED,
@@ -1731,6 +1736,12 @@ export class SalesOrderService {
             include: this.includes,
         })
 
+        await this.createOrderNotification(
+            updated,
+            'Order Approved',
+            `Your order #${updated.orderNumber} has been approved and is preparing for delivery.`,
+        )
+
         await this.emitFulfillmentIfEligible(updated)
         return updated
     }
@@ -1924,6 +1935,12 @@ export class SalesOrderService {
             include: this.includes,
         })
 
+        await this.createOrderNotification(
+            updated,
+            'Order Cancelled',
+            `Your order #${updated.orderNumber} has been cancelled.`,
+        )
+
         if (this.mmPipeline.isMmLinked(updated)) {
             await this.sdEvents.emit(
                 SD_EVENTS.SALES_ORDER_CANCELLED,
@@ -2076,4 +2093,58 @@ export class SalesOrderService {
             ? number
             : `${number}-${randomUUID().slice(0, 4).toUpperCase()}`
     }
+
+    private async createOrderNotification(
+        order: {
+            orderNumber: string
+            customerId?: string | null
+            createdBy?: string | null
+            customerEmail?: string | null
+        },
+        title: string,
+        message: string,
+    ) {
+        try {
+            let userId: string | null = null
+            if (order.customerId) {
+                const userById = await this.prisma.user.findUnique({
+                    where: { id: order.customerId },
+                    select: { id: true },
+                })
+                if (userById) userId = userById.id
+            }
+            if (!userId && order.customerEmail) {
+                const userByEmail = await this.prisma.user.findUnique({
+                    where: { email: order.customerEmail },
+                    select: { id: true },
+                })
+                if (userByEmail) userId = userByEmail.id
+            }
+            if (!userId && order.createdBy) {
+                const userByCreated = await this.prisma.user.findUnique({
+                    where: { id: order.createdBy },
+                    select: { id: true },
+                })
+                if (userByCreated) userId = userByCreated.id
+            }
+
+            if (this.prisma.notification) {
+                await this.prisma.notification.create({
+                    data: {
+                        userId,
+                        title,
+                        message,
+                        target: order.customerId || order.orderNumber,
+                        description: message,
+                        status: 'UNREAD',
+                        isRead: false,
+                        readed: false,
+                    },
+                })
+            }
+        } catch (err) {
+            // Notification creation is best-effort and non-blocking for order state changes
+        }
+    }
 }
+
