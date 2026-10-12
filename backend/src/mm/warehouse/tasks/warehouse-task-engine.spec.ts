@@ -127,33 +127,20 @@ describe('Warehouse Task Engine', () => {
         updatedAt: new Date(),
     }
 
-    it('1. creates putaway task from GR with legacy bridge', async () => {
+    it('1. putaway task creation from GR is disabled (stock in receipt bin)', async () => {
         mockPrisma.warehouse.findUnique.mockResolvedValue({ id: 'wh1', companyId: 'co1', plantId: 'pl1' })
-        mockPrisma.wmWarehouseTask.findFirst.mockResolvedValueOnce(null)
-        mockPrisma.wmWarehouseTask.create.mockResolvedValue({
-            ...baseTask,
-            destinationBinId: 'bin-rec',
-        })
-        mockPrisma.wmPutawayTask.findFirst.mockResolvedValue(null)
-        mockPrisma.wmPutawayTask.create.mockResolvedValue({
-            id: 'pa1',
-            taskNumber: 'PA-000001',
-            warehouseTaskId: 'wt1',
-            status: 'PENDING',
-        })
 
-        const result = await putawayService.createFromGoodsReceiptLine({
-            companyId: 'co1',
-            warehouseId: 'wh1',
-            goodsReceiptId: 'gr1',
-            goodsReceiptLineId: 'grl1',
-            materialId: 'mat1',
-            quantity: 100,
-            uomId: 'uom1',
-        })
-
-        expect(result.warehouseTaskId).toBe('wt1')
-        expect(mockPrisma.wmPutawayTask.create).toHaveBeenCalled()
+        await expect(
+            putawayService.createFromGoodsReceiptLine({
+                companyId: 'co1',
+                warehouseId: 'wh1',
+                goodsReceiptId: 'gr1',
+                goodsReceiptLineId: 'grl1',
+                materialId: 'mat1',
+                quantity: 100,
+                uomId: 'uom1',
+            }),
+        ).rejects.toThrow('Putaway is disabled; stock is available in the receipt bin after goods receipt.')
     })
 
     it('2. partial putaway → PARTIALLY_COMPLETED', async () => {

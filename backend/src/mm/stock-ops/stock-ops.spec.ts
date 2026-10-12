@@ -17,8 +17,8 @@ import { PutawayService } from '../warehouse/putaway/putaway.service'
 import { QualityInspectionService } from '../inbound/quality-inspection.service'
 import { StockTransferOrderService } from '../stock-transfer/stock-transfer-order.service'
 import { InspectionLotService } from '../receiving/inspection-lot.service'
-import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
+import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 let seq = 0
@@ -244,6 +244,29 @@ beforeEach(async () => {
                     allocate: jest.fn(),
                     dispatch: jest.fn(),
                     cancel: jest.fn(),
+                },
+            },
+            {
+                provide: InspectionLotLifecycleService,
+                useValue: {
+                    cancelOpenLotsForGr: jest.fn().mockResolvedValue(0),
+                    start: jest.fn(),
+                    complete: jest.fn(),
+                },
+            },
+            {
+                provide: ReservationEngineService,
+                useValue: {
+                    fulfillReservationLine: jest.fn(),
+                    restoreReservationLine: jest.fn(),
+                    createReservation: jest.fn(),
+                    fulfill: jest.fn(),
+                },
+            },
+            {
+                provide: MmPostingPeriodGuard,
+                useValue: {
+                    assertCanPost: jest.fn().mockResolvedValue(undefined),
                 },
             },
         ],

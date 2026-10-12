@@ -3,6 +3,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing'
 import { BadRequestException } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../../inventory/inventory-availability.service'
@@ -370,6 +371,7 @@ describe('Production ↔ MM Integration (Phase 3C)', () => {
                     },
                 },
                 { provide: PrismaService, useValue: mockPrisma },
+                { provide: EventEmitter2, useValue: { emit: jest.fn() } },
                 { provide: MmDomainEventsService, useValue: domainEvents },
                 { provide: PickingService, useValue: { create: jest.fn() } },
                 {
@@ -461,6 +463,7 @@ describe('Production ↔ MM Integration (Phase 3C)', () => {
                         mmInventoryBalance: { findFirst: jest.fn(), findMany: jest.fn() },
                     },
                 },
+                { provide: EventEmitter2, useValue: { emit: jest.fn() } },
                 { provide: MmDomainEventsService, useValue: domainEvents },
                 { provide: PickingService, useValue: { create: jest.fn() } },
                 {

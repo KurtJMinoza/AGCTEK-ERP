@@ -296,7 +296,7 @@ export class ScannerEventService {
             )
         }
 
-        let warehouseId = dto.warehouseId
+        const warehouseId = dto.warehouseId
             ? (
                   await this.resolveService.resolveWarehouse(
                       dto.warehouseId,

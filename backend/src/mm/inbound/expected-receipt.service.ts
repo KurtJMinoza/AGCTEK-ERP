@@ -56,7 +56,7 @@ export class ExpectedReceiptService {
     async createAsn(dto: CreateAsnDto) {
         if (!dto.lines?.length) throw new BadRequestException('ASN requires lines')
 
-        let poLineByMaterial = new Map<string, string>()
+        const poLineByMaterial = new Map<string, string>()
         if (dto.purchaseOrderId) {
             const po = await this.prisma.mmPurchaseOrder.findUnique({
                 where: { id: dto.purchaseOrderId },

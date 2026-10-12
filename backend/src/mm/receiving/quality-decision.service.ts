@@ -257,6 +257,20 @@ export class QualityDecisionService {
                     supplierId: gr.supplierId,
                 },
             })
+            void this.domainEvents.emit({
+                eventType: MM_DOMAIN_EVENTS.PUTAWAY_REQUESTED,
+                companyId: gr.companyId,
+                sourceModule: 'QUALITY',
+                documentType: 'INSPECTION_LOT',
+                documentId: lot.id,
+                occurredAt: new Date().toISOString(),
+                payload: {
+                    goodsReceiptId: gr.id,
+                    goodsReceiptLineId: grLine.id,
+                    materialId: grLine.materialId,
+                    quantity: Number(qty),
+                },
+            })
         }
 
         if (['BLOCK', 'RETURN', 'REWORK'].includes(code)) {

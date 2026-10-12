@@ -47,7 +47,7 @@ export class WarehouseTaskService {
         if (!warehouse) throw new NotFoundException('Warehouse not found')
 
         const taskNumber = await this.nextTaskNumber()
-        let destinationBinId = dto.destinationBinId ?? null
+        const destinationBinId = dto.destinationBinId ?? null
         const metadata = (dto.metadata ?? {}) as Record<string, unknown>
 
         if (dto.taskType === 'PUTAWAY') {

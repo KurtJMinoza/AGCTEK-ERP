@@ -25,6 +25,7 @@ import {
 } from 'class-validator'
 import { Type } from 'class-transformer'
 import { ReturnRequestService } from './return-request.service'
+import { RequirePermission } from '../permissions/permission.guard'
 
 export class ReturnRequestLineDto {
     @IsString()
@@ -96,6 +97,7 @@ export class ReturnRequestController {
 
     /** Strictly company-scoped list. */
     @Get()
+    @RequirePermission('sd.sales-orders', 'read')
     list(@Query('companyId') companyId?: string) {
         if (!companyId) {
             throw new BadRequestException('companyId is required')
@@ -104,12 +106,14 @@ export class ReturnRequestController {
     }
 
     @Post()
+    @RequirePermission('sd.sales-orders', 'create')
     create(@Body() dto: CreateReturnRequestDto) {
         return this.returns.create(dto)
     }
 
     /** Multipart upload (field `file`); returns `{ imageUrl }` to attach as return evidence. */
     @Post('photos')
+    @RequirePermission('sd.sales-orders', 'create')
     async uploadPhoto(@Req() req: FastifyRequest) {
         let buffer: Buffer | null = null
         for await (const part of req.parts({
@@ -124,6 +128,7 @@ export class ReturnRequestController {
     }
 
     @Post(':id/approve')
+    @RequirePermission('sd.sales-orders', 'update')
     approve(@Param('id') id: string, @Body() dto: ApproveReturnRequestDto) {
         return this.returns.approve(id, dto.companyId, dto.approvedBy)
     }

@@ -17,6 +17,9 @@ describe('UomConversionsService', () => {
             mmMaterial: {
                 findFirst: jest.fn(),
             },
+            mmUom: {
+                findUnique: jest.fn().mockResolvedValue(null),
+            },
         }
         service = new UomConversionsService(prisma)
     })

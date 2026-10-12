@@ -22,8 +22,7 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         mmMaterialAudit: { create: jest.fn() },
         mmBatch: { count: jest.fn() },
         mmSerialNumber: { count: jest.fn() },
-        mmBarcode: { count: jest.fn() },
-        mmCurrency: { findFirst: jest.fn() },
+        mmCurrency: { findFirst: jest.fn().mockResolvedValue({ id: 'cur-php', code: 'PHP' }) },
     }
     const availability = {
         getCompanyMaterialTotalsBatch: jest.fn(),

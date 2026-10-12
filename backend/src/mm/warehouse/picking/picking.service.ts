@@ -280,7 +280,7 @@ export class PickingService {
         let sourceBinId = dto.sourceBinId
         let batchId = dto.batchId ?? null
         let serialId = dto.serialId ?? null
-        let reservationId = dto.reservationId ?? null
+        const reservationId = dto.reservationId ?? null
         let sourceDocument = dto.sourceDocument ?? null
         let uomId = dto.uomId ?? null
 

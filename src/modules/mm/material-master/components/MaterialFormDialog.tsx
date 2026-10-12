@@ -719,7 +719,6 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
-            storageBinId: values.storageBinId || undefined,
         }
         await onSubmit(payload)
         clearMaterialFormDraft()

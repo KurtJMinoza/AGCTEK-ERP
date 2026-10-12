@@ -211,7 +211,7 @@ const AdjustStockDialog = ({
             onRequestClose={handleClose}
             title="Adjust stock"
             description={`Post a manual stock adjustment for ${material.materialCode} — ${material.materialName ?? material.description ?? ''}. This writes an Inventory Adjustment through the MM ledger (only posted transactions affect on-hand).`}
-            footerContent={
+            footer={
                 <div className="flex w-full gap-2">
                     <Button
                         block

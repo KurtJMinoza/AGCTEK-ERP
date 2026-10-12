@@ -4,6 +4,7 @@ import { PurchaseOrderService } from '../purchase-order/purchase-order.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { WorkflowService } from '../workflow/workflow.service'
 import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 describe('PO supplier usability gate', () => {
     let service: PurchaseOrderService
@@ -34,6 +35,7 @@ describe('PO supplier usability gate', () => {
                         cancelCommitment: jest.fn(),
                     },
                 },
+                { provide: DocumentFlowService, useValue: {} },
             ],
         }).compile()
         service = module.get(PurchaseOrderService)
