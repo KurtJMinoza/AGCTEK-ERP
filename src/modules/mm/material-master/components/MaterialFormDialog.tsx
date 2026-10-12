@@ -33,6 +33,8 @@ import {
     getConvertibleUomIds,
 } from '@/modules/mm/shared/uomHelpers'
 import StockThresholdSummary from './StockThresholdSummary'
+import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
+import type { StorageBin } from '@/modules/mm/warehouse/types'
 import type { Material, CreateMaterialPayload } from '../types'
 import type { ReactNode } from 'react'
 
@@ -86,6 +88,7 @@ const baseMaterialSchema = z
         companyId: z.string().optional().or(z.literal('')),
         defaultWarehouseId: z.string().optional().or(z.literal('')),
         preferredSupplierId: z.string().optional().or(z.literal('')),
+        storageBinId: z.string().optional().or(z.literal('')),
     })
     .refine((d) => d.maximumStock === 0 || d.maximumStock >= d.minimumStock, {
         path: ['maximumStock'],
@@ -158,6 +161,7 @@ const blankValues: FormShape = {
     companyId: '',
     defaultWarehouseId: '',
     preferredSupplierId: '',
+    storageBinId: '',
 }
 
 function toFormValues(material?: Material | null): FormShape {
@@ -211,6 +215,7 @@ function toFormValues(material?: Material | null): FormShape {
         companyId: material.companyId ?? '',
         defaultWarehouseId: material.defaultWarehouseId ?? '',
         preferredSupplierId: material.preferredSupplierId ?? '',
+        storageBinId: '',
     }
 }
 
@@ -378,6 +383,128 @@ const PhysicalSummary = ({
     )
 }
 
+/**
+ * Storage-bin picker for opening stock. Shows LIVE occupancy per bin
+ * (free / capacity / utilisation) and validates in real time that the
+ * entered on-hand fits the selected bin's remaining capacity.
+ */
+const BinStockSelector = ({
+    warehouseId,
+    onHandQty,
+    value,
+    onChange,
+}: {
+    warehouseId: string
+    onHandQty: number
+    value: string
+    onChange: (binId: string) => void
+}) => {
+    const [bins, setBins] = useState<StorageBin[]>([])
+    const [loading, setLoading] = useState(false)
+    const [loadError, setLoadError] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!warehouseId) {
+            setBins([])
+            setLoadError(null)
+            return
+        }
+        let cancelled = false
+        setLoading(true)
+        setLoadError(null)
+        storageBinService
+            .listWithOccupancy({ warehouseId, limit: 200 })
+            .then((rows) => {
+                if (!cancelled) setBins(rows)
+            })
+            .catch(() => {
+                if (!cancelled) setLoadError('Unable to load storage bins')
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [warehouseId])
+
+    const selected = bins.find((b) => b.id === value) ?? null
+    const capacity = Number(selected?.capacityQuantity ?? 0)
+    const current =
+        Number(selected?.currentQuantity ?? 0) +
+        (selected && value ? 0 : 0)
+    const free = Number(selected?.remainingQuantity ?? 0)
+    const utilization = Number(selected?.utilizationPct ?? 0)
+    const exceedsCapacity = Boolean(
+        selected && capacity > 0 && onHandQty > free,
+    )
+
+    const optionLabel = (b: StorageBin) => {
+        const cap = Number(b.capacityQuantity ?? 0)
+        const rem = Number(b.remainingQuantity ?? 0)
+        const used = Number(b.utilizationPct ?? 0)
+        return `${b.code} — Free ${rem} / Cap ${cap} (${used}% used)`
+    }
+
+    return (
+        <div className="space-y-2">
+            <Select
+                isLoading={loading}
+                placeholder="Select a storage bin (auto if empty)"
+                options={bins
+                    .filter(
+                        (b) =>
+                            b.status === 'ACTIVE' &&
+                            (b.pickingAllowed || b.putawayAllowed),
+                    )
+                    .map((b) => ({
+                        value: b.id,
+                        label: optionLabel(b),
+                    }))}
+                value={
+                    selected
+                        ? { value: selected.id, label: optionLabel(selected) }
+                        : null
+                }
+                onChange={(opt) =>
+                    onChange((opt as { value?: string })?.value ?? '')
+                }
+            />
+            {selected ? (
+                <div
+                    className={`flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs ${
+                        exceedsCapacity
+                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'
+                            : utilization >= 90
+                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                    }`}
+                >
+                    <span>
+                        {selected.code} · used {current} · free {free} of{' '}
+                        {capacity}
+                    </span>
+                    <span className="font-semibold tabular-nums">
+                        {utilization}%
+                    </span>
+                </div>
+            ) : null}
+            {exceedsCapacity ? (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                    Bin is full — free space is {free}, but on hand is{' '}
+                    {onHandQty}. Choose another bin or reduce the on-hand
+                    quantity.
+                </p>
+            ) : null}
+            {loadError ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {loadError}
+                </p>
+            ) : null}
+        </div>
+    )
+}
+
 const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmit }: MaterialFormDialogProps) => {
     const [tab, setTab] = useState('general')
     const [skuMode, setSkuMode] = useState<SkuMode>('auto')
@@ -436,6 +563,8 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const reservedWatch = useWatch({ control, name: 'reservedQty' }) ?? 0
     const maximumStockWatch = useWatch({ control, name: 'maximumStock' }) ?? 0
     const safetyStockWatch = useWatch({ control, name: 'safetyStock' }) ?? 0
+    const defaultWarehouseWatch =
+        useWatch({ control, name: 'defaultWarehouseId' }) ?? ''
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
     const purchaseUomId = useWatch({ control, name: 'purchaseUomId' }) ?? ''
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
@@ -590,6 +719,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
+            storageBinId: values.storageBinId || undefined,
         }
         await onSubmit(payload)
         clearMaterialFormDraft()
@@ -963,6 +1093,31 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                 </FormItem>
                             }
                         />
+                        {Number(onHandWatch) > 0 && defaultWarehouseWatch ? (
+                            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-600 dark:bg-gray-800/40">
+                                <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                                    Storage bin (opening stock destination)
+                                </p>
+                                <Controller
+                                    name="storageBinId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <BinStockSelector
+                                            warehouseId={defaultWarehouseWatch}
+                                            onHandQty={Number(onHandWatch)}
+                                            value={field.value ?? ''}
+                                            onChange={field.onChange}
+                                        />
+                                    )}
+                                />
+                                <p className="mt-2 text-[11px] text-gray-400">
+                                    Leave empty to auto-assign the first bin with
+                                    free capacity. If a bin is full, the on-hand
+                                    quantity is rejected until you choose another
+                                    bin or lower it.
+                                </p>
+                            </div>
+                        ) : null}
                     </TabPanel>
 
                     {/* VALUATION */}

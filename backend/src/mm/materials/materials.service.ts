@@ -438,13 +438,15 @@ export class MaterialsService {
                   }))?.id ?? null)
 
         const data = {
-            ...(dto as Prisma.MmMaterialUncheckedCreateInput),
+            ...(dto as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
             materialCode,
             sku,
             status,
             currencyId,
             onHandQty: new Decimal(0),
             reservedQty: new Decimal(0),
+            // storageBinId is a posting target, not a Material Master column.
+            storageBinId: undefined,
         }
 
         const deletedMaterial = deletedByCode ?? deletedBySku
@@ -476,6 +478,7 @@ export class MaterialsService {
                         material.defaultWarehouseId ??
                         dto.defaultWarehouseId ??
                         null,
+                    storageBinId: dto.storageBinId ?? null,
                     createdBy: 'material-form',
                 })
             }
@@ -561,8 +564,10 @@ export class MaterialsService {
             dto.onHandQty !== undefined ? Number(dto.onHandQty) : undefined
         const targetReserved =
             dto.reservedQty !== undefined ? Number(dto.reservedQty) : undefined
+        const targetStorageBinId = dto.storageBinId ?? null
         delete (dto as any).onHandQty
         delete (dto as any).reservedQty
+        delete (dto as any).storageBinId
 
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
@@ -584,6 +589,7 @@ export class MaterialsService {
                     (dto.defaultWarehouseId ??
                         existing.defaultWarehouseId ??
                         null) as string | null,
+                storageBinId: targetStorageBinId,
                 createdBy: 'material-form',
             })
         }
@@ -749,6 +755,7 @@ export class MaterialsService {
         currentlyOnHand: number
         companyId?: string | null
         warehouseId?: string | null
+        storageBinId?: string | null
         createdBy?: string | null
     }) {
         const delta = new Decimal(args.onHandQty)
@@ -760,43 +767,83 @@ export class MaterialsService {
                 'Opening stock requires the material to have a Company and a Default warehouse. Save those first, then set On hand.',
             )
         }
-        // Opening/adjustment stock must land on a storage bin so Product
-        // Catalog ATP (which only counts bin-scoped balances) sees it. For a
-        // positive delta pick the default active pick/putaway bin without an
-        // existing balance (fallback: any active bin, then warehouse-level);
-        // for a removal, post OUT from the bin currently holding the balance.
-        const binWhere = {
-            status: 'ACTIVE',
-            deletedAt: null,
-            OR: [{ pickingAllowed: true }, { putawayAllowed: true }],
-            storageSection: { storageType: { warehouseId: args.warehouseId } },
-        }
-        const holders = delta < 0
-            ? await this.prisma.mmInventoryBalance.findMany({
-                  where: { companyId: args.companyId, warehouseId: args.warehouseId, materialId: args.materialId, quantity: { gt: 0 } },
-                  select: { storageBinId: true },
-              })
-            : []
-        const holderBinId =
-            delta < 0 && holders.some((h) => h.storageBinId !== null)
-                ? (holders.find((h) => h.storageBinId !== null)?.storageBinId ?? null)
-                : null
+        // Explicit bin selection from the form: validate it belongs to the
+        // warehouse and has free capacity for a positive delta. Auto-resolve
+        // (IN → default pick bin, OUT → the bin holding stock) only when no
+        // bin was chosen.
         let storageBin: { id: string } | null = null
-        if (holderBinId) {
-            storageBin = { id: holderBinId }
-        } else if (delta >= 0) {
-            storageBin = await this.prisma.wmStorageBin.findFirst({
-                where: { ...binWhere, NOT: { mmInvBalances: { some: { materialId: args.materialId } } } },
-                orderBy: { code: 'asc' },
-                select: { id: true },
+        if (args.storageBinId) {
+            const bin = await this.prisma.wmStorageBin.findFirst({
+                where: { id: args.storageBinId, deletedAt: null },
+                include: {
+                    storageSection: {
+                        select: {
+                            storageType: {
+                                select: {
+                                    warehouseId: true,
+                                    pickingAllowed: true,
+                                    putawayAllowed: true,
+                                },
+                            },
+                        },
+                    },
+                },
             })
-        }
-        if (!storageBin && delta >= 0) {
-            storageBin = await this.prisma.wmStorageBin.findFirst({
-                where: binWhere,
-                orderBy: { code: 'asc' },
-                select: { id: true },
-            })
+            if (!bin || bin.storageSection.storageType.warehouseId !== args.warehouseId) {
+                throw new BadRequestException(
+                    'Selected storage bin does not belong to the material\'s default warehouse.',
+                )
+            }
+            if (delta > 0) {
+                const occupied = await this.prisma.mmInventoryBalance.aggregate({
+                    where: { storageBinId: bin.id, stockStatus: 'UNRESTRICTED' },
+                    _sum: { quantity: true },
+                })
+                const capacity = Number(bin.capacityQuantity ?? 0)
+                const used = Number(occupied._sum.quantity ?? 0)
+                const remaining = Math.max(0, capacity - used)
+                if (capacity > 0 && delta > remaining) {
+                    throw new BadRequestException(
+                        `Storage bin ${bin.code} is full. Free capacity: ${remaining}; trying to add ${delta}.`,
+                    )
+                }
+            }
+            storageBin = { id: bin.id }
+        } else {
+            // Auto-resolve: removal targets the bin holding stock; addition
+            // picks the first free pick/putaway bin.
+            const holders = delta < 0
+                ? await this.prisma.mmInventoryBalance.findMany({
+                      where: { companyId: args.companyId, warehouseId: args.warehouseId, materialId: args.materialId, quantity: { gt: 0 } },
+                      select: { storageBinId: true },
+                  })
+                : []
+            const holderBinId =
+                delta < 0 && holders.some((h) => h.storageBinId !== null)
+                    ? (holders.find((h) => h.storageBinId !== null)?.storageBinId ?? null)
+                    : null
+            if (holderBinId) {
+                storageBin = { id: holderBinId }
+            } else if (delta >= 0) {
+                const binWhere = {
+                    status: 'ACTIVE',
+                    deletedAt: null,
+                    OR: [{ pickingAllowed: true }, { putawayAllowed: true }],
+                    storageSection: { storageType: { warehouseId: args.warehouseId } },
+                }
+                storageBin = await this.prisma.wmStorageBin.findFirst({
+                    where: { ...binWhere, NOT: { mmInvBalances: { some: { materialId: args.materialId } } } },
+                    orderBy: { code: 'asc' },
+                    select: { id: true },
+                })
+                if (!storageBin) {
+                    storageBin = await this.prisma.wmStorageBin.findFirst({
+                        where: binWhere,
+                        orderBy: { code: 'asc' },
+                        select: { id: true },
+                    })
+                }
+            }
         }
 
         const key = `material-stock:${args.materialId}:${delta}`

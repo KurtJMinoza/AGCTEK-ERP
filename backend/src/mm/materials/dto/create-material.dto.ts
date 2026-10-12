@@ -143,6 +143,12 @@ export class CreateMaterialDto {
     @Min(0)
     onHandQty?: number
 
+    /** Storage bin to receive opening stock (must belong to the default warehouse). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    storageBinId?: string
+
     @IsOptional()
     @IsNumber()
     @Min(0)
