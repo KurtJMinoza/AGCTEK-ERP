@@ -689,6 +689,40 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
         }
     }, [isOpen, initialValues, reset, mode, material?.sku])
 
+    /** Pre-fill the storage bin on edit: the bin that already holds the stock. */
+    useEffect(() => {
+        if (!isOpen || mode !== 'edit' || !material?.id) return
+        let cancelled = false
+        materialService
+            .balances(material.id)
+            .then((rows: Array<Record<string, unknown>>) => {
+                if (cancelled) return
+                const list = Array.isArray(rows)
+                    ? rows
+                    : ((rows as { data?: Array<Record<string, unknown>> })
+                          .data ?? [])
+                // Prefer a bin-scoped balance holding positive quantity.
+                const holder = list.find(
+                    (b) =>
+                        b.storageBinId &&
+                        Number(b.quantity ?? b.quantityOnHand ?? 0) > 0,
+                )
+                const fallback = list.find((b) => b.storageBinId)
+                const binId =
+                    (holder?.storageBinId as string | undefined) ??
+                    (fallback?.storageBinId as string | undefined)
+                if (binId) {
+                    setValue('storageBinId', binId, { shouldDirty: false })
+                }
+            })
+            .catch(() => {
+                // Non-blocking: user can still pick a bin manually.
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, mode, material?.id, setValue])
+
     /** Restore an auto-saved draft when the create dialog reopens. */
     useEffect(() => {
         if (!isOpen || mode !== 'create' || template) return
