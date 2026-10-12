@@ -9,7 +9,6 @@ import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
-import Steps from '@/components/ui/Steps'
 import Tag from '@/components/ui/Tag'
 import Segment from '@/components/ui/Segment'
 import { Form, FormItem } from '@/components/ui/Form'
@@ -33,6 +32,7 @@ import {
     getConvertibleUomIds,
 } from '@/modules/mm/shared/uomHelpers'
 import StockThresholdSummary from './StockThresholdSummary'
+import MaterialWizardSteps from './MaterialWizardSteps'
 import { materialService } from '../services/materialService'
 import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
@@ -896,25 +896,17 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             }
             icon={<HiOutlineCube />}
             headerExtra={
-                <div className="w-full max-w-2xl overflow-x-auto pb-1">
-                    <Steps
-                        current={stepIndex}
-                        onChange={(index) => {
-                            const target = TABS[index]
-                            if (target) {
-                                setTab(target.value)
-                            }
-                        }}
-                    >
-                        {TABS.map((t) => (
-                            <Steps.Item
-                                key={t.value}
-                                title={t.label}
-                                className="min-w-[7rem]"
-                            />
-                        ))}
-                    </Steps>
-                </div>
+                <MaterialWizardSteps
+                    steps={TABS}
+                    currentIndex={stepIndex}
+                    errorCounts={tabErrorCounts}
+                    onSelect={(index) => {
+                        const target = TABS[index]
+                        if (target) {
+                            setTab(target.value)
+                        }
+                    }}
+                />
             }
             footerClassName="!justify-between"
             footer={
