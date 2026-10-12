@@ -15,6 +15,7 @@ import Input from '@/components/ui/Input'
 import Progress from '@/components/ui/Progress'
 import Tag from '@/components/ui/Tag'
 import Dialog from '@/components/ui/Dialog'
+import StatusBadge from '@/components/shared/StatusBadge'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
@@ -63,6 +64,18 @@ const STATUS_CLASS: Record<string, string> = {
         'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
     COMPLETE:
         'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+}
+
+const PACKAGE_STATUS_TONE: Record<
+    string,
+    'success' | 'default' | 'warning' | 'danger'
+> = {
+    OPEN: 'default',
+    PACKING: 'warning',
+    VERIFIED: 'success',
+    SEALED: 'success',
+    DISPATCHED: 'success',
+    CANCELLED: 'danger',
 }
 
 const FILTERS: Array<{ value: ItemFilter; label: string }> = [
@@ -332,32 +345,47 @@ const PackagePackingWorkspace = ({
 
     return (
         <div className="space-y-5">
-            {/* ── Header: order, customer, progress ── */}
+            {/* ── Header: package, order, customer, progress ── */}
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/40">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                        <span className="font-semibold text-gray-900 dark:text-gray-100">
-                            {orderNumber ?? 'No order'}
-                        </span>
-                        <span className="text-gray-500">
-                            Package{' '}
-                            <span className="font-mono font-medium text-gray-700 dark:text-gray-300">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <StatusBadge tone={PACKAGE_STATUS_TONE[pkg.status] ?? 'default'}>
+                            {pkg.status.replace(/_/g, ' ')}
+                        </StatusBadge>
+                        <span className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
                                 {pkg.packageNumber}
                             </span>
+                            {orderNumber ? (
+                                <Tag className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                                    Order {orderNumber}
+                                </Tag>
+                            ) : (
+                                <Tag className="bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                                    Manual package
+                                </Tag>
+                            )}
                         </span>
                         {customerName ? (
-                            <span className="text-gray-500">
-                                Customer{' '}
-                                <span className="font-medium text-gray-700 dark:text-gray-300">
-                                    {customerName}
-                                </span>
+                            <span className="text-xs text-gray-500">
+                                {customerName}
                             </span>
                         ) : null}
                     </div>
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                        Packing Progress: {totals.totalScanned} of{' '}
-                        {totals.totalExpected} scanned
-                    </span>
+                    <div className="flex items-center gap-4 text-sm">
+                        <span className="font-semibold text-gray-700 dark:text-gray-200">
+                            {totals.totalScanned} of {totals.totalExpected} scanned
+                        </span>
+                        <span
+                            className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
+                                totals.remaining === 0
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                            }`}
+                        >
+                            {totals.percent}%
+                        </span>
+                    </div>
                 </div>
                 <Progress
                     percent={totals.percent}
@@ -373,47 +401,56 @@ const PackagePackingWorkspace = ({
                 </p>
             </div>
 
-            {/* ── Main scan input ── */}
+            {/* ── Main scan bar ── */}
             {editable ? (
-                <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-[280px] flex-1">
-                        <FormItem label="Scan barcode or enter material code">
-                            <Input
-                                ref={scanInputRef}
-                                size="lg"
-                                autoFocus
-                                placeholder="Scan barcode or enter material code, then press Enter"
-                                value={scanValue}
-                                onChange={(e) => setScanValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault()
-                                        void handleScan()
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5 dark:border-blue-500/30 dark:bg-blue-500/10">
+                    <div className="flex flex-wrap items-end gap-2">
+                        <div className="min-w-[260px] flex-1">
+                            <FormItem label="Scan item">
+                                <Input
+                                    ref={scanInputRef}
+                                    size="lg"
+                                    autoFocus
+                                    placeholder="Scan barcode or enter material code"
+                                    value={scanValue}
+                                    onChange={(e) => setScanValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            void handleScan()
+                                        }
+                                    }}
+                                    prefix={
+                                        <HiOutlineSearch className="text-lg text-gray-400" />
                                     }
-                                }}
-                                prefix={
-                                    <HiOutlineSearch className="text-lg text-gray-400" />
-                                }
-                            />
-                        </FormItem>
+                                />
+                            </FormItem>
+                        </div>
+                        <Input
+                            size="lg"
+                            className="w-20"
+                            value={scanQty}
+                            onChange={(e) => setScanQty(e.target.value)}
+                            aria-label="Quantity per scan"
+                            type="number"
+                            min={1}
+                        />
+                        <Button
+                            size="lg"
+                            variant="solid"
+                            icon={<HiOutlineSearch />}
+                            loading={scanning}
+                            disabled={!scanValue.trim()}
+                            onClick={() => void handleScan()}
+                        >
+                            Scan
+                        </Button>
                     </div>
-                    <Input
-                        size="lg"
-                        className="w-20"
-                        value={scanQty}
-                        onChange={(e) => setScanQty(e.target.value)}
-                        aria-label="Quantity per scan"
-                    />
-                    <Button
-                        size="lg"
-                        variant="solid"
-                        icon={<HiOutlineSearch />}
-                        loading={scanning}
-                        disabled={!scanValue.trim()}
-                        onClick={() => void handleScan()}
-                    >
-                        Scan
-                    </Button>
+                    <p className="mt-2 text-xs text-gray-500">
+                        Scan the item&apos;s barcode or type its material code, then
+                        press <span className="font-medium">Enter</span>. The scan
+                        quantity adds to the line&apos;s scanned total.
+                    </p>
                 </div>
             ) : null}
 
@@ -541,7 +578,7 @@ const PackagePackingWorkspace = ({
                                         at {formatTime(lastScan.scannedAt)}
                                     </span>
                                 ) : (
-                                    <span className="mr-auto text-[11px] text-gray-400">
+                                    <span className="mr-auto rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
                                         Not scanned yet
                                     </span>
                                 )}

@@ -937,7 +937,7 @@ const PackingPage = () => {
                 title={detailPkg?.packageNumber ?? 'Package detail'}
                 description={
                     detailPkg
-                        ? `${detailPkg.orderNumber ? `Order: ${detailPkg.orderNumber}` : 'No order'}${detailPkg.packageType ? ` · Type: ${detailPkg.packageType}` : ''}`
+                        ? `${detailPkg.orderNumber ? `Order: ${detailPkg.orderNumber}` : 'Manual package — no linked sales order'}${detailPkg.packageType ? ` · Type: ${detailPkg.packageType}` : ''}`
                         : undefined
                 }
                 icon={<HiOutlineCube />}
