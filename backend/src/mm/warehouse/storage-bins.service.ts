@@ -198,6 +198,11 @@ export class StorageBinsService {
                   where: {
                       storageBinId: { in: binIds },
                       stockStatus: 'UNRESTRICTED',
+                      // A soft-deleted material's stock no longer occupies the
+                      // bin: it cannot be picked, sold or reserved. The ledger
+                      // rows stay (immutable audit), but they must not count
+                      // toward usage/capacity.
+                      material: { deletedAt: null },
                   },
                   select: {
                       storageBinId: true,
