@@ -13,6 +13,8 @@ export type ResolveMaterialInput = {
 export type ResolvedMaterialAssignment = {
     assignmentId: string
     productId: string
+    /** Company that owns the stock (from the active assignment). */
+    companyId: string
     materialId: string
     materialCode: string
     materialName: string
@@ -58,10 +60,15 @@ export class MaterialResolutionService {
             )
         }
 
+        // The active assignment is the product's single source of truth for
+        // which company owns the sellable stock. Candidate assignments are
+        // company-agnostic; the requested company is preferred, but when it has
+        // no assignment the product's own (sole) assignment company is used —
+        // otherwise an AWIC/M.CONPINCO product bought on any store would fail
+        // because checkout defaults to the AGCTEK company.
         const candidates = await this.prisma.sdProductMaterialAssignment.findMany({
             where: {
                 productId: input.productId,
-                companyId: input.companyId,
                 status: 'ACTIVE',
                 effectiveFrom: { lte: effective },
                 OR: [{ effectiveTo: null }, { effectiveTo: { gte: effective } }],
@@ -92,19 +99,43 @@ export class MaterialResolutionService {
         const divisionMatch = (c: (typeof candidates)[number]) =>
             !c.divisionId || !input.divisionId || c.divisionId === input.divisionId
 
+        const qualified = candidates.filter(divisionMatch)
+
+        // Prefer the requested company; otherwise fall back to the product's
+        // own assignment company, but only when unambiguous (one company).
+        const requestedCompanyCandidates = input.companyId
+            ? qualified.filter((c) => c.companyId === input.companyId)
+            : qualified
+        const preferredPool = requestedCompanyCandidates.length
+            ? requestedCompanyCandidates
+            : qualified
         const assignment =
             (primaryMaterialId
-                ? candidates.find(
-                      (c) => c.materialId === primaryMaterialId && divisionMatch(c),
+                ? preferredPool.find(
+                      (c) =>
+                          c.materialId === primaryMaterialId &&
+                          divisionMatch(c),
                   )
-                : null) ??
-            candidates.find(divisionMatch) ??
-            null
+                : null) ?? preferredPool[0] ?? null
+
+        // A requested company with no match and ambiguous alternatives must
+        // stay an error — never guess between two companies' stock.
+        if (
+            !assignment &&
+            input.companyId &&
+            qualified.length > 0 &&
+            new Set(qualified.map((c) => c.companyId)).size > 1
+        ) {
+            throw new SdMmIntegrationException(
+                SD_MM_ERROR.PRODUCT_MATERIAL_MAPPING_MISSING,
+                `No active product–material assignment for product ${product.sku} and company ${input.companyId}`,
+            )
+        }
 
         if (!assignment) {
             throw new SdMmIntegrationException(
                 SD_MM_ERROR.PRODUCT_MATERIAL_MAPPING_MISSING,
-                `No active product–material assignment for product ${product.sku} and company`,
+                `No active product–material assignment for product ${product.sku} and company${input.companyId ? ` ${input.companyId}` : ''}`,
             )
         }
 
@@ -132,6 +163,7 @@ export class MaterialResolutionService {
         return {
             assignmentId: assignment.id,
             productId: product.id,
+            companyId: assignment.companyId,
             materialId: mat.id,
             materialCode: mat.materialCode,
             materialName: mat.materialName,
