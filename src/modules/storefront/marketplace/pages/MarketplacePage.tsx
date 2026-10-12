@@ -15,6 +15,7 @@ import MarketplaceCategoryGrid, {
 } from '../components/MarketplaceCategoryGrid'
 import MarketplaceOfficialStores, {
     storeCardsFromCatalog,
+    type MarketplaceStoreCard,
 } from '../components/MarketplaceOfficialStores'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import { discountPercent } from '../components/MarketplaceProductCard'
@@ -173,10 +174,15 @@ const MarketplacePage = () => {
     const storeCounts = useMemo(() => {
         const counts = new Map<string, number>()
         for (const product of catalog.records) {
-            counts.set(
-                product.divisionId,
-                (counts.get(product.divisionId) ?? 0) + 1,
-            )
+            if (product.company) {
+                const key = `company:${product.company.id}`
+                counts.set(key, (counts.get(key) ?? 0) + 1)
+            } else {
+                counts.set(
+                    product.divisionId,
+                    (counts.get(product.divisionId) ?? 0) + 1,
+                )
+            }
         }
         return counts
     }, [catalog.records])
@@ -192,7 +198,14 @@ const MarketplacePage = () => {
     const browse = (query: Parameters<typeof productsHref>[0] = {}) =>
         router.push(productsHref(query))
 
-    const shopStore = (divisionId: string) => browse({ stores: [divisionId] })
+    const shopStore = (store: string | MarketplaceStoreCard) => {
+        const card =
+            typeof store === 'string'
+                ? storeCards.find((c) => c.id === store)
+                : store
+        const divisionId = card?.themeDivisionId ?? (typeof store === 'string' ? store : store.id)
+        browse({ stores: [divisionId] })
+    }
 
     const shopCategory = (category: MarketplaceCategory) =>
         browse({
