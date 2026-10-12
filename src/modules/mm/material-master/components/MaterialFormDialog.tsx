@@ -399,11 +399,13 @@ const PhysicalSummary = ({
  */
 const BinStockSelector = ({
     warehouseId,
+    companyId,
     onHandQty,
     value,
     onChange,
 }: {
     warehouseId: string
+    companyId: string
     onHandQty: number
     value: string
     onChange: (binId: string) => void
@@ -413,7 +415,10 @@ const BinStockSelector = ({
     const [loadError, setLoadError] = useState<string | null>(null)
 
     useEffect(() => {
-        if (!warehouseId) {
+        // Bins come from the selected company's warehouses. When a default
+        // warehouse is chosen, restrict to it; otherwise list every bin of
+        // the company so the destination can be picked up front.
+        if (!companyId) {
             setBins([])
             setLoadError(null)
             return
@@ -421,8 +426,13 @@ const BinStockSelector = ({
         let cancelled = false
         setLoading(true)
         setLoadError(null)
+        const params: Record<string, string | number> = {
+            companyId,
+            limit: 400,
+        }
+        if (warehouseId) params.warehouseId = warehouseId
         storageBinService
-            .listWithOccupancy({ warehouseId, limit: 200 })
+            .listWithOccupancy(params as never)
             .then((rows) => {
                 if (!cancelled) setBins(rows)
             })
@@ -435,7 +445,7 @@ const BinStockSelector = ({
         return () => {
             cancelled = true
         }
-    }, [warehouseId])
+    }, [warehouseId, companyId])
 
     const selected = bins.find((b) => b.id === value) ?? null
     const capacity = Number(selected?.capacityQuantity ?? 0)
@@ -477,11 +487,11 @@ const BinStockSelector = ({
 
     return (
         <div className="space-y-2">
-            {!warehouseId ? (
+            {!companyId ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                    Set the material&apos;s <span className="font-semibold">Default
-                    warehouse</span> (Valuation step) first — the storage bin list
-                    loads from that warehouse. On-hand stock requires a bin.
+                    Select the material&apos;s <span className="font-semibold">Company</span>{' '}
+                    (Valuation step) first — the storage bin list loads from that
+                    company&apos;s warehouses.
                 </div>
             ) : (
                 <Select
@@ -572,7 +582,6 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     )
     const valClassOptions = useMemo<SelectOption[]>(() => valuationClasses.map((v) => ({ value: v.id, label: v.name })), [valuationClasses])
     const companyOptions = useMemo<SelectOption[]>(() => companies.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })), [companies])
-    const warehouseOptions = useMemo<SelectOption[]>(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
 
     const isDuplicate = mode === 'create' && !!template
 
@@ -608,7 +617,22 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const safetyStockWatch = useWatch({ control, name: 'safetyStock' }) ?? 0
     const defaultWarehouseWatch =
         useWatch({ control, name: 'defaultWarehouseId' }) ?? ''
+    const companyIdWatch = useWatch({ control, name: 'companyId' }) ?? ''
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
+
+    // Only warehouses of the selected company — never all warehouses.
+    const warehouseOptions = useMemo<SelectOption[]>(
+        () =>
+            warehouses
+                .filter(
+                    (w) => !companyIdWatch || w.companyId === companyIdWatch,
+                )
+                .map((w) => ({
+                    value: w.id,
+                    label: `${w.code} — ${w.name}`,
+                })),
+        [warehouses, companyIdWatch],
+    )
     const purchaseUomId = useWatch({ control, name: 'purchaseUomId' }) ?? ''
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
 
@@ -1219,6 +1243,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                 render={({ field }) => (
                                     <BinStockSelector
                                         warehouseId={defaultWarehouseWatch}
+                                        companyId={companyIdWatch}
                                         onHandQty={Number(onHandWatch)}
                                         value={field.value ?? ''}
                                         onChange={field.onChange}

@@ -10,6 +10,10 @@ export class StorageBinQueryDto {
     warehouseId?: string
 
     @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
     @IsIn(['ACTIVE', 'INACTIVE'])
     status?: string
 }

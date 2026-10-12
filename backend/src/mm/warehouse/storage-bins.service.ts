@@ -25,6 +25,10 @@ export class StorageBinsService {
             where.storageSection = {
                 storageType: { warehouseId: query.warehouseId },
             }
+        } else if (query.companyId) {
+            where.storageSection = {
+                storageType: { warehouse: { companyId: query.companyId } },
+            }
         }
 
         const bins = await this.prisma.wmStorageBin.findMany({
