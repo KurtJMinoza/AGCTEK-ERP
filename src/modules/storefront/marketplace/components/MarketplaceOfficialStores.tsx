@@ -53,6 +53,9 @@ export type MarketplaceStoreCard = {
     icon?: LucideIcon
     /** Sales division used for theme colours when no custom branding. */
     themeDivisionId?: string
+    /** MM company the card represents (one card per company with products). */
+    companyId?: string
+    companyCode?: string
 }
 
 type MarketplaceOfficialStoresProps = {
@@ -130,20 +133,64 @@ const defaultStoreCards = (): MarketplaceStoreCard[] =>
     }))
 
 /**
- * Store cards stay keyed by sales division (store URLs and per-store checkout
- * depend on it) but show the MM company linked to that store's products.
+ * Store cards are built from the REAL companies that own sellable products —
+ * not a hardcoded division list. Every company with at least one active
+ * product becomes a card (name, logo, tagline), so a newly created company
+ * appears on the storefront as soon as its products are live. Products
+ * without an MM company assignment fall back to the division-themed cards
+ * (AWIC / MCONPINCO / LPG).
  */
 export const storeCardsFromCatalog = (
-    records: readonly Pick<SdProductRecord, 'divisionId' | 'company'>[],
-): MarketplaceStoreCard[] =>
-    defaultStoreCards().map((card) => {
-        const company = records.find(
-            (p) => p.divisionId === card.id && p.company?.name?.trim(),
-        )?.company
-        return company
-            ? { ...card, name: company.name.trim(), logoUrl: company.logoUrl }
-            : card
-    })
+    records: readonly Pick<
+        SdProductRecord,
+        'divisionId' | 'company' | 'isActive' | 'status'
+    >[],
+): MarketplaceStoreCard[] => {
+    const sellable = records.filter(
+        (p) => p.isActive && p.status === 'ACTIVE',
+    )
+    const byCompany = new Map<
+        string,
+        {
+            company: NonNullable<SdProductRecord['company']>
+            divisionId: string
+        }
+    >()
+    for (const product of sellable) {
+        const company = product.company
+        if (!company) continue
+        const existing = byCompany.get(company.id)
+        if (!existing) {
+            byCompany.set(company.id, {
+                company,
+                divisionId: product.divisionId,
+            })
+        }
+    }
+
+    const companyCards: MarketplaceStoreCard[] = [...byCompany.values()].map(
+        ({ company, divisionId }) => {
+            const official = OFFICIAL_STORES.find(
+                (store) => store.divisionId === divisionId,
+            )
+            return {
+                id: `company:${company.id}`,
+                companyId: company.id,
+                companyCode: company.code,
+                name: company.name.trim(),
+                tagline: official?.tagline,
+                logoUrl: company.logoUrl,
+                icon: official?.icon ?? HeartPulse,
+                themeDivisionId: divisionId,
+            }
+        },
+    )
+
+    if (companyCards.length > 0) return companyCards
+
+    // No company-mapped products yet — show the classic division stores.
+    return defaultStoreCards()
+}
 
 /** Brand-store cards; selecting one opens that store's products. */
 const MarketplaceOfficialStores = ({
