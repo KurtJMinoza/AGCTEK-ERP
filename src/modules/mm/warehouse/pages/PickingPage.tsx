@@ -872,6 +872,7 @@ const PickingPage = () => {
                 accessorKey: 'orderNumber',
                 size: 130,
                 minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => {
                     const orderNumber =
                         row.original.orderNumber ||
@@ -890,6 +891,7 @@ const PickingPage = () => {
                 accessorKey: 'customerName',
                 size: 170,
                 minSize: 130,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const cust =
                         row.original.customerName ||
@@ -912,6 +914,7 @@ const PickingPage = () => {
                 accessorKey: 'companyName',
                 size: 160,
                 minSize: 130,
+                meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) => {
                     const comp =
                         row.original.companyName ||
@@ -934,6 +937,7 @@ const PickingPage = () => {
                 accessorKey: 'warehouseName',
                 size: 180,
                 minSize: 140,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
                     <span className="truncate text-sm">
                         {row.original.warehouseName || '—'}
@@ -945,6 +949,7 @@ const PickingPage = () => {
                 accessorKey: 'sourceBin',
                 size: 120,
                 minSize: 100,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-xs text-gray-500">
                         {row.original.sourceBin?.code || '—'}
@@ -1020,6 +1025,7 @@ const PickingPage = () => {
                 accessorKey: 'assignedNames',
                 size: 160,
                 minSize: 110,
+                meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) => (
                     <span className="text-sm">
                         {row.original.assignedNames.length ? (
@@ -1035,6 +1041,7 @@ const PickingPage = () => {
                 accessorKey: 'priority',
                 size: 90,
                 minSize: 80,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => {
                     const p = row.original.priority
                     const cls =
@@ -1250,6 +1257,7 @@ const PickingPage = () => {
                         columns={columns}
                         data={groupRows}
                         compact
+                        fit
                         loading={loading}
                         selectable
                         checkboxChecked={(row) =>

@@ -345,6 +345,12 @@ function DataTable<T>(props: DataTableProps<T>) {
                                     <Th
                                         key={header.id}
                                         colSpan={header.colSpan}
+                                        className={(
+                                            header.column.columnDef
+                                                .meta as
+                                                | { className?: string }
+                                                | undefined
+                                        )?.className}
                                         style={columnStyle(
                                             header.getSize(),
                                             header.column.columnDef.minSize,
@@ -442,11 +448,17 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                                     cell.column.getSize(),
                                                                     cell.column.columnDef.minSize,
                                                                 )}
-                                                                className={
-                                                                    fit
-                                                                        ? 'overflow-hidden'
-                                                                        : undefined
-                                                                }
+                                                                className={classNames(
+                                                                    (
+                                                                        cell.column
+                                                                            .columnDef
+                                                                            .meta as
+                                                                            | { className?: string }
+                                                                            | undefined
+                                                                    )?.className,
+                                                                    fit &&
+                                                                        'overflow-hidden',
+                                                                )}
                                                             >
                                                                 {flexRender(
                                                                     cell.column

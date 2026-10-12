@@ -500,6 +500,7 @@ const PackingPage = () => {
                 accessorKey: 'orderNumber',
                 size: 130,
                 minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-sm">
                         {row.original.salesOrder?.orderNumber ||
@@ -530,6 +531,7 @@ const PackingPage = () => {
                 id: 'customer',
                 size: 180,
                 minSize: 140,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const order =
                         row.original.salesOrder ??
@@ -549,6 +551,7 @@ const PackingPage = () => {
                 id: 'packedBy',
                 size: 150,
                 minSize: 120,
+                meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) => {
                     const names = Array.from(
                         new Set(
@@ -569,6 +572,7 @@ const PackingPage = () => {
                 id: 'warehouse',
                 size: 180,
                 minSize: 140,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
                     <span className="text-sm">
                         {row.original.warehouse
@@ -582,6 +586,7 @@ const PackingPage = () => {
                 id: 'shipmentReference',
                 size: 160,
                 minSize: 130,
+                meta: { className: 'hidden 2xl:table-cell' },
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap font-mono text-xs text-gray-500">
                         {row.original.shipment?.reference || '—'}
@@ -755,6 +760,7 @@ const PackingPage = () => {
                         columns={columns}
                         data={packages}
                         compact
+                        fit
                         loading={loading}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
