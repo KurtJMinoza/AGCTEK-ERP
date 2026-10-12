@@ -40,13 +40,13 @@ import {
     type RetailClientProfile,
 } from '@/services/storefront/retailClientService'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
-import MarketplaceCartDrawer from './components/MarketplaceCartDrawer'
 import MarketplaceAuthDialog, {
     type MarketplaceAuthMode,
 } from './components/MarketplaceAuthDialog'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
 import {
+    CART_PATH,
     CHECKOUT_PATH,
     MARKETPLACE_ACCOUNT_PATH,
     MARKETPLACE_ORDERS_PATH,
@@ -136,9 +136,9 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const catalog = useMarketplaceProducts()
 
     const storedItems = useMarketplaceCartStore((s) => s.items)
-    const isCartOpen = useMarketplaceCartStore((s) => s.isDrawerOpen)
-    const openCart = useMarketplaceCartStore((s) => s.openDrawer)
-    const closeCart = useMarketplaceCartStore((s) => s.closeDrawer)
+    const openCart = useCallback(() => {
+        router.push(CART_PATH)
+    }, [router])
     const addItem = useMarketplaceCartStore((s) => s.addItem)
     const updateQuantity = useMarketplaceCartStore((s) => s.updateQuantity)
     const removeItem = useMarketplaceCartStore((s) => s.removeItem)
@@ -200,10 +200,9 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         ) => {
             setAfterSignIn(intent)
             setAuthReturnPath(null)
-            closeCart()
             setAuthMode(mode)
         },
-        [closeCart],
+        [],
     )
 
     const closeAuth = useCallback(() => {
@@ -399,7 +398,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             clearCart()
             setPromoCode(null)
             setCheckoutOpen(false)
-            closeCart()
             setPlacedOrder(result)
             // Availability changed the moment the reservation landed: refresh
             // the storefront catalog so product stock stays truthful after
@@ -591,24 +589,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                     </div>
                 ) : null}
             </ConfirmDialog>
-
-            <MarketplaceCartDrawer
-                isOpen={isCartOpen}
-                isMobile={isMobile}
-                items={items}
-                pricing={pricing}
-                signedIn={Boolean(signedInClient)}
-                selectedKeys={selectedKeys}
-                onClose={closeCart}
-                onIncrease={updateQuantity}
-                onDecrease={decreaseItem}
-                onRemove={(key, name) => setPendingRemoval({ key, name })}
-                onToggleSelect={toggleSelect}
-                onSelectAll={setSelectAll}
-                onRemoveSelected={() => removeItems(selectedKeys)}
-                onCheckout={startCheckout}
-                onClear={() => setConfirmClearOpen(true)}
-            />
 
             <MarketplaceCheckoutDialog
                 isOpen={checkoutOpen}

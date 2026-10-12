@@ -8,6 +8,9 @@ export const MARKETPLACE_PATH = '/shop' as const
 /** Full-page checkout review route (replaces the old checkout modal). */
 export const CHECKOUT_PATH = `${MARKETPLACE_PATH}/checkout` as const
 
+/** Standalone full-page cart route (replaces the sliding cart sidebar). */
+export const CART_PATH = `${MARKETPLACE_PATH}/cart` as const
+
 /** URL segment per store, e.g. /shop/mconpinco/MCO-PRD-000001. */
 const STORE_SLUGS: Record<string, string> = {
     [RETAIL_DIVISION_ID]: 'awic',

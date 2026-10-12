@@ -16,7 +16,7 @@ import Button from '@/components/ui/Button'
 import Dropdown from '@/components/ui/Dropdown'
 import Input from '@/components/ui/Input'
 import { productsHref } from '../browseQuery'
-import { MARKETPLACE_PATH } from '../host'
+import { CART_PATH, MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
 import { MARKETPLACE_NAME } from '../marketplaceUi'
 import { useMarketplaceBrowseStore } from '../store/useMarketplaceBrowseStore'
@@ -32,7 +32,7 @@ const ICON_BUTTON = '!text-gray-500 hover:!text-emerald-600'
 /** Sticky marketplace top bar: home logo, product search, orders, account and cart. */
 const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
     const router = useRouter()
-    const { signedInClient, itemCount, openCart, openOrders, openAccount } =
+    const { signedInClient, itemCount, openOrders, openAccount } =
         useMarketplace()
     const search = useMarketplaceBrowseStore((s) => s.search)
     const setSearch = useMarketplaceBrowseStore((s) => s.setSearch)
@@ -44,15 +44,14 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
         else if (search.trim()) router.push(productsHref({ q: search }))
     }
 
-    const cartButton = (
-        <Button
-            size="sm"
-            variant="plain"
-            className={ICON_BUTTON}
-            icon={<HiOutlineShoppingCart className="text-xl" />}
+    const cartLink = (
+        <Link
+            href={CART_PATH}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:text-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
             aria-label={`Cart, ${itemCount} item${itemCount === 1 ? '' : 's'}`}
-            onClick={openCart}
-        />
+        >
+            <HiOutlineShoppingCart className="text-xl" />
+        </Link>
     )
 
     return (
@@ -190,10 +189,10 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                             maxCount={99}
                             innerClass="!bg-rose-500"
                         >
-                            {cartButton}
+                            {cartLink}
                         </Badge>
                     ) : (
-                        cartButton
+                        cartLink
                     )}
                 </div>
             </div>
