@@ -5,14 +5,18 @@ import type { OrderStatus } from '../types'
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
     PENDING_APPROVAL: 'Waiting for Approval',
     PREPARING_TO_SHIP: 'Preparing to Ship',
+    DISPATCHED: 'Dispatched',
     DELIVERED: 'Delivered',
+    COMPLETED: 'Completed',
     CANCELLED: 'Cancelled',
 }
 
 const TONES: Record<OrderStatus, { bg: string; fg: string }> = {
     PENDING_APPROVAL: { bg: '#fef3c7', fg: '#b45309' },
     PREPARING_TO_SHIP: { bg: '#ffedd5', fg: '#c2410c' },
+    DISPATCHED: { bg: '#e0e7ff', fg: '#4338ca' },
     DELIVERED: { bg: '#ecfdf5', fg: '#047857' },
+    COMPLETED: { bg: '#dcfce7', fg: '#15803d' },
     CANCELLED: { bg: '#fef2f2', fg: '#b91c1c' },
 }
 

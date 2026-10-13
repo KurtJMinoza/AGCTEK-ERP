@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Tabs } from 'expo-router/js-tabs'
 import type { ComponentProps } from 'react'
-import type { ColorValue } from 'react-native'
+import { Platform, type ColorValue } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useCart } from '@/src/context/CartContext'
 import { colors } from '@/src/theme'
 
@@ -15,14 +16,26 @@ const icon =
 
 export default function TabsLayout() {
     const { itemCount } = useCart()
+    const insets = useSafeAreaInsets()
+    const bottomInset = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8)
 
     return (
         <Tabs
             screenOptions={{
                 tabBarActiveTintColor: colors.brand,
                 tabBarInactiveTintColor: colors.textFaint,
-                tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-                tabBarStyle: { borderTopColor: colors.border },
+                tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+                tabBarStyle: {
+                    borderTopColor: colors.border,
+                    backgroundColor: '#ffffff',
+                    height: 58 + bottomInset,
+                    paddingTop: 6,
+                    paddingBottom: bottomInset,
+                },
+                tabBarItemStyle: {
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                },
                 headerTitleStyle: { color: colors.text, fontWeight: '700' },
                 headerShadowVisible: false,
             }}

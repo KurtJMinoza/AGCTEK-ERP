@@ -33,13 +33,17 @@ export class RetailRegisterDto {
     })
     password!: string
 
-    @Transform(({ value }) =>
-        typeof value === 'string' ? value.trim() : value,
-    )
+    @IsOptional()
+    @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
     @IsString()
-    @MinLength(1)
     @MaxLength(120)
-    firstName!: string
+    firstName?: string
+
+    @IsOptional()
+    @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+    @IsString()
+    @MaxLength(120)
+    fullName?: string
 }
 
 export class RetailLoginDto {
@@ -54,13 +58,18 @@ export class RetailLoginDto {
 
 export class RetailUpdateProfileDto {
     @IsOptional()
-    @Transform(({ value }) =>
-        typeof value === 'string' ? value.trim() : value,
-    )
+    @Transform(({ value, obj }) => {
+        const raw = (typeof value === 'string' && value.trim()) ? value : (typeof obj?.fullName === 'string' ? obj.fullName : value)
+        return typeof raw === 'string' ? raw.trim() : raw
+    })
     @IsString()
     @MinLength(1)
     @MaxLength(120)
     firstName?: string
+
+    @IsOptional()
+    @IsString()
+    fullName?: string
 
     @IsOptional()
     @Transform(({ value }) => normalizeMobile(value))

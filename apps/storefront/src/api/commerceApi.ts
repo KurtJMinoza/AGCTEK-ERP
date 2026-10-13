@@ -3,10 +3,14 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    Notification,
     Order,
     Product,
     ProfileUpdate,
     RegisterInput,
+    ReturnRequest,
+    SavedAddress,
+    SavedAddressInput,
     SignInInput,
 } from '../types'
 
@@ -35,8 +39,22 @@ export interface CommerceApi {
     /** Places one order per store in a single checkout. */
     checkout(input: CheckoutInput): Promise<CheckoutResult>
     getOrders(customerId: string): Promise<Order[]>
-    /** Customer "request cancellation" while an order awaits approval. */
-    cancelOrder(orderId: string): Promise<void>
+    /** Customer "request cancellation" with an optional reason while an order awaits approval. */
+    cancelOrder(orderId: string, reason?: string): Promise<void>
+    /** Submit a return / refund request for a delivered order. */
+    requestReturn(request: ReturnRequest): Promise<void>
+
+    // ─── Notifications ─────────────────────────────────────────────────────────
+    getNotifications(userId?: string): Promise<Notification[]>
+    markNotificationRead(id: string): Promise<void>
+    markAllNotificationsRead(userId?: string): Promise<void>
+
+    // ─── Saved Addresses ───────────────────────────────────────────────────────
+    getAddresses(): Promise<SavedAddress[]>
+    createAddress(input: SavedAddressInput): Promise<SavedAddress>
+    updateAddress(id: string, input: Partial<SavedAddressInput>): Promise<SavedAddress>
+    deleteAddress(id: string): Promise<void>
+    setDefaultAddress(id: string): Promise<void>
 }
 
 export class CommerceApiError extends Error {
