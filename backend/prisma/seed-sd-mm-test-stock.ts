@@ -139,6 +139,10 @@ export async function seedSdMmTestStock(prisma: PrismaClient, quantity = STOCK_Q
         create: { code: 'SD_CATALOG', name: 'SD Catalog Items', sortOrder: 90 },
     })
 
+    const defaultBin = await prisma.wmStorageBin.findFirst({
+        where: { storageSection: { storageType: { warehouseId } }, status: 'ACTIVE' },
+    })
+
     const products = await prisma.sdProduct.findMany({
         where: { isActive: true },
         orderBy: [{ divisionId: 'asc' }, { sortOrder: 'asc' }, { sku: 'asc' }],
@@ -228,9 +232,23 @@ export async function seedSdMmTestStock(prisma: PrismaClient, quantity = STOCK_Q
             })
         }
 
+        // Remove legacy bin-less balance if present so bin balance is authoritative
+        if (defaultBin) {
+            await prisma.mmInventoryBalance.deleteMany({
+                where: {
+                    companyId,
+                    warehouseId,
+                    storageBinId: null,
+                    materialId: material.id,
+                    stockStatus: 'UNRESTRICTED',
+                },
+            })
+        }
+
         await upsertStock(prisma, {
             companyId,
             warehouseId,
+            storageBinId: defaultBin?.id,
             materialId: material.id,
             uomId: pcs.id,
             quantity,

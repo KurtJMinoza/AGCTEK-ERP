@@ -79,7 +79,9 @@ export type ProfileUpdate = Omit<ShippingDetails, 'email'>
 export type OrderStatus =
     | 'PENDING_APPROVAL'
     | 'PREPARING_TO_SHIP'
+    | 'DISPATCHED'
     | 'DELIVERED'
+    | 'COMPLETED'
     | 'CANCELLED'
 
 export type OrderLine = {
@@ -107,6 +109,7 @@ export type Order = {
     promoCode: string | null
     shippingAmount: number
     totalAmount: number
+    paymentMethod: string | null
     shipTo: {
         fullName: string
         phone: string
@@ -141,12 +144,23 @@ export type CartPricing = {
     grandTotal: number
 }
 
+export type PaymentMethod = 'CASH_ON_DELIVERY' | 'GCASH' | 'MAYA' | 'BANK_TRANSFER'
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+    CASH_ON_DELIVERY: 'Cash on Delivery',
+    GCASH: 'GCash',
+    MAYA: 'Maya',
+    BANK_TRANSFER: 'Bank Transfer',
+}
+
 export type CheckoutInput = {
     /** Reused on retry so a resubmitted checkout is not recorded twice. */
     checkoutId: string
     customerId: string
     shipping: ShippingDetails
     pricing: CartPricing
+    /** Defaults to CASH_ON_DELIVERY if not supplied. */
+    paymentMethod?: PaymentMethod
 }
 
 export type CheckoutResult = {
@@ -155,6 +169,77 @@ export type CheckoutResult = {
     orderId: string
     orderNumber: string
     grandTotal: number
+    paymentMethod?: PaymentMethod
     /** Per-store breakdown of that order, for the receipt. */
     stores: StoreCartPricing[]
 }
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export type Notification = {
+    id: string
+    title: string | null
+    message: string | null
+    /** SO-number or other deep-link target. */
+    target: string | null
+    isRead: boolean
+    createdAt: string | null
+}
+
+// ─── Return Requests ─────────────────────────────────────────────────────────
+
+export type ReturnReason =
+    | 'Wrong item received'
+    | 'Item damaged on arrival'
+    | 'Item defective / not working'
+    | 'Changed my mind'
+    | 'Other'
+
+export const RETURN_REASONS: ReturnReason[] = [
+    'Wrong item received',
+    'Item damaged on arrival',
+    'Item defective / not working',
+    'Changed my mind',
+    'Other',
+]
+
+export type ReturnRequest = {
+    orderId: string
+    reason: ReturnReason
+    notes: string
+}
+
+// ─── Cancel Reasons ───────────────────────────────────────────────────────────
+
+export const CANCEL_REASONS = [
+    'Changed my mind',
+    'Found a better price elsewhere',
+    'Ordered by mistake',
+    'Delivery time is too long',
+    'Other',
+] as const
+
+export type CancelReason = typeof CANCEL_REASONS[number]
+
+// ─── Saved Addresses ─────────────────────────────────────────────────────────
+
+export type AddressType = 'HOME' | 'WORK' | 'OTHER'
+
+export type SavedAddress = {
+    id: string
+    addressType: AddressType
+    label: string | null
+    addressLine: string | null
+    barangay: string | null
+    city: string | null
+    province: string | null
+    postalCode: string | null
+    country: string | null
+    formattedAddress: string | null
+    latitude: number | null
+    longitude: number | null
+    isDefault: boolean
+    additionalInfo: string | null
+}
+
+export type SavedAddressInput = Omit<SavedAddress, 'id' | 'formattedAddress' | 'label'>

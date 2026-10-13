@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MARKETPLACE_NAME } from '../catalog'
+import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
+import { useNotifications } from '../hooks/useNotifications'
 import { colors, radius } from '../theme'
 
 type Props = {
@@ -16,11 +18,13 @@ type Props = {
     showBack?: boolean
 }
 
-/** Emerald marketplace bar: logo, search, cart — the mobile version of the web header. */
+/** Emerald marketplace bar: logo, search, cart, notifications — the mobile version of the web header. */
 export function MarketplaceHeader({ initialQuery = '', onSearch, showBack }: Props) {
     const router = useRouter()
     const insets = useSafeAreaInsets()
+    const { customer } = useAuth()
     const { itemCount } = useCart()
+    const { unreadCount } = useNotifications(customer?.customerId ?? null)
     const [query, setQuery] = useState(initialQuery)
 
     useEffect(() => setQuery(initialQuery), [initialQuery])
@@ -57,6 +61,20 @@ export function MarketplaceHeader({ initialQuery = '', onSearch, showBack }: Pro
                     <Text style={styles.brandText} numberOfLines={1}>
                         {MARKETPLACE_NAME}
                     </Text>
+                </Pressable>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+                    hitSlop={8}
+                    onPress={() => router.push('/notifications')}
+                    style={styles.iconButton}
+                >
+                    <Ionicons name="notifications-outline" size={24} color="#fff" />
+                    {unreadCount > 0 ? (
+                        <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                        </View>
+                    ) : null}
                 </Pressable>
                 <Pressable
                     accessibilityRole="button"

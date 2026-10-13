@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
     ImageBackground,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -78,76 +81,271 @@ function buildPromos(products: Product[]): Promo[] {
 
 type Props = { products: Product[]; onShop: (divisionId: DivisionId) => void }
 
-/** Swipeable featured-store cards (web "store promo" card). */
+/** Elegant, smoothly sliding & draggable featured-store promo banner. */
 export function StorePromoCarousel({ products, onShop }: Props) {
     const { width } = useWindowDimensions()
-    const cardWidth = Math.min(width, 720) - 32
+    const containerWidth = Math.min(width, 768)
+    const cardWidth = Math.max(280, containerWidth - 32)
+    const stepWidth = cardWidth + 12
     const promos = buildPromos(products)
+
     const [page, setPage] = useState(0)
+    const [dragOffset, setDragOffset] = useState(0)
+    const [isDragging, setIsDragging] = useState(false)
+    const [isHovered, setIsHovered] = useState(false)
+
+    const isDraggingRef = useRef(false)
+    const startXRef = useRef(0)
+    const dragDistRef = useRef(0)
+    const pageRef = useRef(0)
+    pageRef.current = page
+
+    // Graceful auto-advance with comfortable reading interval
+    useEffect(() => {
+        if (promos.length <= 1) return
+
+        const timer = setInterval(() => {
+            if (isDraggingRef.current || isHovered) return
+            setPage((prev) => (prev + 1) % promos.length)
+        }, 2800)
+
+        return () => clearInterval(timer)
+    }, [promos.length, isHovered])
+
+    const goTo = (index: number) => {
+        setPage(Math.max(0, Math.min(promos.length - 1, index)))
+    }
+
+    // Unified pointer/mouse drag start
+    const handleDragStart = (clientX: number) => {
+        isDraggingRef.current = true
+        setIsDragging(true)
+        startXRef.current = clientX
+        dragDistRef.current = 0
+    }
+
+    // Unified pointer/mouse drag move
+    const handleDragMove = (clientX: number) => {
+        if (!isDraggingRef.current) return
+        const diff = clientX - startXRef.current
+        dragDistRef.current = diff
+
+        // Gentle rubber-band resistance at boundaries
+        let boundedDiff = diff
+        if ((pageRef.current === 0 && diff > 0) || (pageRef.current === promos.length - 1 && diff < 0)) {
+            boundedDiff = diff * 0.35
+        }
+        setDragOffset(boundedDiff)
+    }
+
+    // Unified pointer/mouse drag end
+    const handleDragEnd = () => {
+        if (!isDraggingRef.current) return
+        isDraggingRef.current = false
+        setIsDragging(false)
+
+        const threshold = Math.min(60, cardWidth * 0.15)
+        const dist = dragDistRef.current
+
+        if (dist < -threshold && pageRef.current < promos.length - 1) {
+            setPage((prev) => prev + 1)
+        } else if (dist > threshold && pageRef.current > 0) {
+            setPage((prev) => prev - 1)
+        }
+        setDragOffset(0)
+    }
+
+    // Mouse handlers for desktop web
+    const mouseHandlers =
+        Platform.OS === 'web'
+            ? {
+                  onMouseDown: (e: any) => handleDragStart(e.clientX ?? e.pageX ?? 0),
+                  onMouseMove: (e: any) => handleDragMove(e.clientX ?? e.pageX ?? 0),
+                  onMouseUp: handleDragEnd,
+                  onMouseLeave: () => {
+                      setIsHovered(false)
+                      handleDragEnd()
+                  },
+                  onMouseEnter: () => setIsHovered(true),
+              }
+            : {}
+
+    // Touch handlers for mobile / touchscreens
+    const touchHandlers = {
+        onTouchStart: (e: any) => {
+            const touch = e.nativeEvent?.touches?.[0]
+            if (touch) handleDragStart(touch.clientX ?? touch.pageX ?? 0)
+        },
+        onTouchMove: (e: any) => {
+            const touch = e.nativeEvent?.touches?.[0]
+            if (touch) handleDragMove(touch.clientX ?? touch.pageX ?? 0)
+        },
+        onTouchEnd: handleDragEnd,
+        onTouchCancel: handleDragEnd,
+    }
+
+    const currentTranslateX = -page * stepWidth + dragOffset
 
     return (
         <View style={styles.wrap}>
-            <ScrollView
-                horizontal
-                snapToInterval={cardWidth + 12}
-                snapToAlignment="start"
-                decelerationRate="fast"
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.list}
-                onScroll={(e) =>
-                    setPage(Math.round(e.nativeEvent.contentOffset.x / (cardWidth + 12)))
-                }
-                scrollEventThrottle={32}
+            <View
+                style={[
+                    styles.viewport,
+                    Platform.OS === 'web' &&
+                        ({
+                            cursor: isDragging ? 'grabbing' : 'grab',
+                            userSelect: 'none',
+                        } as any),
+                ]}
+                {...mouseHandlers}
+                {...touchHandlers}
             >
-                {promos.map((promo) => (
-                    <ImageBackground
-                        key={promo.divisionId}
-                        source={{ uri: promo.photo }}
-                        resizeMode="cover"
-                        style={[styles.card, { width: cardWidth }]}
-                        imageStyle={styles.image}
-                    >
-                        <View style={[styles.shade, { backgroundColor: promo.shade }]}>
-                            <Text style={[styles.eyebrow, { color: promo.eyebrowColor }]}>{promo.eyebrow}</Text>
-                            <Text style={styles.headline}>{promo.headline}</Text>
-                            <Text style={styles.body}>
-                                {promo.body}
-                                {promo.code ? (
-                                    <>
-                                        {' '}
-                                        <Text style={styles.code}> {promo.code} </Text> at checkout.
-                                    </>
-                                ) : null}
-                            </Text>
-                            <Pressable
-                                accessibilityRole="button"
-                                onPress={() => onShop(promo.divisionId)}
-                                style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+                <View
+                    style={[
+                        styles.track,
+                        {
+                            transform: [{ translateX: currentTranslateX }],
+                            ...(Platform.OS === 'web'
+                                ? {
+                                      transition: isDragging
+                                          ? 'none'
+                                          : 'transform 750ms cubic-bezier(0.16, 1, 0.3, 1)',
+                                  }
+                                : {}),
+                        },
+                    ]}
+                >
+                    {promos.map((promo, index) => {
+                        const isActive = index === page
+                        return (
+                            <View
+                                key={promo.divisionId}
+                                style={[
+                                    styles.cardWrapper,
+                                    { width: cardWidth },
+                                    Platform.OS === 'web' &&
+                                        ({
+                                            opacity: isActive ? 1 : 0.88,
+                                            transform: [{ scale: isActive ? 1 : 0.985 }],
+                                            transition:
+                                                'transform 750ms cubic-bezier(0.16, 1, 0.3, 1), opacity 750ms ease',
+                                        } as any),
+                                ]}
                             >
-                                <Text style={[styles.ctaText, { color: promo.ctaColor }]}>{promo.cta}</Text>
-                            </Pressable>
-                        </View>
-                    </ImageBackground>
-                ))}
-            </ScrollView>
+                                <ImageBackground
+                                    source={{ uri: promo.photo }}
+                                    resizeMode="cover"
+                                    style={styles.card}
+                                    imageStyle={styles.image}
+                                >
+                                    <View style={[styles.shade, { backgroundColor: promo.shade }]}>
+                                        <Text style={[styles.eyebrow, { color: promo.eyebrowColor }]}>
+                                            {promo.eyebrow}
+                                        </Text>
+                                        <Text style={styles.headline}>{promo.headline}</Text>
+                                        <Text style={styles.body}>
+                                            {promo.body}
+                                            {promo.code ? (
+                                                <>
+                                                    {' '}
+                                                    <Text style={styles.code}> {promo.code} </Text> at checkout.
+                                                </>
+                                            ) : null}
+                                        </Text>
+                                        <Pressable
+                                            accessibilityRole="button"
+                                            onPress={() => {
+                                                if (Math.abs(dragDistRef.current) > 8) return
+                                                onShop(promo.divisionId)
+                                            }}
+                                            style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+                                        >
+                                            <Text style={[styles.ctaText, { color: promo.ctaColor }]}>
+                                                {promo.cta}
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </ImageBackground>
+                            </View>
+                        )
+                    })}
+                </View>
+            </View>
+
+            {/* Elegant pagination pills */}
             <View style={styles.dots}>
-                {promos.map((promo, i) => (
-                    <View key={promo.divisionId} style={[styles.dot, i === page && styles.dotActive]} />
-                ))}
+                {promos.map((promo, i) => {
+                    const isActive = i === page
+                    return (
+                        <Pressable
+                            key={promo.divisionId}
+                            onPress={() => goTo(i)}
+                            hitSlop={12}
+                            style={[
+                                styles.dot,
+                                isActive && styles.dotActive,
+                                Platform.OS === 'web' &&
+                                    ({
+                                        transition: 'all 500ms cubic-bezier(0.16, 1, 0.3, 1)',
+                                    } as any),
+                            ]}
+                        />
+                    )
+                })}
             </View>
         </View>
     )
 }
 
 const styles = StyleSheet.create({
-    wrap: { gap: 10 },
-    list: { paddingHorizontal: 16, gap: 12 },
-    card: { height: 230, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#064e3b' },
-    image: { borderRadius: radius.lg },
-    shade: { flex: 1, padding: 20, justifyContent: 'flex-end', gap: 6 },
-    eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
-    headline: { fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-    body: { fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.9)' },
+    wrap: {
+        gap: 12,
+        overflow: 'hidden',
+    },
+    viewport: {
+        overflow: 'hidden',
+        paddingHorizontal: 16,
+    },
+    track: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    cardWrapper: {
+        borderRadius: radius.lg,
+        overflow: 'hidden',
+    },
+    card: {
+        height: 230,
+        borderRadius: radius.lg,
+        overflow: 'hidden',
+        backgroundColor: '#064e3b',
+    },
+    image: {
+        borderRadius: radius.lg,
+    },
+    shade: {
+        flex: 1,
+        padding: 20,
+        justifyContent: 'flex-end',
+        gap: 6,
+    },
+    eyebrow: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+    },
+    headline: {
+        fontSize: 28,
+        fontWeight: '800',
+        color: '#fff',
+        letterSpacing: -0.5,
+    },
+    body: {
+        fontSize: 13,
+        lineHeight: 19,
+        color: 'rgba(255,255,255,0.92)',
+    },
     code: {
         fontFamily: 'monospace',
         fontWeight: '700',
@@ -156,6 +354,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderStyle: 'dashed',
         borderColor: 'rgba(255,255,255,0.6)',
+        paddingHorizontal: 4,
+        borderRadius: 4,
     },
     cta: {
         alignSelf: 'flex-start',
@@ -164,10 +364,37 @@ const styles = StyleSheet.create({
         borderRadius: radius.sm,
         paddingHorizontal: 16,
         paddingVertical: 9,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    ctaPressed: { opacity: 0.85 },
-    ctaText: { fontSize: 14, fontWeight: '700' },
-    dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
-    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.borderStrong },
-    dotActive: { width: 18, backgroundColor: colors.brand },
+    ctaPressed: {
+        opacity: 0.88,
+        transform: [{ scale: 0.98 }],
+    },
+    ctaText: {
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    dots: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 2,
+    },
+    dot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.borderStrong,
+    },
+    dotActive: {
+        width: 22,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.brand,
+    },
 })

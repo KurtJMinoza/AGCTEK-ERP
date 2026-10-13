@@ -111,13 +111,14 @@ export class RetailClientService {
         }
 
         const passwordHash = await bcrypt.hash(password, 10)
+        const fullName = (input.firstName || input.fullName || 'Valued Customer').trim()
         let client
         try {
             client = await this.prisma.retailClient.create({
                 data: {
                     email,
                     passwordHash,
-                    fullName: input.firstName.trim(),
+                    fullName,
                 },
             })
         } catch (error) {

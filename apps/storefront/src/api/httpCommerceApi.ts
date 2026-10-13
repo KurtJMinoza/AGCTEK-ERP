@@ -4,12 +4,16 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    Notification,
     Order,
     OrderStatus,
     Product,
     ProfileUpdate,
     RegisterInput,
+    ReturnRequest,
     Review,
+    SavedAddress,
+    SavedAddressInput,
     SignInInput,
     Spec,
 } from '../types'
@@ -48,6 +52,7 @@ type ApiSalesOrder = {
     totalAmount: Decimal
     createdAt: string
     updatedAt: string
+    paymentMethod: string | null
     shipToName: string | null
     shipToPhone: string | null
     shipToAddressLine1: string | null
@@ -64,11 +69,43 @@ type ApiSalesOrder = {
     }[]
 }
 
+type ApiNotification = {
+    id: string
+    title?: string | null
+    message?: string | null
+    description?: string | null
+    target?: string | null
+    isRead?: boolean
+    readed?: boolean
+    createdAt?: string | null
+    date?: string | null
+}
+
+type ApiAddress = {
+    id: string
+    addressType?: string | null
+    label?: string | null
+    addressLine?: string | null
+    barangayOrNeighborhood?: string | null
+    cityOrMunicipality?: string | null
+    provinceOrState?: string | null
+    postalCode?: string | null
+    country?: string | null
+    formattedAddress?: string | null
+    latitude?: number | null
+    longitude?: number | null
+    isDefault?: boolean
+    additionalInfo?: string | null
+}
+
 const STATUS_MAP: Record<string, OrderStatus> = {
     DRAFT: 'PENDING_APPROVAL',
     PENDING: 'PENDING_APPROVAL',
     CONFIRMED: 'PREPARING_TO_SHIP',
-    COMPLETED: 'DELIVERED',
+    DISPATCHED: 'DISPATCHED',
+    READY_FOR_DISPATCH: 'DISPATCHED',
+    DELIVERED: 'DELIVERED',
+    COMPLETED: 'COMPLETED',
     CANCELLED: 'CANCELLED',
 }
 
@@ -139,23 +176,55 @@ export class HttpCommerceApi implements CommerceApi {
     }
 
     async register(input: RegisterInput): Promise<Customer> {
+        const firstName = input.fullName?.trim() || ''
         const { client, token } = await this.request<ApiSession>(
             '/retail/clients/register',
-            { method: 'POST', body: JSON.stringify(input) },
+            {
+                method: 'POST',
+                body: JSON.stringify({
+                    email: input.email.trim().toLowerCase(),
+                    password: input.password,
+                    firstName,
+                    fullName: firstName,
+                }),
+            },
         )
         this.sessionToken = token
+
+        if (input.phone) {
+            try {
+                await this.updateProfile(client.customerId, {
+                    fullName: input.fullName,
+                    phone: input.phone,
+                    addressLine1: input.addressLine1,
+                    city: input.city,
+                    region: input.region,
+                    postalCode: input.postalCode,
+                    country: input.country,
+                })
+            } catch {
+                // Non-blocking: registration itself succeeded
+            }
+        }
         return client
     }
 
     async updateProfile(_customerId: string, update: ProfileUpdate): Promise<Customer> {
+        const firstName = update.fullName?.trim() || ''
         const { client } = await this.request<{ client: ApiClient }>(
             '/retail/clients/me',
-            { method: 'PATCH', body: JSON.stringify(update) },
+            {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    ...(firstName ? { firstName, fullName: firstName } : {}),
+                    ...(update.phone ? { phone: update.phone } : {}),
+                }),
+            },
         )
         return client
     }
 
-    async checkout({ checkoutId, customerId, shipping, pricing }: CheckoutInput): Promise<CheckoutResult> {
+    async checkout({ checkoutId, customerId, shipping, pricing, paymentMethod }: CheckoutInput): Promise<CheckoutResult> {
         const { email, ...address } = shipping
         const result = await this.request<{ checkoutId: string; order: ApiSalesOrder }>(
             '/sd/sales-orders/retail/checkout',
@@ -167,6 +236,7 @@ export class HttpCommerceApi implements CommerceApi {
                     customerName: shipping.fullName,
                     customerEmail: email,
                     shippingAddress: address,
+                    paymentMethod: paymentMethod ?? 'CASH_ON_DELIVERY',
                     cartItems: pricing.stores.flatMap((store) =>
                         store.lines.map((line) => ({
                             divisionId: store.divisionId,
@@ -190,6 +260,7 @@ export class HttpCommerceApi implements CommerceApi {
             orderId: result.order.id,
             orderNumber: result.order.orderNumber,
             grandTotal: toNumber(result.order.totalAmount),
+            paymentMethod,
             stores: pricing.stores,
         }
     }
@@ -201,11 +272,76 @@ export class HttpCommerceApi implements CommerceApi {
         return rows.map((row) => this.toOrder(row))
     }
 
-    async cancelOrder(orderId: string): Promise<void> {
+    async cancelOrder(orderId: string, reason?: string): Promise<void> {
         await this.request<ApiSalesOrder>(
             `/sd/sales-orders/${encodeURIComponent(orderId)}/cancel`,
-            { method: 'POST' },
+            {
+                method: 'POST',
+                body: JSON.stringify({ reason: reason?.trim() || 'Customer requested' }),
+            },
         )
+    }
+
+    async requestReturn({ orderId, reason, notes }: ReturnRequest): Promise<void> {
+        await this.request<unknown>(
+            `/sd/sales-orders/${encodeURIComponent(orderId)}/return`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ reason, notes: notes.trim() || undefined }),
+            },
+        )
+    }
+
+    // ─── Notifications ─────────────────────────────────────────────────────────
+
+    async getNotifications(userId?: string): Promise<Notification[]> {
+        const query = userId ? `?${new URLSearchParams({ userId }).toString()}` : ''
+        try {
+            const rows = await this.request<ApiNotification[]>(`/notifications${query}`)
+            return rows.map(this.toNotification)
+        } catch {
+            return []
+        }
+    }
+
+    async markNotificationRead(id: string): Promise<void> {
+        await this.request<unknown>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' })
+    }
+
+    async markAllNotificationsRead(userId?: string): Promise<void> {
+        const body = userId ? JSON.stringify({ userId }) : '{}'
+        await this.request<unknown>('/notifications/mark-all-read', { method: 'POST', body })
+    }
+
+    // ─── Saved Addresses ───────────────────────────────────────────────────────
+
+    async getAddresses(): Promise<SavedAddress[]> {
+        const rows = await this.request<ApiAddress[]>('/retail/clients/me/addresses')
+        return rows.map(this.toAddress)
+    }
+
+    async createAddress(input: SavedAddressInput): Promise<SavedAddress> {
+        const row = await this.request<ApiAddress>('/retail/clients/me/addresses', {
+            method: 'POST',
+            body: JSON.stringify(this.fromAddressInput(input)),
+        })
+        return this.toAddress(row)
+    }
+
+    async updateAddress(id: string, input: Partial<SavedAddressInput>): Promise<SavedAddress> {
+        const row = await this.request<ApiAddress>(`/retail/clients/me/addresses/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(this.fromAddressInput(input as SavedAddressInput)),
+        })
+        return this.toAddress(row)
+    }
+
+    async deleteAddress(id: string): Promise<void> {
+        await this.request<unknown>(`/retail/clients/me/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    }
+
+    async setDefaultAddress(id: string): Promise<void> {
+        await this.request<unknown>(`/retail/clients/me/addresses/${encodeURIComponent(id)}/default`, { method: 'POST' })
     }
 
     private imageUrl(src: unknown): string | null {
@@ -214,6 +350,52 @@ export class HttpCommerceApi implements CommerceApi {
         if (/^https?:\/\//.test(value)) return value
         if (value.startsWith('/') && !value.startsWith('//')) return `${this.webUrl}${value}`
         return null
+    }
+
+    private toNotification(row: ApiNotification): Notification {
+        return {
+            id: row.id,
+            title: row.title ?? null,
+            message: row.message ?? row.description ?? null,
+            target: row.target ?? null,
+            isRead: Boolean(row.isRead || row.readed),
+            createdAt: row.createdAt ?? row.date ?? null,
+        }
+    }
+
+    private toAddress(row: ApiAddress): SavedAddress {
+        return {
+            id: row.id,
+            addressType: (row.addressType as SavedAddress['addressType']) ?? 'HOME',
+            label: row.label ?? null,
+            addressLine: row.addressLine ?? null,
+            barangay: row.barangayOrNeighborhood ?? null,
+            city: row.cityOrMunicipality ?? null,
+            province: row.provinceOrState ?? null,
+            postalCode: row.postalCode ?? null,
+            country: row.country ?? null,
+            formattedAddress: row.formattedAddress ?? null,
+            latitude: typeof row.latitude === 'number' ? row.latitude : null,
+            longitude: typeof row.longitude === 'number' ? row.longitude : null,
+            isDefault: Boolean(row.isDefault),
+            additionalInfo: row.additionalInfo ?? null,
+        }
+    }
+
+    private fromAddressInput(input: SavedAddressInput): Record<string, unknown> {
+        return {
+            addressType: input.addressType,
+            addressLine: input.addressLine,
+            barangayOrNeighborhood: input.barangay,
+            cityOrMunicipality: input.city,
+            provinceOrState: input.province,
+            postalCode: input.postalCode,
+            country: input.country,
+            latitude: input.latitude,
+            longitude: input.longitude,
+            isDefault: input.isDefault,
+            additionalInfo: input.additionalInfo,
+        }
     }
 
     private toProduct(row: ApiProduct): Product {
@@ -312,6 +494,7 @@ export class HttpCommerceApi implements CommerceApi {
             promoCode: row.promoCode,
             shippingAmount: toNumber(row.shippingAmount),
             totalAmount: toNumber(row.totalAmount),
+            paymentMethod: row.paymentMethod ?? null,
             shipTo: row.shipToName
                 ? { fullName: row.shipToName, phone: row.shipToPhone ?? '', address }
                 : null,

@@ -12,16 +12,30 @@ function stepsFor(order: Order): Step[] {
     if (order.status === 'CANCELLED') {
         return [placed, { label: 'Cancelled', done: true, current: true, danger: true, at: order.updatedAt }]
     }
-    const rank = { PENDING_APPROVAL: 0, PREPARING_TO_SHIP: 1, DELIVERED: 2 }[order.status]
+    const rankMap: Record<Exclude<Order['status'], 'CANCELLED'>, number> = {
+        PENDING_APPROVAL: 0,
+        PREPARING_TO_SHIP: 1,
+        DISPATCHED: 2,
+        DELIVERED: 3,
+        COMPLETED: 4,
+    }
+    const rank = rankMap[order.status] ?? 0
     return [
         placed,
         { label: 'Waiting for approval', done: true, current: rank === 0 },
         { label: 'Preparing to ship', done: rank >= 1, current: rank === 1 },
+        { label: 'Dispatched', done: rank >= 2, current: rank === 2 },
         {
             label: 'Delivered',
-            done: rank >= 2,
-            current: rank === 2,
-            at: rank >= 2 ? order.updatedAt : undefined,
+            done: rank >= 3,
+            current: rank === 3,
+            at: rank >= 3 ? order.updatedAt : undefined,
+        },
+        {
+            label: 'Completed',
+            done: rank >= 4,
+            current: rank === 4,
+            at: rank >= 4 ? order.updatedAt : undefined,
         },
     ]
 }

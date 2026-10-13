@@ -3,10 +3,14 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    Notification,
     Order,
     Product,
     ProfileUpdate,
     RegisterInput,
+    ReturnRequest,
+    SavedAddress,
+    SavedAddressInput,
     SignInInput,
 } from '../types'
 import { CommerceApiError, type CommerceApi } from './commerceApi'
@@ -107,16 +111,13 @@ export class MockCommerceApi implements CommerceApi {
     private orders: (Order & { customerId: string })[] = []
     private nextNumber = 1001
     private profiles = new Map<string, Customer>()
+    private notifications: (Notification & { userId: string })[] = []
+    private addresses: (SavedAddress & { userId: string })[] = []
 
-    getSessionToken(): string | null {
-        return null
-    }
-
+    getSessionToken(): string | null { return null }
     setSessionToken(_token: string | null): void {}
 
-    getProducts(): Promise<Product[]> {
-        return delay(PRODUCTS)
-    }
+    getProducts(): Promise<Product[]> { return delay(PRODUCTS) }
 
     getAvailability(_divisionId: string, sku: string): Promise<Availability> {
         const available = sku.includes('WM') ? 4 : 45
@@ -164,14 +165,14 @@ export class MockCommerceApi implements CommerceApi {
         return delay(next)
     }
 
-    checkout({ checkoutId, customerId, shipping, pricing }: CheckoutInput): Promise<CheckoutResult> {
+    checkout({ checkoutId, customerId, shipping, pricing, paymentMethod }: CheckoutInput): Promise<CheckoutResult> {
         const now = new Date().toISOString()
-        const order = {
+        const order: Order & { customerId: string } = {
             customerId,
             id: `o-${this.nextNumber}`,
             orderNumber: `SO-${String(this.nextNumber++).padStart(6, '0')}`,
             divisionIds: pricing.stores.map((store) => store.divisionId),
-            status: 'PREPARING_TO_SHIP' as const,
+            status: 'PREPARING_TO_SHIP',
             placedAt: now,
             updatedAt: now,
             lines: pricing.stores.flatMap((store) =>
@@ -182,18 +183,30 @@ export class MockCommerceApi implements CommerceApi {
             promoCode: pricing.promoCode,
             shippingAmount: pricing.shipping,
             totalAmount: pricing.grandTotal,
+            paymentMethod: paymentMethod ?? 'CASH_ON_DELIVERY',
             shipTo: {
                 fullName: shipping.fullName,
                 phone: shipping.phone,
-                address: [shipping.addressLine1, shipping.city, shipping.region, shipping.postalCode].join(', '),
+                address: [shipping.addressLine1, shipping.city, shipping.region, shipping.postalCode].filter(Boolean).join(', '),
             },
         }
         this.orders.unshift(order)
+        // Seed a demo notification
+        this.notifications.unshift({
+            userId: customerId,
+            id: `n-${Date.now()}`,
+            title: `Order ${order.orderNumber} placed!`,
+            message: 'Your order is now pending delivery confirmation.',
+            target: order.orderNumber,
+            isRead: false,
+            createdAt: now,
+        })
         return delay({
             checkoutId,
             orderId: order.id,
             orderNumber: order.orderNumber,
             grandTotal: order.totalAmount,
+            paymentMethod,
             stores: pricing.stores,
         })
     }
@@ -206,9 +219,75 @@ export class MockCommerceApi implements CommerceApi {
         )
     }
 
-    cancelOrder(orderId: string): Promise<void> {
+    cancelOrder(orderId: string, _reason?: string): Promise<void> {
         const order = this.orders.find((o) => o.id === orderId)
         if (order) order.status = 'CANCELLED'
+        return delay(undefined)
+    }
+
+    requestReturn(_request: ReturnRequest): Promise<void> {
+        return delay(undefined)
+    }
+
+    // ─── Notifications ─────────────────────────────────────────────────────────
+
+    getNotifications(userId?: string): Promise<Notification[]> {
+        const items = userId
+            ? this.notifications.filter((n) => n.userId === userId)
+            : this.notifications
+        return delay(items.map(({ userId: _u, ...n }) => n))
+    }
+
+    markNotificationRead(id: string): Promise<void> {
+        const item = this.notifications.find((n) => n.id === id)
+        if (item) item.isRead = true
+        return delay(undefined)
+    }
+
+    markAllNotificationsRead(userId?: string): Promise<void> {
+        const items = userId
+            ? this.notifications.filter((n) => n.userId === userId)
+            : this.notifications
+        items.forEach((n) => { n.isRead = true })
+        return delay(undefined)
+    }
+
+    // ─── Saved Addresses ───────────────────────────────────────────────────────
+
+    getAddresses(): Promise<SavedAddress[]> {
+        return delay(this.addresses.map(({ userId: _u, ...a }) => a))
+    }
+
+    createAddress(input: SavedAddressInput): Promise<SavedAddress> {
+        if (input.isDefault) this.addresses.forEach((a) => { a.isDefault = false })
+        const addr: SavedAddress & { userId: string } = {
+            ...input,
+            userId: 'demo',
+            id: `addr-${Date.now()}`,
+            formattedAddress: [input.addressLine, input.city, input.province].filter(Boolean).join(', '),
+            label: null,
+        }
+        this.addresses.push(addr)
+        const { userId: _u, ...result } = addr
+        return delay(result)
+    }
+
+    updateAddress(id: string, input: Partial<SavedAddressInput>): Promise<SavedAddress> {
+        const idx = this.addresses.findIndex((a) => a.id === id)
+        if (idx < 0) return Promise.reject(new CommerceApiError('Address not found.', 'NOT_FOUND'))
+        if (input.isDefault) this.addresses.forEach((a) => { a.isDefault = false })
+        this.addresses[idx] = { ...this.addresses[idx]!, ...input }
+        const { userId: _u, ...result } = this.addresses[idx]!
+        return delay(result)
+    }
+
+    deleteAddress(id: string): Promise<void> {
+        this.addresses = this.addresses.filter((a) => a.id !== id)
+        return delay(undefined)
+    }
+
+    setDefaultAddress(id: string): Promise<void> {
+        this.addresses.forEach((a) => { a.isDefault = a.id === id })
         return delay(undefined)
     }
 }
