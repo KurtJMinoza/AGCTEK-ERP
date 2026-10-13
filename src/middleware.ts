@@ -169,14 +169,16 @@ export default auth(async (req) => {
     const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
     const isNestApiRoute = nextUrl.pathname.startsWith('/api/v1')
     const isSocketRoute = nextUrl.pathname.startsWith('/socket.io')
+    const isPublicApiRoute = nextUrl.pathname.startsWith('/api/reviews')
     const isPublicRoute =
         publicRoutes.includes(nextUrl.pathname) ||
         nextUrl.pathname.startsWith(`${MARKETPLACE_PATH}/`) ||
-        nextUrl.pathname.startsWith(`${AWIC_STOREFRONT_PATH}/`)
+        nextUrl.pathname.startsWith(`${AWIC_STOREFRONT_PATH}/`) ||
+        nextUrl.pathname.startsWith('/products')
     const isAuthRoute = authRoutes.includes(nextUrl.pathname)
 
-    /** NextAuth handlers, Nest rewrite (`/api/v1`), and Socket.IO proxy skip page auth. */
-    if (isApiAuthRoute || isNestApiRoute || isSocketRoute) return
+    /** NextAuth handlers, Nest rewrite (`/api/v1`), public review APIs, and Socket.IO proxy skip page auth. */
+    if (isApiAuthRoute || isNestApiRoute || isSocketRoute || isPublicApiRoute) return
 
     const isMaintenancePath = nextUrl.pathname === MAINTENANCE_PATH
     const isSuperAdmin = (req.auth?.user?.authority ?? []).includes('super_admin')

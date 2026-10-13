@@ -382,10 +382,16 @@ export class ProductService {
     }
 
     async findOne(id: string) {
-        const row = await this.prisma.sdProduct.findUnique({
+        let row = await this.prisma.sdProduct.findUnique({
             where: { id },
             include: WITH_MATERIAL_CATEGORY,
         })
+        if (!row) {
+            row = await this.prisma.sdProduct.findFirst({
+                where: { sku: id },
+                include: WITH_MATERIAL_CATEGORY,
+            })
+        }
         if (!row) throw new NotFoundException('Product not found')
         return this.withMaterialCategory(row)
     }

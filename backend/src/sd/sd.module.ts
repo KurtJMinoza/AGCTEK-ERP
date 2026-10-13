@@ -30,9 +30,15 @@ import { SalesInvoiceService } from './sales-invoice.service'
 import { SdFulfillmentEventsListener } from './sd-fulfillment-events.listener'
 import { ReturnRequestService } from './return-request.service'
 import { ReturnRequestController } from './return-request.controller'
+import { ReviewModule } from './reviews/review.module'
 
 @Module({
-    imports: [forwardRef(() => MmModule), RetailModule, NotificationsModule],
+    imports: [
+        forwardRef(() => MmModule),
+        RetailModule,
+        NotificationsModule,
+        ReviewModule,
+    ],
     controllers: [
         SalesOrderController,
         CustomerController,
@@ -72,6 +78,7 @@ import { ReturnRequestController } from './return-request.controller'
         CustomerService,
         QuotationService,
         SalesReturnService,
+        ReviewModule,
     ],
 })
 export class SdModule {}

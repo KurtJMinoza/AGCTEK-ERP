@@ -32,6 +32,7 @@ model User {
   mobileDevices         MmMobileDevice[]
   companies             UserCompany[]
   updatedSystemSettings SystemSetting[]
+  reviews               ProductReview[]
 
   @@index([role])
 }
@@ -3800,10 +3801,29 @@ model SdProduct {
   fulfillmentLines    SdFulfillmentLine[]
   options             SdProductOption[]             @relation("ProductOptions")
   variants            SdProductVariant[]            @relation("ProductVariants")
+  reviews             ProductReview[]
 
   @@unique([divisionId, sku])
   @@index([divisionId, isActive, sortOrder])
   @@map("sd_products")
+}
+
+/// Customer review and star rating on an SD storefront product.
+model ProductReview {
+  id        String    @id @default(cuid())
+  productId String
+  product   SdProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String    @db.Text
+  imageUrls String[]  @default([])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([productId])
+  @@index([userId])
+  @@map("product_reviews")
 }
 
 /// Generic selectable option group on a product (Size, Color, Bottle Size, Flavor, Pack…).
