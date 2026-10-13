@@ -23,6 +23,9 @@ function setup() {
         sdSalesOrder: {
             findUnique: jest.fn().mockResolvedValue(null),
         },
+        retailClientAddress: {
+            findMany: jest.fn().mockResolvedValue([]),
+        },
     }
     const service = new PackingService(
         prisma as unknown as PrismaService,
@@ -336,6 +339,209 @@ describe('PackingService default order package', () => {
 
         await expect(service.dispatch('pkg-1')).rejects.toThrow(
             'READY_FOR_DISPATCH with an SCM shipment',
+        )
+    })
+})
+
+describe('PackingService delivery pin prefill', () => {
+    const REGISTERED_ADDRESS = {
+        id: 'addr-1',
+        addressLine: 'A. Iñigo Street',
+        barangayOrNeighborhood: 'Poblacion District',
+        cityOrMunicipality: 'Davao City',
+        provinceOrState: 'Davao Region',
+        postalCode: '8000',
+        country: 'Philippines',
+        isDefault: true,
+        latitude: 7.083861,
+        longitude: 125.612704,
+    }
+
+    function prefillSetup() {
+        const { prisma } = setup()
+        const service = new PackingService(
+            prisma as unknown as PrismaService,
+            {} as never,
+        )
+        return { prisma, service }
+    }
+
+    it('suggests the registered-address pin in findOne detail', async () => {
+        const { prisma, service } = prefillSetup()
+        prisma.wmPackage.findUnique = jest.fn().mockResolvedValue({
+            id: 'pkg-1',
+            shipToLat: null,
+            shipToLng: null,
+            items: [],
+            salesOrder: { customerId: 'client-1' },
+            pickingTask: null,
+        })
+        prisma.retailClientAddress.findMany = jest
+            .fn()
+            .mockResolvedValue([REGISTERED_ADDRESS])
+
+        const result = await service.findOne('pkg-1')
+
+        expect(prisma.retailClientAddress.findMany).toHaveBeenCalledWith({
+            where: { clientId: 'client-1' },
+            select: {
+                id: true,
+                addressLine: true,
+                barangayOrNeighborhood: true,
+                cityOrMunicipality: true,
+                provinceOrState: true,
+                postalCode: true,
+                country: true,
+                isDefault: true,
+                latitude: true,
+                longitude: true,
+            },
+        })
+        expect(result.suggestedShipTo).toEqual({
+            lat: 7.083861,
+            lng: 125.612704,
+        })
+    })
+
+    it('prefers the registered address that matches the order ship-to', async () => {
+        const { prisma, service } = prefillSetup()
+        prisma.wmPackage.findUnique = jest.fn().mockResolvedValue({
+            id: 'pkg-1',
+            shipToLat: null,
+            shipToLng: null,
+            items: [],
+            salesOrder: {
+                customerId: 'client-1',
+                shipToCity: 'Manila',
+                shipToRegion: 'NCR',
+                shipToPostalCode: '1000',
+            },
+            pickingTask: null,
+        })
+        prisma.retailClientAddress.findMany = jest.fn().mockResolvedValue([
+            {
+                ...REGISTERED_ADDRESS,
+                cityOrMunicipality: 'Manila',
+                provinceOrState: 'NCR',
+                postalCode: '1000',
+                isDefault: false,
+                latitude: 14.5995,
+                longitude: 120.9842,
+            },
+            REGISTERED_ADDRESS,
+        ])
+
+        const result = await service.findOne('pkg-1')
+
+        expect(result.suggestedShipTo).toEqual({
+            lat: 14.5995,
+            lng: 120.9842,
+        })
+    })
+
+    it('returns no suggestion when the customer has no registered address', async () => {
+        const { prisma, service } = prefillSetup()
+        prisma.wmPackage.findUnique = jest.fn().mockResolvedValue({
+            id: 'pkg-1',
+            shipToLat: null,
+            shipToLng: null,
+            items: [],
+            salesOrder: { customerId: 'client-1' },
+            pickingTask: null,
+        })
+        prisma.retailClientAddress.findMany = jest.fn().mockResolvedValue([])
+
+        const result = await service.findOne('pkg-1')
+
+        expect(result.suggestedShipTo).toBeNull()
+    })
+
+    it('skips the suggestion when the package already carries a pin', async () => {
+        const { prisma, service } = prefillSetup()
+        prisma.wmPackage.findUnique = jest.fn().mockResolvedValue({
+            id: 'pkg-1',
+            shipToLat: 7.0,
+            shipToLng: 125.0,
+            items: [],
+            salesOrder: { customerId: 'client-1' },
+            pickingTask: null,
+        })
+
+        const result = await service.findOne('pkg-1')
+
+        expect(prisma.retailClientAddress.findMany).not.toHaveBeenCalled()
+        expect(result.suggestedShipTo).toBeNull()
+    })
+
+    it('persists the customer pin on the package before SCM release', async () => {
+        const { prisma, service } = prefillSetup()
+        prisma.wmPackage.update = jest
+            .fn()
+            .mockImplementation((args: { data: Record<string, unknown> }) =>
+                Promise.resolve({ id: 'pkg-1', ...args.data }),
+            )
+        prisma.retailClientAddress.findMany = jest
+            .fn()
+            .mockResolvedValue([REGISTERED_ADDRESS])
+        // findOne → verify status → pin prefill path → re-read → release
+        const states = [
+            {
+                id: 'pkg-1',
+                status: 'SEALED',
+                shipToLat: null,
+                shipToLng: null,
+                shipToAddress: 'A. Iñigo Street, Davao City',
+                items: [
+                    { scannedQty: new Decimal(1), expectedQty: new Decimal(1) },
+                ],
+                salesOrder: { customerId: 'client-1' },
+                pickingTask: null,
+                suggestedShipTo: { lat: 7.083861, lng: 125.612704 },
+            },
+            {
+                id: 'pkg-1',
+                status: 'SEALED',
+                shipToLat: null,
+                shipToLng: null,
+                shipToAddress: 'A. Iñigo Street, Davao City',
+                items: [
+                    { scannedQty: new Decimal(1), expectedQty: new Decimal(1) },
+                ],
+                salesOrder: { customerId: 'client-1' },
+                pickingTask: null,
+                suggestedShipTo: { lat: 7.083861, lng: 125.612704 },
+            },
+            {
+                id: 'pkg-1',
+                status: 'SEALED',
+                shipToLat: 7.083861,
+                shipToLng: 125.612704,
+                shipToAddress: 'A. Iñigo Street, Davao City',
+                items: [
+                    { scannedQty: new Decimal(1), expectedQty: new Decimal(1) },
+                ],
+                salesOrder: { customerId: 'client-1' },
+                pickingTask: null,
+                suggestedShipTo: null,
+            },
+        ]
+        let reads = 0
+        const findOne = jest.spyOn(service, 'findOne').mockImplementation(() => {
+            const next = states[Math.min(reads, states.length - 1)]
+            reads += 1
+            return Promise.resolve(next as any)
+        })
+
+        await service.markReadyForDispatch('pkg-1')
+
+        expect(findOne).toHaveBeenCalled()
+        expect(prisma.wmPackage.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    shipToLat: 7.083861,
+                    shipToLng: 125.612704,
+                }),
+            }),
         )
     })
 })

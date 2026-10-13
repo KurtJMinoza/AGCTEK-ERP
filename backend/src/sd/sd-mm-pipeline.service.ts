@@ -97,6 +97,12 @@ export class SdMmPipelineService {
                                 },
                             )
                         materialId = resolved.materialId
+                        // The assignment owns the stock: its company overrides
+                        // the header/default company for this line (same rule
+                        // as variant links below).
+                        if (resolved.companyId) {
+                            effectiveCompanyId = resolved.companyId
+                        }
                     }
                 }
             }

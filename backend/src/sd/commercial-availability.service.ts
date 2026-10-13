@@ -115,6 +115,7 @@ export class CommercialAvailabilityService {
         const requiredByMaterialWarehouse = new Map<
             string,
             {
+                companyId: string
                 materialId: string
                 warehouseId: string
                 requiredQty: Decimal
@@ -123,6 +124,10 @@ export class CommercialAvailabilityService {
         >()
 
         for (const line of args.lines) {
+            // Company that owns the stock: the product's ACTIVE assignment
+            // wins over the store/order default (AWIC or AGCTEK cart against an
+            // M.CONPINCO-assigned product must ATP against M.CONPINCO stock).
+            let resolvedCompanyId = args.companyId
             const product = await this.materialResolution.findProductByDivisionSku(
                 line.divisionId,
                 line.sku,
@@ -175,6 +180,7 @@ export class CommercialAvailabilityService {
                     })
                 if (!resolved.atpRelevant) continue
                 materialId = resolved.materialId
+                resolvedCompanyId = resolved.companyId ?? args.companyId
                 salesUomId =
                     resolved.salesUomId ??
                     resolved.materialUomId ??
@@ -198,7 +204,7 @@ export class CommercialAvailabilityService {
             )
             const { warehouseId } =
                 await this.fulfillmentDetermination.determineWarehouse({
-                    companyId: args.companyId,
+                    companyId: resolvedCompanyId,
                     channel: args.channel ?? 'ECOMMERCE',
                     branchId: args.branchId,
                     divisionId: line.divisionId,
@@ -210,6 +216,7 @@ export class CommercialAvailabilityService {
                 existing.requiredQty = existing.requiredQty.plus(baseQty)
             } else {
                 requiredByMaterialWarehouse.set(key, {
+                    companyId: resolvedCompanyId,
                     materialId,
                     warehouseId,
                     requiredQty: baseQty,
@@ -219,14 +226,29 @@ export class CommercialAvailabilityService {
         }
 
         const requirements = [...requiredByMaterialWarehouse.values()]
-        const availabilityByPair =
-            await this.inventoryAtp.getPickableAvailabilityBatch(
-                args.companyId,
-                requirements.map(({ warehouseId, materialId }) => ({
+        // ATP is company-scoped: batch per owning company of each requirement.
+        const availabilityByPair = new Map<
+            string,
+            { available: number }
+        >()
+        for (const companyId of new Set(
+            requirements.map((r) => r.companyId),
+        )) {
+            const pairs = requirements
+                .filter((r) => r.companyId === companyId)
+                .map(({ warehouseId, materialId }) => ({
                     warehouseId,
                     materialId,
-                })),
-            )
+                }))
+            const batch =
+                await this.inventoryAtp.getPickableAvailabilityBatch(
+                    companyId,
+                    pairs,
+                )
+            for (const [key, value] of batch) {
+                availabilityByPair.set(key, value)
+            }
+        }
 
         for (const requirement of requirements) {
             const available =
@@ -353,7 +375,7 @@ export class CommercialAvailabilityService {
             }
             const ledger = await this.getCompanyMaterialLedger(
                 resolved.materialId,
-                args.companyId,
+                resolved.companyId ?? args.companyId,
             )
             const available = ledger.availableQty
             let state: CommercialAvailability['state'] = 'IN_STOCK'
@@ -362,7 +384,7 @@ export class CommercialAvailabilityService {
             let warehouseId: string | null = null
             try {
                 warehouseId = await this.resolveFulfillmentWarehouse({
-                    companyId: args.companyId,
+                    companyId: resolved.companyId ?? args.companyId,
                     materialId: resolved.materialId,
                     channel: args.channel,
                     branchId: args.branchId,

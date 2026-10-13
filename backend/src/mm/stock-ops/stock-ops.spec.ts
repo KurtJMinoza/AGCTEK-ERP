@@ -458,6 +458,58 @@ describe('GoodsIssueService', () => {
         await expect(giService.post('gi-2')).rejects.toThrow('Insufficient stock')
     })
 
+    it('createFromPackage: released package is a valid SALES source (SCM trip start)', async () => {
+        mockPrisma.wmPackage.findUnique.mockResolvedValue({
+            id: 'pkg-1',
+            status: 'READY_FOR_DISPATCH',
+            warehouseId: 'wh-1',
+            companyId: 'co-1',
+            reservationId: 'res-1',
+            pickingTaskId: null,
+            pickingTask: { sourceBinId: 'bin-1' },
+            items: [
+                {
+                    materialId: 'mat-1',
+                    scannedQty: new Decimal(5),
+                    expectedQty: new Decimal(5),
+                    batchId: null,
+                    serialId: null,
+                },
+            ],
+        })
+        mockPrisma.mmInventoryReservation.findUnique.mockResolvedValue({
+            id: 'res-1',
+            status: 'OPEN',
+            quantity: new Decimal(10),
+            fulfilledQuantity: new Decimal(0),
+        })
+        mockPrisma.mmMaterial.findUnique.mockResolvedValue({
+            id: 'mat-1',
+            baseUomId: 'uom-1',
+            batchManaged: false,
+            serialManaged: false,
+        })
+        mockPrisma.mmGoodsIssue.findFirst.mockResolvedValue(null)
+        mockPrisma.mmGoodsIssue.create.mockResolvedValue({ id: 'gi-pkg', status: 'DRAFT' })
+
+        await expect(
+            giService.createFromPackage('pkg-1', {
+                companyId: 'co-1',
+                postingDate: '2026-01-01',
+                documentDate: '2026-01-01',
+            }),
+        ).resolves.toMatchObject({ id: 'gi-pkg', status: 'DRAFT' })
+        expect(mockPrisma.mmGoodsIssue.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    issuePurpose: 'SALES',
+                    sourceDocumentType: 'PACKAGE',
+                    packageId: 'pkg-1',
+                }),
+            }),
+        )
+    })
+
     it('reverse goods issue: stock restored', async () => {
         const giLine = makeGrLine({ storageBinId: 'bin-1' })
         const doc = makeDoc({ id: 'gi-3', status: 'POSTED', lines: [giLine], reservationId: null })

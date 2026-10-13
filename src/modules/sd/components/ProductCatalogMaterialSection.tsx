@@ -120,6 +120,17 @@ const ProductCatalogMaterialSection = ({
         [warehouses, effectiveCompany],
     )
 
+    // Only materials of the selected company — never every material in MM.
+    const materialOptions = useMemo(
+        () =>
+            materials.filter((option) => {
+                const meta = option.meta as { companyId?: string } | undefined
+                if (!effectiveCompany) return false
+                return meta?.companyId === effectiveCompany
+            }),
+        [materials, effectiveCompany],
+    )
+
     /** A warehouse that no longer belongs to the company must not scope stock. */
     const effectiveWarehouseScope = companyWarehouses.some(
         (option) => option.value === warehouseScope,
@@ -181,7 +192,6 @@ const ProductCatalogMaterialSection = ({
         }
     }, [editing, initialMaterialIds, ids.length])
 
-    const materialOptions = materials
     const multi = materialLinkMode === 'multiple'
 
     return (
@@ -301,16 +311,22 @@ const ProductCatalogMaterialSection = ({
                     )}
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                    Inventory below matches{' '}
-                    <Link
-                        href={MM_MATERIALS_SKUS_PATH}
-                        className="text-primary hover:underline"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
-                        Materials Management
-                    </Link>{' '}
-                    (company scope).
+                    {effectiveCompany && materialOptions.length === 0 ? (
+                        'This company has no materials yet. Create one under Materials Management first.'
+                    ) : (
+                        <>
+                            Inventory below matches{' '}
+                            <Link
+                                href={MM_MATERIALS_SKUS_PATH}
+                                className="text-primary hover:underline"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                Materials Management
+                            </Link>{' '}
+                            (company scope).
+                        </>
+                    )}
                 </p>
             </FormItem>
 

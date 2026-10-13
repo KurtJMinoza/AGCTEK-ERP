@@ -548,7 +548,12 @@ export class TmsTripsService {
         )
         if (!capacity.ok) throw new BadRequestException(capacity.message)
 
-        const orphanStops = trip.stops.filter((s) => s.lines.length === 0)
+        // RETURN stops are the legal empty return to the origin (or a line return
+        // warehouse); only SHIP/TO stops must each carry at least one cargo line.
+        const orphanStops = trip.stops.filter(
+            (s) =>
+                s.stopType !== TripStopType.RETURN && s.lines.length === 0,
+        )
         if (orphanStops.length > 0) {
             throw new BadRequestException(
                 `Stops without cargo lines: ${orphanStops.map((s) => s.sequence).join(', ')}`,

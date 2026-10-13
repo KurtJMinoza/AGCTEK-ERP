@@ -19,7 +19,6 @@ import Avatar from '@/components/ui/Avatar'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Tabs from '@/components/ui/Tabs'
-import Tag from '@/components/ui/Tag'
 import Checkbox from '@/components/ui/Checkbox'
 import { FormItem } from '@/components/ui/Form'
 import {
@@ -63,12 +62,6 @@ const STATUS_TONE: Record<
     PARTIALLY_PICKED: 'warning',
     COMPLETED: 'success',
     CANCELLED: 'danger',
-}
-
-const PRIORITY_COLOR: Record<number, string> = {
-    1: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
-    2: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-    3: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
 }
 
 type FilterOption = { value: string; label: string }
@@ -396,7 +389,7 @@ const PickingPage = () => {
         () =>
             materials.map((m) => ({
                 value: m.id,
-                label: `${m.materialCode} â€” ${m.materialName}`,
+                label: `${m.materialCode} — ${m.materialName}`,
             })),
         [materials],
     )
@@ -868,24 +861,6 @@ const PickingPage = () => {
                 },
             },
             {
-                header: 'Sales Order',
-                accessorKey: 'orderNumber',
-                size: 130,
-                minSize: 110,
-                cell: ({ row }) => {
-                    const orderNumber =
-                        row.original.orderNumber ||
-                        row.original.tasks
-                            .map(resolveTaskOrderNumber)
-                            .find(Boolean)
-                    return (
-                        <span className="whitespace-nowrap font-mono text-xs">
-                            {orderNumber || '—'}
-                        </span>
-                    )
-                },
-            },
-            {
                 header: 'Customer',
                 accessorKey: 'customerName',
                 size: 170,
@@ -906,39 +881,6 @@ const PickingPage = () => {
                         </span>
                     )
                 },
-            },
-            {
-                header: 'Company',
-                accessorKey: 'companyName',
-                size: 160,
-                minSize: 130,
-                cell: ({ row }) => {
-                    const comp =
-                        row.original.companyName ||
-                        row.original.tasks
-                            .map(
-                                (t) =>
-                                    t.salesOrder?.company?.name ||
-                                    t.warehouse?.company?.name,
-                            )
-                            .find(Boolean)
-                    return (
-                        <span className="truncate text-sm">
-                            {comp || '—'}
-                        </span>
-                    )
-                },
-            },
-            {
-                header: 'Warehouse',
-                accessorKey: 'warehouseName',
-                size: 180,
-                minSize: 140,
-                cell: ({ row }) => (
-                    <span className="truncate text-sm">
-                        {row.original.warehouseName || '—'}
-                    </span>
-                ),
             },
             {
                 header: 'Bin',
@@ -1014,38 +956,6 @@ const PickingPage = () => {
                         {row.original.pickedQty.toLocaleString()}
                     </span>
                 ),
-            },
-            {
-                header: 'Assigned User',
-                accessorKey: 'assignedNames',
-                size: 160,
-                minSize: 110,
-                cell: ({ row }) => (
-                    <span className="text-sm">
-                        {row.original.assignedNames.length ? (
-                            row.original.assignedNames.join(', ')
-                        ) : (
-                            <span className="text-gray-400">Unassigned</span>
-                        )}
-                    </span>
-                ),
-            },
-            {
-                header: 'Priority',
-                accessorKey: 'priority',
-                size: 90,
-                minSize: 80,
-                cell: ({ row }) => {
-                    const p = row.original.priority
-                    const cls =
-                        PRIORITY_COLOR[p] ||
-                        'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                    return (
-                        <Tag className={cls}>
-                            {p === 1 ? 'High' : p === 2 ? 'Medium' : 'Low'}
-                        </Tag>
-                    )
-                },
             },
             {
                 header: 'Status',
@@ -1152,7 +1062,7 @@ const PickingPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Picking"
-                description="Reservation â†’ pick task â†’ bin strategy (FIFO/FEFO/Wave/Zone/Nearest) â†’ scan confirm. Partial picks stay PARTIALLY_PICKED. Stock posts on Goods Issue."
+                description="Create pick tasks or waves, then scan items to confirm picks. Stock posts from Goods Issue."
                 actions={
                     <div className="flex gap-2">
                         <Button
@@ -1197,7 +1107,7 @@ const PickingPage = () => {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <Input
                         prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search task #, materialâ€¦"
+                        placeholder="Search task #, material…"
                         value={search}
                         onChange={(e) => {
                             setSearch(e.target.value)
@@ -1250,6 +1160,7 @@ const PickingPage = () => {
                         columns={columns}
                         data={groupRows}
                         compact
+                        fit
                         loading={loading}
                         selectable
                         checkboxChecked={(row) =>
@@ -1307,14 +1218,14 @@ const PickingPage = () => {
                         placeholder="Select warehouse"
                         options={warehouses.map((w) => ({
                             value: w.id,
-                            label: `${w.code} â€” ${w.name}`,
+                            label: `${w.code} — ${w.name}`,
                         }))}
                         value={
                             warehouses
                                 .filter((w) => w.id === createForm.warehouseId)
                                 .map((w) => ({
                                     value: w.id,
-                                    label: `${w.code} â€” ${w.name}`,
+                                    label: `${w.code} — ${w.name}`,
                                 }))[0]
                         }
                         onChange={(opt) => {
@@ -1462,14 +1373,14 @@ const PickingPage = () => {
                         placeholder="Select warehouse"
                         options={warehouses.map((w) => ({
                             value: w.id,
-                            label: `${w.code} â€” ${w.name}`,
+                            label: `${w.code} — ${w.name}`,
                         }))}
                         value={
                             warehouses
                                 .filter((w) => w.id === waveForm.warehouseId)
                                 .map((w) => ({
                                     value: w.id,
-                                    label: `${w.code} â€” ${w.name}`,
+                                    label: `${w.code} — ${w.name}`,
                                 }))[0]
                         }
                         onChange={(opt) => {
@@ -1504,7 +1415,7 @@ const PickingPage = () => {
                     </p>
                     {waveTasksLoading && (
                         <p className="text-sm text-gray-400">
-                            Loading tasksâ€¦
+                            Loading tasks…
                         </p>
                     )}
                     {!waveTasksLoading &&
@@ -1932,7 +1843,7 @@ const PickingPage = () => {
                 </p>
             </ConfirmDialog>
 
-            {/* Confirm Pick Dialog â€” scan bin â†’ material â†’ batch/serial â†’ qty */}
+            {/* Confirm Pick Dialog — scan bin → material → batch/serial → qty */}
             <FormDialog
                 isOpen={confirmOpen}
                 onClose={() => setConfirmOpen(false)}

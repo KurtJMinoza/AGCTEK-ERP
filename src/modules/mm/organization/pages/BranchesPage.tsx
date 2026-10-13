@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import RefCrudPage from '@/modules/mm/material-master/components/RefCrudPage'
 import type { RefCrudField } from '@/modules/mm/material-master/components/RefCrudPage'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
-import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmBranch } from '@/modules/mm/material-master/types'
 
 const ROUTE_PATH = '/modules/mm/organization/branches'
@@ -17,16 +16,22 @@ const STATUS_OPTIONS = [
 ]
 
 const BranchesPage = () => {
-    const { ensure: ensureCompanies, companies } = useLazyMmRefs()
-
-    const companyOptions = useMemo(
-        () => companies.map((c) => ({ value: c.value, label: c.label })),
-        [companies],
-    )
+    const [companyOptions, setCompanyOptions] = useState<
+        Array<{ value: string; label: string }>
+    >([])
 
     const prepareFormOpen = useCallback(async () => {
-        await ensureCompanies('companies')
-    }, [ensureCompanies])
+        // Live fetch (bypasses the TTL ref cache) so the Company dropdown is
+        // always populated with real companies when the form opens.
+        try {
+            const list = await orgService.companies()
+            setCompanyOptions(
+                list.map((c) => ({ value: c.id, label: c.name })),
+            )
+        } catch {
+            setCompanyOptions([])
+        }
+    }, [])
 
     const fields = useMemo<RefCrudField[]>(
         () => [
