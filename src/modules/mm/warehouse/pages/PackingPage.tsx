@@ -27,6 +27,7 @@ import {
     HiOutlineLockClosed,
     HiOutlineTruck,
     HiOutlineTrash,
+    HiOutlineMap,
 } from 'react-icons/hi'
 import { packingService } from '../services/packingService'
 import PackagePackingWorkspace from '../components/PackagePackingWorkspace'
@@ -42,6 +43,12 @@ import type {
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
+import dynamic from 'next/dynamic'
+
+const ShipToMapDialog = dynamic(
+    () => import('../components/ShipToMapDialog'),
+    { ssr: false },
+)
 
 const ROUTE = '/modules/mm/warehouse-management/packing'
 
@@ -143,6 +150,9 @@ const PackingPage = () => {
     const [dispatchTracking, setDispatchTracking] = useState('')
     const [shipToName, setShipToName] = useState('')
     const [shipToAddress, setShipToAddress] = useState('')
+    const [shipToLat, setShipToLat] = useState('')
+    const [shipToLng, setShipToLng] = useState('')
+    const [shipToMapOpen, setShipToMapOpen] = useState(false)
 
     const queryParams = useMemo<PackageQueryParams>(
         () => ({
@@ -268,6 +278,12 @@ const PackingPage = () => {
             setDispatchTracking('')
             setShipToName(pkg.shipToName ?? '')
             setShipToAddress(pkg.shipToAddress ?? '')
+            setShipToLat(
+                pkg.shipToLat != null ? String(pkg.shipToLat) : '',
+            )
+            setShipToLng(
+                pkg.shipToLng != null ? String(pkg.shipToLng) : '',
+            )
             try {
                 const full = await packingService.get(pkg.id)
                 setDetailPkg(full)
@@ -287,6 +303,15 @@ const PackingPage = () => {
                     full.shipToName ?? so?.shipToName ?? so?.customerName ?? '',
                 )
                 setShipToAddress(full.shipToAddress ?? composedAddress ?? '')
+                // Delivery pin from the customer's registered e-commerce
+                // address, prefilled for the operator to confirm before SCM release.
+                if (
+                    (pkg.shipToLat == null || pkg.shipToLng == null) &&
+                    full.suggestedShipTo
+                ) {
+                    setShipToLat(String(full.suggestedShipTo.lat))
+                    setShipToLng(String(full.suggestedShipTo.lng))
+                }
                 // Weight / L × W × H prefilled from the Material Master physical fields.
                 const sm = full.suggestedMeasurements
                 setSealWeight(sm?.weightKg ? String(sm.weightKg) : '')
@@ -356,10 +381,18 @@ const PackingPage = () => {
             )
             return
         }
+        const lat = Number(shipToLat)
+        const lng = Number(shipToLng)
+        const hasPin =
+            shipToLat.trim() !== '' &&
+            shipToLng.trim() !== '' &&
+            Number.isFinite(lat) &&
+            Number.isFinite(lng)
         try {
             const result = await packingService.readyForDispatch(detailPkg.id, {
                 shipToName: shipToName.trim() || undefined,
                 shipToAddress: shipToAddress.trim(),
+                ...(hasPin ? { shipToLat: lat, shipToLng: lng } : {}),
             })
             if (result.scmReleaseError) {
                 pushToast(
@@ -389,7 +422,22 @@ const PackingPage = () => {
                 apiErrorMessage(err, 'Ready-for-dispatch failed'),
             )
         }
-    }, [detailPkg, shipToName, shipToAddress, refreshDetail, fetchPackages])
+    }, [detailPkg, shipToName, shipToAddress, shipToLat, shipToLng, refreshDetail, fetchPackages])
+
+    const openShipToMap = useCallback(() => {
+        setShipToMapOpen(true)
+    }, [])
+
+    const confirmShipToPin = useCallback((lat: number, lng: number) => {
+        setShipToLat(String(lat))
+        setShipToLng(String(lng))
+        setShipToMapOpen(false)
+        pushToast(
+            'success',
+            'Pin set',
+            `Delivery pin updated (${lat.toFixed(5)}, ${lng.toFixed(5)}).`,
+        )
+    }, [])
 
     const handleRetryScmRelease = useCallback(async () => {
         if (!detailPkg) return
@@ -1056,6 +1104,19 @@ const PackingPage = () => {
                                     />
                                     <Button
                                         size="sm"
+                                        variant="plain"
+                                        icon={<HiOutlineMap />}
+                                        onClick={openShipToMap}
+                                        title={
+                                            shipToLat && shipToLng
+                                                ? `Pin: ${shipToLat}, ${shipToLng}`
+                                                : 'Set the delivery pin on the map'
+                                        }
+                                    >
+                                        View on Map
+                                    </Button>
+                                    <Button
+                                        size="sm"
                                         onClick={handleReadyForDispatch}
                                     >
                                         Ready for Dispatch
@@ -1088,6 +1149,19 @@ const PackingPage = () => {
                                     />
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-2 items-center">
+                                    <Button
+                                        size="sm"
+                                        variant="plain"
+                                        icon={<HiOutlineMap />}
+                                        onClick={openShipToMap}
+                                        title={
+                                            shipToLat && shipToLng
+                                                ? `Pin: ${shipToLat}, ${shipToLng}`
+                                                : 'Set the delivery pin on the map'
+                                        }
+                                    >
+                                        View on Map
+                                    </Button>
                                     <Input
                                         size="sm"
                                         placeholder="Carrier"
@@ -1149,6 +1223,18 @@ const PackingPage = () => {
                     </div>
                 )}
             </FormDialog>
+
+            <ShipToMapDialog
+                isOpen={shipToMapOpen}
+                latitude={
+                    shipToLat.trim() !== '' ? Number(shipToLat) : null
+                }
+                longitude={
+                    shipToLng.trim() !== '' ? Number(shipToLng) : null
+                }
+                onClose={() => setShipToMapOpen(false)}
+                onConfirm={confirmShipToPin}
+            />
 
             {/* Bulk delete confirm */}
             <ConfirmDialog

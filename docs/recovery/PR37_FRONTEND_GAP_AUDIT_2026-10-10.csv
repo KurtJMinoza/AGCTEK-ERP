@@ -1,0 +1,25 @@
+path,tag,module,severity,owner,restore,notes
+src/app/shop/orders/page.tsx,R39,Storefront,P0,FE,no,Restored by PR 39; production build emits /shop/orders
+src/modules/mm/warehouse/pages/OverviewPage.tsx,R39,MM Warehouse,P1,FE,no,Restored by PR 39
+src/modules/mm/warehouse/pages/PackingPage.tsx,R39,MM Warehouse,P0,FE,no,Restored by PR 39; protected route exists and builds
+src/modules/mm/warehouse/pages/PickingPage.tsx,R39,MM Warehouse,P0,FE,no,Restored by PR 39; protected route exists and builds
+src/modules/mm/warehouse/services/packingService.ts,R39,MM Warehouse,P0,FE,no,Restored by PR 39
+src/modules/mm/warehouse/services/pickingService.ts,R39,MM Warehouse,P0,FE,no,Restored by PR 39
+src/modules/mm/warehouse/types.ts,R39,MM Warehouse,P0,FE,no,Restored by PR 39
+src/modules/sd/pages/SalesOrdersDashboard.tsx,R39,SD,P0,FE,no,Restored by PR 39; protected route exists and builds
+src/modules/sd/services/ecommerceService.ts,R39,SD / Storefront,P0,FE,no,Restored by PR 39
+src/modules/sd/services/salesOrderDashboardService.ts,R39,SD,P0,FE,no,Restored by PR 39
+src/modules/sd/store/useSalesOrdersStore.ts,R39,SD,P0,FE,no,Restored by PR 39
+src/modules/sd/types/ecommerce.schema.ts,R39,SD / Storefront,P0,FE,no,Restored by PR 39
+src/modules/storefront/marketplace/components/MarketplaceCheckoutDialog.tsx,R39,Storefront,P0,FE,no,Restored by PR 39
+src/modules/storefront/marketplace/host.ts,R39,Storefront,P0,FE,no,Restored by PR 39
+src/modules/storefront/marketplace/pages/MarketplaceOrdersPage.tsx,R39,Storefront,P0,FE,no,Restored by PR 39 and subsequently cleaned up
+src/modules/storefront/shared/components/StorefrontOrdersDrawer.tsx,INTENTIONAL,Storefront,P1,FE,no,PR 37 and PR 39 intentionally replaced the drawer with the /shop/orders page
+src/modules/storefront/marketplace/MarketplaceProvider.tsx,R39,Storefront,P0,FE,no,Restored by PR 39 and subsequently enhanced for checkout payments and ATP gate
+src/modules/storefront/marketplace/pages/MarketplaceCheckoutPage.tsx,R39,Storefront,P0,FE,no,Restored by PR 39 and subsequently enhanced for checkout payments
+src/modules/mm/material-master/pages/MaterialsPage.tsx,EXISTS,MM Material Master,P0,FE,no,Not removed by the PR 37 revert; later Batch / Serial column change is present
+src/app/(protected-pages)/modules/mm/material-master/materials-skus/page.tsx,EXISTS,MM Material Master,P0,FE,no,Route exists and production build emits it
+src/app/(protected-pages)/modules/mm/warehouse-management/picking/page.tsx,EXISTS,MM Warehouse,P0,FE,no,Route exists and production build emits it
+src/app/(protected-pages)/modules/mm/warehouse-management/packing/page.tsx,EXISTS,MM Warehouse,P0,FE,no,Route exists and production build emits it
+src/app/(protected-pages)/modules/sd/sales-orders/page.tsx,EXISTS,SD,P0,FE,no,Route exists and production build emits it
+src/app/shop/checkout/page.tsx,EXISTS,Storefront,P0,FE,no,Route exists and production build emits it

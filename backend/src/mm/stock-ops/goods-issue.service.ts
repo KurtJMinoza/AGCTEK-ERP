@@ -492,9 +492,16 @@ export class GoodsIssueService {
                 'Sales goods issue requires issuePurpose=SALES',
             )
         }
-        if (dto.sourceDocumentType !== 'SALES_ORDER' || !dto.sourceDocumentId) {
+        // Sales issues originate from a sales order (SD) or a released package
+        // (warehouse / SCM trip start). Both must carry a traceable source id.
+        const salesSources = ['SALES_ORDER', 'PACKAGE']
+        if (
+            !dto.sourceDocumentType ||
+            !salesSources.includes(dto.sourceDocumentType) ||
+            !dto.sourceDocumentId
+        ) {
             throw new BadRequestException(
-                'Sales goods issue requires sourceDocumentType=SALES_ORDER and sourceDocumentId',
+                'Sales goods issue requires sourceDocumentType=SALES_ORDER or PACKAGE, and sourceDocumentId',
             )
         }
     }

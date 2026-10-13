@@ -19,6 +19,12 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { Prisma } from '@prisma/client'
 import { ShipmentsService } from '../../../scm/shipments/shipments.service'
 import { BarcodeResolveService } from '../../scanner/barcode-resolve.service'
+import { isValidCoordinate } from '../warehouse-geocode.rules'
+
+/** Normalize an address component for fuzzy matching (case + whitespace). */
+function normalizeAddressField(value: string | null | undefined): string {
+    return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
 
 /**
  * Pack flow: Pick → Packing → Package → Verification → READY_FOR_DISPATCH
@@ -108,6 +114,8 @@ export class PackingService {
             include: {
                 salesOrder: {
                     select: {
+                        id: true,
+                        customerId: true,
                         orderNumber: true,
                         customerName: true,
                         customerEmail: true,
@@ -124,6 +132,8 @@ export class PackingService {
         },
         salesOrder: {
             select: {
+                id: true,
+                customerId: true,
                 orderNumber: true,
                 customerName: true,
                 customerEmail: true,
@@ -416,7 +426,93 @@ export class PackingService {
                     } | null
                 }>,
             ),
+            // Delivery pin prefilled from the customer's saved default address
+            // (non-persisted). The packer confirms it at Ready for Dispatch.
+            suggestedShipTo:
+                pkg.shipToLat != null && pkg.shipToLng != null
+                    ? null
+                    : await this.resolveCustomerShipToPin(
+                          pkg.salesOrder ?? pkg.pickingTask?.salesOrder ?? null,
+                      ),
         })
+    }
+
+    /**
+     * Customer delivery pin prefilled from the e-commerce registered address.
+     * For signed-in e-commerce, the SD sales order's `customerId` IS the retail
+     * client id and the order's ship-to text is a snapshot of the address the
+     * shopper registered. The best matching registered address (by city, region,
+     * postal code, country, address line) wins; the customer's default address
+     * is the fallback. Returns null when there is no customer link, no usable
+     * register address, or the pin is invalid — the packer then places it on
+     * the map. Read-only across the retail/SD boundary.
+     */
+    private async resolveCustomerShipToPin(salesOrder: {
+        customerId?: string | null
+        shipToAddressLine1?: string | null
+        shipToCity?: string | null
+        shipToRegion?: string | null
+        shipToPostalCode?: string | null
+        shipToCountry?: string | null
+    } | null): Promise<{ lat: number; lng: number } | null> {
+        const customerId = salesOrder?.customerId?.trim()
+        if (!customerId) return null
+        const addresses = await this.prisma.retailClientAddress.findMany({
+            where: { clientId: customerId },
+            select: {
+                id: true,
+                addressLine: true,
+                barangayOrNeighborhood: true,
+                cityOrMunicipality: true,
+                provinceOrState: true,
+                postalCode: true,
+                country: true,
+                isDefault: true,
+                latitude: true,
+                longitude: true,
+            },
+        })
+        if (addresses.length === 0) return null
+
+        const want = {
+            line1: normalizeAddressField(salesOrder?.shipToAddressLine1),
+            city: normalizeAddressField(salesOrder?.shipToCity),
+            region: normalizeAddressField(salesOrder?.shipToRegion),
+            postal: normalizeAddressField(salesOrder?.shipToPostalCode),
+            country: normalizeAddressField(salesOrder?.shipToCountry),
+        }
+        const scored = addresses.map((address) => {
+            const score =
+                (want.city !== '' &&
+                normalizeAddressField(address.cityOrMunicipality) === want.city
+                    ? 1
+                    : 0) +
+                (want.region !== '' &&
+                normalizeAddressField(address.provinceOrState) === want.region
+                    ? 1
+                    : 0) +
+                (want.postal !== '' &&
+                normalizeAddressField(address.postalCode) === want.postal
+                    ? 1
+                    : 0) +
+                (want.country !== '' &&
+                normalizeAddressField(address.country) === want.country
+                    ? 1
+                    : 0) +
+                (want.line1 !== '' &&
+                (normalizeAddressField(address.addressLine) === want.line1 ||
+                    normalizeAddressField(address.barangayOrNeighborhood) ===
+                        want.line1)
+                    ? 1
+                    : 0)
+            return { address, score }
+        })
+        scored.sort((a, b) => b.score - a.score || Number(b.address.isDefault) - Number(a.address.isDefault))
+        const best = scored.find((s) => s.score > 0) ?? scored.find((s) => s.address.isDefault) ?? scored[0]
+        const lat = Number(best.address.latitude)
+        const lng = Number(best.address.longitude)
+        if (!isValidCoordinate(lat, lng)) return null
+        return { lat, lng }
     }
 
     private static readonly WEIGHT_TO_KG: Record<string, number> = {
@@ -1428,11 +1524,28 @@ export class PackingService {
 
         const current = await this.findOne(id)
 
+        // MM-side prefill: when no delivery pin is on the package yet, adopt the
+        // customer's saved default-address pin so the SCM release inherits it.
+        if (current.shipToLat == null && current.shipToLng == null) {
+            const pin =
+                current.suggestedShipTo ??
+                (await this.resolveCustomerShipToPin(
+                    current.salesOrder ?? current.pickingTask?.salesOrder ?? null,
+                ))
+            if (pin) {
+                await this.prisma.wmPackage.update({
+                    where: { id },
+                    data: { shipToLat: pin.lat, shipToLng: pin.lng },
+                })
+            }
+        }
+        const currentWithPin = await this.findOne(id)
+
         if (current.status === 'READY_FOR_DISPATCH') {
             // Retry SCM release if package already ready but shipment missing
             try {
                 const shipment = await this.shipmentsService.createFromPackage(
-                    current.id,
+                    currentWithPin.id,
                 )
                 return {
                     ...(await this.findOne(id)),
@@ -1450,17 +1563,20 @@ export class PackingService {
             }
         }
 
-        if (current.status !== 'VERIFIED' && current.status !== 'SEALED') {
+        if (
+            currentWithPin.status !== 'VERIFIED' &&
+            currentWithPin.status !== 'SEALED'
+        ) {
             throw new BadRequestException(
                 'Package must be VERIFIED or SEALED before READY_FOR_DISPATCH',
             )
         }
-        if (!current.items.length) {
+        if (!currentWithPin.items.length) {
             throw new BadRequestException(
                 'Cannot mark READY_FOR_DISPATCH: package has no items',
             )
         }
-        const mismatch = current.items.some(
+        const mismatch = currentWithPin.items.some(
             (item) => !new Decimal(item.scannedQty).eq(item.expectedQty),
         )
         if (mismatch) {
@@ -1475,7 +1591,7 @@ export class PackingService {
 
         const dest = (
             shipTo?.shipToAddress ??
-            current.shipToAddress ??
+            currentWithPin.shipToAddress ??
             ''
         ).trim()
         if (!dest) {

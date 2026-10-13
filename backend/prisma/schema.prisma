@@ -17,6 +17,8 @@ model User {
   lastName              String           @default("")
   jobPosition           String           @default("")
   bio                   String           @default("")
+  /// HRIS employee number, used for warehouse task assignment identities.
+  employeeCode          String?          @unique
   passwordHash          String
   /// Role code; codes are immutable so existing `user.role` checks stay valid.
   role                  String
