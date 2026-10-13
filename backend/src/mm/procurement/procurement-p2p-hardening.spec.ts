@@ -12,6 +12,7 @@ import { RfqService } from '../rfq/rfq.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PrismaService } from '../../prisma/prisma.service'
 import { WorkflowService } from '../workflow/workflow.service'
+import { DocumentFlowService } from '../document-flow/document-flow.service'
 
 describe('Procurement P2P hardening', () => {
     describe('assertSupplierProcurement', () => {
@@ -249,6 +250,7 @@ describe('Procurement P2P hardening', () => {
                         provide: PurchaseCommitmentService,
                         useValue: { recordCommitment: jest.fn(), cancelCommitment: jest.fn() },
                     },
+                    { provide: DocumentFlowService, useValue: {} },
                 ],
             }).compile()
             poService = module.get(PurchaseOrderService)

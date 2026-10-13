@@ -1,20 +1,28 @@
 'use client'
 
 import { useMemo } from 'react'
+import Link from 'next/link'
 import {
+    HiOutlineArrowLeft,
+    HiOutlineInformationCircle,
     HiOutlineOfficeBuilding,
+    HiOutlineShieldCheck,
     HiOutlineShoppingCart,
     HiOutlineTrash,
+    HiOutlineTruck,
 } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
 import Checkbox from '@/components/ui/Checkbox'
-import Drawer from '@/components/ui/Drawer'
 import classNames from '@/utils/classNames'
 import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
 import type { CartPricing } from '@/modules/sd/services/ecommerceService'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import type { StorefrontCartItem } from '@/modules/storefront/shared/store/createStorefrontCartStore'
+import {
+    CHECKOUT_PATH,
+    MARKETPLACE_PATH,
+} from '../host'
 import {
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
@@ -24,17 +32,14 @@ import {
     productKey,
 } from '../marketplaceUi'
 
-type MarketplaceCartDrawerProps = {
-    isOpen: boolean
-    isMobile: boolean
-    /** All cart lines (the list shows every item; pricing below is selection-only). */
+export type MarketplaceCartProps = {
+    /** All cart lines. */
     items: StorefrontCartItem<SdProductRecord>[]
     /** Pricing for the *selected* items only. */
     pricing: CartPricing | null
     signedIn: boolean
     /** Checked cart keys — drives totals, bulk delete and selective checkout. */
     selectedKeys: string[]
-    onClose: () => void
     onIncrease: (key: string, quantity: number) => void
     onDecrease: (key: string, name: string, quantity: number) => void
     onRemove: (key: string, name: string) => void
@@ -52,15 +57,12 @@ type Row = {
     unitPrice: number
 }
 
-/** Cart grouped by seller; each store ships separately and becomes its own order. */
+/** Standalone full-page two-column Cart layout without sidebar or modal wrappers. */
 const MarketplaceCartDrawer = ({
-    isOpen,
-    isMobile,
     items,
     pricing,
     signedIn,
     selectedKeys,
-    onClose,
     onIncrease,
     onDecrease,
     onRemove,
@@ -69,7 +71,7 @@ const MarketplaceCartDrawer = ({
     onRemoveSelected,
     onCheckout,
     onClear,
-}: MarketplaceCartDrawerProps) => {
+}: MarketplaceCartProps) => {
     const groups = useMemo(() => {
         const pricedDivisions = new Map<
             string,
@@ -110,76 +112,49 @@ const MarketplaceCartDrawer = ({
         lineKeys.every((key) => selectedKeys.includes(key))
     const storeCount = groups.length
 
-    return (
-        <Drawer
-            title="Your cart"
-            isOpen={isOpen}
-            placement={isMobile ? 'bottom' : 'right'}
-            width={420}
-            height="85dvh"
-            className={
-                isMobile ? '[&_.drawer-content]:rounded-t-2xl' : undefined
-            }
-            onClose={onClose}
-            onRequestClose={onClose}
-            footer={
-                items.length > 0 ? (
-                    <div className="flex w-full flex-col gap-2 text-sm">
-                        {pricing && selectedKeys.length > 0 ? (
-                            <>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-500">
-                                        Subtotal
-                                    </span>
-                                    <span>{formatPrice(pricing.subtotal)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-500">
-                                        Delivery ({storeCount} store
-                                        {storeCount === 1 ? '' : 's'})
-                                    </span>
-                                    <span>{formatPrice(pricing.shipping)}</span>
-                                </div>
-                                <div className="flex justify-between border-t border-gray-100 pt-3 text-base font-bold text-gray-900">
-                                    <span>Total</span>
-                                    <span>{formatPrice(pricing.grandTotal)}</span>
-                                </div>
-                            </>
-                        ) : (
-                            <p className="py-1 text-center text-xs text-gray-400">
-                                Select items to see your total.
-                            </p>
-                        )}
-                        <Button
-                            block
-                            className={classNames('mt-2', PRIMARY_BUTTON_CLASS)}
-                            customColorClass={PRIMARY_BUTTON}
-                            disabled={selectedKeys.length === 0}
-                            onClick={onCheckout}
-                        >
-                            {signedIn ? 'Checkout' : 'Sign in to checkout'}
-                        </Button>
-                        <Button
-                            block
-                            size="sm"
-                            variant="plain"
-                            onClick={onClear}
-                        >
-                            Clear cart
-                        </Button>
+    if (items.length === 0) {
+        return (
+            <div className="container mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+                <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-gray-100 bg-white p-12 text-center shadow-sm sm:p-16">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 shadow-inner">
+                        <HiOutlineShoppingCart className="text-4xl" aria-hidden />
                     </div>
-                ) : null
-            }
-        >
-            {items.length > 0 ? (
-                <div className="flex flex-col gap-5">
-                    {storeCount > 1 ? (
-                        <p className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                            Items from {storeCount} stores ship separately, so
-                            you will get one order per store.
+                    <div className="max-w-md space-y-1">
+                        <h2 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
+                            Your cart is empty
+                        </h2>
+                        <p className="text-sm text-gray-500">
+                            Looks like you haven&apos;t added any items to your cart yet. Explore our verified sellers and find what you need.
                         </p>
+                    </div>
+                    <Link
+                        href={MARKETPLACE_PATH}
+                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
+                    >
+                        <HiOutlineArrowLeft className="text-base" />
+                        Explore Marketplace
+                    </Link>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="container mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+                {/* Main left column: Cart Items (approx 2/3 width) */}
+                <div className="flex flex-col gap-5 lg:col-span-2">
+                    {storeCount > 1 ? (
+                        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3.5 text-xs text-emerald-900">
+                            <HiOutlineInformationCircle className="shrink-0 text-base text-emerald-700" />
+                            <span>
+                                Items from <strong>{storeCount} stores</strong> ship separately, so you will receive one delivery and invoice per store.
+                            </span>
+                        </div>
                     ) : null}
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+
+                    {/* Selection Header */}
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
                         <Checkbox
                             checked={allSelected}
                             indeterminate={
@@ -187,24 +162,36 @@ const MarketplaceCartDrawer = ({
                             }
                             onChange={(checked) => onSelectAll(checked)}
                         >
-                            <span className="text-sm font-medium text-gray-700">
-                                Select all
+                            <span className="text-sm font-medium text-gray-800">
+                                Select all ({selectedKeys.length} of {lineKeys.length} items)
                             </span>
                         </Checkbox>
-                        <Button
-                            size="sm"
-                            variant="plain"
-                            className="!text-red-600 hover:!bg-red-50"
-                            disabled={selectedKeys.length === 0}
-                            icon={<HiOutlineTrash className="text-base" />}
-                            onClick={onRemoveSelected}
-                        >
-                            Delete selected
-                            {selectedKeys.length > 0
-                                ? ` (${selectedKeys.length})`
-                                : ''}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                className="!text-red-600 hover:!bg-red-50 text-xs"
+                                disabled={selectedKeys.length === 0}
+                                icon={<HiOutlineTrash className="text-sm" />}
+                                onClick={onRemoveSelected}
+                            >
+                                Delete selected
+                                {selectedKeys.length > 0
+                                    ? ` (${selectedKeys.length})`
+                                    : ''}
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                className="!text-gray-500 hover:!text-gray-800 text-xs"
+                                onClick={onClear}
+                            >
+                                Clear all
+                            </Button>
+                        </div>
                     </div>
+
+                    {/* Store Groups */}
                     {groups.map((group) => {
                         const first = group.rows[0]?.product
                         const division = pricing?.divisions.find(
@@ -213,12 +200,12 @@ const MarketplaceCartDrawer = ({
                         return (
                             <section
                                 key={group.divisionId}
-                                className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+                                className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm"
                             >
                                 <div className="mb-4 flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                                    <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                    <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
                                         <HiOutlineOfficeBuilding
-                                            className="text-base text-gray-400"
+                                            className="text-lg text-emerald-600"
                                             aria-hidden
                                         />
                                         {first
@@ -227,45 +214,44 @@ const MarketplaceCartDrawer = ({
                                                   group.divisionId,
                                               )}{' '}
                                         Items
-                                    </h4>
+                                    </h3>
                                     {division ? (
-                                        <span className="text-xs text-gray-500">
-                                            Delivery{' '}
-                                            {formatPrice(division.shipping)}
+                                        <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                                            Delivery: {formatPrice(division.shipping)}
                                         </span>
                                     ) : null}
                                 </div>
-                                <ul className="flex flex-col gap-4">
+                                <ul className="divide-y divide-gray-100">
                                     {group.rows.map((row) => (
                                         <li
                                             key={row.key}
-                                            className="flex items-start gap-3"
+                                            className="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-4"
                                         >
-                                            <Checkbox
-                                                className="mt-1"
-                                                checked={selectedKeys.includes(
-                                                    row.key,
-                                                )}
-                                                onChange={() =>
-                                                    onToggleSelect(row.key)
-                                                }
-                                                aria-label={`Select ${row.product.name}`}
-                                            />
-                                            <ProductImage
-                                                product={row.product}
-                                                sizes="56px"
-                                                fit="contain"
-                                                className="h-14 w-14 shrink-0 rounded-lg border border-gray-100 p-1"
-                                            />
+                                            <div className="flex items-center gap-3">
+                                                <Checkbox
+                                                    checked={selectedKeys.includes(
+                                                        row.key,
+                                                    )}
+                                                    onChange={() =>
+                                                        onToggleSelect(row.key)
+                                                    }
+                                                    aria-label={`Select ${row.product.name}`}
+                                                />
+                                                <ProductImage
+                                                    product={row.product}
+                                                    sizes="72px"
+                                                    fit="contain"
+                                                    className="h-16 w-16 shrink-0 rounded-xl border border-gray-100 p-1 bg-gray-50/50"
+                                                />
+                                            </div>
                                             <div className="min-w-0 flex-1">
-                                                <div className="line-clamp-2 text-sm font-medium leading-snug text-gray-900">
+                                                <div className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
                                                     {row.product.name}
                                                 </div>
-                                                <div className="text-xs text-gray-500">
-                                                    {formatPrice(row.unitPrice)}{' '}
-                                                    each
+                                                <div className="mt-0.5 text-xs text-gray-500">
+                                                    SKU: {row.product.sku} · {formatPrice(row.unitPrice)} each
                                                 </div>
-                                                <div className="mt-2 flex items-center gap-2">
+                                                <div className="mt-3 flex items-center gap-3">
                                                     <QuantityStepper
                                                         quantity={row.quantity}
                                                         label={row.product.name}
@@ -287,6 +273,7 @@ const MarketplaceCartDrawer = ({
                                                     <Button
                                                         size="xs"
                                                         variant="plain"
+                                                        className="!text-gray-400 hover:!text-red-600"
                                                         icon={
                                                             <HiOutlineTrash />
                                                         }
@@ -296,17 +283,19 @@ const MarketplaceCartDrawer = ({
                                                                 row.key,
                                                                 row.product
                                                                     .name,
-                                                            )
+                                                                )
                                                         }
                                                     />
                                                 </div>
                                             </div>
-                                            <span className="whitespace-nowrap text-sm font-semibold text-gray-900">
-                                                {formatPrice(
-                                                    row.unitPrice *
-                                                        row.quantity,
-                                                )}
-                                            </span>
+                                            <div className="text-right sm:self-center">
+                                                <div className="text-base font-bold text-gray-900">
+                                                    {formatPrice(
+                                                        row.unitPrice *
+                                                            row.quantity,
+                                                    )}
+                                                </div>
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>
@@ -314,13 +303,88 @@ const MarketplaceCartDrawer = ({
                         )
                     })}
                 </div>
-            ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-gray-500">
-                    <HiOutlineShoppingCart className="text-4xl" aria-hidden />
-                    <p>Your cart is empty.</p>
+
+                {/* Sticky right column: Order Summary & Checkout (approx 1/3 width) */}
+                <div className="lg:col-span-1">
+                    <div className="sticky top-24 flex flex-col gap-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+                        <h3 className="border-b border-gray-100 pb-3 text-lg font-bold text-gray-900">
+                            Order Summary
+                        </h3>
+
+                        {pricing && selectedKeys.length > 0 ? (
+                            <div className="space-y-3 text-sm">
+                                <div className="flex justify-between text-gray-600">
+                                    <span>Subtotal</span>
+                                    <span className="font-medium text-gray-900">
+                                        {formatPrice(pricing.subtotal)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-gray-600">
+                                    <span>
+                                        Delivery ({storeCount} store
+                                        {storeCount === 1 ? '' : 's'})
+                                    </span>
+                                    <span className="font-medium text-gray-900">
+                                        {formatPrice(pricing.shipping)}
+                                    </span>
+                                </div>
+                                {pricing.discountAmount > 0 && (
+                                    <div className="flex justify-between text-emerald-600">
+                                        <span>Discount</span>
+                                        <span className="font-semibold">
+                                            -{formatPrice(pricing.discountAmount)}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="border-t border-gray-100 pt-3 flex justify-between text-base font-bold text-gray-900">
+                                    <span>Total</span>
+                                    <span className="text-lg text-emerald-700">
+                                        {formatPrice(pricing.grandTotal)}
+                                    </span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="rounded-xl bg-gray-50 p-4 text-center text-xs text-gray-500">
+                                Select items on the left to review your total.
+                            </div>
+                        )}
+
+                        <Button
+                            block
+                            size="lg"
+                            className={classNames(
+                                'w-full py-3 text-sm font-semibold transition-transform active:scale-[0.98]',
+                                PRIMARY_BUTTON_CLASS,
+                            )}
+                            customColorClass={PRIMARY_BUTTON}
+                            disabled={selectedKeys.length === 0}
+                            onClick={onCheckout}
+                        >
+                            {signedIn ? 'Proceed to Checkout' : 'Sign in to Checkout'}
+                        </Button>
+
+                        <Link
+                            href={MARKETPLACE_PATH}
+                            className="text-center text-xs font-medium text-gray-500 transition-colors hover:text-emerald-700"
+                        >
+                            ← Continue shopping
+                        </Link>
+
+                        {/* Trust markers */}
+                        <div className="border-t border-gray-100 pt-4 space-y-2 text-[11px] text-gray-400">
+                            <div className="flex items-center gap-2">
+                                <HiOutlineShieldCheck className="text-sm text-emerald-600" />
+                                <span>Direct authorized MM fulfillment & tracking</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <HiOutlineTruck className="text-sm text-emerald-600" />
+                                <span>Fast delivery across verified store branches</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            )}
-        </Drawer>
+            </div>
+        </div>
     )
 }
 

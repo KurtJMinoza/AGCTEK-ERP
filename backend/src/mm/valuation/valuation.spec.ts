@@ -11,6 +11,8 @@ import { FifoValuationStrategy } from './strategies/fifo-valuation.strategy'
 import { MovingAverageValuationStrategy } from './strategies/moving-average-valuation.strategy'
 import { StandardCostValuationStrategy } from './strategies/standard-cost-valuation.strategy'
 import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 describe('MM-12 Valuation Engine', () => {
     let engine: ValuationEngineService
@@ -203,6 +205,25 @@ describe('MM-12 Valuation Engine', () => {
                 ValuationMethodRegistry,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: EventEmitter2, useValue: mockEvents },
+                {
+                    provide: MmAccountingEventService,
+                    useValue: {
+                        buildIdempotencyKey: jest.fn((...args: any[]) => args.join(':')),
+                        recordStandalone: jest.fn(async (tx: any, input: any) => {
+                            if (tx?.mmAccountingEvent?.create) {
+                                await tx.mmAccountingEvent.create({ data: input })
+                            }
+                            return { created: true, id: 'ae-1', payload: input }
+                        }),
+                        toDispatchPayload: jest.fn((r: any) => r.payload),
+                    },
+                },
+                {
+                    provide: MmPostingPeriodGuard,
+                    useValue: {
+                        assertCanPost: jest.fn().mockResolvedValue(undefined),
+                    },
+                },
             ],
         }).compile()
 
@@ -233,10 +254,10 @@ describe('MM-12 Valuation Engine', () => {
             expect(Number(result.unitCost)).toBe(10)
             expect(Number(result.totalCost)).toBe(50)
             expect(txState.valTxns[0].priceVariance.toString()).toBe('10') // (12-10)*5
-            expect(txState.acctEvents.some((e: any) => e.eventType === 'PRICE_VARIANCE_POSTED')).toBe(
+            expect(txState.acctEvents.some((e: any) => e.eventType === 'PriceVariancePosted')).toBe(
                 true,
             )
-            expect(txState.acctEvents.some((e: any) => e.eventType === 'INVENTORY_VALUATION_POSTED')).toBe(
+            expect(txState.acctEvents.some((e: any) => e.eventType === 'InventoryValuationUpdated')).toBe(
                 true,
             )
             expect(txState.priceVariances?.length).toBe(1)
@@ -443,7 +464,7 @@ describe('MM-12 Valuation Engine', () => {
             expect(txState.valTxns[0].reversalOfId).toBe('vtxn-orig')
             expect(
                 txState.acctEvents.some(
-                    (e: any) => e.eventType === 'INVENTORY_VALUATION_REVERSED',
+                    (e: any) => e.eventType === 'InventoryValuationReversed',
                 ),
             ).toBe(true)
         })
@@ -541,7 +562,7 @@ describe('MM-12 Valuation Engine', () => {
 
             expect(result).toBeDefined()
             expect(Number(txState.valuation.movingAverageCost)).toBe(12) // (10*10+20)/10
-            expect(txState.acctEvents.some((e: any) => e.eventType === 'LANDED_COST_POSTED')).toBe(
+            expect(txState.acctEvents.some((e: any) => e.eventType === 'LandedCostAllocated')).toBe(
                 true,
             )
         })
@@ -594,7 +615,7 @@ describe('MM-12 Valuation Engine', () => {
             expect(Number(txState.valuation.standardCost)).toBe(10)
             expect(Number(result.priceVariance)).toBe(15)
             expect(
-                txState.acctEvents.some((e: any) => e.eventType === 'PRICE_VARIANCE_POSTED'),
+                txState.acctEvents.some((e: any) => e.eventType === 'PriceVariancePosted'),
             ).toBe(true)
         })
     })
@@ -626,7 +647,7 @@ describe('MM-12 Valuation Engine', () => {
             expect(txState.valTxns[0]).toBe(prior)
             expect(
                 txState.acctEvents.some(
-                    (e: any) => e.eventType === 'INVENTORY_REVALUATION_POSTED',
+                    (e: any) => e.eventType === 'InventoryRevaluationPosted',
                 ),
             ).toBe(true)
         })

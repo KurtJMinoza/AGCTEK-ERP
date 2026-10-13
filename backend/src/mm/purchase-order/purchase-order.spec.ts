@@ -13,6 +13,10 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { PurchaseCommitmentService } from '../procurement/purchase-commitment.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { DocumentFlowService } from '../document-flow/document-flow.service'
+import { InspectionLotService } from '../receiving/inspection-lot.service'
+import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
+import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 let seq = 0
 function nextId() {
@@ -175,6 +179,9 @@ const mockPrisma: any = {
     notification: {
         create: jest.fn(),
     },
+    wmStorageBin: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'bin-recv-1' }),
+    },
 }
 
 const mockWorkflow: any = {
@@ -202,6 +209,7 @@ let workflowService: WorkflowService
 beforeEach(async () => {
     seq = 0
     jest.resetAllMocks()
+    mockPrisma.wmStorageBin.findFirst.mockResolvedValue({ id: 'bin-recv-1' })
 
     const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -240,7 +248,7 @@ beforeEach(async () => {
                         purchaseRequisition: { id: 'pr-1', number: 'PR-1' },
                         rfq: { id: 'rfq-1', number: 'RFQ-1' },
                         quotation: { id: 'q-1', number: 'Q-1' },
-                        award: { id: 'award-1' },
+                        award: null,
                         goodsReceipts: [
                             {
                                 id: 'gr-1',
@@ -250,6 +258,37 @@ beforeEach(async () => {
                             },
                         ],
                     }),
+                },
+            },
+            {
+                provide: InspectionLotService,
+                useValue: {
+                    createFromGoodsReceipt: jest.fn(),
+                    cancelForGoodsReceipt: jest.fn(),
+                },
+            },
+            {
+                provide: InspectionLotLifecycleService,
+                useValue: {
+                    cancelOpenLotsForGr: jest.fn().mockResolvedValue(0),
+                    start: jest.fn(),
+                    complete: jest.fn(),
+                },
+            },
+            {
+                provide: InspectionRequirementService,
+                useValue: {
+                    isInspectionRequired: jest.fn().mockResolvedValue(false),
+                    resolveInspectionRequirement: jest.fn().mockResolvedValue({
+                        action: 'NO_INSPECTION',
+                        inspectionRequired: false,
+                    }),
+                },
+            },
+            {
+                provide: MmPostingPeriodGuard,
+                useValue: {
+                    assertCanPost: jest.fn().mockResolvedValue(undefined),
                 },
             },
         ],

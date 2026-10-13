@@ -505,7 +505,7 @@ export class RfqService {
             throw new BadRequestException('Provide quotationId or supplierId, or useCheapest')
         }
 
-        let quotation = quotationId
+        const quotation = quotationId
             ? await this.prisma.mmSupplierQuotation.findUnique({ where: { id: quotationId } })
             : await this.prisma.mmSupplierQuotation.findFirst({
                   where: { rfqId: id, supplierId: supplierId!, status: 'SUBMITTED' },

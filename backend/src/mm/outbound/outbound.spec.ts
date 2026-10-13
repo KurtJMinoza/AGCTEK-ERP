@@ -137,7 +137,13 @@ describe('MM-10 Outbound', () => {
                 },
                 {
                     provide: ReservationEngineService,
-                    useValue: { recordIssue: jest.fn() },
+                    useValue: {
+                        recordIssue: jest.fn(),
+                        fulfillReservationLine: jest.fn(),
+                        restoreReservationLine: jest.fn(),
+                        createReservation: jest.fn(),
+                        fulfill: jest.fn(),
+                    },
                 },
                 {
                     provide: MmPostingPeriodGuard,

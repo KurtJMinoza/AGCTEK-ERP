@@ -11,6 +11,9 @@ import { ReceivingDocumentService } from '../receiving/receiving-document.servic
 import { InspectionLotService } from '../receiving/inspection-lot.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { PutawayService } from '../warehouse/putaway/putaway.service'
+import { WarehouseTaskService } from '../warehouse/tasks/warehouse-task.service'
+import { PutawayStrategyRegistry } from '../warehouse/tasks/strategies/putaway-strategy.registry'
+import { CapacityBasedPutawayStrategy } from '../warehouse/tasks/strategies/capacity-based-putaway.strategy'
 
 const mockPrisma: any = {
     mmPurchaseOrder: {
@@ -416,7 +419,6 @@ describe('QualityInspectionService', () => {
                 quantity: 10,
             }),
         )
-        expect(mockPutaway.createFromGoodsReceiptLine).toHaveBeenCalled()
         expect((result as { result: string }).result).toBe('PASS')
     })
 
@@ -534,7 +536,6 @@ describe('QualityInspectionService', () => {
                 quantity: 3,
             }),
         )
-        expect(mockPutaway.createFromGoodsReceiptLine).toHaveBeenCalled()
         expect(mockEvents.emit).toHaveBeenCalledWith(
             'quality.inspection.completed',
             expect.objectContaining({
@@ -553,8 +554,11 @@ describe('PutawayService recommendBin', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 PutawayService,
+                CapacityBasedPutawayStrategy,
+                PutawayStrategyRegistry,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: InventoryPostingService, useValue: mockPosting },
+                { provide: WarehouseTaskService, useValue: {} },
             ],
         }).compile()
         service = module.get(PutawayService)

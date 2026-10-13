@@ -12,6 +12,10 @@ export class NotificationsService {
 
     private toRecord(notification: {
         id: string
+        userId?: string | null
+        title?: string
+        message?: string
+        isRead?: boolean
         target: string
         description: string
         type: number
@@ -22,17 +26,26 @@ export class NotificationsService {
         readed: boolean
         createdAt: Date
     }): NotificationRecord {
+        const title = notification.title || notification.target
+        const message = notification.message || notification.description
+        const isRead = notification.isRead ?? notification.readed ?? false
+
         return {
             id: notification.id,
-            target: notification.target,
-            description: notification.description,
+            userId: notification.userId ?? undefined,
+            title,
+            message,
+            isRead,
+            target: notification.target || title,
+            description: notification.description || message,
             date: this.formatDate(notification.createdAt),
             image: notification.image,
             type: notification.type,
             location: notification.location,
             locationLabel: notification.locationLabel,
             status: notification.status,
-            readed: notification.readed,
+            readed: isRead,
+            createdAt: notification.createdAt.toISOString(),
         }
     }
 
@@ -58,8 +71,10 @@ export class NotificationsService {
         return date.toLocaleString()
     }
 
-    async findAll(limit = 20): Promise<NotificationRecord[]> {
+    async findAll(limit = 20, userId?: string): Promise<NotificationRecord[]> {
+        const where = userId ? { userId } : {}
         const notifications = await this.prisma.notification.findMany({
+            where,
             orderBy: { createdAt: 'desc' },
             take: limit,
         })
@@ -67,16 +82,22 @@ export class NotificationsService {
         return notifications.map((notification) => this.toRecord(notification))
     }
 
-    async getUnreadCount(): Promise<number> {
+    async getUnreadCount(userId?: string): Promise<number> {
+        const where: any = {
+            OR: [{ isRead: false }, { readed: false }],
+        }
+        if (userId) {
+            where.userId = userId
+        }
         return this.prisma.notification.count({
-            where: { readed: false },
+            where,
         })
     }
 
     async markAsRead(id: string): Promise<NotificationRecord> {
         const notification = await this.prisma.notification.update({
             where: { id },
-            data: { readed: true },
+            data: { isRead: true, readed: true },
         })
 
         const record = this.toRecord(notification)
@@ -85,33 +106,52 @@ export class NotificationsService {
         return record
     }
 
-    async markAllAsRead(): Promise<void> {
+    async markAllAsRead(userId?: string): Promise<void> {
+        const where: any = {
+            OR: [{ isRead: false }, { readed: false }],
+        }
+        if (userId) {
+            where.userId = userId
+        }
         await this.prisma.notification.updateMany({
-            where: { readed: false },
-            data: { readed: true },
+            where,
+            data: { isRead: true, readed: true },
         })
 
         await this.publishCount()
     }
 
     async create(data: {
-        target: string
-        description: string
+        userId?: string | null
+        title?: string
+        message?: string
+        isRead?: boolean
+        target?: string
+        description?: string
         type?: number
         image?: string
         location?: string
         locationLabel?: string
         status?: string
     }): Promise<NotificationRecord> {
+        const title = data.title ?? data.target ?? ''
+        const message = data.message ?? data.description ?? ''
+        const isRead = data.isRead ?? false
+
         const notification = await this.prisma.notification.create({
             data: {
-                target: data.target,
-                description: data.description,
+                userId: data.userId ?? null,
+                title,
+                message,
+                isRead,
+                target: data.target ?? title,
+                description: data.description ?? message,
                 type: data.type ?? 0,
                 image: data.image ?? '',
                 location: data.location ?? '',
                 locationLabel: data.locationLabel ?? '',
                 status: data.status ?? '',
+                readed: isRead,
             },
         })
 

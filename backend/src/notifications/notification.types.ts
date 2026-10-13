@@ -1,5 +1,9 @@
 export type NotificationRecord = {
     id: string
+    userId?: string
+    title?: string
+    message?: string
+    isRead?: boolean
     target: string
     description: string
     date: string
@@ -9,4 +13,6 @@ export type NotificationRecord = {
     locationLabel: string
     status: string
     readed: boolean
+    createdAt?: string
 }
+

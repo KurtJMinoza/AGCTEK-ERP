@@ -130,6 +130,7 @@ export class ProductController {
 
     /** Replace the full options + variants set (variant generator output). */
     @Put(':id/options-variants')
+    @RequirePermission('sd.product-catalog', 'update')
     updateOptionsVariants(
         @Param('id') id: string,
         @Body() dto: UpdateProductOptionsVariantsDto,

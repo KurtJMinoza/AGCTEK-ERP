@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ThreeWayMatchService } from './three-way-match.service'
 import { MatchToleranceService } from './match-tolerance.service'
 import { SupplierInvoiceService } from './supplier-invoice.service'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
 
 describe('MM-13 Three-Way Match', () => {
     let match: ThreeWayMatchService
@@ -146,6 +147,20 @@ describe('MM-13 Three-Way Match', () => {
                 SupplierInvoiceService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: EventEmitter2, useValue: mockEvents },
+                {
+                    provide: MmAccountingEventService,
+                    useValue: {
+                        recordEvent: jest.fn().mockResolvedValue({ id: 'evt-1' }),
+                        buildIdempotencyKey: jest.fn((...args: any[]) => args.join(':')),
+                        recordStandalone: jest.fn(async (tx: any, input: any) => {
+                            if (tx?.mmAccountingEvent?.create) {
+                                await tx.mmAccountingEvent.create({ data: input })
+                            }
+                            return { created: true, id: 'ae-1', payload: input }
+                        }),
+                        toDispatchPayload: jest.fn((r: any) => r),
+                    },
+                },
             ],
         }).compile()
 
@@ -177,7 +192,7 @@ describe('MM-13 Three-Way Match', () => {
         expect(mockPrisma.mmAccountingEvent.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({
-                    eventType: 'SUPPLIER_INVOICE_MATCHED',
+                    eventType: 'SupplierInvoiceMatched',
                 }),
             }),
         )

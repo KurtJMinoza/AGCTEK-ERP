@@ -234,7 +234,7 @@ const AddressDialog = ({
             isDefault: draft.isDefault,
         }
         try {
-            if (editor.address) {
+            if (editor.address && !editor.address.id.startsWith('profile-')) {
                 await updateRetailClientAddress(
                     token,
                     editor.address.id,
@@ -563,6 +563,21 @@ const MarketplaceAccountPage = () => {
     const canSaveProfile =
         !firstNameError && !phoneError && !savingProfile && !isBusy
 
+    const profileAddressLines = useMemo(() => {
+        if (!signedInClient) return []
+        return [
+            signedInClient.addressLine1,
+            [signedInClient.city, signedInClient.region]
+                .filter(Boolean)
+                .join(', '),
+            [signedInClient.postalCode, signedInClient.country]
+                .filter(Boolean)
+                .join(' '),
+        ].filter(Boolean) as string[]
+    }, [signedInClient])
+
+    const hasProfileAddress = profileAddressLines.length > 0
+
     const saveProfile = async () => {
         if (!canSaveProfile) return
         setSavingProfile(true)
@@ -774,7 +789,87 @@ const MarketplaceAccountPage = () => {
                                 <div className="h-32 animate-pulse rounded-xl bg-gray-100" />
                             </div>
                         ) : null}
-                        {!addressesLoading && addresses.length === 0 ? (
+                        {!addressesLoading &&
+                        addresses.length === 0 &&
+                        hasProfileAddress ? (
+                            <article className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-semibold text-gray-900">
+                                            Delivery Address
+                                        </h3>
+                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                                            Default
+                                        </span>
+                                    </div>
+                                    <span className="text-xs font-medium text-emerald-700">
+                                        Active Profile Address
+                                    </span>
+                                </div>
+                                <div className="mt-2 text-sm leading-6 text-gray-700">
+                                    {profileAddressLines.map((line) => (
+                                        <p key={line}>{line}</p>
+                                    ))}
+                                </div>
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    <Button
+                                        size="xs"
+                                        type="button"
+                                        variant="plain"
+                                        icon={<HiOutlinePencil />}
+                                        onClick={() => {
+                                            const isDavao = `${signedInClient?.city ?? ''} ${signedInClient?.region ?? ''}`
+                                                .toLowerCase()
+                                                .includes('davao')
+                                            setEditor({
+                                                address: {
+                                                    id: 'profile-default',
+                                                    addressType: 'HOME',
+                                                    formattedAddress:
+                                                        profileAddressLines.join(
+                                                            ', ',
+                                                        ),
+                                                    addressLine:
+                                                        signedInClient?.addressLine1 ||
+                                                        null,
+                                                    barangayOrNeighborhood: null,
+                                                    cityOrMunicipality:
+                                                        signedInClient?.city ||
+                                                        null,
+                                                    provinceOrState:
+                                                        signedInClient?.region ||
+                                                        null,
+                                                    postalCode:
+                                                        signedInClient?.postalCode ||
+                                                        null,
+                                                    country:
+                                                        signedInClient?.country ||
+                                                        'PH',
+                                                    latitude: isDavao
+                                                        ? 7.0731
+                                                        : 14.5995,
+                                                    longitude: isDavao
+                                                        ? 125.6128
+                                                        : 120.9842,
+                                                    additionalInfo: null,
+                                                    isDefault: true,
+                                                    createdAt:
+                                                        new Date().toISOString(),
+                                                    updatedAt:
+                                                        new Date().toISOString(),
+                                                },
+                                                readOnly: false,
+                                            })
+                                        }}
+                                    >
+                                        Edit / Pin on map
+                                    </Button>
+                                </div>
+                            </article>
+                        ) : null}
+                        {!addressesLoading &&
+                        addresses.length === 0 &&
+                        !hasProfileAddress ? (
                             <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50/50 p-6 text-center">
                                 <HiOutlineLocationMarker className="mx-auto text-3xl text-emerald-600" />
                                 <h3 className="mt-2 font-semibold text-gray-800">

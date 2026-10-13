@@ -16,6 +16,8 @@ import { MovingAverageValuationStrategy } from './strategies/moving-average-valu
 import { StandardCostValuationStrategy } from './strategies/standard-cost-valuation.strategy'
 import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
 import { normalizeAllocationBase } from './valuation.constants'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 describe('Valuation Landed Cost Engine (Phase 9)', () => {
     let engine: ValuationEngineService
@@ -213,6 +215,26 @@ describe('Valuation Landed Cost Engine (Phase 9)', () => {
                 ValuationMethodRegistry,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: EventEmitter2, useValue: mockEvents },
+                {
+                    provide: MmAccountingEventService,
+                    useValue: {
+                        buildIdempotencyKey: jest.fn((...args: any[]) => args.join(':')),
+                        recordStandalone: jest.fn(async (tx: any, input: any) => {
+                            if (tx?.mmAccountingEvent?.create) {
+                                await tx.mmAccountingEvent.create({ data: input })
+                            }
+                            return { created: true, id: 'ae-1', payload: input }
+                        }),
+                        toDispatchPayload: jest.fn((r: any) => r.payload),
+                    },
+                },
+                {
+                    provide: MmPostingPeriodGuard,
+                    useValue: {
+                        assertOpen: jest.fn(),
+                        isOpen: jest.fn().mockResolvedValue(true),
+                    },
+                },
             ],
         }).compile()
 

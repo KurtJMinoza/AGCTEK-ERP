@@ -120,7 +120,7 @@ describe('Phase 1C CAPA lifecycle', () => {
                 correctiveAction: 'Replace tooling',
                 preventiveAction: 'Scheduled maintenance',
                 owner: 'John Doe',
-                dueDate: '2026-10-01',
+                dueDate: '2029-10-01',
             })
             expect(result.effectiveStatus).toBe('OPEN')
             expect(prisma.mmCorrectiveAction.create).toHaveBeenCalledWith({
