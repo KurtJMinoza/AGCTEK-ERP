@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -15,7 +15,9 @@ import type {
     CreateCustomerInput,
     Customer,
     CustomerStatus,
+    ShopAccount,
 } from '../services/customerMasterService'
+import { getShopAccounts } from '../services/customerMasterService'
 
 const MAX_CREDIT_LIMIT = 999_999_999_999.99
 
@@ -27,12 +29,21 @@ const customerSchema = z.object({
     creditLimit: z
         .number({ message: 'Credit limit is required' })
         .min(0, 'Cannot be negative')
-        .max(MAX_CREDIT_LIMIT, 'Credit limit is too large'),
+        .max(MAX_CREDIT_LIMIT, 'Credit limit is too large')
+        .optional(),
+    password: z
+        .string()
+        .max(72)
+        .regex(/[A-Za-z]/, 'Include at least one letter')
+        .regex(/\d/, 'Include at least one number')
+        .optional()
+        .or(z.literal('')),
     status: z.enum(['ACTIVE', 'BLOCKED']),
 })
 
 type FormShape = z.infer<typeof customerSchema>
 type StatusOption = { value: CustomerStatus; label: string }
+type ShopAccountOption = { value: string; label: string }
 
 const STATUS_OPTIONS: StatusOption[] = [
     { value: 'ACTIVE', label: 'Active' },
@@ -46,7 +57,7 @@ const blankValues: FormShape = {
     contactName: '',
     email: '',
     phone: '',
-    creditLimit: 0,
+    password: '',
     status: 'ACTIVE',
 }
 
@@ -66,6 +77,12 @@ const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
         value,
     )
+
+/** Shopping account label — includes a marker when already linked. */
+const shopOptionLabel = (account: ShopAccount) =>
+    `${account.fullName} — ${account.email}${
+        account.linkedCustomer ? ` (linked: ${account.linkedCustomer.customerNumber})` : ''
+    }`
 
 type CustomerFormDialogProps = {
     isOpen: boolean
@@ -88,18 +105,63 @@ const CustomerFormDialog = ({
         control,
         handleSubmit,
         reset,
+        setValue,
         formState: { errors },
     } = useForm<FormShape>({
         defaultValues: toFormValues(customer),
         resolver: zodResolver(customerSchema),
     })
 
+    /** Shop accounts for the Add New Customer reference (create mode only). */
+    const [shopAccounts, setShopAccounts] = useState<ShopAccount[]>([])
+    const [shopAccountId, setShopAccountId] = useState('')
+
     useEffect(() => {
         if (isOpen) reset(toFormValues(customer))
     }, [isOpen, customer, reset])
 
+    useEffect(() => {
+        if (!isOpen || mode !== 'create') return
+        let alive = true
+        getShopAccounts()
+            .then((accounts) => {
+                if (alive) setShopAccounts(accounts)
+            })
+            .catch(() => undefined)
+        return () => {
+            alive = false
+        }
+    }, [isOpen, mode])
+
+    const shopOptions: ShopAccountOption[] = shopAccounts.map((account) => ({
+        value: account.id,
+        label: shopOptionLabel(account),
+    }))
+    const selectedShop = shopAccounts.find((a) => a.id === shopAccountId) ?? null
+
+    const pickShopAccount = (option: ShopAccountOption | null) => {
+        setShopAccountId(option?.value ?? '')
+        const account = shopAccounts.find((a) => a.id === option?.value)
+        if (!account) return
+        // Fetch the shop account details into the customer form.
+        setValue('companyName', account.fullName, { shouldValidate: true })
+        setValue('email', account.email, { shouldValidate: true })
+        if (account.phone) setValue('phone', account.phone)
+    }
+
     const onValid = (values: FormShape) =>
-        onSubmit({ ...values, phone: values.phone || undefined })
+        onSubmit({
+            ...values,
+            phone: values.phone || undefined,
+            // No credit limit is collected when adding a customer.
+            creditLimit: mode === 'create' ? undefined : values.creditLimit,
+            ...(mode === 'create' && shopAccountId
+                ? { retailClientId: shopAccountId }
+                : {}),
+            ...(mode === 'create' && !shopAccountId && values.password
+                ? { password: values.password }
+                : {}),
+        })
 
     return (
         <FormDialog
@@ -109,7 +171,7 @@ const CustomerFormDialog = ({
             title={mode === 'create' ? 'Add New Customer' : 'Edit Customer'}
             description={
                 mode === 'create'
-                    ? 'Register a new B2B client and assign a credit limit.'
+                    ? 'Register a new customer. Optionally reference the shop account created during sign-up.'
                     : customer
                       ? `${customer.customerNumber} · ${customer.companyName}`
                       : ''
@@ -193,36 +255,96 @@ const CustomerFormDialog = ({
                             )}
                         />
                     </FormItem>
-                    <FormItem
-                        label="Credit limit (PHP)"
-                        asterisk
-                        invalid={Boolean(errors.creditLimit)}
-                        errorMessage={errors.creditLimit?.message}
-                    >
-                        <Controller
-                            name="creditLimit"
-                            control={control}
-                            render={({ field }) => (
-                                <NumericInput
-                                    placeholder="0.00"
-                                    thousandSeparator=","
-                                    decimalScale={2}
-                                    fixedDecimalScale
-                                    allowNegative={false}
-                                    value={field.value}
-                                    onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
-                                />
-                            )}
-                        />
-                        {mode === 'edit' && customer ? (
+
+                    {mode === 'create' && shopAccounts.length > 0 ? (
+                        <FormItem
+                            label="Shop account (reference)"
+                            className="md:col-span-2"
+                        >
+                            <Select<ShopAccountOption>
+                                isClearable
+                                isSearchable
+                                options={shopOptions}
+                                value={shopOptions.find(
+                                    (option) => option.value === shopAccountId,
+                                )}
+                                onChange={pickShopAccount}
+                            />
                             <p className="mt-1 text-xs text-gray-500">
-                                Available now: {formatPrice(customer.availableCredit)}.
-                                Changing the limit shifts available credit by the same
-                                amount.
+                                Pick the account the customer created in the Shop — its
+                                name, email and phone are fetched into this form and the
+                                customer record is linked to it.
                             </p>
-                        ) : null}
-                    </FormItem>
-                    <FormItem label="Status" asterisk>
+                            {selectedShop?.linkedCustomer && (
+                                <p className="mt-1 text-xs text-amber-600">
+                                    This shop account is already linked to{' '}
+                                    {selectedShop.linkedCustomer.customerNumber} (
+                                    {selectedShop.linkedCustomer.companyName}).
+                                </p>
+                            )}
+                        </FormItem>
+                    ) : null}
+
+                    {mode === 'create' && !shopAccountId ? (
+                        <FormItem
+                            label="Shop login password"
+                            className="md:col-span-2"
+                            invalid={Boolean(errors.password)}
+                            errorMessage={errors.password?.message}
+                        >
+                            <Controller
+                                name="password"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        type="password"
+                                        placeholder="Leave blank for an SD-only customer"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                                Setting a password creates the Shop account for this
+                                customer (email is the login) and connects it to this
+                                record — they can then sign in to the Shop.
+                            </p>
+                        </FormItem>
+                    ) : null}
+
+                    {mode === 'edit' ? (
+                        <FormItem
+                            label="Credit limit (PHP)"
+                            invalid={Boolean(errors.creditLimit)}
+                            errorMessage={errors.creditLimit?.message}
+                        >
+                            <Controller
+                                name="creditLimit"
+                                control={control}
+                                render={({ field }) => (
+                                    <NumericInput
+                                        placeholder="0.00"
+                                        thousandSeparator=","
+                                        decimalScale={2}
+                                        fixedDecimalScale
+                                        allowNegative={false}
+                                        value={field.value}
+                                        onValueChange={(v) =>
+                                            field.onChange(v.floatValue ?? 0)
+                                        }
+                                    />
+                                )}
+                            />
+                            {customer ? (
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Available now: {formatPrice(customer.availableCredit)}.
+                                    Changing the limit shifts available credit by the same
+                                    amount.
+                                </p>
+                            ) : null}
+                        </FormItem>
+                    ) : null}
+
+                    <FormItem label="Status">
                         <Controller
                             name="status"
                             control={control}

@@ -20,7 +20,7 @@ import { LPG_DIVISION_ID } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 
-export const MARKETPLACE_NAME = 'AGC Marketplace'
+export const MARKETPLACE_NAME = 'Amalgated Marketplace'
 
 /** Brand primary button colours, for ECME `customColorClass` props. */
 export const PRIMARY_BUTTON = () =>

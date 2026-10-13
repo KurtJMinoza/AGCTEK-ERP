@@ -3747,6 +3747,9 @@ model SdCustomer {
   availableCredit Decimal  @default(0) @db.Decimal(18, 2)
   /// ACTIVE | BLOCKED
   status          String   @default("ACTIVE")
+  /// Linked shop (storefront) account created through Shop sign-up.
+  retailClientId String?    @unique
+  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime @default(now())
@@ -4357,7 +4360,7 @@ model SdSalesInvoice {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  lines SdSalesInvoiceLine[]
+  lines       SdSalesInvoiceLine[]
 
   @@unique([salesOrderId])
   @@index([companyId, status])
@@ -4392,11 +4395,29 @@ model SdReturnRequest {
   salesOrderId       String
   salesOrder         SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   customerId         String
-  /// REQUESTED | APPROVED | REJECTED | RECEIVED | INSPECTED | COMPLETED | CANCELLED
+  /// REQUESTED | APPROVED | REJECTED | AWAITING_RETURN | RECEIVED |
+  /// UNDER_INSPECTION | RESTOCKED | MARKED_DAMAGED | SCRAPPED | REFUNDED | CLOSED | CANCELLED
   status             String       @default("REQUESTED")
   reason             String?
+  rejectReason       String?
   conditionNote      String?
   photos             Json?
+  /// Selling branch snapshot for this order (POS branch / storefront branch).
+  branchId           String?
+  /// Receiving warehouse snapshot — routes MM intake without a second lookup.
+  warehouseId        String?
+  /// Invoice number snapshot when the order was already invoiced.
+  invoiceNumber      String?
+  /// REFUND | REPLACEMENT | STORE_CREDIT
+  preferredResolution String?
+  /// NONE | NOT_REQUIRED | PENDING_REFUND | APPROVED | PAID | FAILED (Phase 7 refund flow)
+  refundStatus       String       @default("NONE")
+  /// Refund resolution values (settled when the refund is processed).
+  refundAmount       Decimal?     @db.Decimal(18, 2)
+  refundedAt         DateTime?
+  refundedBy         String?
+  rejectedAt         DateTime?
+  closedAt           DateTime?
   /// MM customer return created on approval (link to MM processing).
   mmCustomerReturnId String?
   requestedBy        String?
@@ -4406,7 +4427,8 @@ model SdReturnRequest {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  lines SdReturnRequestLine[]
+  lines   SdReturnRequestLine[]
+  refunds SdRefund[]
 
   @@index([companyId, status])
   @@index([salesOrderId])
@@ -4430,6 +4452,77 @@ model SdReturnRequestLine {
   @@unique([returnRequestId, salesOrderLineId])
   @@index([salesOrderLineId])
   @@map("sd_return_request_lines")
+}
+
+/**
+ * Refund record for one sales return (Phase 7). Payment behavior is DEMO ONLY
+ * — no real gateway is ever called. COD orders that were never collected get
+ * `refundStatus NOT_REQUIRED` instead of a record.
+ */
+model SdRefund {
+  id              String           @id @default(cuid())
+  refundNumber    String           @unique
+  companyId       String
+  salesOrderId    String
+  salesInvoiceId  String?
+  returnRequestId String           @unique
+  returnRequest   SdReturnRequest  @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  customerId      String
+  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO (snapshot)
+  paymentMethod   String?
+  /// CASH_REFUND | BANK_TRANSFER | DIGITAL_WALLET | STORE_CREDIT
+  refundMethod    String?
+  amount          Decimal          @db.Decimal(18, 2)
+  currency        String           @default("PHP")
+  /// PENDING_REFUND | APPROVED | PAID | FAILED
+  status          String           @default("PENDING_REFUND")
+  returnQuantity  Decimal          @db.Decimal(18, 2)
+  returnReason    String?
+  /// True for all demo payment plans (mark external behavior as Demo Only).
+  isDemo          Boolean          @default(false)
+  approvedBy      String?
+  approvedAt      DateTime?
+  paidBy          String?
+  paidAt          DateTime?
+  failReason      String?
+  failedAt        DateTime?
+  createdBy       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  creditMemo SdCreditMemo?
+
+  @@index([companyId, status])
+  @@index([salesOrderId])
+  @@map("sd_refunds")
+}
+
+/**
+ * Credit memo / return-invoice document (Phase 8). Created when a refund is
+ * APPROVED and linked to the ORIGINAL sales invoice, which stays untouched
+ * for audit history.
+ */
+model SdCreditMemo {
+  id                String       @id @default(cuid())
+  creditMemoNumber  String       @unique
+  companyId         String
+  salesOrderId      String
+  salesInvoiceId    String?
+  refundId          String       @unique
+  refund            SdRefund     @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  customerId        String
+  branchId          String?
+  amount            Decimal      @db.Decimal(18, 2)
+  currency          String       @default("PHP")
+  returnQuantity    Decimal      @db.Decimal(18, 2)
+  returnReason      String?
+  status            String       @default("ISSUED")
+  createdBy         String?
+  createdAt         DateTime     @default(now())
+
+  @@index([companyId, status])
+  @@index([salesOrderId])
+  @@map("sd_credit_memos")
 }
 
 /**
@@ -7102,6 +7195,8 @@ model RetailClient {
   updatedAt    DateTime              @updatedAt
   cartItems    RetailCartItem[]
   addresses    RetailClientAddress[]
+  /// SD Customer Master record linked via Add New Customer (shop reference).
+  sdCustomer   SdCustomer?
 
   @@index([email])
 }

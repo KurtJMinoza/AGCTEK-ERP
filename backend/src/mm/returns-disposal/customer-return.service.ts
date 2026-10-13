@@ -554,7 +554,8 @@ export class CustomerReturnService {
 
     /**
      * Post dispositions: RESTOCK/REPAIR/BLOCK via RETURN_IN;
-     * SCRAP → RETURN_IN BLOCKED + linked MmDisposal (submit; post if auto-approved).
+     * SCRAP → RETURN_IN BLOCKED + linked MmDisposal (submit; post if auto-approved);
+     * REFUND_ONLY → no stock movement (missing item: refund handled by SD).
      */
     async complete(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
@@ -585,6 +586,21 @@ export class CustomerReturnService {
                 continue
             }
             const disposition = line.disposition!
+
+            if (disposition === 'REFUND_ONLY') {
+                // Missing item: nothing physically returns — SD owns the refund.
+                // No inventory movement and no accounting effect here.
+                await this.prisma.mmCustomerReturnLine.update({
+                    where: { id: line.id },
+                    data: { dispositionStatus: 'REFUND_ONLY' },
+                })
+                await this.prisma.mmReturnDisposition.updateMany({
+                    where: { customerReturnLineId: line.id },
+                    data: { stockStatus: null },
+                })
+                continue
+            }
+
             const stockStatus = DISPOSITION_STOCK[disposition]
             if (!stockStatus) {
                 throw new BadRequestException(`Unknown disposition ${disposition}`)

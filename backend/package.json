@@ -18,6 +18,7 @@
     "prisma:seed-sd-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-purge.ts",
     "prisma:purge-sd-mm-keep-uom": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-purge-keep-uom.ts",
     "prisma:seed-org-warehouse": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-org-warehouse.ts",
+    "prisma:seed-user-company": "ts-node --project prisma/tsconfig.seed.json prisma/seed-user-company-memberships.ts",
     "prisma:seed-warehouse-bins": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-warehouse-bin-per-company.ts",
     "prisma:repair-order-companies": "ts-node --project prisma/tsconfig.seed.json prisma/repair-order-companies.ts",
     "prisma:repair-default-packing-packages": "ts-node --project prisma/tsconfig.seed.json prisma/repair-default-packing-packages.ts",

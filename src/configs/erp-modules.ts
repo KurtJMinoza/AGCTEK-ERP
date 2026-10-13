@@ -31,7 +31,7 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'ecommerce',
                         title: 'E-commerce',
                         description:
-                            'Open the AGC Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+                            'Open the Amalgated Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
                         path: '/shop',
                         icon: 'storefront',
                         isExternalLink: true,
@@ -103,6 +103,15 @@ export const ERP_MODULES: ErpModule[] = [
                         description:
                             'Customer return requests from damaged deliveries — authorize and open the MM intake.',
                         path: '/modules/sd/sales-returns',
+                        icon: 'receipt',
+                    },
+                    {
+                        code: 'customer-returns',
+                        permissionCode: 'sd.sales-returns',
+                        title: 'Customer Returns',
+                        description:
+                            'Return requests from delivered orders — approve, receive, inspect, restock, refund, and close.',
+                        path: '/modules/sd/customer-returns',
                         icon: 'receipt',
                     },
                     {

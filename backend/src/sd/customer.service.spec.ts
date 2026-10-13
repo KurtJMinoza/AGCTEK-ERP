@@ -12,9 +12,23 @@ const numberCollision = () =>
 
 function mockClient() {
     return {
+        retailClient: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn((args: { data: Record<string, unknown> }) =>
+                Promise.resolve({ id: 'shop-1', ...args.data }),
+            ),
+        },
         sdCustomer: {
             count: jest.fn().mockResolvedValue(4),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
+                Promise.resolve({ id: 'cust-new', ...args.data }),
+            ),
+            findUnique: jest.fn().mockResolvedValue({
+                id: 'cust-new',
+                customerNumber: 'CUST-000005',
+                retailClientId: 'shop-1',
+            }),
+            update: jest.fn((args: { data: Record<string, unknown> }) =>
                 Promise.resolve({ id: 'cust-new', ...args.data }),
             ),
         },
@@ -57,5 +71,36 @@ describe('CustomerService.create', () => {
             service.create(dto, tx as unknown as Prisma.TransactionClient),
         ).rejects.toBeInstanceOf(ConflictException)
         expect(tx.sdCustomer.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('provisions a Shop account (with password) and links it to the customer', async () => {
+        const root = mockClient()
+        const service = new CustomerService(root as unknown as PrismaService)
+
+        const created = await service.create({
+            ...dto,
+            password: 'shopPass123',
+        })
+
+        expect(root.retailClient.create).toHaveBeenCalledTimes(1)
+        const shopData = root.retailClient.create.mock.calls[0][0].data
+        expect(shopData.email).toBe('ann@acme.test')
+        expect(shopData.passwordHash).toBeTruthy()
+        expect(root.sdCustomer.update).toHaveBeenCalledWith({
+            where: { id: 'cust-new' },
+            data: { retailClientId: 'shop-1' },
+        })
+        expect(created.retailClientId).toBe('shop-1')
+    })
+
+    it('rejects a provisioning password when a Shop account already exists', async () => {
+        const root = mockClient()
+        root.retailClient.findUnique.mockResolvedValue({ id: 'shop-existing' })
+        const service = new CustomerService(root as unknown as PrismaService)
+
+        await expect(
+            service.create({ ...dto, password: 'shopPass123' }),
+        ).rejects.toThrow(ConflictException)
+        expect(root.retailClient.create).not.toHaveBeenCalled()
     })
 })

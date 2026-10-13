@@ -17,6 +17,13 @@ export class CustomerController {
         return this.customers.list(query)
     }
 
+    /** Shop accounts for the Add New Customer reference (before :id routes). */
+    @Get('shop-accounts')
+    @RequirePermission(['sd.customer-master', 'crm'], 'read')
+    listShopAccounts() {
+        return this.customers.listShopAccounts()
+    }
+
     @Get(':id')
     @RequirePermission(['sd.customer-master', 'crm'], 'read')
     findOne(@Param('id') id: string) {

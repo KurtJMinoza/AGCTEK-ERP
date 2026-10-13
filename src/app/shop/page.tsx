@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-    title: 'AGC Marketplace',
+    title: 'Amalgated Marketplace',
     description:
         'Shop AWIC vitamins and bags, LPG refills and MCONPINCO appliances in one cart.',
 }

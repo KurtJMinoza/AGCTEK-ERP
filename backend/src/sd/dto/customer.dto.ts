@@ -5,9 +5,11 @@ import {
     IsNumber,
     IsOptional,
     IsString,
+    Matches,
     Max,
     MaxLength,
     Min,
+    MinLength,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
@@ -57,10 +59,29 @@ export class CreateCustomerDto {
     @MaxLength(40)
     phone?: string
 
+    @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
-    creditLimit!: number
+    creditLimit?: number
+
+    /** Shop (storefront) account to link — Add New Customer → Shop account. */
+    @IsOptional()
+    @IsString()
+    retailClientId?: string
+
+    /**
+     * Provision a Shop (storefront) login for this customer: creates the shop
+     * account with this password and links it. Omit to keep the customer
+     * SD/B2B-only. Mirrors the Shop sign-up password policy (demo only).
+     */
+    @IsOptional()
+    @IsString()
+    @MinLength(8)
+    @MaxLength(72)
+    @Matches(/[A-Za-z]/, { message: 'Password must include at least one letter' })
+    @Matches(/\d/, { message: 'Password must include at least one number' })
+    password?: string
 
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)
@@ -103,6 +124,11 @@ export class UpdateCustomerDto {
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
     creditLimit?: number
+
+    /** Shop (storefront) account to link (nullable clears the link). */
+    @IsOptional()
+    @IsString()
+    retailClientId?: string
 
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)

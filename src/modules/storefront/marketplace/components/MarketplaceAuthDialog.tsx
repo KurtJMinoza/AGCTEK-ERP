@@ -206,7 +206,7 @@ const MarketplaceAuthDialog = ({
             description={
                 mode === 'sign-in'
                     ? 'Sign in to check out faster with saved delivery details.'
-                    : 'Create your AGC Marketplace account in a few seconds. Delivery details can be added later in My Account.'
+                    : 'Create your Amalgated Marketplace account in a few seconds. Delivery details can be added later in My Account.'
             }
             icon={<HiOutlineUserCircle />}
             iconClassName="bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/30"

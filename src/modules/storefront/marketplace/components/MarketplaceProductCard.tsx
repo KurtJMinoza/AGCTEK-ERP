@@ -6,6 +6,7 @@ import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import { productReviews } from './product/productContent'
+import { productImageGallery } from '@/modules/sd/services/productCatalogService'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
     PRIMARY_BUTTON,
@@ -58,6 +59,11 @@ const MarketplaceProductCard = ({
     const averageRating = reviews.length
         ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
         : null
+    // Hover swap only exists when the product has multiple photos.
+    const gallery = productImageGallery(product)
+    const hoverImage = gallery.length > 1 ? gallery[1] : null
+    const IMAGE_SIZES =
+        '(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 380px'
     return (
         <Card
             clickable
@@ -77,13 +83,27 @@ const MarketplaceProductCard = ({
                 }
             }}
         >
-            <div className="relative overflow-hidden rounded-xl bg-gray-50 p-5">
+            <div className="group relative overflow-hidden rounded-xl bg-gray-50 p-5">
                 <ProductImage
                     product={product}
                     fit="contain"
-                    sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 380px"
+                    sizes={IMAGE_SIZES}
                     className="aspect-square w-full !bg-transparent"
                 />
+                {/* Second photo fades in on hover when the product has a gallery. */}
+                {hoverImage ? (
+                    <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 p-5 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                    >
+                        <ProductImage
+                            product={{ imageUrl: hoverImage, name: product.name }}
+                            fit="contain"
+                            sizes={IMAGE_SIZES}
+                            className="aspect-square w-full !bg-transparent"
+                        />
+                    </div>
+                ) : null}
                 {product.category ? (
                     <span className="absolute bottom-3 left-3 max-w-[55%] truncate rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 shadow-sm">
                         {product.category}

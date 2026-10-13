@@ -16,6 +16,10 @@ export type Customer = {
     /** Server-maintained; negative when the customer is over their limit. */
     availableCredit: number
     status: CustomerStatus
+    /** Linked Shop (storefront) account, when one was referenced. */
+    retailClientId: string | null
+    /** Shop account profile (present when the customer references a shop account). */
+    retailClient: { email: string; fullName: string } | null
     createdAt: string
     updatedAt: string
 }
@@ -31,11 +35,30 @@ export type CreateCustomerInput = {
     contactName: string
     email: string
     phone?: string
-    creditLimit: number
+    /** No longer collected in Add New Customer (defaults to 0 server-side). */
+    creditLimit?: number
+    /** Shop (storefront) account to reference/link. */
+    retailClientId?: string
+    /** Provisions the Shop login for this customer (Shop account creation). */
+    password?: string
     status?: CustomerStatus
 }
 
 export type UpdateCustomerInput = Partial<CreateCustomerInput>
+
+/** Shop (storefront) account shown in the Add New Customer reference picker. */
+export type ShopAccount = {
+    id: string
+    email: string
+    fullName: string
+    phone: string
+    addressLabel: string | null
+    linkedCustomer: {
+        id: string
+        customerNumber: string
+        companyName: string
+    } | null
+}
 
 type DecimalString = string | number
 
@@ -52,7 +75,21 @@ const toCustomer = (row: ApiCustomer): Customer => ({
     creditLimit: Number(row.creditLimit),
     availableCredit: Number(row.availableCredit),
     status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
+    retailClientId: row.retailClientId ?? null,
+    retailClient: row.retailClient ?? null,
 })
+
+/** GET /sd/customers/shop-accounts — Shop accounts for the Add New Customer picker. */
+export async function getShopAccounts(): Promise<ShopAccount[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<ShopAccount[]>(
+            `${BASE_PATH}/shop-accounts`,
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load shop accounts')
+    }
+}
 
 /** GET /sd/customers — sorted by company name. */
 export async function getCustomers(

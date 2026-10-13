@@ -84,6 +84,15 @@ export type SalesOrderRecord = {
     totalAmount: number
     /** Server-computed customer cancellation eligibility. */
     customerCancel: { canCancel: boolean; reason: string | null } | null
+    /** Active sales-return requests (Phase 9 badges: return + refund status). */
+    customerReturns: Array<{
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus: string
+        reason: string | null
+        lines: Array<{ salesOrderLineId: string; quantity: number }>
+    }>
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
@@ -185,6 +194,14 @@ type ApiSalesOrder = {
         canCancel: boolean
         reason: string | null
     } | null
+    customerReturns: Array<{
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus: string
+        reason: string | null
+        lines: Array<{ salesOrderLineId: string; quantity: DecimalString }>
+    }>
     status: string
     createdAt: string
     lines: ApiSalesOrderLine[]
@@ -270,6 +287,14 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
         shipping: num(order.shippingAmount),
         totalAmount: num(order.totalAmount),
         customerCancel: order.customerCancel ?? null,
+        customerReturns:
+            order.customerReturns?.map((r) => ({
+                ...r,
+                lines: r.lines.map((l) => ({
+                    ...l,
+                    quantity: num(l.quantity),
+                })),
+            })) ?? [],
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
         payment:
@@ -565,6 +590,8 @@ export type CustomerReturnRequestPayload = {
     reason?: string
     conditionNote?: string
     photos?: string[]
+    /** REFUND | REPLACEMENT | STORE_CREDIT */
+    preferredResolution?: string
     lines: CustomerReturnLinePayload[]
 }
 
@@ -576,6 +603,11 @@ export type CustomerReturnRequestRecord = {
     conditionNote: string | null
     photos: unknown
     mmCustomerReturnId: string | null
+    branchId: string | null
+    warehouseId: string | null
+    invoiceNumber: string | null
+    preferredResolution: string | null
+    refundStatus: string
     lines: Array<{
         id: string
         salesOrderLineId: string

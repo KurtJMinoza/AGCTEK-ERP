@@ -650,7 +650,7 @@ const MarketplaceOrdersPage = () => {
                                             <span className="text-gray-500">
                                                 Sold by{' '}
                                                 <span className="font-semibold text-gray-800">
-                                                    {order.company?.name || 'AGC Marketplace'}
+                                                    {order.company?.name || 'Amalgated Marketplace'}
                                                 </span>
                                             </span>
                                         </div>

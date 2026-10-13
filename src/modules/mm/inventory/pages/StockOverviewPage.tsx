@@ -101,6 +101,16 @@ const StockOverviewPage = () => {
         [summary],
     )
 
+    // Only warehouses of the selected company — never all warehouses.
+    const warehouseOptions = useMemo(
+        () =>
+            warehouses.filter((w) => {
+                const company = (w.meta as { companyId?: string } | undefined)?.companyId
+                return !companyId || !company || company === companyId
+            }),
+        [warehouses, companyId],
+    )
+
     const columns: ColumnDef<InventoryBalance>[] = useMemo(
         () => [
             {
@@ -174,7 +184,20 @@ const StockOverviewPage = () => {
                             options={companies}
                             value={companies.find((o) => o.value === companyId) ?? null}
                             onChange={(o: any) => {
-                                setCompanyId(o?.value ?? '')
+                                const nextCompanyId = o?.value ?? ''
+                                setCompanyId(nextCompanyId)
+                                // Drop a warehouse that no longer belongs to the chosen company.
+                                const selected = warehouses.find((w) => w.value === warehouseId)
+                                const selectedCompanyId = (
+                                    selected?.meta as { companyId?: string } | undefined
+                                )?.companyId
+                                if (
+                                    nextCompanyId &&
+                                    selectedCompanyId &&
+                                    selectedCompanyId !== nextCompanyId
+                                ) {
+                                    setWarehouseId('')
+                                }
                                 setPage(1)
                             }}
                         />
@@ -182,8 +205,8 @@ const StockOverviewPage = () => {
                     <FormItem label="Warehouse">
                         <Select
                             isClearable
-                            options={warehouses}
-                            value={warehouses.find((o) => o.value === warehouseId) ?? null}
+                            options={warehouseOptions}
+                            value={warehouseOptions.find((o) => o.value === warehouseId) ?? null}
                             onChange={(o: any) => {
                                 setWarehouseId(o?.value ?? '')
                                 setPage(1)
