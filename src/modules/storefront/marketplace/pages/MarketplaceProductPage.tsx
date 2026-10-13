@@ -43,6 +43,7 @@ import {
     productSpecs,
     productStrings,
 } from '../components/product/productContent'
+import CustomerReviewsSection from '@/components/reviews/CustomerReviewsSection'
 import { useProductAvailability } from '../components/product/useProductAvailability'
 import { productsHref } from '../browseQuery'
 import { MARKETPLACE_PATH } from '../host'
@@ -697,59 +698,10 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         </dl>
                     </Section>
 
-                    <Section
-                        id="reviews-heading"
-                        title="Customer reviews"
-                        icon={<Sparkles aria-hidden className="h-4 w-4" />}
-                        aside={
-                            averageRating !== null ? (
-                                <span className="flex items-center gap-2 text-sm text-gray-500">
-                                    <StarRating rating={averageRating} />
-                                    <span className="font-semibold text-gray-900">
-                                        {averageRating.toFixed(1)}
-                                    </span>
-                                    / 5
-                                </span>
-                            ) : null
-                        }
-                    >
-                        {reviews.length > 0 ? (
-                            <ul className="flex flex-col divide-y divide-gray-100">
-                                {reviews.map((review) => (
-                                    <li
-                                        key={review.id}
-                                        className="py-4 first:pt-0 last:pb-0"
-                                    >
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <StarRating
-                                                rating={review.rating}
-                                            />
-                                            <span className="text-xs text-gray-400">
-                                                {review.author}
-                                                {review.date
-                                                    ? ` · ${formatReviewDate(review.date)}`
-                                                    : ''}
-                                            </span>
-                                        </div>
-                                        {review.title ? (
-                                            <p className="mt-2 text-sm font-semibold text-gray-900">
-                                                {review.title}
-                                            </p>
-                                        ) : null}
-                                        {review.body ? (
-                                            <p className="mt-1 text-sm leading-relaxed text-gray-600">
-                                                {review.body}
-                                            </p>
-                                        ) : null}
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <p className="text-sm text-gray-400">
-                                No reviews yet for this product.
-                            </p>
-                        )}
-                    </Section>
+                    <CustomerReviewsSection
+                        productId={product.id}
+                        productName={product.name}
+                    />
                 </div>
 
                 <aside className="min-w-0 lg:col-span-4">
