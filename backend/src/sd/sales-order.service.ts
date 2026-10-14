@@ -405,13 +405,49 @@ export class SalesOrderService {
             },
         })
         const cancellation = await this.customerCancellationMap(rows)
+        const returnRequests = await this.returnRequestMap(rows)
         return rows.map((row) => ({
             ...row,
             customerCancel: cancellation.get(row.id) ?? {
                 canCancel: false,
                 reason: null,
             },
+            // Active sales-return requests per order so My Orders can show the
+            // return status under the item and the refund status when present.
+            customerReturns: returnRequests.get(row.id) ?? [],
         }))
+    }
+
+    /**
+     * Latest non-closed return requests per order (Phase 9 My Orders badges).
+     * Only return status + refund status flow to the storefront — no pricing.
+     */
+    private async returnRequestMap(rows: Array<{ id: string }>) {
+        if (!rows.length) return new Map<string, unknown[]>()
+        const requests = await this.prisma.sdReturnRequest.findMany({
+            where: {
+                salesOrderId: { in: rows.map((r) => r.id) },
+                status: { notIn: ['CLOSED', 'CANCELLED'] },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                salesOrderId: true,
+                requestNumber: true,
+                status: true,
+                refundStatus: true,
+                reason: true,
+                lines: { select: { salesOrderLineId: true, quantity: true } },
+            },
+            take: 50,
+        })
+        const map = new Map<string, unknown[]>()
+        for (const request of requests) {
+            const bucket = map.get(request.salesOrderId) ?? []
+            bucket.push(request)
+            map.set(request.salesOrderId, bucket)
+        }
+        return map
     }
 
     /**
@@ -1732,7 +1768,7 @@ export class SalesOrderService {
 
         const updated = await this.prisma.sdSalesOrder.update({
             where: { id },
-            data: { status: 'CONFIRMED' },
+            data: { status: 'CONFIRMED', approvedAt: new Date() },
             include: this.includes,
         })
 
@@ -2105,6 +2141,30 @@ export class SalesOrderService {
         message: string,
     ) {
         try {
+            if (order.customerId) {
+                const shopper = await this.prisma.retailClient.findUnique({
+                    where: { id: order.customerId },
+                    select: { id: true },
+                })
+                if (shopper) {
+                    await this.prisma.notification.create({
+                        data: {
+                            retailClientId: shopper.id,
+                            title,
+                            message,
+                            target: order.orderNumber,
+                            description: message,
+                            location: '/shop/orders',
+                            locationLabel: 'My orders',
+                            status: 'UNREAD',
+                            isRead: false,
+                            readed: false,
+                        },
+                    })
+                    return
+                }
+            }
+
             let userId: string | null = null
             if (order.customerId) {
                 const userById = await this.prisma.user.findUnique({

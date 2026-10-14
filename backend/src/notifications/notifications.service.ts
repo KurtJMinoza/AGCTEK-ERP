@@ -1,7 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsGateway } from './notifications.gateway'
 import type { NotificationRecord } from './notification.types'
+
+/** Staff views never include shopper (storefront) notifications. */
+const STAFF_ONLY = { retailClientId: null }
 
 @Injectable()
 export class NotificationsService {
@@ -72,7 +76,7 @@ export class NotificationsService {
     }
 
     async findAll(limit = 20, userId?: string): Promise<NotificationRecord[]> {
-        const where = userId ? { userId } : {}
+        const where = { ...STAFF_ONLY, ...(userId ? { userId } : {}) }
         const notifications = await this.prisma.notification.findMany({
             where,
             orderBy: { createdAt: 'desc' },
@@ -83,7 +87,8 @@ export class NotificationsService {
     }
 
     async getUnreadCount(userId?: string): Promise<number> {
-        const where: any = {
+        const where: Prisma.NotificationWhereInput = {
+            ...STAFF_ONLY,
             OR: [{ isRead: false }, { readed: false }],
         }
         if (userId) {
@@ -107,7 +112,8 @@ export class NotificationsService {
     }
 
     async markAllAsRead(userId?: string): Promise<void> {
-        const where: any = {
+        const where: Prisma.NotificationWhereInput = {
+            ...STAFF_ONLY,
             OR: [{ isRead: false }, { readed: false }],
         }
         if (userId) {
@@ -160,6 +166,77 @@ export class NotificationsService {
         await this.publishCount()
 
         return record
+    }
+
+    /**
+     * Shopper inbox entry. Never broadcast on the staff socket. With a
+     * `dedupeKey`, a repeat (event retry / replay) is a no-op returning null.
+     */
+    async createForShopper(data: {
+        retailClientId: string
+        title: string
+        message: string
+        location?: string
+        locationLabel?: string
+        status?: string
+        dedupeKey?: string
+    }): Promise<NotificationRecord | null> {
+        try {
+            const notification = await this.prisma.notification.create({
+                data: {
+                    retailClientId: data.retailClientId,
+                    title: data.title,
+                    message: data.message,
+                    target: data.title,
+                    description: data.message,
+                    location: data.location ?? '',
+                    locationLabel: data.locationLabel ?? '',
+                    status: data.status ?? 'UNREAD',
+                    dedupeKey: data.dedupeKey ?? null,
+                    isRead: false,
+                    readed: false,
+                },
+            })
+            return this.toRecord(notification)
+        } catch (error) {
+            if (
+                error instanceof Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2002'
+            ) {
+                return null
+            }
+            throw error
+        }
+    }
+
+    async findForShopper(retailClientId: string, limit = 20): Promise<NotificationRecord[]> {
+        const rows = await this.prisma.notification.findMany({
+            where: { retailClientId },
+            orderBy: { createdAt: 'desc' },
+            take: Math.min(Math.max(1, limit), 50),
+        })
+        return rows.map((row) => this.toRecord(row))
+    }
+
+    unreadCountForShopper(retailClientId: string): Promise<number> {
+        return this.prisma.notification.count({
+            where: { retailClientId, isRead: false },
+        })
+    }
+
+    async markReadForShopper(retailClientId: string, id: string): Promise<void> {
+        const res = await this.prisma.notification.updateMany({
+            where: { id, retailClientId },
+            data: { isRead: true, readed: true },
+        })
+        if (res.count === 0) throw new NotFoundException('Notification not found')
+    }
+
+    async markAllReadForShopper(retailClientId: string): Promise<void> {
+        await this.prisma.notification.updateMany({
+            where: { retailClientId, isRead: false },
+            data: { isRead: true, readed: true },
+        })
     }
 
     async publishCount() {

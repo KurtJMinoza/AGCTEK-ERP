@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { nextSequentialCode } from '../shared/next-code'
+import { deleteCategoryImageByUrl } from './category-image-storage'
 
 @Injectable()
 export class MaterialCategoriesService {
@@ -26,7 +27,7 @@ export class MaterialCategoriesService {
         return cat
     }
 
-    async create(data: { code?: string; name: string; description?: string; parentId?: string; sortOrder?: number }) {
+    async create(data: { code?: string; name: string; description?: string; parentId?: string; sortOrder?: number; imageUrl?: string }) {
         const code = data.code?.trim() || (await this.generateNextCode())
         await this.assertUniqueCode(code)
 
@@ -41,6 +42,7 @@ export class MaterialCategoriesService {
                     description: data.description,
                     parentId: data.parentId,
                     sortOrder: data.sortOrder,
+                    imageUrl: data.imageUrl,
                     deletedAt: null,
                     isActive: true,
                 },
@@ -54,6 +56,7 @@ export class MaterialCategoriesService {
                 description: data.description,
                 parentId: data.parentId,
                 sortOrder: data.sortOrder,
+                imageUrl: data.imageUrl,
             },
         })
     }
@@ -74,10 +77,19 @@ export class MaterialCategoriesService {
         if (exists) throw new ConflictException('Category code already exists')
     }
 
-    async update(id: string, data: Partial<{ code: string; name: string; description: string; parentId: string; isActive: boolean; sortOrder: number }>) {
-        await this.findOne(id)
+    async update(id: string, data: Partial<{ code: string; name: string; description: string; parentId: string; isActive: boolean; sortOrder: number; imageUrl: string }>) {
+        const existing = await this.findOne(id)
         delete (data as any).code
-        return this.prisma.mmMaterialCategory.update({ where: { id }, data })
+        const updated = await this.prisma.mmMaterialCategory.update({ where: { id }, data })
+        // Drop the previous file when the image is replaced.
+        if (
+            data.imageUrl !== undefined &&
+            existing.imageUrl &&
+            existing.imageUrl !== data.imageUrl
+        ) {
+            deleteCategoryImageByUrl(existing.imageUrl)
+        }
+        return updated
     }
 
     async softDelete(id: string) {

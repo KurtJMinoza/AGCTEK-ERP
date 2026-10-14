@@ -5,7 +5,7 @@ import type { OrderStatus } from '../types'
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
     PENDING_APPROVAL: 'Waiting for Approval',
     PREPARING_TO_SHIP: 'Preparing to Ship',
-    DISPATCHED: 'Dispatched',
+    DISPATCHED: 'Ready for delivery',
     DELIVERED: 'Delivered',
     COMPLETED: 'Completed',
     CANCELLED: 'Cancelled',

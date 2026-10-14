@@ -27,6 +27,15 @@ import {
     mapFlespiMessageToIngest,
     type NormalizedGpsIngest,
 } from './flespi-mapper'
+import {
+    estimateDeliveryWindow,
+    publicCutoff,
+    stopServiceSeconds,
+    type DeliveryEta,
+    type PublicGpsPoint,
+} from './public-position.rules'
+import { OsrmService } from '../routing/osrm.service'
+import { computeHaversineLegs } from '../routing/haversine-route'
 
 type GpsPingBody = {
     vehicleId?: string
@@ -51,6 +60,7 @@ export class TrackingService {
         private readonly trackingGateway: TrackingGateway,
         private readonly tile38: Tile38Service,
         private readonly geofencesService: GeofencesService,
+        private readonly osrm: OsrmService,
     ) {}
 
     /**
@@ -175,6 +185,82 @@ export class TrackingService {
                 orderBy: { recordedAt: 'desc' },
             })) ?? null
         )
+    }
+
+    /**
+     * Delayed, identity-free position for customer tracking. Only while the
+     * trip is IN_TRANSIT; newest GpsLog with recordedAt <= now - delay. Rows
+     * without tripId fall back to the trip vehicle since trip start.
+     */
+    async publicPositionForTrip(
+        tripId: string,
+        options: { delaySeconds: number; now?: Date },
+    ): Promise<PublicGpsPoint | null> {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+            select: { status: true, vehicleId: true, startedAt: true },
+        })
+        if (!trip || trip.status !== 'IN_TRANSIT') return null
+
+        const cutoff = publicCutoff(options.now ?? new Date(), options.delaySeconds)
+        const scope: Prisma.GpsLogWhereInput[] = [{ tripId }]
+        if (trip.vehicleId && trip.startedAt) {
+            scope.push({
+                tripId: null,
+                vehicleId: trip.vehicleId,
+                recordedAt: { gte: trip.startedAt },
+            })
+        }
+
+        return this.prisma.gpsLog.findFirst({
+            where: { recordedAt: { lte: cutoff }, OR: scope },
+            orderBy: { recordedAt: 'desc' },
+            select: { latitude: true, longitude: true, heading: true, recordedAt: true },
+        })
+    }
+
+    /**
+     * Shopper arrival window from the (already delayed) point through the open
+     * stops up to and including the shopper's. Road time via OSRM, else a
+     * straight-line estimate; null when the shopper stop has no coordinates.
+     */
+    async publicEtaForStop(
+        tripId: string,
+        customerSequence: number,
+        point: PublicGpsPoint,
+        now: Date = new Date(),
+    ): Promise<DeliveryEta | null> {
+        const stops = await this.prisma.tripStop.findMany({
+            where: {
+                tripId,
+                sequence: { lte: customerSequence },
+                status: { in: ['PENDING', 'ARRIVED'] },
+            },
+            orderBy: { sequence: 'asc' },
+            select: { sequence: true, lat: true, lng: true },
+        })
+        const customer = stops.find((s) => s.sequence === customerSequence)
+        if (!customer || customer.lat == null || customer.lng == null) return null
+
+        const ahead = stops.filter(
+            (s): s is typeof s & { lat: number; lng: number } =>
+                s.sequence !== customerSequence && s.lat != null && s.lng != null,
+        )
+        const path = [
+            { lat: point.latitude, lng: point.longitude },
+            ...ahead.map((s) => ({ lat: s.lat, lng: s.lng })),
+            { lat: customer.lat, lng: customer.lng },
+        ]
+        const road = await this.osrm.getRoute(path)
+        const travelSeconds = (road ?? computeHaversineLegs(path)).totalDurationSec
+        return estimateDeliveryWindow({
+            pointRecordedAt: point.recordedAt,
+            travelSeconds,
+            stopsBefore: ahead.length,
+            serviceSecondsPerStop: stopServiceSeconds(),
+            basis: road ? 'road' : 'straight_line',
+            now,
+        })
     }
 
     async history(

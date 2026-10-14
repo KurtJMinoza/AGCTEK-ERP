@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 
 export const metadata: Metadata = {
-    title: 'Create account | AGC Marketplace',
+    title: 'Create account | Amalgated Marketplace',
     description:
-        'Create an AGC Marketplace account and save your delivery details for checkout.',
+        'Create an Amalgated Marketplace account and save your delivery details for checkout.',
 }
 
 export default async function SignUpRoute({

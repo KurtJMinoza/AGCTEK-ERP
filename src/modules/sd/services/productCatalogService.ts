@@ -23,6 +23,8 @@ export type SdProductRecord = {
     price: number
     originalPrice: number | null
     category: string
+    /** Category image from the linked MM material category (storefront). */
+    categoryImageUrl?: string | null
     imageUrl: string
     badge: string | null
     isActive: boolean

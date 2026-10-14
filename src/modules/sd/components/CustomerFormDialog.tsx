@@ -14,7 +14,7 @@ import Radio from '@/components/ui/Radio'
 import Select from '@/components/ui/Select'
 import { Form, FormItem } from '@/components/ui/Form'
 import {
-    getLinkableShopAccounts,
+    getShopAccounts,
     type CreateCustomerInput,
     type Customer,
     type CustomerStatus,
@@ -32,7 +32,7 @@ const customerSchema = z.object({
     email: z.string().trim().email('Enter a valid email').max(200),
     phone: z.string().trim().max(40),
     retailClientId: z.string(),
-    shopPassword: z.string(),
+    password: z.string(),
     creditLimit: z
         .number({ message: 'Credit limit is required' })
         .min(0, 'Cannot be negative')
@@ -51,11 +51,11 @@ const createCustomerSchema = customerSchema.superRefine((values, ctx) => {
     if (
         values.customerType === 'RETAIL' &&
         values.retailClientId === NEW_SHOP_LOGIN &&
-        !isValidShopPassword(values.shopPassword)
+        !isValidShopPassword(values.password)
     ) {
         ctx.addIssue({
             code: 'custom',
-            path: ['shopPassword'],
+            path: ['password'],
             message: '8–72 characters with at least one letter and one number',
         })
     }
@@ -84,7 +84,7 @@ const blankValues: FormShape = {
     email: '',
     phone: '',
     retailClientId: NEW_SHOP_LOGIN,
-    shopPassword: '',
+    password: '',
     creditLimit: 0,
     status: 'ACTIVE',
 }
@@ -98,7 +98,7 @@ const toFormValues = (customer?: Customer | null): FormShape =>
               email: customer.email,
               phone: customer.phone,
               retailClientId: customer.retailClientId ?? NEW_SHOP_LOGIN,
-              shopPassword: '',
+              password: '',
               creditLimit: customer.creditLimit,
               status: customer.status,
           }
@@ -132,9 +132,10 @@ const CustomerFormDialog = ({
     onSubmit,
 }: CustomerFormDialogProps) => {
     const isCreate = mode === 'create'
-    const [shopAccounts, setShopAccounts] = useState<ShopAccount[]>([])
-    const [shopAccountsLoading, setShopAccountsLoading] = useState(false)
+    const [loadedShopAccounts, setShopAccounts] = useState<ShopAccount[] | null>(null)
     const [shopAccountsError, setShopAccountsError] = useState<string | null>(null)
+    const shopAccounts = loadedShopAccounts ?? []
+    const shopAccountsLoading = loadedShopAccounts === null && !shopAccountsError
 
     const {
         control,
@@ -161,11 +162,12 @@ const CustomerFormDialog = ({
     useEffect(() => {
         if (!isOpen || !isCreate) return
         let cancelled = false
-        setShopAccountsLoading(true)
-        setShopAccountsError(null)
-        getLinkableShopAccounts()
+        getShopAccounts()
             .then((accounts) => {
-                if (!cancelled) setShopAccounts(accounts)
+                if (!cancelled) {
+                    setShopAccounts(accounts.filter((account) => !account.linkedCustomer))
+                    setShopAccountsError(null)
+                }
             })
             .catch((error: unknown) => {
                 if (!cancelled) {
@@ -173,9 +175,6 @@ const CustomerFormDialog = ({
                         error instanceof Error ? error.message : 'Unable to load shop accounts',
                     )
                 }
-            })
-            .finally(() => {
-                if (!cancelled) setShopAccountsLoading(false)
             })
         return () => {
             cancelled = true
@@ -207,7 +206,7 @@ const CustomerFormDialog = ({
             ...shared,
             customerType: 'RETAIL',
             ...(values.retailClientId === NEW_SHOP_LOGIN
-                ? { shopPassword: values.shopPassword }
+                ? { password: values.password }
                 : { retailClientId: values.retailClientId }),
         })
     }
@@ -216,7 +215,7 @@ const CustomerFormDialog = ({
         const id = option?.value ?? NEW_SHOP_LOGIN
         setValue('retailClientId', id)
         if (id === NEW_SHOP_LOGIN) return
-        setValue('shopPassword', '')
+        setValue('password', '')
         const account = shopAccounts.find((entry) => entry.id === id)
         if (!account) return
         if (!getValues('email').trim()) setValue('email', account.email)
@@ -362,11 +361,11 @@ const CustomerFormDialog = ({
                             <FormItem
                                 label="Shop login password"
                                 asterisk={createsShopLogin}
-                                invalid={Boolean(errors.shopPassword)}
-                                errorMessage={errors.shopPassword?.message}
+                                invalid={Boolean(errors.password)}
+                                errorMessage={errors.password?.message}
                             >
                                 <Controller
-                                    name="shopPassword"
+                                    name="password"
                                     control={control}
                                     render={({ field }) => (
                                         <PasswordInput

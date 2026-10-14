@@ -13,6 +13,9 @@ const numberCollision = () =>
 
 function mockClient() {
     const client = {
+        retailClient: {
+            findUnique: jest.fn().mockResolvedValue(null),
+        },
         sdCustomer: {
             count: jest.fn().mockResolvedValue(4),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
@@ -29,7 +32,6 @@ function mockRetailClients() {
     return {
         createAccount: jest.fn().mockResolvedValue({ id: 'shop-new' }),
         requireAccount: jest.fn().mockResolvedValue({ id: 'shop-existing' }),
-        listUnlinkedAccounts: jest.fn(),
     }
 }
 
@@ -92,7 +94,7 @@ describe('CustomerService.create', () => {
         const created = await makeService(root, retail).create({
             ...dto,
             customerType: 'RETAIL',
-            shopPassword: 'secret123',
+            password: 'secret123',
         })
 
         expect(root.$transaction).toHaveBeenCalledTimes(1)
@@ -122,7 +124,7 @@ describe('CustomerService.create', () => {
         ['neither shop option', { customerType: 'RETAIL' as const }],
         [
             'both shop options',
-            { customerType: 'RETAIL' as const, retailClientId: 'x', shopPassword: 'secret123' },
+            { customerType: 'RETAIL' as const, retailClientId: 'x', password: 'secret123' },
         ],
         [
             'a credit limit',
@@ -134,6 +136,32 @@ describe('CustomerService.create', () => {
         await expect(makeService(root).create({ ...dto, ...overrides })).rejects.toBeInstanceOf(
             BadRequestException,
         )
+        expect(root.sdCustomer.create).not.toHaveBeenCalled()
+    })
+
+    it('auto-links a shop account that already uses the customer email', async () => {
+        const root = mockClient()
+        root.retailClient.findUnique.mockResolvedValue({ id: 'shop-by-email' })
+
+        const created = await makeService(root).create({ ...dto, customerType: 'RETAIL' })
+
+        expect(created).toMatchObject({ customerType: 'RETAIL', retailClientId: 'shop-by-email' })
+    })
+
+    it('does not create the customer when the new shop login is rejected', async () => {
+        const root = mockClient()
+        const retail = mockRetailClients()
+        retail.createAccount.mockRejectedValue(
+            new ConflictException('An account with this email already exists.'),
+        )
+
+        await expect(
+            makeService(root, retail).create({
+                ...dto,
+                customerType: 'RETAIL',
+                password: 'shopPass123',
+            }),
+        ).rejects.toThrow(ConflictException)
         expect(root.sdCustomer.create).not.toHaveBeenCalled()
     })
 })

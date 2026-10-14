@@ -4,13 +4,6 @@ import { toApiError } from './apiError'
 export type CustomerStatus = 'ACTIVE' | 'BLOCKED'
 export type CustomerType = 'RETAIL' | 'B2B'
 
-/** A storefront login a RETAIL customer can be linked to. */
-export type ShopAccount = {
-    id: string
-    email: string
-    fullName: string
-}
-
 export type Customer = {
     id: string
     /** Business number, e.g. CUST-000001 */
@@ -25,7 +18,10 @@ export type Customer = {
     availableCredit: number
     status: CustomerStatus
     customerType: CustomerType
+    /** Linked Shop (storefront) account, when one was referenced. */
     retailClientId: string | null
+    /** Shop account profile (present when the customer references a shop account). */
+    retailClient: { email: string; fullName: string } | null
     createdAt: string
     updatedAt: string
 }
@@ -48,12 +44,26 @@ export type CreateCustomerInput = {
     /** RETAIL: link an existing shop login… */
     retailClientId?: string
     /** …or create one with the customer's email and this password. */
-    shopPassword?: string
+    password?: string
 }
 
 export type UpdateCustomerInput = Partial<
-    Omit<CreateCustomerInput, 'customerType' | 'retailClientId' | 'shopPassword'>
+    Omit<CreateCustomerInput, 'customerType' | 'retailClientId' | 'password'>
 >
+
+/** Shop (storefront) account shown in the Add New Customer reference picker. */
+export type ShopAccount = {
+    id: string
+    email: string
+    fullName: string
+    phone: string
+    addressLabel: string | null
+    linkedCustomer: {
+        id: string
+        customerNumber: string
+        companyName: string
+    } | null
+}
 
 type DecimalString = string | number
 
@@ -76,10 +86,11 @@ const toCustomer = (row: ApiCustomer): Customer => ({
     status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
     customerType: row.customerType === 'RETAIL' ? 'RETAIL' : 'B2B',
     retailClientId: row.retailClientId ?? null,
+    retailClient: row.retailClient ?? null,
 })
 
-/** GET /sd/customers/shop-accounts — shop logins not yet linked to a customer. */
-export async function getLinkableShopAccounts(): Promise<ShopAccount[]> {
+/** GET /sd/customers/shop-accounts — Shop accounts for the Add New Customer picker. */
+export async function getShopAccounts(): Promise<ShopAccount[]> {
     try {
         const { data } = await ErpAxiosBase.get<ShopAccount[]>(
             `${BASE_PATH}/shop-accounts`,

@@ -16,6 +16,7 @@ import {
 import {
     ArrayMinSize,
     IsArray,
+    IsIn,
     IsNotEmpty,
     IsNumber,
     IsOptional,
@@ -67,6 +68,11 @@ export class CreateReturnRequestDto {
     conditionNote?: string
 
     @IsOptional()
+    @IsString()
+    @IsIn(['REFUND', 'REPLACEMENT', 'STORE_CREDIT'])
+    preferredResolution?: string
+
+    @IsOptional()
     photos?: unknown
 
     @IsOptional()
@@ -90,19 +96,78 @@ export class ApproveReturnRequestDto {
     approvedBy?: string
 }
 
+export class RejectReturnRequestDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    reason?: string
+
+    @IsOptional()
+    @IsString()
+    performedBy?: string
+}
+
+export class ReturnActionDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    performedBy?: string
+}
+
+export class CreateRefundDto extends ReturnActionDto {
+    @IsOptional()
+    @IsString()
+    @IsIn(['CASH_REFUND', 'BANK_TRANSFER', 'DIGITAL_WALLET', 'STORE_CREDIT'])
+    refundMethod?: string
+}
+
+export class FailRefundDto extends ReturnActionDto {
+    @IsOptional()
+    @IsString()
+    reason?: string
+}
+
+export class InspectReturnDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    result?: string
+
+    @IsOptional()
+    @IsString()
+    notes?: string
+
+    @IsOptional()
+    @IsString()
+    performedBy?: string
+}
+
 /** Customer return requests (SD owns the request; MM owns stock disposition). */
 @Controller('sd/returns')
 export class ReturnRequestController {
     constructor(private returns: ReturnRequestService) {}
 
-    /** Strictly company-scoped list. */
+    /** Strictly company-scoped list (optional status / refundStatus filters). */
     @Get()
     @RequirePermission('sd.sales-orders', 'read')
-    list(@Query('companyId') companyId?: string) {
+    list(
+        @Query('companyId') companyId?: string,
+        @Query('status') status?: string,
+        @Query('refundStatus') refundStatus?: string,
+    ) {
         if (!companyId) {
             throw new BadRequestException('companyId is required')
         }
-        return this.returns.list(companyId)
+        return this.returns.list(companyId, { status, refundStatus })
     }
 
     @Post()
@@ -131,5 +196,101 @@ export class ReturnRequestController {
     @RequirePermission('sd.sales-orders', 'update')
     approve(@Param('id') id: string, @Body() dto: ApproveReturnRequestDto) {
         return this.returns.approve(id, dto.companyId, dto.approvedBy)
+    }
+
+    @Post(':id/reject')
+    @RequirePermission('sd.sales-orders', 'update')
+    reject(@Param('id') id: string, @Body() dto: RejectReturnRequestDto) {
+        return this.returns.reject(id, dto.companyId, {
+            reason: dto.reason,
+            performedBy: dto.performedBy,
+        })
+    }
+
+    @Post(':id/receive')
+    @RequirePermission('sd.sales-orders', 'update')
+    receive(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.receive(id, dto.companyId, dto.performedBy)
+    }
+
+    @Post(':id/inspect')
+    @RequirePermission('sd.sales-orders', 'update')
+    inspect(@Param('id') id: string, @Body() dto: InspectReturnDto) {
+        return this.returns.inspect(id, dto.companyId, {
+            result: dto.result,
+            notes: dto.notes,
+            performedBy: dto.performedBy,
+        })
+    }
+
+    @Post(':id/mark-restock')
+    @RequirePermission('sd.sales-orders', 'update')
+    markRestock(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.mark(id, dto.companyId, 'RESTOCK', dto.performedBy)
+    }
+
+    @Post(':id/mark-damaged')
+    @RequirePermission('sd.sales-orders', 'update')
+    markDamaged(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.mark(id, dto.companyId, 'BLOCK', dto.performedBy)
+    }
+
+    @Post(':id/mark-scrap')
+    @RequirePermission('sd.sales-orders', 'update')
+    markScrap(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.mark(id, dto.companyId, 'SCRAP', dto.performedBy)
+    }
+
+    @Post(':id/mark-needs-inspection')
+    @RequirePermission('sd.sales-orders', 'update')
+    markNeedsInspection(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.mark(id, dto.companyId, 'REPAIR', dto.performedBy)
+    }
+
+    /** Create the refund record (DEMO ONLY — never calls a real gateway). */
+    @Post(':id/refund')
+    @RequirePermission('sd.sales-orders', 'update')
+    refund(@Param('id') id: string, @Body() dto: CreateRefundDto) {
+        return this.returns.createRefund(id, dto.companyId, {
+            refundMethod: dto.refundMethod,
+            performedBy: dto.performedBy,
+        })
+    }
+
+    /** COD never collected → mark the refund NOT_REQUIRED (no record). */
+    @Post(':id/refund/not-required')
+    @RequirePermission('sd.sales-orders', 'update')
+    refundNotRequired(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.markRefundNotRequired(id, dto.companyId, dto.performedBy)
+    }
+
+    /** Approve the pending refund and issue the linked credit memo (Phase 8). */
+    @Post(':id/refund/approve')
+    @RequirePermission('sd.sales-orders', 'update')
+    refundApprove(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.approveRefund(id, dto.companyId, dto.performedBy)
+    }
+
+    /** Mark the approved refund as PAID (demo settlement). */
+    @Post(':id/refund/pay')
+    @RequirePermission('sd.sales-orders', 'update')
+    refundPay(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.payRefund(id, dto.companyId, dto.performedBy)
+    }
+
+    /** Fail the refund (no payment changes). */
+    @Post(':id/refund/fail')
+    @RequirePermission('sd.sales-orders', 'update')
+    refundFail(@Param('id') id: string, @Body() dto: FailRefundDto) {
+        return this.returns.failRefund(id, dto.companyId, {
+            reason: dto.reason,
+            performedBy: dto.performedBy,
+        })
+    }
+
+    @Post(':id/close')
+    @RequirePermission('sd.sales-orders', 'update')
+    close(@Param('id') id: string, @Body() dto: ReturnActionDto) {
+        return this.returns.close(id, dto.companyId, dto.performedBy)
     }
 }

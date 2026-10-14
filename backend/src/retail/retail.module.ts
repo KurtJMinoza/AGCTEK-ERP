@@ -4,12 +4,14 @@ import { RetailClientAuthGuard } from './retail-client.guard'
 import { RetailClientService } from './retail-client.service'
 import { RetailSessionService } from './retail-session.service'
 import { ScmModule } from '../scm/scm.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { RetailClientAddressService } from './retail-client-address.service'
 import { RetailClientAddressGeocodeService } from './retail-client-address-geocode.service'
+import { RetailNotificationsController } from './retail-notifications.controller'
 
 @Module({
-    imports: [forwardRef(() => ScmModule)],
-    controllers: [RetailClientController],
+    imports: [forwardRef(() => ScmModule), NotificationsModule],
+    controllers: [RetailClientController, RetailNotificationsController],
     providers: [
         RetailClientService,
         RetailSessionService,

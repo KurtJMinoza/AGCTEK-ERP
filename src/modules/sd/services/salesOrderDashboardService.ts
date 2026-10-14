@@ -84,6 +84,15 @@ export type SalesOrderRecord = {
     totalAmount: number
     /** Server-computed customer cancellation eligibility. */
     customerCancel: { canCancel: boolean; reason: string | null } | null
+    /** Active sales-return requests (Phase 9 badges: return + refund status). */
+    customerReturns: Array<{
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus: string
+        reason: string | null
+        lines: Array<{ salesOrderLineId: string; quantity: number }>
+    }>
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
@@ -185,6 +194,14 @@ type ApiSalesOrder = {
         canCancel: boolean
         reason: string | null
     } | null
+    customerReturns: Array<{
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus: string
+        reason: string | null
+        lines: Array<{ salesOrderLineId: string; quantity: DecimalString }>
+    }>
     status: string
     createdAt: string
     lines: ApiSalesOrderLine[]
@@ -270,6 +287,14 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
         shipping: num(order.shippingAmount),
         totalAmount: num(order.totalAmount),
         customerCancel: order.customerCancel ?? null,
+        customerReturns:
+            order.customerReturns?.map((r) => ({
+                ...r,
+                lines: r.lines.map((l) => ({
+                    ...l,
+                    quantity: num(l.quantity),
+                })),
+            })) ?? [],
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
         payment:
@@ -395,6 +420,117 @@ export async function createMarketplaceCheckout(
     } catch (error) {
         if (isSessionRejected(error)) throw new RetailSessionExpiredError()
         throw toError(error, 'Unable to place your order')
+    }
+}
+
+/** Customer-facing order status (server-computed; In transit only after driver Start Route). */
+export type CustomerOrderStatus =
+    | 'PLACED'
+    | 'CONFIRMED'
+    | 'PREPARING'
+    | 'READY_FOR_DELIVERY'
+    | 'IN_TRANSIT'
+    | 'DELIVERED'
+    | 'DELIVERY_FAILED'
+    | 'CANCELLED'
+
+export type OrderTrackingCheckpoint = {
+    code: CustomerOrderStatus
+    label: string
+    at: string | null
+    done: boolean
+    current: boolean
+    note?: string | null
+}
+
+/** Delayed (not live) courier position; only while the order is in transit. */
+export type OrderTrackingMap = {
+    available: boolean
+    reason: 'NOT_IN_TRANSIT' | 'NO_GPS_YET' | 'WAITING_FOR_UPDATE' | null
+    delaySeconds: number
+    lastMile: boolean
+    latitude: number | null
+    longitude: number | null
+    heading: number | null
+    recordedAt: string | null
+    lastUpdatedLabel: string | null
+    /** Estimated arrival window (server-computed); null when unknown. */
+    eta: { from: string; to: string; basis: 'road' | 'straight_line' } | null
+}
+
+export type OrderTracking = {
+    orderId: string
+    orderNumber: string
+    customerStatus: CustomerOrderStatus
+    customerStatusLabel: string
+    checkpoints: OrderTrackingCheckpoint[]
+    /** Single-order endpoint only (null in the list batch). */
+    destination: { lat: number; lng: number; label: string } | null
+    map: OrderTrackingMap | null
+}
+
+/** Timeline for one of the signed-in shopper's orders. */
+export async function getOrderTracking(
+    id: string,
+    sessionToken: string,
+): Promise<OrderTracking> {
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking>(
+            `/sd/sales-orders/retail/${encodeURIComponent(id)}/tracking`,
+            { headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to load order tracking')
+    }
+}
+
+/** Shareable read-only tracking link token for one of the shopper's orders. */
+export async function createOrderTrackingLink(
+    id: string,
+    sessionToken: string,
+): Promise<{ token: string; expiresAt: string }> {
+    try {
+        const { data } = await ErpAxiosBase.post<{ token: string; expiresAt: string }>(
+            `/sd/sales-orders/retail/${encodeURIComponent(id)}/tracking-link`,
+            {},
+            { headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to create a tracking link')
+    }
+}
+
+/** Public tracking via signed link (no sign-in). */
+export async function getPublicOrderTracking(linkToken: string): Promise<OrderTracking> {
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking>(
+            `/sd/sales-orders/public/tracking/${encodeURIComponent(linkToken)}`,
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'This tracking link is invalid or has expired.')
+    }
+}
+
+/** Status badges for the My Orders list (owned orders only, max 100 ids). */
+export async function getOrderTrackingBatch(
+    ids: string[],
+    sessionToken: string,
+): Promise<OrderTracking[]> {
+    if (ids.length === 0) return []
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking[]>(
+            '/sd/sales-orders/retail/tracking',
+            { params: { ids: ids.slice(0, 100).join(',') }, headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to load order tracking')
     }
 }
 
@@ -565,6 +701,8 @@ export type CustomerReturnRequestPayload = {
     reason?: string
     conditionNote?: string
     photos?: string[]
+    /** REFUND | REPLACEMENT | STORE_CREDIT */
+    preferredResolution?: string
     lines: CustomerReturnLinePayload[]
 }
 
@@ -576,13 +714,58 @@ export type CustomerReturnRequestRecord = {
     conditionNote: string | null
     photos: unknown
     mmCustomerReturnId: string | null
+    branchId: string | null
+    warehouseId: string | null
+    invoiceNumber: string | null
+    preferredResolution: string | null
+    refundStatus: string
+    refundAmount: string | null
+    createdAt: string
+    salesOrder: {
+        orderNumber: string
+        customerName: string | null
+        status: string
+    } | null
+    refunds: Array<{
+        id: string
+        refundNumber: string
+        amount: string
+        status: string
+        refundMethod: string | null
+        isDemo: boolean
+        creditMemo: {
+            creditMemoNumber: string
+            amount: string
+            status: string
+        } | null
+    }>
     lines: Array<{
         id: string
         salesOrderLineId: string
         quantity: number
         reason: string | null
         disposition: string | null
+        salesOrderLine?: {
+            productNameSnapshot: string | null
+            materialCodeSnapshot: string | null
+            sku: string | null
+        } | null
     }>
+}
+
+/** The signed-in shopper's own return requests (My Returns). */
+export async function listMyCustomerReturns(
+    token: string,
+): Promise<CustomerReturnRequestRecord[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<CustomerReturnRequestRecord[]>(
+            '/sd/sales-orders/retail/returns',
+            { headers: { Authorization: `Bearer ${token}` } },
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to load your returns')
+    }
 }
 
 /**

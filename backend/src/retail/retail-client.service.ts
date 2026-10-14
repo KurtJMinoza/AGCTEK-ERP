@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common'
 import * as bcrypt from 'bcryptjs'
 import { Prisma } from '@prisma/client'
+import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import type {
     RetailCartItemDto,
@@ -15,6 +16,10 @@ import type {
     RetailUpdateProfileDto,
 } from './dto/retail-client.dto'
 import { RetailSessionService } from './retail-session.service'
+import {
+    MAX_CUSTOMER_NUMBER_ATTEMPTS,
+    nextCustomerNumber,
+} from '../sd/customer-number'
 
 /** Compared against for unknown emails so sign-in timing does not reveal which accounts exist. */
 const UNKNOWN_ACCOUNT_HASH = bcrypt.hashSync('unknown-account', 10)
@@ -157,15 +162,6 @@ export class RetailClientService {
         return account
     }
 
-    /** Shop logins not yet referenced by an SD customer record. */
-    listUnlinkedAccounts() {
-        return this.prisma.retailClient.findMany({
-            where: { sdCustomer: null },
-            select: { id: true, email: true, fullName: true },
-            orderBy: { email: 'asc' },
-        })
-    }
-
     async register(input: RetailRegisterDto) {
         const client = await this.createAccount({
             email: input.email,
@@ -173,13 +169,87 @@ export class RetailClientService {
             fullName: input.firstName || input.fullName,
         })
 
-        return {
-            status: 'success',
-            message: 'Account created.',
-            client: this.toPublic(client),
-            ...this.sessions.issue(client.id),
+        // Connect the new shop account to the SD Customer Master: link when an SD
+// customer already uses this email, otherwise auto-create the customer
+// record so the account is reflected in the Customer Master module.
+try {
+    const customer = await this.prisma.sdCustomer.findUnique({
+        where: { email: client.email },
+        select: { id: true, retailClientId: true },
+    })
+    if (customer) {
+        if (!customer.retailClientId) {
+            await this.prisma.sdCustomer.update({
+                where: { id: customer.id },
+                data: { retailClientId: client.id },
+            })
+        }
+    } else {
+        await this.createCustomerFromShopAccount(client)
+    }
+} catch {
+    // Best effort — the link can always be made from the SD customer master.
+}
+
+return {
+    status: 'success',
+    message: 'Account created.',
+    client: this.toPublic(client),
+    ...this.sessions.issue(client.id),
+}
+}
+
+/**
+ * Auto-creates the SD Customer Master record for a new shop account
+ * (customerNumber retry on collision; email conflict links instead).
+ */
+private async createCustomerFromShopAccount(client: {
+    id: string
+    email: string
+    fullName: string
+    phone: string
+}) {
+    for (let attempt = 0; attempt < MAX_CUSTOMER_NUMBER_ATTEMPTS; attempt++) {
+        const customerNumber = await nextCustomerNumber(attempt, this.prisma)
+        try {
+            await this.prisma.sdCustomer.create({
+                data: {
+                    customerNumber,
+                    companyName: client.fullName,
+                    contactName: client.fullName,
+                    email: client.email,
+                    phone: client.phone,
+                    creditLimit: new Decimal(0),
+                    availableCredit: new Decimal(0),
+                    status: 'ACTIVE',
+                    customerType: 'RETAIL',
+                    retailClientId: client.id,
+                },
+            })
+            return
+        } catch (error) {
+            if (
+                error instanceof Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2002'
+            ) {
+                const target = error.meta?.target
+                const targets = Array.isArray(target)
+                    ? target.map(String)
+                    : [String(target)]
+                if (targets.includes('email')) {
+                    // Created concurrently — link the existing record instead.
+                    await this.prisma.sdCustomer.updateMany({
+                        where: { email: client.email },
+                        data: { retailClientId: client.id },
+                    })
+                    return
+                }
+                if (targets.includes('customerNumber')) continue
+            }
+            throw error
         }
     }
+}
 
     async login(input: RetailLoginDto) {
         const email = input.email.trim().toLowerCase()

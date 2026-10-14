@@ -7,6 +7,7 @@ import type {
     Notification,
     Order,
     OrderStatus,
+    OrderTracking,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -16,6 +17,7 @@ import type {
     SavedAddressInput,
     SignInInput,
     Spec,
+    TrackingLink,
 } from '../types'
 import { CommerceApiError, type CommerceApi } from './commerceApi'
 
@@ -75,6 +77,7 @@ type ApiNotification = {
     message?: string | null
     description?: string | null
     target?: string | null
+    location?: string | null
     isRead?: boolean
     readed?: boolean
     createdAt?: string | null
@@ -292,12 +295,29 @@ export class HttpCommerceApi implements CommerceApi {
         )
     }
 
+    async getOrderTracking(orderId: string): Promise<OrderTracking> {
+        return this.request<OrderTracking>(
+            `/sd/sales-orders/retail/${encodeURIComponent(orderId)}/tracking`,
+        )
+    }
+
+    async createTrackingLink(orderId: string): Promise<TrackingLink> {
+        return this.request<TrackingLink>(
+            `/sd/sales-orders/retail/${encodeURIComponent(orderId)}/tracking-link`,
+            { method: 'POST', body: '{}' },
+        )
+    }
+
     // ─── Notifications ─────────────────────────────────────────────────────────
+    // Signed-in shoppers read their own inbox (session-scoped); the legacy
+    // userId query is kept only for the signed-out case.
 
     async getNotifications(userId?: string): Promise<Notification[]> {
-        const query = userId ? `?${new URLSearchParams({ userId }).toString()}` : ''
+        const path = this.sessionToken
+            ? '/retail/notifications'
+            : `/notifications${userId ? `?${new URLSearchParams({ userId }).toString()}` : ''}`
         try {
-            const rows = await this.request<ApiNotification[]>(`/notifications${query}`)
+            const rows = await this.request<ApiNotification[]>(path)
             return rows.map(this.toNotification)
         } catch {
             return []
@@ -305,10 +325,15 @@ export class HttpCommerceApi implements CommerceApi {
     }
 
     async markNotificationRead(id: string): Promise<void> {
-        await this.request<unknown>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' })
+        const base = this.sessionToken ? '/retail/notifications' : '/notifications'
+        await this.request<unknown>(`${base}/${encodeURIComponent(id)}/read`, { method: 'PATCH' })
     }
 
     async markAllNotificationsRead(userId?: string): Promise<void> {
+        if (this.sessionToken) {
+            await this.request<unknown>('/retail/notifications/read-all', { method: 'PATCH' })
+            return
+        }
         const body = userId ? JSON.stringify({ userId }) : '{}'
         await this.request<unknown>('/notifications/mark-all-read', { method: 'POST', body })
     }
@@ -358,6 +383,7 @@ export class HttpCommerceApi implements CommerceApi {
             title: row.title ?? null,
             message: row.message ?? row.description ?? null,
             target: row.target ?? null,
+            location: row.location?.startsWith('/') ? row.location : null,
             isRead: Boolean(row.isRead || row.readed),
             createdAt: row.createdAt ?? row.date ?? null,
         }

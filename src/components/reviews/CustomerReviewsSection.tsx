@@ -30,6 +30,8 @@ export interface ReviewItem {
         userName: string
         avatar: string
     }
+    /** Storefront shopper who reviewed from My Orders. */
+    retailClient?: { id: string; fullName: string | null } | null
 }
 
 interface CustomerReviewsSectionProps {
@@ -38,6 +40,8 @@ interface CustomerReviewsSectionProps {
     className?: string
     canReview?: boolean
     initialReviews?: ReviewItem[]
+    /** Shown instead of "Write a Review" when the viewer cannot review here. */
+    reviewHint?: React.ReactNode
 }
 
 const RATING_LABELS: Record<number, string> = {
@@ -54,6 +58,7 @@ export default function CustomerReviewsSection({
     className = '',
     canReview,
     initialReviews,
+    reviewHint,
 }: CustomerReviewsSectionProps) {
     const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews || [])
     const [loading, setLoading] = useState(!initialReviews)
@@ -262,6 +267,7 @@ export default function CustomerReviewsSection({
             return `${rev.user.firstName} ${rev.user.lastName}`.trim()
         }
         if (rev.user?.userName) return rev.user.userName
+        if (rev.retailClient?.fullName?.trim()) return rev.retailClient.fullName.trim()
         return 'Verified Customer'
     }
 
@@ -289,7 +295,7 @@ export default function CustomerReviewsSection({
                 <div>
                     <div className="flex items-center gap-2">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                            <Sparkles className="h-4 w-4" />
+                            <MessageSquare className="h-4 w-4" />
                         </span>
                         <h2
                             id="reviews-heading"
@@ -312,7 +318,9 @@ export default function CustomerReviewsSection({
                         <MessageSquare className="h-4 w-4" />
                         Write a Review
                     </button>
-                ) : null}
+                ) : (
+                    reviewHint ?? null
+                )}
             </div>
 
             {/* Overall Rating Breakdown Box */}

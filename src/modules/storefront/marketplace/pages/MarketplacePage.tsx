@@ -203,8 +203,15 @@ const MarketplacePage = () => {
             typeof store === 'string'
                 ? storeCards.find((c) => c.id === store)
                 : store
-        const divisionId = card?.themeDivisionId ?? (typeof store === 'string' ? store : store.id)
-        browse({ stores: [divisionId] })
+        // Official brand store = one AGC company: browse ONLY that company's
+        // products (across every division it sells in).
+        if (card?.companyId) {
+            browse({ companies: [card.companyId] })
+            return
+        }
+        const themeDivisionId =
+            card?.themeDivisionId ?? (typeof store === 'string' ? store : store.id)
+        browse({ stores: [themeDivisionId] })
     }
 
     const shopCategory = (category: MarketplaceCategory) =>

@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
-import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
 import { RetailClientService } from '../retail/retail-client.service'
 import {
@@ -15,9 +14,14 @@ import {
     ListCustomersQueryDto,
     UpdateCustomerDto,
 } from './dto/customer.dto'
+import {
+    MAX_CUSTOMER_NUMBER_ATTEMPTS,
+    nextCustomerNumber as nextCustomerNumberShared,
+} from './customer-number'
 
-const CUSTOMER_NUMBER_PREFIX = 'CUST'
-const MAX_CREATE_ATTEMPTS = 3
+const MAX_CREATE_ATTEMPTS = MAX_CUSTOMER_NUMBER_ATTEMPTS
+
+type Client = PrismaService | Prisma.TransactionClient
 
 @Injectable()
 export class CustomerService {
@@ -43,11 +47,64 @@ export class CustomerService {
         }
         return this.prisma.sdCustomer.findMany({
             where,
+            include: {
+                retailClient: { select: { email: true, fullName: true } },
+            },
             orderBy: { companyName: 'asc' },
         })
     }
 
-    async findOne(id: string) {
+    findOne(id: string) {
+        return this.findOneRow(id)
+    }
+
+    /**
+     * Shop (storefront) accounts for the Add New Customer reference picker:
+     * profile + default address, with the linked SD customer when present.
+     */
+    async listShopAccounts() {
+        const clients = await this.prisma.retailClient.findMany({
+            include: {
+                addresses: {
+                    where: { isDefault: true },
+                    take: 1,
+                    select: {
+                        addressLine: true,
+                        cityOrMunicipality: true,
+                        provinceOrState: true,
+                        postalCode: true,
+                    },
+                },
+                sdCustomer: {
+                    select: {
+                        id: true,
+                        customerNumber: true,
+                        companyName: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+        })
+        return clients.map((c) => ({
+            id: c.id,
+            email: c.email,
+            fullName: c.fullName,
+            phone: c.phone,
+            addressLabel: c.addresses[0]
+                ? [
+                      c.addresses[0].addressLine,
+                      c.addresses[0].cityOrMunicipality,
+                      c.addresses[0].provinceOrState,
+                  ]
+                      .filter(Boolean)
+                      .join(', ')
+                : null,
+            linkedCustomer: c.sdCustomer ?? null,
+        }))
+    }
+
+    private async findOneRow(id: string) {
         const row = await this.prisma.sdCustomer.findUnique({ where: { id } })
         if (!row) throw new NotFoundException('Customer not found')
         return row
@@ -58,17 +115,14 @@ export class CustomerService {
      * inside its own transaction. A failed statement aborts a Postgres transaction, so
      * number-collision retries only run on the root client.
      */
-    async create(
-        dto: CreateCustomerDto,
-        client: PrismaService | Prisma.TransactionClient = this.prisma,
-    ) {
+    async create(dto: CreateCustomerDto, client: Client = this.prisma) {
         const customerType = this.resolveCustomerType(dto)
         const onRoot = client === this.prisma
         const attempts = onRoot ? MAX_CREATE_ATTEMPTS : 1
         for (let attempt = 0; attempt < attempts; attempt++) {
             try {
                 // A new shop login must not outlive a failed customer insert.
-                if (customerType === 'RETAIL' && onRoot) {
+                if (dto.password && onRoot) {
                     return await this.prisma.$transaction((tx) =>
                         this.insert(dto, customerType, attempt, tx),
                     )
@@ -83,7 +137,7 @@ export class CustomerService {
                 }
                 if (target?.includes('retailClientId')) {
                     throw new ConflictException(
-                        'That shop account is already linked to another customer',
+                        'This shop account is already linked to another customer',
                     )
                 }
                 if (target?.includes('customerNumber')) continue
@@ -95,16 +149,16 @@ export class CustomerService {
         )
     }
 
-    /** Shop logins that can still be referenced by a new RETAIL customer. */
-    listLinkableShopAccounts() {
-        return this.retailClients.listUnlinkedAccounts()
-    }
-
     private resolveCustomerType(dto: CreateCustomerDto): CustomerType {
         const customerType = dto.customerType ?? 'B2B'
         const linksAccount = Boolean(dto.retailClientId)
-        const createsAccount = Boolean(dto.shopPassword)
+        const createsAccount = Boolean(dto.password)
 
+        if (linksAccount && createsAccount) {
+            throw new BadRequestException(
+                'Reference an existing shop account or set a new shop login password, not both',
+            )
+        }
         if (customerType === 'B2B') {
             if (linksAccount || createsAccount) {
                 throw new BadRequestException(
@@ -117,39 +171,56 @@ export class CustomerService {
             return customerType
         }
 
-        if (linksAccount === createsAccount) {
-            throw new BadRequestException(
-                'RETAIL customers need either an existing shop account or a new shop login password',
-            )
-        }
         if ((dto.creditLimit ?? 0) > 0) {
             throw new BadRequestException('RETAIL customers do not carry a credit limit')
         }
         return customerType
     }
 
+    /**
+     * Links the referenced shop account, provisions a new shop login from the
+     * supplied password, or auto-links a shop account that already uses the email.
+     */
+    private async resolveShopAccountId(
+        dto: CreateCustomerDto,
+        customerType: CustomerType,
+        client: Client,
+    ): Promise<string | undefined> {
+        if (dto.retailClientId) {
+            return (await this.retailClients.requireAccount(dto.retailClientId, client)).id
+        }
+        if (dto.password) {
+            const account = await this.retailClients.createAccount(
+                {
+                    email: dto.email,
+                    password: dto.password,
+                    fullName: dto.contactName,
+                    phone: dto.phone,
+                },
+                client,
+            )
+            return account.id
+        }
+        const byEmail = await client.retailClient.findUnique({
+            where: { email: dto.email },
+            select: { id: true },
+        })
+        if (byEmail) return byEmail.id
+        if (customerType === 'RETAIL') {
+            throw new BadRequestException(
+                'RETAIL customers need either an existing shop account or a new shop login password',
+            )
+        }
+        return undefined
+    }
+
     private async insert(
         dto: CreateCustomerDto,
         customerType: CustomerType,
         attempt: number,
-        client: PrismaService | Prisma.TransactionClient,
+        client: Client,
     ) {
-        let retailClientId: string | undefined
-        if (customerType === 'RETAIL') {
-            const account = dto.shopPassword
-                ? await this.retailClients.createAccount(
-                      {
-                          email: dto.email,
-                          password: dto.shopPassword,
-                          fullName: dto.contactName,
-                          phone: dto.phone,
-                      },
-                      client,
-                  )
-                : await this.retailClients.requireAccount(dto.retailClientId!, client)
-            retailClientId = account.id
-        }
-
+        const retailClientId = await this.resolveShopAccountId(dto, customerType, client)
         const customerNumber = await this.nextCustomerNumber(attempt, client)
         const creditLimit = new Decimal(dto.creditLimit ?? 0)
         return client.sdCustomer.create({
@@ -175,9 +246,9 @@ export class CustomerService {
      * changes, so availableCredit moves by the same delta and may go negative.
      */
     async update(id: string, dto: UpdateCustomerDto) {
-        const current = await this.findOne(id)
+        const current = await this.findOneRow(id)
 
-        const data: Prisma.SdCustomerUpdateManyMutationInput = {
+        const data: Prisma.SdCustomerUncheckedUpdateManyInput = {
             updatedBy: dto.updatedBy,
         }
         if (dto.companyName !== undefined) data.companyName = dto.companyName
@@ -185,6 +256,12 @@ export class CustomerService {
         if (dto.email !== undefined) data.email = dto.email
         if (dto.phone !== undefined) data.phone = dto.phone
         if (dto.status !== undefined) data.status = dto.status
+        if (dto.retailClientId !== undefined) {
+            if (dto.retailClientId) {
+                await this.retailClients.requireAccount(dto.retailClientId)
+            }
+            data.retailClientId = dto.retailClientId || null
+        }
         if (
             current.customerType === 'RETAIL' &&
             dto.creditLimit !== undefined &&
@@ -218,15 +295,21 @@ export class CustomerService {
                 )
             }
         } catch (error) {
-            if (this.uniqueViolationTarget(error)?.includes('email')) {
+            const target = this.uniqueViolationTarget(error)
+            if (target?.includes('email')) {
                 throw new ConflictException(
                     `A customer with email ${dto.email} already exists`,
+                )
+            }
+            if (target?.includes('retailClientId')) {
+                throw new ConflictException(
+                    'This shop account is already linked to another customer',
                 )
             }
             throw error
         }
 
-        return this.findOne(id)
+        return this.findOneRow(id)
     }
 
     private uniqueViolationTarget(error: unknown): string[] | null {
@@ -241,14 +324,7 @@ export class CustomerService {
     }
 
     /** `attempt > 0` adds a random suffix after a customerNumber collision. */
-    private async nextCustomerNumber(
-        attempt = 0,
-        client: PrismaService | Prisma.TransactionClient = this.prisma,
-    ) {
-        const count = await client.sdCustomer.count()
-        const number = `${CUSTOMER_NUMBER_PREFIX}-${String(count + 1).padStart(6, '0')}`
-        return attempt === 0
-            ? number
-            : `${number}-${randomUUID().slice(0, 4).toUpperCase()}`
+    private nextCustomerNumber(attempt = 0, client: Client = this.prisma) {
+        return nextCustomerNumberShared(attempt, client)
     }
 }

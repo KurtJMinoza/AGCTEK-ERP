@@ -5,6 +5,7 @@ import type {
     Customer,
     Notification,
     Order,
+    OrderTracking,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -12,6 +13,7 @@ import type {
     SavedAddress,
     SavedAddressInput,
     SignInInput,
+    TrackingLink,
 } from '../types'
 
 export type * from '../types'
@@ -43,6 +45,10 @@ export interface CommerceApi {
     cancelOrder(orderId: string, reason?: string): Promise<void>
     /** Submit a return / refund request for a delivered order. */
     requestReturn(request: ReturnRequest): Promise<void>
+    /** Server-computed checkpoints + delayed courier position for the signed-in shopper's order. */
+    getOrderTracking(orderId: string): Promise<OrderTracking>
+    /** Signed read-only link (`/shop/track/<token>`) the shopper can open or share. */
+    createTrackingLink(orderId: string): Promise<TrackingLink>
 
     // ─── Notifications ─────────────────────────────────────────────────────────
     getNotifications(userId?: string): Promise<Notification[]>

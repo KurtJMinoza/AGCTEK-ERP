@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
-    HiOutlineArrowLeft,
-    HiOutlineArrowRight,
     HiOutlineCheck,
     HiOutlineCheckCircle,
     HiOutlineClipboardList,
@@ -15,12 +14,17 @@ import {
     HiOutlineExclamationCircle,
     HiOutlineLocationMarker,
     HiOutlineRefresh,
+    HiOutlineReply,
     HiOutlineSearch,
+    HiOutlineShare,
     HiOutlineShoppingBag,
+    HiOutlineStar,
     HiOutlineTruck,
     HiOutlineX,
     HiOutlineXCircle,
+    HiStar,
 } from 'react-icons/hi'
+import type { IconType } from 'react-icons'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Spinner from '@/components/ui/Spinner'
@@ -32,9 +36,30 @@ import {
     CUSTOMER_CANCEL_REASONS,
     PAYMENT_METHOD_LABEL,
     cancelCustomerOrder,
+    createOrderTrackingLink,
+    getOrderTracking,
+    getOrderTrackingBatch,
     getSalesOrders,
+    listMyCustomerReturns,
+    type CustomerOrderStatus,
+    type CustomerReturnRequestRecord,
+    type OrderTracking,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
+import {
+    RetailSessionExpiredError,
+    fetchMyProductReviews,
+    type ShopperReview,
+} from '@/services/storefront/retailClientService'
+import MarketplaceReviewDialog, {
+    type ReviewTarget,
+} from '../components/MarketplaceReviewDialog'
+import OrderTrackingTimeline from '../components/OrderTrackingTimeline'
+import {
+    DeliveryMapPanel,
+    OrderProgressStepper,
+    TrackingStatusPill,
+} from '../components/OrderTrackingParts'
 import { useMarketplaceProducts } from '@/modules/sd/hooks/useMarketplaceProducts'
 import StorefrontReturnDialog from '@/modules/storefront/shared/components/StorefrontReturnDialog'
 import { useMarketplace } from '../MarketplaceProvider'
@@ -43,8 +68,11 @@ import {
     MARKETPLACE_PATH,
     MARKETPLACE_SIGN_IN_PATH,
     marketplaceAuthHref,
+    marketplaceTrackHref,
 } from '../host'
 import { formatPrice } from '../marketplaceUi'
+
+const TRACKING_POLL_MS = 45_000
 
 const formatDate = (iso: string) =>
     new Intl.DateTimeFormat('en-PH', {
@@ -55,14 +83,14 @@ const formatDate = (iso: string) =>
 type OrdersFilter =
     | 'all'
     | 'Pending Delivery'
-    | 'Dispatched'
+    | 'In Transit'
     | 'Delivered'
     | 'Completed'
     | 'Cancelled'
 
 const FILTER_CONFIG: Record<
     OrdersFilter,
-    { label: string; icon: any; color: string }
+    { label: string; icon: IconType; color: string }
 > = {
     all: { label: 'All orders', icon: HiOutlineShoppingBag, color: 'emerald' },
     'Pending Delivery': {
@@ -70,7 +98,7 @@ const FILTER_CONFIG: Record<
         icon: HiOutlineClock,
         color: 'amber',
     },
-    Dispatched: { label: 'Dispatched', icon: HiOutlineTruck, color: 'blue' },
+    'In Transit': { label: 'In transit', icon: HiOutlineTruck, color: 'blue' },
     Delivered: {
         label: 'Delivered',
         icon: HiOutlineCheckCircle,
@@ -87,7 +115,7 @@ const FILTER_CONFIG: Record<
 const FILTERS: OrdersFilter[] = [
     'all',
     'Pending Delivery',
-    'Dispatched',
+    'In Transit',
     'Delivered',
     'Completed',
     'Cancelled',
@@ -101,82 +129,185 @@ const paymentLabel = (method: string | null) =>
         ? PAYMENT_METHOD_LABEL[method as keyof typeof PAYMENT_METHOD_LABEL]
         : (method ?? '—')
 
-/** Order Tracker Stepper */
-function OrderProgressStepper({ status }: { status: string }) {
-    if (status === 'Cancelled') {
+/**
+ * Tab bucket. "In transit" comes only from the server tracking status (trip
+ * started); SO SHIPPED (goods issue) alone stays "To be delivered".
+ */
+const orderBucket = (
+    order: SalesOrderRecord,
+    tracking: OrderTracking | undefined,
+): Exclude<OrdersFilter, 'all'> => {
+    if (order.status === 'Cancelled' || tracking?.customerStatus === 'CANCELLED')
+        return 'Cancelled'
+    if (order.status === 'Completed') return 'Completed'
+    if (order.status === 'Delivered' || tracking?.customerStatus === 'DELIVERED')
+        return 'Delivered'
+    if (tracking?.customerStatus === 'IN_TRANSIT') return 'In Transit'
+    return 'Pending Delivery'
+}
+
+/** My Returns: the shopper's submitted return requests with live statuses. */
+const ReturnsFeed = ({
+    requests,
+    loading,
+}: {
+    requests: CustomerReturnRequestRecord[] | null
+    loading: boolean
+}) => {
+    if (loading && !requests) {
         return (
-            <div className="flex items-center gap-2 rounded-xl bg-rose-50/80 px-4 py-2.5 text-xs font-medium text-rose-700 border border-rose-100">
-                <HiOutlineXCircle className="text-base shrink-0 text-rose-600" />
-                <span>
-                    This order was cancelled. Reserved inventory has been released.
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+                <Spinner size="lg" />
+                <span className="text-xs font-medium text-gray-400">
+                    Loading your returns...
                 </span>
             </div>
         )
     }
-
-    const steps = [
-        { id: 'placed', label: 'Order Placed', icon: HiOutlineShoppingBag },
-        { id: 'confirmed', label: 'Confirmed & Prepared', icon: HiOutlineClock },
-        { id: 'dispatched', label: 'Dispatched', icon: HiOutlineTruck },
-        { id: 'delivered', label: 'Delivered', icon: HiOutlineCheckCircle },
-    ]
-
-    // Determine current step index (0-based)
-    let activeIndex = 0
-    if (status === 'Pending Delivery') activeIndex = 1
-    else if (status === 'Dispatched') activeIndex = 2
-    else if (status === 'Delivered' || status === 'Completed') activeIndex = 3
-
-    return (
-        <div className="w-full py-2">
-            <div className="relative flex items-center justify-between">
-                {/* Background Connecting Bar */}
-                <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-1 bg-gray-100 -z-0">
-                    <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500 rounded-full"
-                        style={{
-                            width: `${(activeIndex / (steps.length - 1)) * 100}%`,
-                        }}
-                    />
+    if (!requests || requests.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-200 bg-white py-16 px-4 text-center shadow-sm">
+                <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-50 text-gray-400">
+                    <HiOutlineReply className="text-3xl" />
                 </div>
-
-                {steps.map((step, idx) => {
-                    const isPassed = idx <= activeIndex
-                    const isCurrent = idx === activeIndex
-                    const StepIcon = step.icon
-
-                    return (
-                        <div
-                            key={step.id}
-                            className="relative z-10 flex flex-col items-center group"
-                        >
-                            <div
-                                className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 shadow-sm ${
-                                    isPassed
-                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-4 ring-emerald-50'
-                                        : 'bg-white border-2 border-gray-200 text-gray-400'
-                                }`}
-                            >
-                                <StepIcon
-                                    className={`text-sm ${
-                                        isCurrent ? 'animate-pulse' : ''
-                                    }`}
-                                />
-                            </div>
-                            <span
-                                className={`mt-1.5 text-[11px] font-medium tracking-tight transition-colors ${
-                                    isPassed
-                                        ? 'text-gray-900 font-semibold'
-                                        : 'text-gray-400'
-                                }`}
-                            >
-                                {step.label}
-                            </span>
-                        </div>
-                    )
-                })}
+                <h3 className="text-base font-bold text-gray-900">
+                    No returns yet
+                </h3>
+                <p className="mt-1 max-w-sm text-xs text-gray-500 leading-relaxed">
+                    When you return an item from a delivered order, your return
+                    request and its status appear here.
+                </p>
+                <Link
+                    href={MARKETPLACE_PATH}
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-105"
+                >
+                    <HiOutlineShoppingBag className="text-sm" />
+                    Start shopping now
+                </Link>
             </div>
+        )
+    }
+    return (
+        <div className="space-y-5">
+            {requests.map((request) => (
+                <article
+                    key={request.id}
+                    className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm"
+                >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold text-gray-900">
+                                    {request.requestNumber}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                    Order #{request.salesOrder?.orderNumber ?? '—'}
+                                </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-gray-400">
+                                Requested {formatDate(request.createdAt)}
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                Return: {request.status.replace(/_/g, ' ')}
+                            </span>
+                            {request.refundStatus !== 'NONE' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                                    Refund: {request.refundStatus.replace(/_/g, ' ')}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                        {request.lines.map((line) => (
+                            <div
+                                key={line.id}
+                                className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2"
+                            >
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-gray-800">
+                                        {line.salesOrderLine
+                                            ?.productNameSnapshot ??
+                                            line.salesOrderLine
+                                                ?.materialCodeSnapshot ??
+                                            'Item'}
+                                    </p>
+                                    <p className="text-[11px] text-gray-400">
+                                        Reason:{' '}
+                                        {(line.reason ?? request.reason ?? '—').replace(
+                                            /_/g,
+                                            ' ',
+                                        )}
+                                    </p>
+                                </div>
+                                <span className="shrink-0 text-sm font-semibold text-gray-700">
+                                    ×{Number(line.quantity)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {request.refunds[0] ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs">
+                            <span className="font-semibold text-emerald-800">
+                                {formatPrice(Number(request.refunds[0].amount))}
+                            </span>
+                            <span className="text-emerald-700">
+                                {request.refunds[0].refundMethod?.replace(
+                                    /_/g,
+                                    ' ',
+                                ) ?? 'Refund'}
+                            </span>
+                            {request.refunds[0].isDemo ? (
+                                <span className="rounded bg-emerald-200/60 px-1.5 py-0.5 font-semibold text-emerald-700">
+                                    DEMO
+                                </span>
+                            ) : null}
+                            {request.refunds[0].creditMemo ? (
+                                <span className="text-emerald-700">
+                                    Credit memo{' '}
+                                    {request.refunds[0].creditMemo.creditMemoNumber}
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {request.conditionNote ? (
+                        <p className="mt-2 text-[11px] text-gray-400">
+                            Note: {request.conditionNote}
+                        </p>
+                    ) : null}
+                </article>
+            ))}
         </div>
+    )
+}
+
+const FALLBACK_PILL: Record<
+    Exclude<OrdersFilter, 'all'>,
+    { status: CustomerOrderStatus; label: string }
+> = {
+    'Pending Delivery': { status: 'CONFIRMED', label: 'To be delivered' },
+    'In Transit': { status: 'IN_TRANSIT', label: 'In transit' },
+    Delivered: { status: 'DELIVERED', label: 'Delivered' },
+    Completed: { status: 'DELIVERED', label: 'Completed' },
+    Cancelled: { status: 'CANCELLED', label: 'Cancelled' },
+}
+
+function OrderStatusPill({
+    tracking,
+    bucket,
+}: {
+    tracking: OrderTracking | undefined
+    bucket: Exclude<OrdersFilter, 'all'>
+}) {
+    return (
+        <TrackingStatusPill
+            status={tracking?.customerStatus ?? FALLBACK_PILL[bucket].status}
+            label={tracking?.customerStatusLabel ?? FALLBACK_PILL[bucket].label}
+        />
     )
 }
 
@@ -186,11 +317,47 @@ const MarketplaceOrdersPage = () => {
     const customerId = signedInClient?.customerId ?? null
 
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
+    const [trackingById, setTrackingById] = useState<
+        Record<string, OrderTracking>
+    >({})
+    const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [trackingLoadingId, setTrackingLoadingId] = useState<string | null>(
+        null,
+    )
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState<OrdersFilter>('all')
     const [searchQuery, setSearchQuery] = useState('')
     const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+
+    /** My Orders ↔ My Returns views (Returns reachable via tab or ?view=returns). */
+    const searchParams = useSearchParams()
+    const [view, setView] = useState<'orders' | 'returns'>(() =>
+        searchParams.get('view') === 'returns' ? 'returns' : 'orders',
+    )
+    const [returns, setReturns] = useState<CustomerReturnRequestRecord[] | null>(
+        null,
+    )
+    const [returnsLoading, setReturnsLoading] = useState(false)
+
+    useEffect(() => {
+        if (view !== 'returns' || !sessionToken) return
+        let alive = true
+        setReturnsLoading(true)
+        listMyCustomerReturns(sessionToken)
+            .then((rows) => {
+                if (alive) setReturns(rows)
+            })
+            .catch(() => {
+                if (alive) setReturns([])
+            })
+            .finally(() => {
+                if (alive) setReturnsLoading(false)
+            })
+        return () => {
+            alive = false
+        }
+    }, [view, sessionToken])
 
     const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(null)
     const [returnMessage, setReturnMessage] = useState<string | null>(null)
@@ -206,6 +373,34 @@ const MarketplaceOrdersPage = () => {
     )
     const [cancelError, setCancelError] = useState<string | null>(null)
     const [cancelling, setCancelling] = useState(false)
+
+    const [myReviews, setMyReviews] = useState<ShopperReview[]>([])
+    const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
+
+    const loadMyReviews = useCallback(async () => {
+        if (!sessionToken) return
+        try {
+            setMyReviews(await fetchMyProductReviews(sessionToken))
+        } catch (err) {
+            if (err instanceof RetailSessionExpiredError) setError(err.message)
+        }
+    }, [sessionToken])
+
+    useEffect(() => {
+        void loadMyReviews()
+    }, [loadMyReviews])
+
+    /** One review per product, so any order line for a reviewed product shows it. */
+    const reviewByProduct = useMemo(
+        () =>
+            new Map(
+                myReviews.map((review) => [
+                    productLookupKey(review.product.divisionId, review.product.sku),
+                    review,
+                ]),
+            ),
+        [myReviews],
+    )
 
     const productsByKey = useMemo(
         () =>
@@ -223,7 +418,34 @@ const MarketplaceOrdersPage = () => {
         setLoading(true)
         setError(null)
         try {
-            setOrders(await getSalesOrders({ customerId }))
+            const rows = await getSalesOrders({ customerId })
+            setOrders(rows)
+            if (sessionToken) {
+                try {
+                    const tracking = await getOrderTrackingBatch(
+                        rows.map((order) => order.id),
+                        sessionToken,
+                    )
+                    // The list batch carries no map; keep the last single-order map until the next poll.
+                    setTrackingById((prev) =>
+                        Object.fromEntries(
+                            tracking.map((t) => {
+                                const kept = prev[t.orderId]
+                                return [
+                                    t.orderId,
+                                    kept?.map
+                                        ? { ...t, destination: kept.destination, map: kept.map }
+                                        : t,
+                                ]
+                            }),
+                        ),
+                    )
+                } catch (err) {
+                    if (err instanceof RetailSessionExpiredError) {
+                        setError(err.message)
+                    }
+                }
+            }
         } catch (err) {
             setError(
                 err instanceof Error ? err.message : 'Unable to load your orders',
@@ -231,7 +453,78 @@ const MarketplaceOrdersPage = () => {
         } finally {
             setLoading(false)
         }
-    }, [customerId])
+    }, [customerId, sessionToken])
+
+    const toggleTracking = useCallback(
+        async (orderId: string) => {
+            if (expandedId === orderId) {
+                setExpandedId(null)
+                return
+            }
+            setExpandedId(orderId)
+            if (!sessionToken) return
+            setTrackingLoadingId(orderId)
+            try {
+                const fresh = await getOrderTracking(orderId, sessionToken)
+                setTrackingById((prev) => ({ ...prev, [orderId]: fresh }))
+            } catch (err) {
+                if (err instanceof RetailSessionExpiredError) setError(err.message)
+            } finally {
+                setTrackingLoadingId(null)
+            }
+        },
+        [expandedId, sessionToken],
+    )
+
+    const [sharingId, setSharingId] = useState<string | null>(null)
+    const [sharedId, setSharedId] = useState<string | null>(null)
+
+    /** Mint a signed read-only link; native share sheet on mobile, clipboard otherwise. */
+    const shareTracking = useCallback(
+        async (orderId: string) => {
+            if (!sessionToken) return
+            setSharingId(orderId)
+            try {
+                const { token } = await createOrderTrackingLink(orderId, sessionToken)
+                const url = `${window.location.origin}${marketplaceTrackHref(token)}`
+                if (typeof navigator.share === 'function') {
+                    try {
+                        await navigator.share({ title: 'Track my order', url })
+                        return
+                    } catch (err) {
+                        if (err instanceof DOMException && err.name === 'AbortError') return
+                    }
+                }
+                await navigator.clipboard.writeText(url)
+                setSharedId(orderId)
+                window.setTimeout(() => setSharedId(null), 2500)
+            } catch (err) {
+                if (err instanceof RetailSessionExpiredError) setError(err.message)
+                else setError(err instanceof Error ? err.message : 'Unable to share tracking')
+            } finally {
+                setSharingId(null)
+            }
+        },
+        [sessionToken],
+    )
+
+    const expandedInTransit =
+        expandedId != null &&
+        trackingById[expandedId]?.customerStatus === 'IN_TRANSIT'
+
+    useEffect(() => {
+        if (!expandedId || !expandedInTransit || !sessionToken) return
+        const id = window.setInterval(() => {
+            getOrderTracking(expandedId, sessionToken)
+                .then((fresh) =>
+                    setTrackingById((prev) => ({ ...prev, [expandedId]: fresh })),
+                )
+                .catch((err) => {
+                    if (err instanceof RetailSessionExpiredError) setError(err.message)
+                })
+        }, TRACKING_POLL_MS)
+        return () => window.clearInterval(id)
+    }, [expandedId, expandedInTransit, sessionToken])
 
     useEffect(() => {
         if (customerId) void load()
@@ -265,6 +558,8 @@ const MarketplaceOrdersPage = () => {
 
     useEffect(() => {
         setOrders(null)
+        setTrackingById({})
+        setExpandedId(null)
         setReturnMessage(null)
     }, [customerId])
 
@@ -274,24 +569,38 @@ const MarketplaceOrdersPage = () => {
         setTimeout(() => setCopiedOrderId(null), 2000)
     }
 
+    const bucketById = useMemo(
+        () =>
+            new Map(
+                (orders ?? []).map((order) => [
+                    order.id,
+                    orderBucket(order, trackingById[order.id]),
+                ]),
+            ),
+        [orders, trackingById],
+    )
+
     const summary = useMemo(() => {
         const rows = orders ?? []
+        const count = (bucket: Exclude<OrdersFilter, 'all'>) =>
+            rows.filter((o) => bucketById.get(o.id) === bucket).length
         return {
             total: rows.length,
-            pending: rows.filter((o) => o.status === 'Pending Delivery').length,
-            dispatched: rows.filter((o) => o.status === 'Dispatched').length,
-            delivered: rows.filter((o) => o.status === 'Delivered').length,
-            completed: rows.filter((o) => o.status === 'Completed').length,
+            pending: count('Pending Delivery'),
+            inTransit: count('In Transit'),
+            delivered: count('Delivered'),
+            completed: count('Completed'),
+            cancelled: count('Cancelled'),
             spent: rows
-                .filter((o) => o.status !== 'Cancelled')
+                .filter((o) => bucketById.get(o.id) !== 'Cancelled')
                 .reduce((sum, o) => sum + o.totalAmount, 0),
         }
-    }, [orders])
+    }, [orders, bucketById])
 
     const visibleOrders = useMemo(() => {
         let list = orders ?? []
         if (filter !== 'all') {
-            list = list.filter((order) => order.status === filter)
+            list = list.filter((order) => bucketById.get(order.id) === filter)
         }
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase().trim()
@@ -308,24 +617,20 @@ const MarketplaceOrdersPage = () => {
             )
         }
         return list
-    }, [orders, filter, searchQuery])
+    }, [orders, filter, searchQuery, bucketById])
 
     const countFor = (value: OrdersFilter) =>
         value === 'all'
             ? summary.total
             : value === 'Pending Delivery'
               ? summary.pending
-              : value === 'Dispatched'
-                ? summary.dispatched
+              : value === 'In Transit'
+                ? summary.inTransit
                 : value === 'Delivered'
                   ? summary.delivered
                   : value === 'Completed'
                     ? summary.completed
-                    : summary.total -
-                      summary.pending -
-                      summary.dispatched -
-                      summary.delivered -
-                      summary.completed
+                    : summary.cancelled
 
     if (!signedInClient) {
         return (
@@ -534,7 +839,7 @@ const MarketplaceOrdersPage = () => {
                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar rounded-2xl bg-gray-100/90 p-1.5">
                         {FILTERS.map((tabKey) => {
                             const config = FILTER_CONFIG[tabKey]
-                            const isActive = filter === tabKey
+                            const isActive = view === 'orders' && filter === tabKey
                             const count = countFor(tabKey)
                             const TabIcon = config.icon
 
@@ -542,7 +847,10 @@ const MarketplaceOrdersPage = () => {
                                 <button
                                     key={tabKey}
                                     type="button"
-                                    onClick={() => setFilter(tabKey)}
+                                    onClick={() => {
+                                        setView('orders')
+                                        setFilter(tabKey)
+                                    }}
                                     className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
                                         isActive
                                             ? 'bg-white text-emerald-800 shadow-sm'
@@ -569,10 +877,50 @@ const MarketplaceOrdersPage = () => {
                                 </button>
                             )
                         })}
+                        <button
+                            key="returns"
+                            type="button"
+                            onClick={() =>
+                                setView((current) =>
+                                    current === 'returns' ? 'orders' : 'returns',
+                                )
+                            }
+                            className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
+                                view === 'returns'
+                                    ? 'bg-white text-emerald-800 shadow-sm'
+                                    : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'
+                            }`}
+                        >
+                            <HiOutlineReply
+                                className={`text-sm ${
+                                    view === 'returns'
+                                        ? 'text-emerald-600'
+                                        : 'text-gray-400'
+                                }`}
+                            />
+                            <span>Returns</span>
+                            <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                    view === 'returns'
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : 'bg-gray-200/70 text-gray-600'
+                                }`}
+                            >
+                                {returns?.length ?? 0}
+                            </span>
+                        </button>
                     </div>
                 </div>
 
-                {/* Orders Content Feed */}
+                {/* Orders / Returns Content Feed */}
+                {view === 'returns' ? (
+                    <ReturnsFeed
+                        requests={returns}
+                        loading={returnsLoading && returns === null}
+                    />
+                ) : (
+                    <>
+                    {/* Orders Content Feed */}
                 {loading && !orders ? (
                     <div className="flex h-64 flex-col items-center justify-center gap-3">
                         <Spinner size="lg" />
@@ -606,11 +954,19 @@ const MarketplaceOrdersPage = () => {
                         {visibleOrders.map((order) => {
                             const payment = order.payment
                             const ship = order.shippingAddress
-                            const isPending = order.status === 'Pending Delivery'
-                            const isDispatched = order.status === 'Dispatched'
+                            const tracking = trackingById[order.id]
+                            const bucket =
+                                bucketById.get(order.id) ?? 'Pending Delivery'
+                            const isPending = bucket === 'Pending Delivery'
                             const isCompleted = order.status === 'Completed'
-                            const isDelivered = order.status === 'Delivered'
-                            const isCancelled = order.status === 'Cancelled'
+                            const canReview =
+                                Boolean(sessionToken) &&
+                                (order.status === 'Delivered' ||
+                                    order.status === 'Completed')
+                            const expanded = expandedId === order.id
+                            const currentCheckpoint = tracking?.checkpoints.find(
+                                (c) => c.current,
+                            )
 
                             return (
                                 <article
@@ -650,43 +1006,94 @@ const MarketplaceOrdersPage = () => {
                                             <span className="text-gray-500">
                                                 Sold by{' '}
                                                 <span className="font-semibold text-gray-800">
-                                                    {order.company?.name || 'AGC Marketplace'}
+                                                    {order.company?.name || 'Amalgated Marketplace'}
                                                 </span>
                                             </span>
                                         </div>
 
                                         {/* Status Tag Pill */}
                                         <div className="flex items-center gap-2">
-                                            {isPending && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-inset ring-amber-600/20">
-                                                    <HiOutlineClock className="text-sm" />
-                                                    To be delivered
-                                                </span>
-                                            )}
-                                            {isDispatched && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                                                    <HiOutlineTruck className="text-sm" />
-                                                    Dispatched
-                                                </span>
-                                            )}
-                                            {(isCompleted || isDelivered) && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                                    <HiOutlineCheckCircle className="text-sm" />
-                                                    {isCompleted ? 'Completed' : 'Delivered'}
-                                                </span>
-                                            )}
-                                            {isCancelled && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 ring-1 ring-inset ring-rose-600/20">
-                                                    <HiOutlineXCircle className="text-sm" />
-                                                    Cancelled
-                                                </span>
-                                            )}
+                                            <OrderStatusPill
+                                                tracking={tracking}
+                                                bucket={bucket}
+                                            />
                                         </div>
                                     </div>
 
-                                    {/* Order Stepper Tracker */}
-                                    <div className="px-5 pt-4 pb-2 border-b border-gray-50 bg-white">
-                                        <OrderProgressStepper status={order.status} />
+                                    {/* Order Tracking */}
+                                    <div className="px-5 py-3 border-b border-gray-50 bg-white">
+                                        {tracking && (
+                                            <div className="mb-2">
+                                                <OrderProgressStepper
+                                                    checkpoints={tracking.checkpoints}
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="min-w-0 text-xs text-gray-500">
+                                                {currentCheckpoint ? (
+                                                    <>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {currentCheckpoint.label}
+                                                        </span>
+                                                        {currentCheckpoint.at && (
+                                                            <> · {formatDate(currentCheckpoint.at)}</>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    'Tracking details unavailable'
+                                                )}
+                                            </div>
+                                            {sessionToken && (
+                                                <div className="flex items-center gap-1">
+                                                    {tracking &&
+                                                        tracking.customerStatus !== 'CANCELLED' && (
+                                                            <Button
+                                                                size="xs"
+                                                                variant="plain"
+                                                                loading={sharingId === order.id}
+                                                                icon={
+                                                                    sharedId === order.id ? (
+                                                                        <HiOutlineCheck />
+                                                                    ) : (
+                                                                        <HiOutlineShare />
+                                                                    )
+                                                                }
+                                                                onClick={() => void shareTracking(order.id)}
+                                                                className="!rounded-lg font-semibold !text-gray-600 hover:!bg-gray-100"
+                                                            >
+                                                                {sharedId === order.id
+                                                                    ? 'Link copied'
+                                                                    : 'Share tracking'}
+                                                            </Button>
+                                                        )}
+                                                    <Button
+                                                        size="xs"
+                                                        variant="plain"
+                                                        loading={trackingLoadingId === order.id}
+                                                        icon={<HiOutlineTruck />}
+                                                        onClick={() => void toggleTracking(order.id)}
+                                                        className="!rounded-lg font-semibold !text-emerald-700 hover:!bg-emerald-50"
+                                                    >
+                                                        {expanded ? 'Hide tracking' : 'Track order'}
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {expanded &&
+                                            tracking?.customerStatus === 'IN_TRANSIT' &&
+                                            tracking.map && (
+                                            <div className="mt-4">
+                                                <DeliveryMapPanel tracking={tracking} />
+                                            </div>
+                                        )}
+                                        {expanded && tracking && (
+                                            <div className="mt-4 pl-1">
+                                                <OrderTrackingTimeline
+                                                    checkpoints={tracking.checkpoints}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Products Line Items */}
@@ -700,6 +1107,12 @@ const MarketplaceOrdersPage = () => {
                                             )
                                             const image =
                                                 line.productImage || product?.imageUrl
+                                            const review = reviewByProduct.get(
+                                                productLookupKey(
+                                                    line.divisionId ?? order.divisionId,
+                                                    line.sku,
+                                                ),
+                                            )
 
                                             return (
                                                 <div
@@ -738,12 +1151,70 @@ const MarketplaceOrdersPage = () => {
                                                                 {line.quantity} × {formatPrice(line.unitPrice)}
                                                             </span>
                                                         </div>
+
+                                                        {/* Sales Return status under the item */}
+                                                        {order.customerReturns
+                                                            ?.filter((r) =>
+                                                                r.lines.some(
+                                                                    (rl) =>
+                                                                        rl.salesOrderLineId ===
+                                                                        line.lineId,
+                                                                ),
+                                                            )
+                                                            .map((r) => (
+                                                                <div
+                                                                    key={r.id}
+                                                                    className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]"
+                                                                >
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-200">
+                                                                        <HiOutlineReply className="text-[11px]" />
+                                                                        Return:{' '}
+                                                                        {r.status.replace(/_/g, ' ')}
+                                                                    </span>
+                                                                    {r.refundStatus !== 'NONE' && (
+                                                                        <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 font-semibold text-sky-700 ring-1 ring-sky-200">
+                                                                            Refund:{' '}
+                                                                            {r.refundStatus.replace(/_/g, ' ')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ))}
                                                     </div>
 
-                                                    <div className="text-right">
+                                                    <div className="flex shrink-0 flex-col items-end gap-2 text-right">
                                                         <div className="text-sm font-bold text-gray-900">
                                                             {formatPrice(line.lineTotal)}
                                                         </div>
+                                                        {canReview && review ? (
+                                                            <span
+                                                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200"
+                                                                title={review.comment}
+                                                            >
+                                                                <HiStar className="text-xs text-amber-400" />
+                                                                Reviewed · {review.rating}/5
+                                                            </span>
+                                                        ) : null}
+                                                        {canReview && !review && line.lineId ? (
+                                                            <Button
+                                                                size="xs"
+                                                                variant="default"
+                                                                icon={<HiOutlineStar />}
+                                                                className="!rounded-lg !border-amber-400 !text-amber-700 hover:!bg-amber-50 font-semibold"
+                                                                onClick={() =>
+                                                                    setReviewTarget({
+                                                                        salesOrderId: order.id,
+                                                                        orderNumber: order.orderId,
+                                                                        salesOrderLineId: line.lineId,
+                                                                        productName:
+                                                                            line.productName ?? line.name,
+                                                                        variantName: line.variantName,
+                                                                        image: image ?? null,
+                                                                    })
+                                                                }
+                                                            >
+                                                                Rate &amp; review
+                                                            </Button>
+                                                        ) : null}
                                                     </div>
                                                 </div>
                                             )
@@ -915,6 +1386,8 @@ const MarketplaceOrdersPage = () => {
                         })}
                     </div>
                 )}
+                    </>
+                )}
             </main>
 
             {/* Cancel Confirmation Dialog */}
@@ -985,6 +1458,21 @@ const MarketplaceOrdersPage = () => {
                             `Return request ${requestNumber} submitted for order ${returnOrder.orderId}.`,
                         )
                         void load()
+                    }}
+                />
+            )}
+
+            {sessionToken && (
+                <MarketplaceReviewDialog
+                    target={reviewTarget}
+                    token={sessionToken}
+                    onClose={() => setReviewTarget(null)}
+                    onSubmitted={(target) => {
+                        setReviewTarget(null)
+                        setReturnMessage(
+                            `Thanks! Your review of ${target.productName} is now posted.`,
+                        )
+                        void loadMyReviews()
                     }}
                 />
             )}

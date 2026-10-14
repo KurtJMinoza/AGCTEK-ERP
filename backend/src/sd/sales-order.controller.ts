@@ -27,6 +27,7 @@ import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
 import { RequirePermission } from '../permissions/permission.guard'
 import { RetailSessionService } from '../retail/retail-session.service'
 import { ReturnRequestService } from './return-request.service'
+import { OrderTrackingService } from './order-tracking.service'
 import {
     CreateCustomerReturnRequestDto,
 } from './dto/sales-order.dto'
@@ -43,6 +44,7 @@ export class SalesOrderController {
         private orchestration: SdMmOrchestrationService,
         private retailSessions: RetailSessionService,
         private returnRequests: ReturnRequestService,
+        private orderTracking: OrderTrackingService,
     ) {}
 
     @Get()
@@ -108,6 +110,51 @@ export class SalesOrderController {
     }
 
     /**
+     * Storefront tracking badges for My Orders (`?ids=a,b,c`, max 100). Only
+     * the signed-in shopper's own orders are returned.
+     */
+    @Get('retail/tracking')
+    customerTrackingBatch(
+        @Query('ids') ids: string | undefined,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.orderTracking.buildManyForCustomer(
+            (ids ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
+    }
+
+    /** Owner mints a shareable read-only tracking link (no sign-in needed to open it). */
+    @Post('retail/:id/tracking-link')
+    customerTrackingLink(
+        @Param('id') id: string,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.orderTracking.issueTrackingLink(
+            id,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
+    }
+
+    /** Public tracking via signed link: timeline + delayed map, coarse drop-off area. */
+    @Get('public/tracking/:token')
+    publicTracking(@Param('token') token: string) {
+        return this.orderTracking.buildForTrackingLink(token)
+    }
+
+    /** Storefront order timeline; In transit only after driver Start Route. */
+    @Get('retail/:id/tracking')
+    customerTracking(
+        @Param('id') id: string,
+        @Headers('authorization') authorization?: string,
+    ) {
+        return this.orderTracking.buildForCustomer(
+            id,
+            this.retailSessions.clientIdFromAuthorization(authorization),
+        )
+    }
+
+    /**
      * Storefront return request for a delivered order. The shopper must be
      * signed in and own the order; company scope is resolved server-side.
      */
@@ -126,6 +173,20 @@ export class SalesOrderController {
             )
         }
         return this.returnRequests.createForCustomer(clientId, id, dto)
+    }
+
+    /** The signed-in shopper's own return requests (My Returns view). */
+    @Get('retail/returns')
+    listMyReturns(@Headers('authorization') authorization?: string) {
+        const clientId = this.retailSessions.clientIdFromAuthorization(
+            authorization,
+        )
+        if (!clientId) {
+            throw new UnauthorizedException(
+                'Please sign in to view your returns',
+            )
+        }
+        return this.returnRequests.listForCustomer(clientId)
     }
 
     /** Multipart POD upload (field `file`); returns `{ imageUrl }` to attach to an order. */

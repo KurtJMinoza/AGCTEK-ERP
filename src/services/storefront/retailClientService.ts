@@ -5,6 +5,7 @@ import type {
     RetailProduct,
     SalesOrderShippingDetails,
 } from '@/types/storefront/retail'
+import type { NotificationItem } from '@/@types/notification'
 
 export type RetailClientProfile = SalesOrderShippingDetails & {
     customerId: string
@@ -325,5 +326,133 @@ export async function saveRetailClientCart(
             },
             { headers: bearer(token) },
         ),
+    )
+}
+
+/** A review the signed-in shopper wrote (matched to order lines by division + SKU). */
+export type ShopperReview = {
+    id: string
+    productId: string
+    salesOrderId: string | null
+    rating: number
+    comment: string
+    imageUrls: string[]
+    createdAt: string
+    product: { divisionId: string; sku: string; name: string }
+}
+
+export type ShopperReviewPayload = {
+    salesOrderId: string
+    salesOrderLineId: string
+    rating: number
+    comment: string
+    imageUrls?: string[]
+}
+
+/** Server limit on photos per review (`SHOPPER_REVIEW_MAX_PHOTOS`). */
+export const SHOPPER_REVIEW_MAX_PHOTOS = 5
+
+const apiErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError(error)) {
+        const message = (error.response?.data as { message?: unknown })?.message
+        if (Array.isArray(message)) return message.join(', ')
+        if (typeof message === 'string' && message) return message
+    }
+    return error instanceof Error ? error.message : fallback
+}
+
+export async function fetchMyProductReviews(
+    token: string,
+): Promise<ShopperReview[]> {
+    const { data } = await authed(
+        ErpAxiosBase.get<ShopperReview[]>('/reviews/retail/mine', {
+            headers: bearer(token),
+        }),
+    )
+    return data
+}
+
+/** Reviews one line of the shopper's own delivered order. */
+export async function createShopperReview(
+    token: string,
+    payload: ShopperReviewPayload,
+): Promise<void> {
+    try {
+        await authed(
+            ErpAxiosBase.post('/reviews/retail', payload, {
+                headers: bearer(token),
+            }),
+        )
+    } catch (error) {
+        if (error instanceof RetailSessionExpiredError) throw error
+        throw new Error(apiErrorMessage(error, 'Unable to submit your review'))
+    }
+}
+
+/** Uploads one review photo; returns its public `/uploads/products/…` URL. */
+export async function uploadShopperReviewPhoto(
+    token: string,
+    file: File,
+): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+        const { data } = await authed(
+            ErpAxiosBase.post<{ imageUrl: string }>(
+                '/reviews/retail/photos',
+                formData,
+                {
+                    headers: {
+                        ...bearer(token),
+                        'Content-Type': 'multipart/form-data',
+                    },
+                },
+            ),
+        )
+        return data.imageUrl
+    } catch (error) {
+        if (error instanceof RetailSessionExpiredError) throw error
+        throw new Error(apiErrorMessage(error, 'Unable to upload photo'))
+    }
+}
+
+/** The signed-in shopper's own inbox (order updates with tracking links). */
+export async function fetchShopperNotifications(
+    token: string,
+    limit = 20,
+): Promise<NotificationItem[]> {
+    const { data } = await authed(
+        ErpAxiosBase.get<NotificationItem[]>('/retail/notifications', {
+            params: { limit },
+            headers: bearer(token),
+        }),
+    )
+    return data
+}
+
+export async function fetchShopperNotificationCount(token: string): Promise<number> {
+    const { data } = await authed(
+        ErpAxiosBase.get<{ count: number }>('/retail/notifications/count', {
+            headers: bearer(token),
+        }),
+    )
+    return data.count ?? 0
+}
+
+export async function markShopperNotificationRead(token: string, id: string): Promise<void> {
+    await authed(
+        ErpAxiosBase.patch(
+            `/retail/notifications/${encodeURIComponent(id)}/read`,
+            undefined,
+            { headers: bearer(token) },
+        ),
+    )
+}
+
+export async function markAllShopperNotificationsRead(token: string): Promise<void> {
+    await authed(
+        ErpAxiosBase.patch('/retail/notifications/read-all', undefined, {
+            headers: bearer(token),
+        }),
     )
 }

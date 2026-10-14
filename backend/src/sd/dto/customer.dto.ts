@@ -5,6 +5,7 @@ import {
     IsNumber,
     IsOptional,
     IsString,
+    Matches,
     Max,
     MaxLength,
     Min,
@@ -73,23 +74,29 @@ export class CreateCustomerDto {
     @IsIn(CUSTOMER_STATUSES)
     status?: CustomerStatus
 
+    /** Defaults to B2B. */
     @IsOptional()
     @IsIn(CUSTOMER_TYPES)
     customerType?: CustomerType
 
-    /** RETAIL: link an existing shop login (mutually exclusive with shopPassword). */
+    /** RETAIL: link an existing shop login (mutually exclusive with password). */
     @IsOptional()
     @Transform(trim)
     @IsString()
     @IsNotEmpty()
     retailClientId?: string
 
-    /** RETAIL: create a new shop login with the customer's email and this password. */
+    /**
+     * RETAIL: create a new shop login with the customer's email and this password.
+     * Mirrors the Shop sign-up password policy.
+     */
     @IsOptional()
     @IsString()
     @MinLength(8)
     @MaxLength(72)
-    shopPassword?: string
+    @Matches(/[A-Za-z]/, { message: 'Password must include at least one letter' })
+    @Matches(/\d/, { message: 'Password must include at least one number' })
+    password?: string
 
     @IsOptional()
     @IsString()
@@ -128,6 +135,11 @@ export class UpdateCustomerDto {
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
     creditLimit?: number
+
+    /** Shop (storefront) account to link (nullable clears the link). */
+    @IsOptional()
+    @IsString()
+    retailClientId?: string
 
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)

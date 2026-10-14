@@ -2,8 +2,8 @@ import { NotificationsService } from './notifications.service'
 
 describe('NotificationsService', () => {
     let service: NotificationsService
-    let mockPrisma: any
-    let mockGateway: any
+    let mockPrisma: { notification: Record<string, jest.Mock> }
+    let mockGateway: Record<string, jest.Mock>
 
     beforeEach(() => {
         mockPrisma = {
@@ -19,7 +19,7 @@ describe('NotificationsService', () => {
             emitNotification: jest.fn(),
             emitCount: jest.fn(),
         }
-        service = new NotificationsService(mockPrisma, mockGateway)
+        service = new NotificationsService(mockPrisma as never, mockGateway as never)
     })
 
     it('creates an in-app notification with title, message, and isRead', async () => {
@@ -103,6 +103,7 @@ describe('NotificationsService', () => {
 
         expect(mockPrisma.notification.count).toHaveBeenCalledWith({
             where: {
+                retailClientId: null,
                 OR: [{ isRead: false }, { readed: false }],
                 userId: 'user-123',
             },
@@ -116,9 +117,76 @@ describe('NotificationsService', () => {
         await service.findAll(10, 'user-123')
 
         expect(mockPrisma.notification.findMany).toHaveBeenCalledWith({
-            where: { userId: 'user-123' },
+            where: { retailClientId: null, userId: 'user-123' },
             orderBy: { createdAt: 'desc' },
             take: 10,
+        })
+    })
+
+    describe('shopper inbox', () => {
+        const row = {
+            id: 'n1',
+            retailClientId: 'shopper1',
+            userId: null,
+            title: 'Order delivered',
+            message: 'Order SO-1 has been delivered.',
+            isRead: false,
+            target: 'Order delivered',
+            description: '',
+            type: 0,
+            image: '',
+            location: '/shop/track/tok',
+            locationLabel: 'Track order',
+            status: 'UNREAD',
+            readed: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        }
+
+        it('creates without broadcasting on the staff socket', async () => {
+            mockPrisma.notification.create.mockResolvedValue(row)
+            const result = await service.createForShopper({
+                retailClientId: 'shopper1',
+                title: row.title,
+                message: row.message,
+                location: row.location,
+                dedupeKey: 'k1',
+            })
+            expect(result?.id).toBe('n1')
+            expect(mockPrisma.notification.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({ retailClientId: 'shopper1', dedupeKey: 'k1' }),
+            })
+            expect(mockGateway.emitNotification).not.toHaveBeenCalled()
+            expect(mockGateway.emitCount).not.toHaveBeenCalled()
+        })
+
+        it('treats a duplicate dedupeKey as a no-op', async () => {
+            const { Prisma } = jest.requireActual('@prisma/client')
+            mockPrisma.notification.create.mockRejectedValue(
+                new Prisma.PrismaClientKnownRequestError('dup', {
+                    code: 'P2002',
+                    clientVersion: 'test',
+                }),
+            )
+            await expect(
+                service.createForShopper({
+                    retailClientId: 'shopper1',
+                    title: 't',
+                    message: 'm',
+                    dedupeKey: 'k1',
+                }),
+            ).resolves.toBeNull()
+        })
+
+        it("only marks the shopper's own notification as read", async () => {
+            mockPrisma.notification.updateMany.mockResolvedValue({ count: 0 })
+            await expect(service.markReadForShopper('shopper1', 'other')).rejects.toThrow(
+                'Notification not found',
+            )
+            expect(mockPrisma.notification.updateMany).toHaveBeenCalledWith({
+                where: { id: 'other', retailClientId: 'shopper1' },
+                data: { isRead: true, readed: true },
+            })
         })
     })
 })

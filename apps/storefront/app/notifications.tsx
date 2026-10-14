@@ -14,6 +14,7 @@ import { useNotifications } from '@/src/hooks/useNotifications'
 import { colors, radius, shadow } from '@/src/theme'
 import type { Notification } from '@/src/types'
 import { formatDateTime } from '@/src/utils/format'
+import { openWebPath } from '@/src/utils/tracking'
 
 function NotificationItem({
     item,
@@ -94,6 +95,11 @@ export default function NotificationsScreen() {
 
     const handlePress = async (item: Notification) => {
         if (!item.isRead) await markRead(item.id)
+        // Delivery updates carry a signed web tracking link (map + timeline).
+        if (item.location?.startsWith('/shop/track/')) {
+            await openWebPath(item.location)
+            return
+        }
         // If the notification is about an order, navigate to orders
         if (
             item.title?.toLowerCase().includes('order') ||

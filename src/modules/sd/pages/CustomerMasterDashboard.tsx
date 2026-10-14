@@ -207,6 +207,18 @@ const CustomerMasterDashboard = () => {
                     ),
             },
             {
+                header: 'Shop Account',
+                id: 'shopAccount',
+                cell: ({ row }) =>
+                    row.original.retailClient ? (
+                        <span className="whitespace-nowrap">
+                            {row.original.retailClient.email}
+                        </span>
+                    ) : (
+                        <span className="text-gray-400">—</span>
+                    ),
+            },
+            {
                 header: 'Status',
                 id: 'status',
                 cell: ({ row }) =>

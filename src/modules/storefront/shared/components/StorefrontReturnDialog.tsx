@@ -16,16 +16,25 @@ import {
 } from '@/modules/sd/services/salesOrderDashboardService'
 
 const RETURN_REASONS = [
-    { value: 'CHANGED_MIND', label: 'Changed my mind' },
+    { value: 'DAMAGED_ITEM', label: 'Damaged product' },
     { value: 'WRONG_ITEM', label: 'Wrong item received' },
+    { value: 'MISSING_ITEM', label: 'Missing item' },
+    { value: 'EXPIRED_ITEM', label: 'Expired item' },
     { value: 'DEFECTIVE_ITEM', label: 'Defective item' },
-    { value: 'DAMAGED_ITEM', label: 'Damaged item' },
     { value: 'OTHER', label: 'Other' },
 ] as const
 
 type ReturnReason = (typeof RETURN_REASONS)[number]['value']
 
 type ReturnReasonOption = { value: ReturnReason; label: string }
+
+const RESOLUTIONS = [
+    { value: 'REFUND', label: 'Refund' },
+    { value: 'REPLACEMENT', label: 'Replacement' },
+    { value: 'STORE_CREDIT', label: 'Store credit' },
+] as const
+
+type ResolutionOption = { value: string; label: string }
 
 type StorefrontReturnDialogProps = {
     isOpen: boolean
@@ -45,7 +54,8 @@ const StorefrontReturnDialog = ({
     onError,
 }: StorefrontReturnDialogProps) => {
     const [selected, setSelected] = useState<Record<string, number>>({})
-    const [reason, setReason] = useState<ReturnReason>('CHANGED_MIND')
+    const [reason, setReason] = useState<ReturnReason>('DAMAGED_ITEM')
+    const [resolution, setResolution] = useState('REFUND')
     const [conditionNote, setConditionNote] = useState('')
     const [photos, setPhotos] = useState<string[]>([])
     const [uploading, setUploading] = useState(false)
@@ -55,7 +65,8 @@ const StorefrontReturnDialog = ({
 
     const reset = () => {
         setSelected({})
-        setReason('CHANGED_MIND')
+        setReason('DAMAGED_ITEM')
+        setResolution('REFUND')
         setConditionNote('')
         setPhotos([])
         setFormError(null)
@@ -125,6 +136,7 @@ const StorefrontReturnDialog = ({
                     reason,
                     conditionNote: conditionNote.trim() || undefined,
                     photos: photos.length ? photos : undefined,
+                    preferredResolution: resolution,
                     lines,
                 },
                 token,
@@ -224,7 +236,19 @@ const StorefrontReturnDialog = ({
                                 (option) => option.value === reason,
                             ) as ReturnReasonOption | undefined}
                             onChange={(option) =>
-                                setReason(option?.value ?? 'CHANGED_MIND')
+                                setReason(option?.value ?? 'DAMAGED_ITEM')
+                            }
+                        />
+                    </FormItem>
+
+                    <FormItem label="Preferred resolution">
+                        <Select<ResolutionOption>
+                            options={RESOLUTIONS as readonly ResolutionOption[]}
+                            value={RESOLUTIONS.find(
+                                (option) => option.value === resolution,
+                            )}
+                            onChange={(option) =>
+                                setResolution(option?.value ?? 'REFUND')
                             }
                         />
                     </FormItem>

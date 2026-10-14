@@ -505,6 +505,11 @@ export class CreateCustomerReturnRequestDto {
     conditionNote?: string
 
     @IsOptional()
+    @IsString()
+    @IsIn(['REFUND', 'REPLACEMENT', 'STORE_CREDIT'])
+    preferredResolution?: string
+
+    @IsOptional()
     photos?: unknown
 
     @IsArray()

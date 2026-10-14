@@ -13,6 +13,8 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlay, HiOutlineUserAdd, HiOutlineCheckCircle, HiOutlineExclamation } from 'react-icons/hi'
 import { warehouseTaskService } from '../services/warehouseTaskService'
+import { pickingService } from '../services/pickingService'
+import type { AssignableWorker } from '../types'
 import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { WarehouseTask, WarehouseTaskQueryParams, WarehouseTaskStatus, WarehouseTaskType } from '../types'
 
@@ -38,6 +40,8 @@ type Props = {
     title?: string
 }
 
+type AssignWorkerOption = { value: string; label: string }
+
 export default function WarehouseTaskTable({ mode }: Props) {
     const [tasks, setTasks] = useState<WarehouseTask[]>([])
     const [total, setTotal] = useState(0)
@@ -53,6 +57,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
     const [assignOpen, setAssignOpen] = useState(false)
     const [assignUserId, setAssignUserId] = useState('')
     const [activeTask, setActiveTask] = useState<WarehouseTask | null>(null)
+    const [assignWorkers, setAssignWorkers] = useState<AssignableWorker[]>([])
     const [completeOpen, setCompleteOpen] = useState(false)
     const [completeQty, setCompleteQty] = useState('')
     const [completeBinId, setCompleteBinId] = useState('')
@@ -106,6 +111,31 @@ export default function WarehouseTaskTable({ mode }: Props) {
     useEffect(() => {
         fetchTasks()
     }, [fetchTasks])
+
+    /** Assignable workers for the task company (server-scoped), loaded per dialog open. */
+    const assignWorkerOptions = useMemo<AssignWorkerOption[]>(
+        () =>
+            assignWorkers.map((w) => ({
+                value: w.id,
+                label: `${w.displayName} — ${w.email}`,
+            })),
+        [assignWorkers],
+    )
+    useEffect(() => {
+        if (!assignOpen || !activeTask) return
+        let alive = true
+        pickingService
+            .assignableUsers(activeTask.companyId, activeTask.warehouseId)
+            .then((workers) => {
+                if (alive) setAssignWorkers(workers)
+            })
+            .catch(() => {
+                if (alive) setAssignWorkers([])
+            })
+        return () => {
+            alive = false
+        }
+    }, [assignOpen, activeTask])
 
     const runAction = async (fn: () => Promise<unknown>, success: string) => {
         setActionLoading(true)
@@ -293,9 +323,46 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 />
             </AdaptiveCard>
 
-            <FormDialog isOpen={assignOpen} title="Assign Task" onClose={() => setAssignOpen(false)} onSubmit={() => { if (activeTask) return runAction(() => warehouseTaskService.assign(activeTask.id, assignUserId), 'Task assigned') }} confirmLoading={actionLoading}>
-                <FormItem label="User ID">
-                    <Input value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)} placeholder="Worker user ID" />
+            <FormDialog
+                isOpen={assignOpen}
+                title="Assign Task"
+                onClose={() => setAssignOpen(false)}
+                onSubmit={() => {
+                    if (!activeTask) return
+                    return runAction(
+                        () => warehouseTaskService.assign(activeTask.id, assignUserId),
+                        'Task assigned',
+                    )
+                }}
+                confirmLoading={actionLoading}
+            >
+                <FormItem
+                    label="Worker"
+                    invalid={false}
+                    errorMessage={
+                        assignWorkers.length === 0
+                            ? 'No assignable workers found for this task company'
+                            : undefined
+                    }
+                >
+                    <Select<AssignWorkerOption>
+                        isClearable
+                        isSearchable
+                        options={assignWorkerOptions}
+                        value={
+                            assignWorkerOptions.find(
+                                (o) => o.value === assignUserId,
+                            ) ?? null
+                        }
+                        onChange={(option) =>
+                            setAssignUserId(option?.value ?? '')
+                        }
+                        placeholder="Select a worker of the task company"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                        Only active workers who are members of the task company can be
+                        assigned (server-enforced).
+                    </p>
                 </FormItem>
             </FormDialog>
 
