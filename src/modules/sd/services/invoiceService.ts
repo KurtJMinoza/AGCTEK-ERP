@@ -57,6 +57,77 @@ export async function listInvoices(params: ListInvoicesParams = {}): Promise<Inv
     }
 }
 
+type Decimalish = string | number
+
+export type InvoiceLine = {
+    id: string
+    lineNumber: number
+    sku: string
+    description: string | null
+    variantName: string | null
+    quantity: Decimalish
+    unitPrice: Decimalish
+    lineTotal: Decimalish
+}
+
+/** Invoice document: stored status plus the derived billing view. */
+export type InvoiceDetail = {
+    id: string
+    invoiceNumber: string
+    /** DRAFT | ISSUED (posted) | PAID | CANCELLED | REFUNDED */
+    status: string
+    billingStatus: BillingStatus | 'DRAFT'
+    currency: string
+    subtotal: Decimalish
+    discountAmount: Decimalish
+    shippingAmount: Decimalish
+    totalAmount: Decimalish
+    refundedAmount: Decimalish
+    issuedAt: string | null
+    dueDate: string | null
+    paidAt: string | null
+    cancelledAt: string | null
+    notes: string | null
+    createdAt: string
+    lines: InvoiceLine[]
+    billTo: {
+        customerId: string
+        customerNumber: string | null
+        name: string | null
+        email: string | null
+    }
+    salesOrder: {
+        orderNumber: string
+        channel: string
+        status: string
+        company: { id: string; code: string; name: string; address: string; tin: string } | null
+        paymentMethod: string | null
+        paymentStatus: string | null
+        paymentReference: string | null
+        isDemoPayment: boolean
+        shipToName: string | null
+        shipToPhone: string | null
+        shipToAddressLine1: string | null
+        shipToCity: string | null
+        shipToRegion: string | null
+        shipToPostalCode: string | null
+        shipToCountry: string | null
+        shippedAt: string | null
+        deliveredAt: string | null
+    }
+}
+
+export async function getInvoice(id: string): Promise<InvoiceDetail> {
+    try {
+        const { data } = await ErpAxiosBase.get<InvoiceDetail>(
+            `${BASE}/${encodeURIComponent(id)}`,
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load the invoice')
+    }
+}
+
 /** Server-rendered invoice PDF, requested inline so it can open in a browser tab. */
 export async function fetchInvoicePdf(id: string): Promise<Blob> {
     try {

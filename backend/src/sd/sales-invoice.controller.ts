@@ -6,9 +6,8 @@ import { SalesInvoiceService } from './sales-invoice.service'
 import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
 
 /**
- * Customer billing (read-only). Invoices are created and issued by the
- * goods-issue listener and marked paid from the order payment; nothing here
- * changes them.
+ * Customer billing (read-only). Invoices are drafted at goods issue, posted on
+ * delivery POD and marked paid from the order payment; nothing here changes them.
  */
 @Controller('sd/invoices')
 export class SalesInvoiceController {
@@ -21,6 +20,12 @@ export class SalesInvoiceController {
     @RequirePermission('sd.billing', 'read')
     list(@Query() query: ListSalesInvoicesQueryDto) {
         return this.invoices.list(query)
+    }
+
+    @Get(':id')
+    @RequirePermission('sd.billing', 'read')
+    findOne(@Param('id') id: string) {
+        return this.invoices.findOne(id)
     }
 
     /** `?inline=1` opens the PDF in the browser instead of downloading. */

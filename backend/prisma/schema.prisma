@@ -6507,6 +6507,8 @@ enum TripStopEventType {
   ARRIVED
   COMPLETED
   FAILED
+  /// Driver confirmed Cash on Delivery collected (SD payment → Paid)
+  CASH_COLLECTED
 }
 
 enum ShipmentStatus {

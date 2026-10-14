@@ -59,6 +59,8 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
                 state.events.find((e) => e.clientActionId === where.clientActionId) ?? null,
         },
         shipment: {
+            findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+                where.id.in.map((id) => ({ id, package: { salesOrderId: `so-${id}`, pickingTask: null } })),
             updateMany: async ({ where, data }: { where: { id: { in: string[] }; status: { notIn: ShipmentStatus[] } }; data: Record<string, unknown> }) => {
                 let count = 0
                 for (const id of where.id.in) {
@@ -81,11 +83,37 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
             }
         },
     }
-    const service = new TripsService(prisma as never, {} as never, {} as never, {} as never)
+    const salesOrders = {
+        getCodCollection: jest.fn().mockResolvedValue(null),
+        collectCashOnDelivery: jest.fn(),
+    }
+    const events = { emit: jest.fn() }
+    const service = new TripsService(
+        prisma as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        salesOrders as never,
+        events as never,
+    )
     const completeTrip = jest.spyOn(service, 'updateStatus').mockResolvedValue({} as never)
     const stop = (id: string) => state.stops.find((s) => s.id === id)!
-    return { state, service, completeTrip, stop }
+    return { state, service, completeTrip, stop, salesOrders, events }
 }
+
+const collected = (over: Record<string, unknown> = {}) => ({
+    paymentMethod: 'COD',
+    status: 'COLLECTED',
+    currency: 'PHP',
+    amountDue: 250,
+    amountCollected: 250,
+    collectedAt: new Date(),
+    orders: [{ salesOrderId: 'so-shA', orderNumber: 'SO-1' }],
+    amountReceived: 300,
+    change: 50,
+    collectedOrderIds: ['so-shA'],
+    ...over,
+})
 
 const TWO_STOPS: Array<[string, number, StopStatus, Link[]]> = [
     ['s1', 1, StopStatus.PENDING, [{ action: 'DROPOFF', shipmentId: 'shA' }]],
@@ -193,6 +221,97 @@ describe('TripsService stop execution', () => {
         const { service, completeTrip } = setup([['s1', 1, StopStatus.ARRIVED, [{ action: 'DROPOFF', shipmentId: 'shA' }]]])
         await service.deliverStop('t1', 's1', { outcome: 'FAILED', reasonCode: 'WRONG_ADDRESS' }, 'drv-1')
         expect(completeTrip).toHaveBeenCalledWith('t1', TripStatus.COMPLETED)
+    })
+
+    it('POD success notifies SD for the stop DROPOFF shipments (invoice posts on delivery)', async () => {
+        const { service, events } = setup(TWO_STOPS)
+        await service.arriveStop('t1', 's1', 'drv-1')
+        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED' }, 'drv-1')
+        expect(events.emit).toHaveBeenCalledWith('shipment.delivered', { shipmentIds: ['shA'] })
+    })
+
+    it('a failed stop does not notify SD of delivery', async () => {
+        const { service, events } = setup(TWO_STOPS)
+        await service.arriveStop('t1', 's1', 'drv-1')
+        await service.deliverStop('t1', 's1', { outcome: 'FAILED', reasonCode: 'CUSTOMER_REFUSED' }, 'drv-1')
+        expect(events.emit).not.toHaveBeenCalledWith('shipment.delivered', expect.anything())
+    })
+
+    describe('cash received (COD)', () => {
+        it('collects via SD for the stop orders and audits a CASH_COLLECTED event', async () => {
+            const { service, state, salesOrders } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            salesOrders.collectCashOnDelivery.mockResolvedValue(collected())
+
+            const result = await service.collectCash('t1', 's1', { amountReceived: 300, clientActionId: 'cash-1' }, 'drv-1')
+
+            expect(salesOrders.collectCashOnDelivery).toHaveBeenCalledWith(['so-shA'], 300)
+            expect(result.collection).toMatchObject({ status: 'COLLECTED', change: 50 })
+            expect(state.events.at(-1)).toMatchObject({
+                eventType: 'CASH_COLLECTED',
+                stopId: 's1',
+                clientActionId: 'cash-1',
+            })
+            expect(String(state.events.at(-1)!.notes)).toContain('received 300.00')
+        })
+
+        it('clientActionId replay returns state without collecting again', async () => {
+            const { service, state, salesOrders } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            salesOrders.collectCashOnDelivery.mockResolvedValue(collected())
+            await service.collectCash('t1', 's1', { amountReceived: 300, clientActionId: 'cash-1' }, 'drv-1')
+            salesOrders.getCodCollection.mockResolvedValue(collected({ amountReceived: undefined }))
+
+            const replay = await service.collectCash('t1', 's1', { amountReceived: 300, clientActionId: 'cash-1' }, 'drv-1')
+
+            expect(salesOrders.collectCashOnDelivery).toHaveBeenCalledTimes(1)
+            expect(replay.collection).toMatchObject({ status: 'COLLECTED', collectedOrderIds: [] })
+            expect(state.events.filter((e) => e.eventType === 'CASH_COLLECTED')).toHaveLength(1)
+        })
+
+        it('no audit event when nothing was newly collected (double submit without id)', async () => {
+            const { service, state, salesOrders } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            salesOrders.collectCashOnDelivery.mockResolvedValue(
+                collected({ collectedOrderIds: [], amountReceived: null, change: null }),
+            )
+            await service.collectCash('t1', 's1', { amountReceived: 300 }, 'drv-1')
+            expect(state.events.filter((e) => e.eventType === 'CASH_COLLECTED')).toHaveLength(0)
+        })
+
+        it('wrong driver → 403', async () => {
+            const { service, salesOrders } = setup(TWO_STOPS)
+            await expect(service.collectCash('t1', 's1', { amountReceived: 1 }, 'drv-2')).rejects.toThrow(ForbiddenException)
+            expect(salesOrders.collectCashOnDelivery).not.toHaveBeenCalled()
+        })
+
+        it('stop not arrived/delivered → 400', async () => {
+            const { service, salesOrders } = setup(TWO_STOPS)
+            await expect(service.collectCash('t1', 's1', { amountReceived: 1 }, 'drv-1')).rejects.toThrow(BadRequestException)
+            expect(salesOrders.collectCashOnDelivery).not.toHaveBeenCalled()
+        })
+
+        it('missing amountReceived → 400', async () => {
+            const { service } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            await expect(service.collectCash('t1', 's1', {}, 'drv-1')).rejects.toThrow(/amountReceived/)
+        })
+
+        it('allowed right after POD (stop COMPLETED)', async () => {
+            const { service, salesOrders } = setup([['s1', 1, StopStatus.COMPLETED, [{ action: 'DROPOFF', shipmentId: 'shA' }]]])
+            salesOrders.collectCashOnDelivery.mockResolvedValue(collected())
+            await service.collectCash('t1', 's1', { amountReceived: 300 }, 'drv-1')
+            expect(salesOrders.collectCashOnDelivery).toHaveBeenCalled()
+        })
+
+        it('trip read model attaches the per-stop COD collection', async () => {
+            const { service, salesOrders } = setup(TWO_STOPS)
+            salesOrders.getCodCollection.mockImplementation(async (ids: string[]) =>
+                ids.includes('so-shA') ? { status: 'PENDING', amountDue: 250 } : null,
+            )
+            const trip = await service.withCodCollections(await service.findOne('t1'))
+            expect(trip.stops.map((s) => s.collection)).toEqual([{ status: 'PENDING', amountDue: 250 }, null])
+        })
     })
 
     it('generic stop PATCH cannot set execution statuses', async () => {

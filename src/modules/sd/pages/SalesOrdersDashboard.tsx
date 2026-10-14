@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
     HiOutlineCheck,
     HiOutlineDesktopComputer,
@@ -255,6 +255,12 @@ const SalesOrdersDashboard = () => {
         useState<SalesOrderRecord | null>(null)
     const [searchInput, setSearchInput] = useState(filters.search)
     const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
+
+    // Deep link from other SD pages (e.g. Billing → "Open sales order").
+    const linkedSearch = useSearchParams()?.get('search') ?? null
+    useEffect(() => {
+        if (linkedSearch) setSearchInput(linkedSearch)
+    }, [linkedSearch])
 
     const selected = selectedSnapshot
         ? (orders.find((order) => order.id === selectedSnapshot.id) ??

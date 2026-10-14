@@ -4,6 +4,7 @@ import {
     Inject,
     Injectable,
     Logger,
+    NotFoundException,
     Optional,
     forwardRef,
 } from '@nestjs/common'
@@ -39,6 +40,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { VehiclesService } from '../vehicles/vehicles.service'
 import { MaintenanceService } from '../maintenance/maintenance.service'
 import { GoodsIssueService } from '../../mm/stock-ops/goods-issue.service'
+import { SalesOrderService } from '../../sd/sales-order.service'
+import type { CodCollectionSummary } from '../../sd/cod-collection'
 import { computeCapacity } from '../scm.capacity'
 import {
     assertFound,
@@ -120,6 +123,19 @@ type PodBody = {
     notes?: string | null
 }
 
+type CashReceivedBody = StopExecutionBody & {
+    /** Cash handed over by the customer; must cover the amount due (no partial collection). */
+    amountReceived?: number | string
+}
+
+type TripStopWithLinks = {
+    id: string
+    shipments?: Array<{ action: string; shipmentId: string }>
+}
+
+/** Stops where the driver may record COD cash: at the door, or right after POD. */
+const CASH_COLLECTION_STOP_STATUSES: StopStatus[] = [StopStatus.ARRIVED, StopStatus.COMPLETED]
+
 type DeliverStopBody = StopExecutionBody &
     PodBody & {
         /** DELIVERED (→ stop COMPLETED) | FAILED */
@@ -174,6 +190,9 @@ export class TripsService {
         private readonly maintenanceService: MaintenanceService,
         @Inject(forwardRef(() => GoodsIssueService))
         private readonly goodsIssueService: GoodsIssueService,
+        /** SD owns COD payment state; SCM only resolves the stop's orders and audits the action. */
+        @Inject(forwardRef(() => SalesOrderService))
+        private readonly salesOrders: SalesOrderService,
         /** Optional — used to notify SD when the trip delivers (order completion). */
         @Optional() private readonly events?: EventEmitter2,
     ) {}
@@ -384,17 +403,22 @@ export class TripsService {
             })
         })
 
+        const dropoffShipmentIds = stop.shipments
+            .filter((link) => link.action === 'DROPOFF')
+            .map((link) => link.shipmentId)
         this.events?.emit(
             outcome === 'FAIL' ? TRIP_EVENTS.STOP_FAILED : TRIP_EVENTS.STOP_COMPLETED,
             {
                 tripId,
                 stopId,
-                shipmentIds: stop.shipments
-                    .filter((link) => link.action === 'DROPOFF')
-                    .map((link) => link.shipmentId),
+                shipmentIds: dropoffShipmentIds,
                 failureCode,
             } satisfies TripStopSettledEvent,
         )
+        // POD success: SD marks the orders delivered and posts their invoices.
+        if (outcome === 'COMPLETE' && dropoffShipmentIds.length) {
+            this.events?.emit('shipment.delivered', { shipmentIds: dropoffShipmentIds })
+        }
 
         const refreshed = await this.findOne(tripId)
         const remaining = refreshed.stops.filter((s) => !isTerminalStop(s.status))
@@ -474,8 +498,139 @@ export class TripsService {
         }
     }
 
+    /**
+     * Driver "Cash Received" at a COD stop. SD validates and moves the payment
+     * Pending Collection → Paid (posted invoice → PAID); SCM checks the driver
+     * and stop, then audits a CASH_COLLECTED event. Idempotent via
+     * clientActionId, and via the payment state when it is omitted.
+     */
+    async collectCash(
+        tripId: string,
+        stopId: string,
+        body: CashReceivedBody,
+        callerDriverId?: string | null,
+    ) {
+        const trip = await this.findOne(tripId)
+        assertAssignedDriver(trip, callerDriverId)
+        const stop = trip.stops.find((s) => s.id === stopId)
+        if (!stop) throw new NotFoundException('Stop not found on this trip')
+        const meta = parseExecutionMeta(body)
+        const orderIds = (await this.salesOrderIdsByStop([stop])).get(stop.id) ?? []
+
+        if (await this.isReplay(meta.clientActionId, stopId, TripStopEventType.CASH_COLLECTED)) {
+            const collection = await this.salesOrders.getCodCollection(orderIds)
+            return {
+                trip: await this.withCodCollections(trip),
+                collection: { ...collection, amountReceived: null, change: null, collectedOrderIds: [] },
+            }
+        }
+        if (!CASH_COLLECTION_STOP_STATUSES.includes(stop.status)) {
+            throw new BadRequestException(
+                `Cash can be recorded only at an arrived or delivered stop (stop #${stop.sequence} is ${stop.status})`,
+            )
+        }
+        if (trip.status !== TripStatus.IN_TRANSIT && trip.status !== TripStatus.COMPLETED) {
+            throw new BadRequestException(`Cash cannot be recorded on a ${trip.status} trip`)
+        }
+        const amountReceived =
+            body.amountReceived === '' || body.amountReceived == null
+                ? NaN
+                : Number(body.amountReceived)
+        if (!Number.isFinite(amountReceived) || amountReceived < 0) {
+            throw new BadRequestException('amountReceived is required (a non-negative number)')
+        }
+        if (!orderIds.length) {
+            throw new BadRequestException('No sales order is linked to this stop — nothing to collect')
+        }
+
+        const collection = await this.salesOrders.collectCashOnDelivery(orderIds, amountReceived)
+        if (collection.collectedOrderIds.length) {
+            try {
+                await this.recordStopEvent(this.prisma, {
+                    tripId,
+                    stopId,
+                    eventType: TripStopEventType.CASH_COLLECTED,
+                    driverId: trip.driverId,
+                    meta,
+                    notes:
+                        `COD ${collection.currency} due ${collection.amountDue?.toFixed(2)} · ` +
+                        `received ${amountReceived.toFixed(2)} · change ${collection.change?.toFixed(2)} · ` +
+                        collection.orders
+                            .filter((o) => collection.collectedOrderIds.includes(o.salesOrderId))
+                            .map((o) => o.orderNumber)
+                            .join(', '),
+                })
+            } catch (err) {
+                // A concurrent replay of the same clientActionId already audited it.
+                if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) {
+                    throw err
+                }
+            }
+        }
+        return { trip: await this.withCodCollections(await this.findOne(tripId)), collection }
+    }
+
+    /**
+     * Driver/ERP read model: each stop gets its COD `collection` (null when the
+     * stop drops no Cash on Delivery order). Amounts come from SD payments.
+     */
+    async withCodCollections<S extends TripStopWithLinks, T extends { stops: S[] }>(
+        trip: T,
+    ): Promise<Omit<T, 'stops'> & { stops: Array<S & { collection: CodCollectionSummary | null }> }> {
+        const byStop = await this.salesOrderIdsByStop(trip.stops)
+        const stops = await Promise.all(
+            trip.stops.map(async (stop) => {
+                const ids = byStop.get(stop.id) ?? []
+                const collection: CodCollectionSummary | null = ids.length
+                    ? await this.salesOrders.getCodCollection(ids)
+                    : null
+                return { ...stop, collection }
+            }),
+        )
+        return { ...trip, stops }
+    }
+
+    /** Stop → DROPOFF shipments → MM package → SD sales order (legacy: picking task). */
+    private async salesOrderIdsByStop(stops: TripStopWithLinks[]) {
+        const shipmentIds = [
+            ...new Set(
+                stops.flatMap((s) =>
+                    (s.shipments ?? []).filter((l) => l.action === 'DROPOFF').map((l) => l.shipmentId),
+                ),
+            ),
+        ]
+        const result = new Map<string, string[]>()
+        if (!shipmentIds.length) return result
+        const rows = await this.prisma.shipment.findMany({
+            where: { id: { in: shipmentIds } },
+            select: {
+                id: true,
+                package: {
+                    select: {
+                        salesOrderId: true,
+                        pickingTask: { select: { salesOrderId: true } },
+                    },
+                },
+            },
+        })
+        const orderByShipment = new Map(
+            rows.map((r) => [
+                r.id,
+                r.package?.salesOrderId ?? r.package?.pickingTask?.salesOrderId ?? null,
+            ]),
+        )
+        for (const stop of stops) {
+            const ids = (stop.shipments ?? [])
+                .filter((l) => l.action === 'DROPOFF')
+                .map((l) => orderByShipment.get(l.shipmentId))
+                .filter((id): id is string => !!id)
+            if (ids.length) result.set(stop.id, [...new Set(ids)])
+        }
+        return result
+    }
+
     private async recordStopEvent(
-        tx: Prisma.TransactionClient,
+        tx: Prisma.TransactionClient | PrismaService,
         input: {
             tripId: string
             stopId: string

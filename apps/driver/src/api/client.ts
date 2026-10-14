@@ -3,6 +3,7 @@ import { Platform } from 'react-native'
 import { loadSession } from './storage'
 import type {
     AuthUser,
+    CashReceivedResult,
     DeliveryFailureReason,
     Driver,
     StopExecutionMeta,
@@ -185,6 +186,25 @@ export async function apiDeliverStop(
         `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/deliver`,
         {
             method: 'PATCH',
+            headers: await driverHeaders(),
+            body: JSON.stringify(body),
+        },
+    )
+}
+
+/**
+ * COD "Cash Received" — full collection only (amountReceived ≥ amount due).
+ * Reuse the same clientActionId on retry; the server returns the collected state.
+ */
+export async function apiCashReceived(
+    tripId: string,
+    stopId: string,
+    body: StopExecutionMeta & { amountReceived: number },
+): Promise<CashReceivedResult> {
+    return request<CashReceivedResult>(
+        `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/cash-received`,
+        {
+            method: 'POST',
             headers: await driverHeaders(),
             body: JSON.stringify(body),
         },

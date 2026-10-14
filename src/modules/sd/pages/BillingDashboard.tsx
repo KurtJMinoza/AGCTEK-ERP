@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
     HiOutlineDocumentText,
     HiOutlineMail,
@@ -13,7 +14,7 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import StatusBadge from '@/components/shared/StatusBadge'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -30,33 +31,27 @@ import {
     type Invoice,
     type InvoiceSummary,
 } from '../services/invoiceService'
+import {
+    BILLING_ROUTE as ROUTE_PATH,
+    BILLING_STATUS_META as STATUS_META,
+    formatDate,
+    formatMoney,
+    invoiceDocumentHref,
+} from '../utils/invoiceDisplay'
 
-const ROUTE_PATH = '/modules/sd/billing'
 const SEARCH_DEBOUNCE_MS = 350
 
-const STATUS_META: Record<BillingStatus, { label: string; tone: StatusTone }> = {
-    UNPAID: { label: 'Unpaid', tone: 'warning' },
-    OVERDUE: { label: 'Overdue', tone: 'danger' },
-    PAID: { label: 'Paid', tone: 'success' },
-    CANCELLED: { label: 'Cancelled', tone: 'default' },
-    REFUNDED: { label: 'Refunded', tone: 'default' },
-}
+const FILTER_STATUSES: BillingStatus[] = ['UNPAID', 'OVERDUE', 'PAID', 'CANCELLED', 'REFUNDED']
 
 type StatusFilterOption = { value: BillingStatus | ''; label: string }
 
 const STATUS_FILTER_OPTIONS: StatusFilterOption[] = [
     { value: '', label: 'All statuses' },
-    ...(Object.keys(STATUS_META) as BillingStatus[]).map((status) => ({
+    ...FILTER_STATUSES.map((status) => ({
         value: status,
         label: STATUS_META[status].label,
     })),
 ]
-
-const formatDate = (value: string | null) =>
-    value ? new Date(value).toLocaleDateString('en-PH', { dateStyle: 'medium' }) : '—'
-
-const formatMoney = (amount: number, currency = 'PHP') =>
-    new Intl.NumberFormat('en-PH', { style: 'currency', currency }).format(amount)
 
 const SummaryStat = ({
     label,
@@ -166,7 +161,12 @@ const BillingDashboard = () => {
                 header: 'Invoice #',
                 id: 'invoiceNumber',
                 cell: ({ row }) => (
-                    <span className="font-mono font-semibold">{row.original.invoiceNumber}</span>
+                    <Link
+                        href={invoiceDocumentHref(row.original.id)}
+                        className="font-mono font-semibold text-primary hover:underline"
+                    >
+                        {row.original.invoiceNumber}
+                    </Link>
                 ),
             },
             {
@@ -202,7 +202,9 @@ const BillingDashboard = () => {
                 header: 'Due Date',
                 id: 'dueDate',
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap">{formatDate(row.original.dueDate)}</span>
+                    <span className="whitespace-nowrap">
+                        {formatDate(row.original.dueDate) ?? '—'}
+                    </span>
                 ),
             },
             {
@@ -255,7 +257,7 @@ const BillingDashboard = () => {
             <Breadcrumb items={breadcrumbItems} className="mb-4" />
             <PageHeader
                 title="Customer Billing & Invoices"
-                description="Manage invoices triggered by Post Goods Issue (PGI) and track Accounts Receivable."
+                description="Invoices are drafted at Post Goods Issue (PGI) and posted on delivery (POD). Track Accounts Receivable."
                 icon={<HiOutlineReceiptTax />}
                 actions={
                     <Button

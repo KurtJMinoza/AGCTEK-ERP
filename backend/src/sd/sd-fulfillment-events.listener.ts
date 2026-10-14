@@ -8,8 +8,9 @@ import { SalesInvoiceService } from './sales-invoice.service'
  * process (EventEmitter2):
  *
  *  - `goods-issue.posted` (dispatch) → SD shipment marker + order SHIPPED +
- *    sales invoice created & issued (timing: dispatch, ERP standard).
- *  - `shipment.delivered` → sales order DELIVERED + invoice finalized.
+ *    DRAFT sales invoice.
+ *  - `shipment.delivered` (driver POD per stop, or trip completion) → sales
+ *    order DELIVERED + invoice POSTED (ISSUED, or PAID when already collected).
  *
  * Every handler is idempotent (unique salesOrderId invoice, guarded updates).
  */
@@ -81,9 +82,14 @@ export class SdFulfillmentEventsListener {
             where: { id: salesOrderId },
             data: { status: 'SHIPPED' },
         })
+        // First dispatch wins; replayed events must not move the milestone.
+        await this.prisma.sdSalesOrder.updateMany({
+            where: { id: salesOrderId, shippedAt: null },
+            data: { shippedAt: new Date() },
+        })
 
-        // Invoice timing (ERP standard): auto-create + issue at dispatch.
-        await this.invoices.issueForSalesOrder(salesOrderId)
+        // Posting rule: the invoice posts on delivery (POD); dispatch only drafts it.
+        await this.invoices.createForSalesOrder(salesOrderId)
     }
 
     @OnEvent('shipment.delivered')
@@ -106,9 +112,12 @@ export class SdFulfillmentEventsListener {
         // SCM shipment → package → sales order. New order-level packages carry
         // the direct SD link; the picking-task relation remains a legacy
         // fallback for historical packages.
+        // Trip completion reports every shipment on the trip; failed stops
+        // leave theirs on EXCEPTION_HOLD and must not deliver the order.
         const rows = await this.prisma.shipment.findMany({
-            where: { id: { in: ids } },
+            where: { id: { in: ids }, status: 'DELIVERED' },
             select: {
+                deliveredAt: true,
                 package: {
                     select: {
                         salesOrderId: true,
@@ -117,24 +126,29 @@ export class SdFulfillmentEventsListener {
                 },
             },
         })
-        const orderIds = [
-            ...new Set(
-                rows
-                    .map(
-                        (row) =>
-                            row.package?.salesOrderId ??
-                            row.package?.pickingTask?.salesOrderId,
-                    )
-                    .filter(Boolean) as string[],
-            ),
-        ]
+        // Latest POD time per order (an order may span several shipments).
+        const deliveredAtByOrder = new Map<string, Date>()
+        for (const row of rows) {
+            const orderId =
+                row.package?.salesOrderId ??
+                row.package?.pickingTask?.salesOrderId
+            if (!orderId) continue
+            const at = row.deliveredAt ?? new Date()
+            const current = deliveredAtByOrder.get(orderId)
+            if (!current || at > current) deliveredAtByOrder.set(orderId, at)
+        }
+        const orderIds = [...deliveredAtByOrder.keys()]
         if (!orderIds.length) return
 
         await this.prisma.sdSalesOrder.updateMany({
             where: { id: { in: orderIds } },
             data: { status: 'DELIVERED' },
         })
-        for (const salesOrderId of orderIds) {
+        for (const [salesOrderId, deliveredAt] of deliveredAtByOrder) {
+            await this.prisma.sdSalesOrder.updateMany({
+                where: { id: salesOrderId, deliveredAt: null },
+                data: { deliveredAt },
+            })
             await this.invoices.issueForSalesOrder(salesOrderId)
         }
     }
