@@ -191,11 +191,17 @@ model Notification {
   locationLabel String   @default("")
   status        String   @default("")
   readed        Boolean  @default(false)
+  /// Shopper recipient (storefront). Shopper notifications are never shown to staff.
+  retailClientId String?
+  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: Cascade)
+  /// Idempotency key for event-driven notifications (e.g. order-tracking:<so>:IN_TRANSIT:<trip>)
+  dedupeKey     String?  @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([readed, createdAt])
   @@index([userId, isRead, createdAt])
+  @@index([retailClientId, isRead, createdAt])
 }
 
 // ΓöÇΓöÇΓöÇ Organisation stubs ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -7195,6 +7201,7 @@ model RetailClient {
   updatedAt    DateTime              @updatedAt
   cartItems    RetailCartItem[]
   addresses    RetailClientAddress[]
+  notifications Notification[]
   /// SD Customer Master record linked via Add New Customer (shop reference).
   sdCustomer   SdCustomer?
 

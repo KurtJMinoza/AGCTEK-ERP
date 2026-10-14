@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -12,32 +12,41 @@ import {
 } from 'react-icons/hi'
 import Badge from '@/components/ui/Badge'
 import Spinner from '@/components/ui/Spinner'
-import Tooltip from '@/components/ui/Tooltip'
 import {
     apiGetNotificationCount,
     apiGetNotificationList,
     apiMarkAllNotificationsAsRead,
     apiMarkNotificationAsRead,
 } from '@/services/CommonService'
+import {
+    fetchShopperNotificationCount,
+    fetchShopperNotifications,
+    markAllShopperNotificationsRead,
+    markShopperNotificationRead,
+} from '@/services/storefront/retailClientService'
 import { useMarketplace } from '../MarketplaceProvider'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import type { NotificationItem } from '@/@types/notification'
 
 export default function MarketplaceNotificationBell() {
     const router = useRouter()
-    const { signedInClient, openOrders } = useMarketplace()
+    const { signedInClient, sessionToken, openOrders } = useMarketplace()
     const { session } = useCurrentSession()
-    const activeUserId = signedInClient?.customerId || session?.user?.id
+    const shopperToken = signedInClient ? sessionToken : null
+    const activeUserId = session?.user?.id
 
     const [isOpen, setIsOpen] = useState(false)
     const [notifications, setNotifications] = useState<NotificationItem[]>([])
     const [unreadCount, setUnreadCount] = useState(0)
     const [loading, setLoading] = useState(false)
-    const [isPending, startTransition] = useTransition()
     const dropdownRef = useRef<HTMLDivElement>(null)
 
     const fetchCount = useCallback(async () => {
         try {
+            if (shopperToken) {
+                setUnreadCount(await fetchShopperNotificationCount(shopperToken))
+                return
+            }
             const data = await apiGetNotificationCount(
                 activeUserId ? { userId: activeUserId } : undefined,
             )
@@ -45,15 +54,17 @@ export default function MarketplaceNotificationBell() {
         } catch {
             // Silently fall back
         }
-    }, [activeUserId])
+    }, [shopperToken, activeUserId])
 
     const fetchNotifications = useCallback(async () => {
         setLoading(true)
         try {
-            const data = await apiGetNotificationList({
-                limit: 20,
-                ...(activeUserId ? { userId: activeUserId } : {}),
-            })
+            const data = shopperToken
+                ? await fetchShopperNotifications(shopperToken, 20)
+                : await apiGetNotificationList({
+                      limit: 20,
+                      ...(activeUserId ? { userId: activeUserId } : {}),
+                  })
             setNotifications(data || [])
             const unread = (data || []).filter(
                 (item) => !item.isRead && !item.readed,
@@ -64,7 +75,7 @@ export default function MarketplaceNotificationBell() {
         } finally {
             setLoading(false)
         }
-    }, [activeUserId])
+    }, [shopperToken, activeUserId])
 
     useEffect(() => {
         let mounted = true
@@ -116,10 +127,21 @@ export default function MarketplaceNotificationBell() {
             )
             setUnreadCount((c) => Math.max(0, c - 1))
             try {
-                await apiMarkNotificationAsRead(item.id)
+                if (shopperToken) {
+                    await markShopperNotificationRead(shopperToken, item.id)
+                } else {
+                    await apiMarkNotificationAsRead(item.id)
+                }
             } catch {
                 // Ignore API failure
             }
+        }
+
+        // Tracking / order notices carry an in-app path (e.g. /shop/track/<token>).
+        if (item.location?.startsWith('/')) {
+            setIsOpen(false)
+            router.push(item.location)
+            return
         }
 
         // If it's an order notification, offer navigation to orders
@@ -143,7 +165,11 @@ export default function MarketplaceNotificationBell() {
         )
         setUnreadCount(0)
         try {
-            await apiMarkAllNotificationsAsRead()
+            if (shopperToken) {
+                await markAllShopperNotificationsRead(shopperToken)
+            } else {
+                await apiMarkAllNotificationsAsRead()
+            }
         } catch {
             // Ignore API failure
         }
@@ -213,7 +239,7 @@ export default function MarketplaceNotificationBell() {
                                     No notifications yet
                                 </p>
                                 <p className="text-xs text-gray-400 mt-0.5">
-                                    We'll notify you when your order status changes
+                                    We&apos;ll notify you when your order status changes
                                 </p>
                             </div>
                         ) : (
@@ -290,16 +316,18 @@ export default function MarketplaceNotificationBell() {
                         )}
                     </div>
 
-                    {/* Footer */}
-                    <div className="border-t border-gray-100 bg-gray-50/50 p-2 text-center">
-                        <Link
-                            href="/notifications"
-                            onClick={() => setIsOpen(false)}
-                            className="inline-block text-xs font-medium text-emerald-600 hover:text-emerald-700 py-1 transition-colors"
-                        >
-                            View all notifications &rarr;
-                        </Link>
-                    </div>
+                    {/* Footer — the full inbox page is staff-only */}
+                    {!shopperToken && (
+                        <div className="border-t border-gray-100 bg-gray-50/50 p-2 text-center">
+                            <Link
+                                href="/notifications"
+                                onClick={() => setIsOpen(false)}
+                                className="inline-block text-xs font-medium text-emerald-600 hover:text-emerald-700 py-1 transition-colors"
+                            >
+                                View all notifications &rarr;
+                            </Link>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

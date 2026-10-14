@@ -423,6 +423,117 @@ export async function createMarketplaceCheckout(
     }
 }
 
+/** Customer-facing order status (server-computed; In transit only after driver Start Route). */
+export type CustomerOrderStatus =
+    | 'PLACED'
+    | 'CONFIRMED'
+    | 'PREPARING'
+    | 'READY_FOR_DELIVERY'
+    | 'IN_TRANSIT'
+    | 'DELIVERED'
+    | 'DELIVERY_FAILED'
+    | 'CANCELLED'
+
+export type OrderTrackingCheckpoint = {
+    code: CustomerOrderStatus
+    label: string
+    at: string | null
+    done: boolean
+    current: boolean
+    note?: string | null
+}
+
+/** Delayed (not live) courier position; only while the order is in transit. */
+export type OrderTrackingMap = {
+    available: boolean
+    reason: 'NOT_IN_TRANSIT' | 'NO_GPS_YET' | 'WAITING_FOR_UPDATE' | null
+    delaySeconds: number
+    lastMile: boolean
+    latitude: number | null
+    longitude: number | null
+    heading: number | null
+    recordedAt: string | null
+    lastUpdatedLabel: string | null
+    /** Estimated arrival window (server-computed); null when unknown. */
+    eta: { from: string; to: string; basis: 'road' | 'straight_line' } | null
+}
+
+export type OrderTracking = {
+    orderId: string
+    orderNumber: string
+    customerStatus: CustomerOrderStatus
+    customerStatusLabel: string
+    checkpoints: OrderTrackingCheckpoint[]
+    /** Single-order endpoint only (null in the list batch). */
+    destination: { lat: number; lng: number; label: string } | null
+    map: OrderTrackingMap | null
+}
+
+/** Timeline for one of the signed-in shopper's orders. */
+export async function getOrderTracking(
+    id: string,
+    sessionToken: string,
+): Promise<OrderTracking> {
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking>(
+            `/sd/sales-orders/retail/${encodeURIComponent(id)}/tracking`,
+            { headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to load order tracking')
+    }
+}
+
+/** Shareable read-only tracking link token for one of the shopper's orders. */
+export async function createOrderTrackingLink(
+    id: string,
+    sessionToken: string,
+): Promise<{ token: string; expiresAt: string }> {
+    try {
+        const { data } = await ErpAxiosBase.post<{ token: string; expiresAt: string }>(
+            `/sd/sales-orders/retail/${encodeURIComponent(id)}/tracking-link`,
+            {},
+            { headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to create a tracking link')
+    }
+}
+
+/** Public tracking via signed link (no sign-in). */
+export async function getPublicOrderTracking(linkToken: string): Promise<OrderTracking> {
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking>(
+            `/sd/sales-orders/public/tracking/${encodeURIComponent(linkToken)}`,
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'This tracking link is invalid or has expired.')
+    }
+}
+
+/** Status badges for the My Orders list (owned orders only, max 100 ids). */
+export async function getOrderTrackingBatch(
+    ids: string[],
+    sessionToken: string,
+): Promise<OrderTracking[]> {
+    if (ids.length === 0) return []
+    try {
+        const { data } = await ErpAxiosBase.get<OrderTracking[]>(
+            '/sd/sales-orders/retail/tracking',
+            { params: { ids: ids.slice(0, 100).join(',') }, headers: bearer(sessionToken) },
+        )
+        return data
+    } catch (error) {
+        if (isSessionRejected(error)) throw new RetailSessionExpiredError()
+        throw toError(error, 'Unable to load order tracking')
+    }
+}
+
 /**
  * Customer self-service cancellation before warehouse processing
  * (POST /sd/sales-orders/retail/:id/cancel). The reservation is released by

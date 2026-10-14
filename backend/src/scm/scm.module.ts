@@ -78,6 +78,6 @@ import { SdModule } from '../sd/sd.module'
         OsrmService,
         GeocodeService,
     ],
-    exports: [ShipmentsService, PlacesService, GeocodeService],
+    exports: [ShipmentsService, PlacesService, GeocodeService, TrackingService],
 })
 export class ScmModule {}

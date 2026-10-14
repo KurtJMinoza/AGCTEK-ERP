@@ -182,9 +182,59 @@ export type Notification = {
     message: string | null
     /** SO-number or other deep-link target. */
     target: string | null
+    /** Web path to open, e.g. `/shop/track/<token>` for delivery updates. */
+    location: string | null
     isRead: boolean
     createdAt: string | null
 }
+
+// ─── Order Tracking (server-computed; the app only displays it) ─────────────
+
+export type CustomerOrderStatus =
+    | 'PLACED'
+    | 'CONFIRMED'
+    | 'PREPARING'
+    | 'READY_FOR_DELIVERY'
+    | 'IN_TRANSIT'
+    | 'DELIVERED'
+    | 'DELIVERY_FAILED'
+    | 'CANCELLED'
+
+export type TrackingCheckpoint = {
+    code: CustomerOrderStatus
+    label: string
+    at: string | null
+    done: boolean
+    current: boolean
+    /** Customer-safe note, e.g. the failed-delivery reason or departure hub. */
+    note?: string | null
+}
+
+export type DeliveryEta = { from: string; to: string; basis: 'road' | 'straight_line' }
+
+/** Delayed courier position; never the vehicle, plate or device identity. */
+export type TrackingMap = {
+    available: boolean
+    reason: 'NOT_IN_TRANSIT' | 'NO_GPS_YET' | 'WAITING_FOR_UPDATE' | null
+    delaySeconds: number
+    lastMile: boolean
+    latitude: number | null
+    longitude: number | null
+    recordedAt: string | null
+    lastUpdatedLabel: string | null
+    eta: DeliveryEta | null
+}
+
+export type OrderTracking = {
+    orderId: string
+    orderNumber: string
+    customerStatus: CustomerOrderStatus
+    customerStatusLabel: string
+    checkpoints: TrackingCheckpoint[]
+    map: TrackingMap | null
+}
+
+export type TrackingLink = { token: string; expiresAt: string }
 
 // ─── Return Requests ─────────────────────────────────────────────────────────
 

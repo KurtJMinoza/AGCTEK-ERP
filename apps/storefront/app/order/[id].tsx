@@ -5,12 +5,14 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native
 import { storeName } from '@/src/catalog'
 import { commerceApi } from '@/src/api/client'
 import { ConfirmDialog } from '@/src/components/ConfirmDialog'
+import { DeliveryStatusCard } from '@/src/components/DeliveryStatusCard'
 import { OrderCard } from '@/src/components/OrderCard'
 import { OrderTimeline } from '@/src/components/OrderTimeline'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { ScreenState } from '@/src/components/ScreenState'
 import { SignInPrompt } from '@/src/components/SignInPrompt'
 import { useAuth } from '@/src/context/AuthContext'
+import { useOrderTracking } from '@/src/hooks/useOrderTracking'
 import { useOrders } from '@/src/hooks/useOrders'
 import { colors, radius, shadow } from '@/src/theme'
 
@@ -20,6 +22,7 @@ export default function OrderDetailScreen() {
     const router = useRouter()
     const { customer } = useAuth()
     const { data, loading, refreshing, error, refresh } = useOrders(customer?.customerId ?? null)
+    const tracking = useOrderTracking(id ?? null, !!customer)
     const [cancelOpen, setCancelOpen] = useState(false)
     const [cancelling, setCancelling] = useState(false)
     const [cancelError, setCancelError] = useState<string | null>(null)
@@ -46,7 +49,7 @@ export default function OrderDetailScreen() {
         try {
             await commerceApi.cancelOrder(order.id)
             setCancelOpen(false)
-            await refresh()
+            await Promise.all([refresh(), tracking.refresh()])
         } catch (e) {
             setCancelError(e instanceof Error ? e.message : 'Unable to cancel order')
         } finally {
@@ -59,11 +62,19 @@ export default function OrderDetailScreen() {
             <Stack.Screen options={{ title: order.orderNumber }} />
             <ScrollView
                 contentContainerStyle={styles.content}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={() => void Promise.all([refresh(), tracking.refresh()])}
+                        tintColor={colors.brand}
+                    />
+                }
             >
+                {tracking.data ? <DeliveryStatusCard tracking={tracking.data} /> : null}
+
                 <View style={styles.card}>
                     <Text style={styles.title}>Order status</Text>
-                    <OrderTimeline order={order} />
+                    <OrderTimeline order={order} tracking={tracking.data} />
                 </View>
 
                 {order.status === 'PENDING_APPROVAL' ? (

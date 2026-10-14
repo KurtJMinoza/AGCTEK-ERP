@@ -30,6 +30,11 @@ import {
     type ExecutionMeta,
 } from './trip-execution.rules'
 import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
+import {
+    TRIP_EVENTS,
+    type TripStartedEvent,
+    type TripStopSettledEvent,
+} from './trip-events'
 import { PrismaService } from '../../prisma/prisma.service'
 import { VehiclesService } from '../vehicles/vehicles.service'
 import { MaintenanceService } from '../maintenance/maintenance.service'
@@ -378,6 +383,18 @@ export class TripsService {
                         : optionalString(body.podNotes) ?? optionalString(body.notes) ?? null,
             })
         })
+
+        this.events?.emit(
+            outcome === 'FAIL' ? TRIP_EVENTS.STOP_FAILED : TRIP_EVENTS.STOP_COMPLETED,
+            {
+                tripId,
+                stopId,
+                shipmentIds: stop.shipments
+                    .filter((link) => link.action === 'DROPOFF')
+                    .map((link) => link.shipmentId),
+                failureCode,
+            } satisfies TripStopSettledEvent,
+        )
 
         const refreshed = await this.findOne(tripId)
         const remaining = refreshed.stops.filter((s) => !isTerminalStop(s.status))
@@ -878,6 +895,10 @@ export class TripsService {
                 where: { id: trip.driverId },
                 data: { status: DriverStatus.ON_TRIP },
             })
+        }
+
+        if (status === TripStatus.IN_TRANSIT && trip.status !== TripStatus.IN_TRANSIT) {
+            this.events?.emit(TRIP_EVENTS.STARTED, { tripId: id } satisfies TripStartedEvent)
         }
 
         if (completing && shipmentIds.length > 0) {
