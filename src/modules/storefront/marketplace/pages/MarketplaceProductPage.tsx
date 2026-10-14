@@ -12,7 +12,13 @@ import {
     HiOutlineShoppingCart,
     HiOutlineTruck,
 } from 'react-icons/hi'
-import { BadgeCheck, ChevronRight, Heart, Sparkles } from 'lucide-react'
+import {
+    BadgeCheck,
+    ChevronRight,
+    ClipboardList,
+    FileText,
+    Heart,
+} from 'lucide-react'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
@@ -49,6 +55,7 @@ import { productsHref } from '../browseQuery'
 import { MARKETPLACE_PATH } from '../host'
 import { notify, useMarketplace } from '../MarketplaceProvider'
 import {
+    CompanyLogo,
     MARKETPLACE_NAME,
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
@@ -621,7 +628,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     <Section
                         id="details-heading"
                         title="Product details"
-                        icon={<HiOutlineCheck aria-hidden />}
+                        icon={<FileText aria-hidden className="h-4 w-4" />}
                     >
                         <div className="flex flex-col gap-6">
                             {details || product.description ? (
@@ -674,7 +681,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     <Section
                         id="specs-heading"
                         title="Specifications"
-                        icon={<Sparkles aria-hidden className="h-4 w-4" />}
+                        icon={<ClipboardList aria-hidden className="h-4 w-4" />}
                     >
                         <dl className="grid grid-cols-1 gap-x-10 text-sm sm:grid-cols-2">
                             {specs.map((spec) => (
@@ -715,20 +722,28 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                             bodyClass="flex flex-col gap-5 p-6"
                         >
                             <div className="flex items-center gap-4">
-                                <span
-                                    className={classNames(
-                                        'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl',
-                                        theme.solid,
-                                    )}
-                                >
-                                    {StoreIcon ? (
-                                        <StoreIcon
-                                            aria-hidden
-                                            className="h-6 w-6"
-                                            strokeWidth={1.75}
-                                        />
-                                    ) : null}
-                                </span>
+                                {product.company ? (
+                                    <CompanyLogo
+                                        company={product.company}
+                                        size={56}
+                                        className="rounded-2xl"
+                                    />
+                                ) : (
+                                    <span
+                                        className={classNames(
+                                            'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl',
+                                            theme.solid,
+                                        )}
+                                    >
+                                        {StoreIcon ? (
+                                            <StoreIcon
+                                                aria-hidden
+                                                className="h-6 w-6"
+                                                strokeWidth={1.75}
+                                            />
+                                        ) : null}
+                                    </span>
+                                )}
                                 <div className="min-w-0">
                                     <p className="text-xs font-medium uppercase tracking-widest text-gray-400">
                                         Sold by

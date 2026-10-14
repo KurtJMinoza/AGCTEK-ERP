@@ -1,6 +1,6 @@
 'use client'
 
-import { Heart } from 'lucide-react'
+import { Heart, Tag } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
@@ -83,7 +83,7 @@ const MarketplaceProductCard = ({
                 }
             }}
         >
-            <div className="group relative overflow-hidden rounded-xl bg-gray-50 p-5">
+            <div className="group relative overflow-hidden rounded-xl bg-white p-5">
                 <ProductImage
                     product={product}
                     fit="contain"
@@ -194,12 +194,21 @@ const MarketplaceProductCard = ({
                                 {formatPrice(product.originalPrice)}
                             </span>
                         ) : null}
-                        {discount ? (
-                            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-600">
+                    </div>
+                    {discount && product.originalPrice !== null ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                                <Tag aria-hidden className="h-3 w-3" />
                                 −{discount}%
                             </span>
-                        ) : null}
-                    </div>
+                            <span className="text-xs font-medium text-emerald-700">
+                                You save{' '}
+                                {formatPrice(
+                                    product.originalPrice - product.price,
+                                )}
+                            </span>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 

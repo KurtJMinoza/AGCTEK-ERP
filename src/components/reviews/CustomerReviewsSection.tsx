@@ -289,7 +289,7 @@ export default function CustomerReviewsSection({
                 <div>
                     <div className="flex items-center gap-2">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                            <Sparkles className="h-4 w-4" />
+                            <MessageSquare className="h-4 w-4" />
                         </span>
                         <h2
                             id="reviews-heading"
