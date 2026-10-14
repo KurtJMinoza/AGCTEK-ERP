@@ -5,6 +5,7 @@ import type {
     RetailProduct,
     SalesOrderShippingDetails,
 } from '@/types/storefront/retail'
+import type { NotificationItem } from '@/@types/notification'
 
 export type RetailClientProfile = SalesOrderShippingDetails & {
     customerId: string
@@ -325,5 +326,46 @@ export async function saveRetailClientCart(
             },
             { headers: bearer(token) },
         ),
+    )
+}
+
+/** The signed-in shopper's own inbox (order updates with tracking links). */
+export async function fetchShopperNotifications(
+    token: string,
+    limit = 20,
+): Promise<NotificationItem[]> {
+    const { data } = await authed(
+        ErpAxiosBase.get<NotificationItem[]>('/retail/notifications', {
+            params: { limit },
+            headers: bearer(token),
+        }),
+    )
+    return data
+}
+
+export async function fetchShopperNotificationCount(token: string): Promise<number> {
+    const { data } = await authed(
+        ErpAxiosBase.get<{ count: number }>('/retail/notifications/count', {
+            headers: bearer(token),
+        }),
+    )
+    return data.count ?? 0
+}
+
+export async function markShopperNotificationRead(token: string, id: string): Promise<void> {
+    await authed(
+        ErpAxiosBase.patch(
+            `/retail/notifications/${encodeURIComponent(id)}/read`,
+            undefined,
+            { headers: bearer(token) },
+        ),
+    )
+}
+
+export async function markAllShopperNotificationsRead(token: string): Promise<void> {
+    await authed(
+        ErpAxiosBase.patch('/retail/notifications/read-all', undefined, {
+            headers: bearer(token),
+        }),
     )
 }

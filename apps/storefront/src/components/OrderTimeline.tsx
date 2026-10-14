@@ -1,12 +1,31 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { StyleSheet, Text, View } from 'react-native'
 import { colors } from '../theme'
-import type { Order } from '../types'
+import type { Order, OrderTracking } from '../types'
 import { formatDateTime } from '../utils/format'
 
-type Step = { label: string; done: boolean; current: boolean; danger?: boolean; at?: string }
+type Step = {
+    label: string
+    done: boolean
+    current: boolean
+    danger?: boolean
+    at?: string
+    note?: string
+}
 
-/** Order progress derived from the ERP order status (no courier tracking data exists). */
+/** Server checkpoints (fulfillment + delivery facts) — preferred when loaded. */
+function stepsFromTracking(tracking: OrderTracking): Step[] {
+    return tracking.checkpoints.map((c) => ({
+        label: c.label,
+        done: c.done,
+        current: c.current,
+        danger: c.code === 'DELIVERY_FAILED' || c.code === 'CANCELLED',
+        at: c.at ?? undefined,
+        note: c.note ?? undefined,
+    }))
+}
+
+/** Fallback progress from the order status alone (tracking not loaded / offline). */
 function stepsFor(order: Order): Step[] {
     const placed = { label: 'Order placed', done: true, current: false, at: order.placedAt }
     if (order.status === 'CANCELLED') {
@@ -24,7 +43,7 @@ function stepsFor(order: Order): Step[] {
         placed,
         { label: 'Waiting for approval', done: true, current: rank === 0 },
         { label: 'Preparing to ship', done: rank >= 1, current: rank === 1 },
-        { label: 'Dispatched', done: rank >= 2, current: rank === 2 },
+        { label: 'Ready for delivery', done: rank >= 2, current: rank === 2 },
         {
             label: 'Delivered',
             done: rank >= 3,
@@ -40,15 +59,15 @@ function stepsFor(order: Order): Step[] {
     ]
 }
 
-export function OrderTimeline({ order }: { order: Order }) {
-    const steps = stepsFor(order)
+export function OrderTimeline({ order, tracking }: { order: Order; tracking?: OrderTracking | null }) {
+    const steps = tracking?.checkpoints.length ? stepsFromTracking(tracking) : stepsFor(order)
     return (
         <View>
             {steps.map((step, index) => {
                 const color = step.danger ? colors.danger : step.done ? colors.brand : colors.borderStrong
                 const last = index === steps.length - 1
                 return (
-                    <View key={step.label} style={styles.step}>
+                    <View key={`${index}-${step.label}`} style={styles.step}>
                         <View style={styles.rail}>
                             <View style={[styles.dot, { borderColor: color }, step.done && { backgroundColor: color }]}>
                                 {step.done ? (
@@ -64,6 +83,9 @@ export function OrderTimeline({ order }: { order: Order }) {
                                 {step.label}
                             </Text>
                             {step.at ? <Text style={styles.at}>{formatDateTime(step.at)}</Text> : null}
+                            {step.note ? (
+                                <Text style={[styles.at, step.danger && styles.dangerNote]}>{step.note}</Text>
+                            ) : null}
                         </View>
                     </View>
                 )
@@ -92,4 +114,5 @@ const styles = StyleSheet.create({
     pending: { color: colors.textFaint },
     current: { fontWeight: '700' },
     at: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    dangerNote: { color: colors.danger },
 })

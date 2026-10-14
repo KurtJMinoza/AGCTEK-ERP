@@ -1768,7 +1768,7 @@ export class SalesOrderService {
 
         const updated = await this.prisma.sdSalesOrder.update({
             where: { id },
-            data: { status: 'CONFIRMED' },
+            data: { status: 'CONFIRMED', approvedAt: new Date() },
             include: this.includes,
         })
 
@@ -2141,6 +2141,30 @@ export class SalesOrderService {
         message: string,
     ) {
         try {
+            if (order.customerId) {
+                const shopper = await this.prisma.retailClient.findUnique({
+                    where: { id: order.customerId },
+                    select: { id: true },
+                })
+                if (shopper) {
+                    await this.prisma.notification.create({
+                        data: {
+                            retailClientId: shopper.id,
+                            title,
+                            message,
+                            target: order.orderNumber,
+                            description: message,
+                            location: '/shop/orders',
+                            locationLabel: 'My orders',
+                            status: 'UNREAD',
+                            isRead: false,
+                            readed: false,
+                        },
+                    })
+                    return
+                }
+            }
+
             let userId: string | null = null
             if (order.customerId) {
                 const userById = await this.prisma.user.findUnique({

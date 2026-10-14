@@ -27,6 +27,18 @@ export const MARKETPLACE_SIGN_UP_PATH = `${MARKETPLACE_PATH}/sign-up` as const
 export const MARKETPLACE_ACCOUNT_PATH = `${MARKETPLACE_PATH}/account` as const
 export const MARKETPLACE_ORDERS_PATH = `${MARKETPLACE_PATH}/orders` as const
 
+/** Public order tracking via signed link, e.g. /shop/track/<token> (no sign-in). */
+export const MARKETPLACE_TRACK_PATH = `${MARKETPLACE_PATH}/track` as const
+
+export const marketplaceTrackHref = (token: string) =>
+    `${MARKETPLACE_TRACK_PATH}/${encodeURIComponent(token)}`
+
+/** `/track/<token>` on a dedicated marketplace host. */
+export const isMarketplaceTrackPath = (path: string) => {
+    const [segment, token, ...rest] = path.split('/').filter(Boolean)
+    return segment === 'track' && Boolean(token) && rest.length === 0
+}
+
 /** Matches `/shop/sign-in` and, on a dedicated marketplace host, `/sign-in`. */
 export const isMarketplaceAuthPath = (path: string) =>
     [MARKETPLACE_SIGN_IN_PATH, MARKETPLACE_SIGN_UP_PATH].some(

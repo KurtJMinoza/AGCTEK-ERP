@@ -18,6 +18,7 @@ import {
     MARKETPLACE_SIGN_UP_PATH,
     isMarketplaceHost,
     isMarketplaceProductPath,
+    isMarketplaceTrackPath,
 } from '@/modules/storefront/marketplace/host'
 import {
     AWIC_STOREFRONT_PATH,
@@ -101,7 +102,9 @@ export default auth(async (req) => {
             MARKETPLACE_SIGN_UP_PATH,
         ].map((page) => page.slice(MARKETPLACE_PATH.length))
         const isShopPage = (shopPath: string) =>
-            shopPages.includes(shopPath) || isMarketplaceProductPath(shopPath)
+            shopPages.includes(shopPath) ||
+            isMarketplaceProductPath(shopPath) ||
+            isMarketplaceTrackPath(shopPath)
 
         if (
             path === MARKETPLACE_PATH ||

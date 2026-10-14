@@ -13,6 +13,8 @@ async function bootstrap() {
         AppModule,
         new FastifyAdapter({
             bodyLimit: 15 * 1024 * 1024,
+            // Signed tokens travel as path params (e.g. /public/tracking/:token); default is 100.
+            maxParamLength: 1024,
         }),
     )
 

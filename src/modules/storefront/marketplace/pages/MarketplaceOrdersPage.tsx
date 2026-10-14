@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
-    HiOutlineArrowLeft,
-    HiOutlineArrowRight,
     HiOutlineCheck,
     HiOutlineCheckCircle,
     HiOutlineClipboardList,
@@ -18,11 +16,13 @@ import {
     HiOutlineRefresh,
     HiOutlineReply,
     HiOutlineSearch,
+    HiOutlineShare,
     HiOutlineShoppingBag,
     HiOutlineTruck,
     HiOutlineX,
     HiOutlineXCircle,
 } from 'react-icons/hi'
+import type { IconType } from 'react-icons'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Spinner from '@/components/ui/Spinner'
@@ -34,11 +34,23 @@ import {
     CUSTOMER_CANCEL_REASONS,
     PAYMENT_METHOD_LABEL,
     cancelCustomerOrder,
+    createOrderTrackingLink,
+    getOrderTracking,
+    getOrderTrackingBatch,
     getSalesOrders,
     listMyCustomerReturns,
+    type CustomerOrderStatus,
     type CustomerReturnRequestRecord,
+    type OrderTracking,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
+import { RetailSessionExpiredError } from '@/services/storefront/retailClientService'
+import OrderTrackingTimeline from '../components/OrderTrackingTimeline'
+import {
+    DeliveryMapPanel,
+    OrderProgressStepper,
+    TrackingStatusPill,
+} from '../components/OrderTrackingParts'
 import { useMarketplaceProducts } from '@/modules/sd/hooks/useMarketplaceProducts'
 import StorefrontReturnDialog from '@/modules/storefront/shared/components/StorefrontReturnDialog'
 import { useMarketplace } from '../MarketplaceProvider'
@@ -47,8 +59,11 @@ import {
     MARKETPLACE_PATH,
     MARKETPLACE_SIGN_IN_PATH,
     marketplaceAuthHref,
+    marketplaceTrackHref,
 } from '../host'
 import { formatPrice } from '../marketplaceUi'
+
+const TRACKING_POLL_MS = 45_000
 
 const formatDate = (iso: string) =>
     new Intl.DateTimeFormat('en-PH', {
@@ -59,14 +74,14 @@ const formatDate = (iso: string) =>
 type OrdersFilter =
     | 'all'
     | 'Pending Delivery'
-    | 'Dispatched'
+    | 'In Transit'
     | 'Delivered'
     | 'Completed'
     | 'Cancelled'
 
 const FILTER_CONFIG: Record<
     OrdersFilter,
-    { label: string; icon: any; color: string }
+    { label: string; icon: IconType; color: string }
 > = {
     all: { label: 'All orders', icon: HiOutlineShoppingBag, color: 'emerald' },
     'Pending Delivery': {
@@ -74,7 +89,7 @@ const FILTER_CONFIG: Record<
         icon: HiOutlineClock,
         color: 'amber',
     },
-    Dispatched: { label: 'Dispatched', icon: HiOutlineTruck, color: 'blue' },
+    'In Transit': { label: 'In transit', icon: HiOutlineTruck, color: 'blue' },
     Delivered: {
         label: 'Delivered',
         icon: HiOutlineCheckCircle,
@@ -91,7 +106,7 @@ const FILTER_CONFIG: Record<
 const FILTERS: OrdersFilter[] = [
     'all',
     'Pending Delivery',
-    'Dispatched',
+    'In Transit',
     'Delivered',
     'Completed',
     'Cancelled',
@@ -104,6 +119,23 @@ const paymentLabel = (method: string | null) =>
     method && method in PAYMENT_METHOD_LABEL
         ? PAYMENT_METHOD_LABEL[method as keyof typeof PAYMENT_METHOD_LABEL]
         : (method ?? '—')
+
+/**
+ * Tab bucket. "In transit" comes only from the server tracking status (trip
+ * started); SO SHIPPED (goods issue) alone stays "To be delivered".
+ */
+const orderBucket = (
+    order: SalesOrderRecord,
+    tracking: OrderTracking | undefined,
+): Exclude<OrdersFilter, 'all'> => {
+    if (order.status === 'Cancelled' || tracking?.customerStatus === 'CANCELLED')
+        return 'Cancelled'
+    if (order.status === 'Completed') return 'Completed'
+    if (order.status === 'Delivered' || tracking?.customerStatus === 'DELIVERED')
+        return 'Delivered'
+    if (tracking?.customerStatus === 'IN_TRANSIT') return 'In Transit'
+    return 'Pending Delivery'
+}
 
 /** My Returns: the shopper's submitted return requests with live statuses. */
 const ReturnsFeed = ({
@@ -244,82 +276,29 @@ const ReturnsFeed = ({
     )
 }
 
-/** Order Tracker Stepper */
-function OrderProgressStepper({ status }: { status: string }) {
-    if (status === 'Cancelled') {
-        return (
-            <div className="flex items-center gap-2 rounded-xl bg-rose-50/80 px-4 py-2.5 text-xs font-medium text-rose-700 border border-rose-100">
-                <HiOutlineXCircle className="text-base shrink-0 text-rose-600" />
-                <span>
-                    This order was cancelled. Reserved inventory has been released.
-                </span>
-            </div>
-        )
-    }
+const FALLBACK_PILL: Record<
+    Exclude<OrdersFilter, 'all'>,
+    { status: CustomerOrderStatus; label: string }
+> = {
+    'Pending Delivery': { status: 'CONFIRMED', label: 'To be delivered' },
+    'In Transit': { status: 'IN_TRANSIT', label: 'In transit' },
+    Delivered: { status: 'DELIVERED', label: 'Delivered' },
+    Completed: { status: 'DELIVERED', label: 'Completed' },
+    Cancelled: { status: 'CANCELLED', label: 'Cancelled' },
+}
 
-    const steps = [
-        { id: 'placed', label: 'Order Placed', icon: HiOutlineShoppingBag },
-        { id: 'confirmed', label: 'Confirmed & Prepared', icon: HiOutlineClock },
-        { id: 'dispatched', label: 'Dispatched', icon: HiOutlineTruck },
-        { id: 'delivered', label: 'Delivered', icon: HiOutlineCheckCircle },
-    ]
-
-    // Determine current step index (0-based)
-    let activeIndex = 0
-    if (status === 'Pending Delivery') activeIndex = 1
-    else if (status === 'Dispatched') activeIndex = 2
-    else if (status === 'Delivered' || status === 'Completed') activeIndex = 3
-
+function OrderStatusPill({
+    tracking,
+    bucket,
+}: {
+    tracking: OrderTracking | undefined
+    bucket: Exclude<OrdersFilter, 'all'>
+}) {
     return (
-        <div className="w-full py-2">
-            <div className="relative flex items-center justify-between">
-                {/* Background Connecting Bar */}
-                <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-1 bg-gray-100 -z-0">
-                    <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500 rounded-full"
-                        style={{
-                            width: `${(activeIndex / (steps.length - 1)) * 100}%`,
-                        }}
-                    />
-                </div>
-
-                {steps.map((step, idx) => {
-                    const isPassed = idx <= activeIndex
-                    const isCurrent = idx === activeIndex
-                    const StepIcon = step.icon
-
-                    return (
-                        <div
-                            key={step.id}
-                            className="relative z-10 flex flex-col items-center group"
-                        >
-                            <div
-                                className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 shadow-sm ${
-                                    isPassed
-                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-4 ring-emerald-50'
-                                        : 'bg-white border-2 border-gray-200 text-gray-400'
-                                }`}
-                            >
-                                <StepIcon
-                                    className={`text-sm ${
-                                        isCurrent ? 'animate-pulse' : ''
-                                    }`}
-                                />
-                            </div>
-                            <span
-                                className={`mt-1.5 text-[11px] font-medium tracking-tight transition-colors ${
-                                    isPassed
-                                        ? 'text-gray-900 font-semibold'
-                                        : 'text-gray-400'
-                                }`}
-                            >
-                                {step.label}
-                            </span>
-                        </div>
-                    )
-                })}
-            </div>
-        </div>
+        <TrackingStatusPill
+            status={tracking?.customerStatus ?? FALLBACK_PILL[bucket].status}
+            label={tracking?.customerStatusLabel ?? FALLBACK_PILL[bucket].label}
+        />
     )
 }
 
@@ -329,6 +308,13 @@ const MarketplaceOrdersPage = () => {
     const customerId = signedInClient?.customerId ?? null
 
     const [orders, setOrders] = useState<SalesOrderRecord[] | null>(null)
+    const [trackingById, setTrackingById] = useState<
+        Record<string, OrderTracking>
+    >({})
+    const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [trackingLoadingId, setTrackingLoadingId] = useState<string | null>(
+        null,
+    )
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState<OrdersFilter>('all')
@@ -395,7 +381,34 @@ const MarketplaceOrdersPage = () => {
         setLoading(true)
         setError(null)
         try {
-            setOrders(await getSalesOrders({ customerId }))
+            const rows = await getSalesOrders({ customerId })
+            setOrders(rows)
+            if (sessionToken) {
+                try {
+                    const tracking = await getOrderTrackingBatch(
+                        rows.map((order) => order.id),
+                        sessionToken,
+                    )
+                    // The list batch carries no map; keep the last single-order map until the next poll.
+                    setTrackingById((prev) =>
+                        Object.fromEntries(
+                            tracking.map((t) => {
+                                const kept = prev[t.orderId]
+                                return [
+                                    t.orderId,
+                                    kept?.map
+                                        ? { ...t, destination: kept.destination, map: kept.map }
+                                        : t,
+                                ]
+                            }),
+                        ),
+                    )
+                } catch (err) {
+                    if (err instanceof RetailSessionExpiredError) {
+                        setError(err.message)
+                    }
+                }
+            }
         } catch (err) {
             setError(
                 err instanceof Error ? err.message : 'Unable to load your orders',
@@ -403,7 +416,78 @@ const MarketplaceOrdersPage = () => {
         } finally {
             setLoading(false)
         }
-    }, [customerId])
+    }, [customerId, sessionToken])
+
+    const toggleTracking = useCallback(
+        async (orderId: string) => {
+            if (expandedId === orderId) {
+                setExpandedId(null)
+                return
+            }
+            setExpandedId(orderId)
+            if (!sessionToken) return
+            setTrackingLoadingId(orderId)
+            try {
+                const fresh = await getOrderTracking(orderId, sessionToken)
+                setTrackingById((prev) => ({ ...prev, [orderId]: fresh }))
+            } catch (err) {
+                if (err instanceof RetailSessionExpiredError) setError(err.message)
+            } finally {
+                setTrackingLoadingId(null)
+            }
+        },
+        [expandedId, sessionToken],
+    )
+
+    const [sharingId, setSharingId] = useState<string | null>(null)
+    const [sharedId, setSharedId] = useState<string | null>(null)
+
+    /** Mint a signed read-only link; native share sheet on mobile, clipboard otherwise. */
+    const shareTracking = useCallback(
+        async (orderId: string) => {
+            if (!sessionToken) return
+            setSharingId(orderId)
+            try {
+                const { token } = await createOrderTrackingLink(orderId, sessionToken)
+                const url = `${window.location.origin}${marketplaceTrackHref(token)}`
+                if (typeof navigator.share === 'function') {
+                    try {
+                        await navigator.share({ title: 'Track my order', url })
+                        return
+                    } catch (err) {
+                        if (err instanceof DOMException && err.name === 'AbortError') return
+                    }
+                }
+                await navigator.clipboard.writeText(url)
+                setSharedId(orderId)
+                window.setTimeout(() => setSharedId(null), 2500)
+            } catch (err) {
+                if (err instanceof RetailSessionExpiredError) setError(err.message)
+                else setError(err instanceof Error ? err.message : 'Unable to share tracking')
+            } finally {
+                setSharingId(null)
+            }
+        },
+        [sessionToken],
+    )
+
+    const expandedInTransit =
+        expandedId != null &&
+        trackingById[expandedId]?.customerStatus === 'IN_TRANSIT'
+
+    useEffect(() => {
+        if (!expandedId || !expandedInTransit || !sessionToken) return
+        const id = window.setInterval(() => {
+            getOrderTracking(expandedId, sessionToken)
+                .then((fresh) =>
+                    setTrackingById((prev) => ({ ...prev, [expandedId]: fresh })),
+                )
+                .catch((err) => {
+                    if (err instanceof RetailSessionExpiredError) setError(err.message)
+                })
+        }, TRACKING_POLL_MS)
+        return () => window.clearInterval(id)
+    }, [expandedId, expandedInTransit, sessionToken])
 
     useEffect(() => {
         if (customerId) void load()
@@ -437,6 +521,8 @@ const MarketplaceOrdersPage = () => {
 
     useEffect(() => {
         setOrders(null)
+        setTrackingById({})
+        setExpandedId(null)
         setReturnMessage(null)
     }, [customerId])
 
@@ -446,24 +532,38 @@ const MarketplaceOrdersPage = () => {
         setTimeout(() => setCopiedOrderId(null), 2000)
     }
 
+    const bucketById = useMemo(
+        () =>
+            new Map(
+                (orders ?? []).map((order) => [
+                    order.id,
+                    orderBucket(order, trackingById[order.id]),
+                ]),
+            ),
+        [orders, trackingById],
+    )
+
     const summary = useMemo(() => {
         const rows = orders ?? []
+        const count = (bucket: Exclude<OrdersFilter, 'all'>) =>
+            rows.filter((o) => bucketById.get(o.id) === bucket).length
         return {
             total: rows.length,
-            pending: rows.filter((o) => o.status === 'Pending Delivery').length,
-            dispatched: rows.filter((o) => o.status === 'Dispatched').length,
-            delivered: rows.filter((o) => o.status === 'Delivered').length,
-            completed: rows.filter((o) => o.status === 'Completed').length,
+            pending: count('Pending Delivery'),
+            inTransit: count('In Transit'),
+            delivered: count('Delivered'),
+            completed: count('Completed'),
+            cancelled: count('Cancelled'),
             spent: rows
-                .filter((o) => o.status !== 'Cancelled')
+                .filter((o) => bucketById.get(o.id) !== 'Cancelled')
                 .reduce((sum, o) => sum + o.totalAmount, 0),
         }
-    }, [orders])
+    }, [orders, bucketById])
 
     const visibleOrders = useMemo(() => {
         let list = orders ?? []
         if (filter !== 'all') {
-            list = list.filter((order) => order.status === filter)
+            list = list.filter((order) => bucketById.get(order.id) === filter)
         }
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase().trim()
@@ -480,24 +580,20 @@ const MarketplaceOrdersPage = () => {
             )
         }
         return list
-    }, [orders, filter, searchQuery])
+    }, [orders, filter, searchQuery, bucketById])
 
     const countFor = (value: OrdersFilter) =>
         value === 'all'
             ? summary.total
             : value === 'Pending Delivery'
               ? summary.pending
-              : value === 'Dispatched'
-                ? summary.dispatched
+              : value === 'In Transit'
+                ? summary.inTransit
                 : value === 'Delivered'
                   ? summary.delivered
                   : value === 'Completed'
                     ? summary.completed
-                    : summary.total -
-                      summary.pending -
-                      summary.dispatched -
-                      summary.delivered -
-                      summary.completed
+                    : summary.cancelled
 
     if (!signedInClient) {
         return (
@@ -821,11 +917,15 @@ const MarketplaceOrdersPage = () => {
                         {visibleOrders.map((order) => {
                             const payment = order.payment
                             const ship = order.shippingAddress
-                            const isPending = order.status === 'Pending Delivery'
-                            const isDispatched = order.status === 'Dispatched'
+                            const tracking = trackingById[order.id]
+                            const bucket =
+                                bucketById.get(order.id) ?? 'Pending Delivery'
+                            const isPending = bucket === 'Pending Delivery'
                             const isCompleted = order.status === 'Completed'
-                            const isDelivered = order.status === 'Delivered'
-                            const isCancelled = order.status === 'Cancelled'
+                            const expanded = expandedId === order.id
+                            const currentCheckpoint = tracking?.checkpoints.find(
+                                (c) => c.current,
+                            )
 
                             return (
                                 <article
@@ -872,36 +972,87 @@ const MarketplaceOrdersPage = () => {
 
                                         {/* Status Tag Pill */}
                                         <div className="flex items-center gap-2">
-                                            {isPending && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-inset ring-amber-600/20">
-                                                    <HiOutlineClock className="text-sm" />
-                                                    To be delivered
-                                                </span>
-                                            )}
-                                            {isDispatched && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                                                    <HiOutlineTruck className="text-sm" />
-                                                    Dispatched
-                                                </span>
-                                            )}
-                                            {(isCompleted || isDelivered) && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                                    <HiOutlineCheckCircle className="text-sm" />
-                                                    {isCompleted ? 'Completed' : 'Delivered'}
-                                                </span>
-                                            )}
-                                            {isCancelled && (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 ring-1 ring-inset ring-rose-600/20">
-                                                    <HiOutlineXCircle className="text-sm" />
-                                                    Cancelled
-                                                </span>
-                                            )}
+                                            <OrderStatusPill
+                                                tracking={tracking}
+                                                bucket={bucket}
+                                            />
                                         </div>
                                     </div>
 
-                                    {/* Order Stepper Tracker */}
-                                    <div className="px-5 pt-4 pb-2 border-b border-gray-50 bg-white">
-                                        <OrderProgressStepper status={order.status} />
+                                    {/* Order Tracking */}
+                                    <div className="px-5 py-3 border-b border-gray-50 bg-white">
+                                        {tracking && (
+                                            <div className="mb-2">
+                                                <OrderProgressStepper
+                                                    checkpoints={tracking.checkpoints}
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="min-w-0 text-xs text-gray-500">
+                                                {currentCheckpoint ? (
+                                                    <>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {currentCheckpoint.label}
+                                                        </span>
+                                                        {currentCheckpoint.at && (
+                                                            <> · {formatDate(currentCheckpoint.at)}</>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    'Tracking details unavailable'
+                                                )}
+                                            </div>
+                                            {sessionToken && (
+                                                <div className="flex items-center gap-1">
+                                                    {tracking &&
+                                                        tracking.customerStatus !== 'CANCELLED' && (
+                                                            <Button
+                                                                size="xs"
+                                                                variant="plain"
+                                                                loading={sharingId === order.id}
+                                                                icon={
+                                                                    sharedId === order.id ? (
+                                                                        <HiOutlineCheck />
+                                                                    ) : (
+                                                                        <HiOutlineShare />
+                                                                    )
+                                                                }
+                                                                onClick={() => void shareTracking(order.id)}
+                                                                className="!rounded-lg font-semibold !text-gray-600 hover:!bg-gray-100"
+                                                            >
+                                                                {sharedId === order.id
+                                                                    ? 'Link copied'
+                                                                    : 'Share tracking'}
+                                                            </Button>
+                                                        )}
+                                                    <Button
+                                                        size="xs"
+                                                        variant="plain"
+                                                        loading={trackingLoadingId === order.id}
+                                                        icon={<HiOutlineTruck />}
+                                                        onClick={() => void toggleTracking(order.id)}
+                                                        className="!rounded-lg font-semibold !text-emerald-700 hover:!bg-emerald-50"
+                                                    >
+                                                        {expanded ? 'Hide tracking' : 'Track order'}
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {expanded &&
+                                            tracking?.customerStatus === 'IN_TRANSIT' &&
+                                            tracking.map && (
+                                            <div className="mt-4">
+                                                <DeliveryMapPanel tracking={tracking} />
+                                            </div>
+                                        )}
+                                        {expanded && tracking && (
+                                            <div className="mt-4 pl-1">
+                                                <OrderTrackingTimeline
+                                                    checkpoints={tracking.checkpoints}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Products Line Items */}

@@ -3,8 +3,10 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    CustomerOrderStatus,
     Notification,
     Order,
+    OrderTracking,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -12,8 +14,29 @@ import type {
     SavedAddress,
     SavedAddressInput,
     SignInInput,
+    TrackingLink,
 } from '../types'
 import { CommerceApiError, type CommerceApi } from './commerceApi'
+
+const MOCK_TRACKING_STATUS: Record<Order['status'], CustomerOrderStatus> = {
+    PENDING_APPROVAL: 'PLACED',
+    PREPARING_TO_SHIP: 'PREPARING',
+    DISPATCHED: 'READY_FOR_DELIVERY',
+    DELIVERED: 'DELIVERED',
+    COMPLETED: 'DELIVERED',
+    CANCELLED: 'CANCELLED',
+}
+
+const MOCK_TRACKING_LABEL: Record<CustomerOrderStatus, string> = {
+    PLACED: 'Placed',
+    CONFIRMED: 'Confirmed',
+    PREPARING: 'Preparing',
+    READY_FOR_DELIVERY: 'Ready for delivery',
+    IN_TRANSIT: 'In transit',
+    DELIVERED: 'Delivered',
+    DELIVERY_FAILED: 'Delivery failed',
+    CANCELLED: 'Cancelled',
+}
 
 /** Offline demo data (EXPO_PUBLIC_USE_MOCK_API=true); resets on reload. */
 const LATENCY_MS = 250
@@ -198,6 +221,7 @@ export class MockCommerceApi implements CommerceApi {
             title: `Order ${order.orderNumber} placed!`,
             message: 'Your order is now pending delivery confirmation.',
             target: order.orderNumber,
+            location: null,
             isRead: false,
             createdAt: now,
         })
@@ -227,6 +251,39 @@ export class MockCommerceApi implements CommerceApi {
 
     requestReturn(_request: ReturnRequest): Promise<void> {
         return delay(undefined)
+    }
+
+    /** Demo tracking from the order status only — no courier / map in offline mode. */
+    getOrderTracking(orderId: string): Promise<OrderTracking> {
+        const order = this.orders.find((o) => o.id === orderId)
+        if (!order) return Promise.reject(new CommerceApiError('Order not found', 'NOT_FOUND'))
+        const status = MOCK_TRACKING_STATUS[order.status]
+        const flow: CustomerOrderStatus[] =
+            status === 'CANCELLED'
+                ? ['PLACED', 'CANCELLED']
+                : ['PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED']
+        const reached = flow.indexOf(status)
+        return delay({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            customerStatus: status,
+            customerStatusLabel: MOCK_TRACKING_LABEL[status],
+            checkpoints: flow.map((code, index) => ({
+                code,
+                label: MOCK_TRACKING_LABEL[code],
+                at: index === 0 ? order.placedAt : index === reached ? order.updatedAt : null,
+                done: index <= reached,
+                current: index === reached,
+            })),
+            map: null,
+        })
+    }
+
+    createTrackingLink(orderId: string): Promise<TrackingLink> {
+        return delay({
+            token: `demo-${orderId}`,
+            expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        })
     }
 
     // ─── Notifications ─────────────────────────────────────────────────────────
