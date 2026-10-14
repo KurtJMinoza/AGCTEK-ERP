@@ -994,6 +994,8 @@ model MmMaterialCategory {
   parentId          String?
   parent            MmMaterialCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
   children          MmMaterialCategory[] @relation("CategoryTree")
+  /// Storefront/category image, uploaded from the Material Category form.
+  imageUrl          String               @default("")
   isActive          Boolean              @default(true)
   sortOrder         Int                  @default(0)
   createdAt         DateTime             @default(now())

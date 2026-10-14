@@ -219,6 +219,19 @@ export class ReturnRequestService {
         })
     }
 
+    /**
+     * Storefront: the signed-in customer's own return requests (newest first),
+     * with line product snapshots and the refund record / credit memo.
+     */
+    async listForCustomer(clientId: string) {
+        return this.prisma.sdReturnRequest.findMany({
+            where: { customerId: clientId },
+            include: this.listInclude,
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+        })
+    }
+
     /** Idempotent: an open (REQUESTED) request for the same order + lines is returned. */
     async create(input: CreateReturnRequestInput) {
         return this.prisma.$transaction((tx) => this.createIn(tx, input))

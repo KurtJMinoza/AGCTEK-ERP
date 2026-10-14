@@ -719,13 +719,53 @@ export type CustomerReturnRequestRecord = {
     invoiceNumber: string | null
     preferredResolution: string | null
     refundStatus: string
+    refundAmount: string | null
+    createdAt: string
+    salesOrder: {
+        orderNumber: string
+        customerName: string | null
+        status: string
+    } | null
+    refunds: Array<{
+        id: string
+        refundNumber: string
+        amount: string
+        status: string
+        refundMethod: string | null
+        isDemo: boolean
+        creditMemo: {
+            creditMemoNumber: string
+            amount: string
+            status: string
+        } | null
+    }>
     lines: Array<{
         id: string
         salesOrderLineId: string
         quantity: number
         reason: string | null
         disposition: string | null
+        salesOrderLine?: {
+            productNameSnapshot: string | null
+            materialCodeSnapshot: string | null
+            sku: string | null
+        } | null
     }>
+}
+
+/** The signed-in shopper's own return requests (My Returns). */
+export async function listMyCustomerReturns(
+    token: string,
+): Promise<CustomerReturnRequestRecord[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<CustomerReturnRequestRecord[]>(
+            '/sd/sales-orders/retail/returns',
+            { headers: { Authorization: `Bearer ${token}` } },
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to load your returns')
+    }
 }
 
 /**

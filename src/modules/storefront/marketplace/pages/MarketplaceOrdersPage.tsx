@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
     HiOutlineCheck,
     HiOutlineCheckCircle,
@@ -13,6 +14,7 @@ import {
     HiOutlineExclamationCircle,
     HiOutlineLocationMarker,
     HiOutlineRefresh,
+    HiOutlineReply,
     HiOutlineSearch,
     HiOutlineShare,
     HiOutlineShoppingBag,
@@ -36,7 +38,9 @@ import {
     getOrderTracking,
     getOrderTrackingBatch,
     getSalesOrders,
+    listMyCustomerReturns,
     type CustomerOrderStatus,
+    type CustomerReturnRequestRecord,
     type OrderTracking,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
@@ -133,6 +137,145 @@ const orderBucket = (
     return 'Pending Delivery'
 }
 
+/** My Returns: the shopper's submitted return requests with live statuses. */
+const ReturnsFeed = ({
+    requests,
+    loading,
+}: {
+    requests: CustomerReturnRequestRecord[] | null
+    loading: boolean
+}) => {
+    if (loading && !requests) {
+        return (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+                <Spinner size="lg" />
+                <span className="text-xs font-medium text-gray-400">
+                    Loading your returns...
+                </span>
+            </div>
+        )
+    }
+    if (!requests || requests.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-200 bg-white py-16 px-4 text-center shadow-sm">
+                <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-50 text-gray-400">
+                    <HiOutlineReply className="text-3xl" />
+                </div>
+                <h3 className="text-base font-bold text-gray-900">
+                    No returns yet
+                </h3>
+                <p className="mt-1 max-w-sm text-xs text-gray-500 leading-relaxed">
+                    When you return an item from a delivered order, your return
+                    request and its status appear here.
+                </p>
+                <Link
+                    href={MARKETPLACE_PATH}
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-105"
+                >
+                    <HiOutlineShoppingBag className="text-sm" />
+                    Start shopping now
+                </Link>
+            </div>
+        )
+    }
+    return (
+        <div className="space-y-5">
+            {requests.map((request) => (
+                <article
+                    key={request.id}
+                    className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm"
+                >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold text-gray-900">
+                                    {request.requestNumber}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                    Order #{request.salesOrder?.orderNumber ?? '—'}
+                                </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-gray-400">
+                                Requested {formatDate(request.createdAt)}
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                Return: {request.status.replace(/_/g, ' ')}
+                            </span>
+                            {request.refundStatus !== 'NONE' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                                    Refund: {request.refundStatus.replace(/_/g, ' ')}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                        {request.lines.map((line) => (
+                            <div
+                                key={line.id}
+                                className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2"
+                            >
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-gray-800">
+                                        {line.salesOrderLine
+                                            ?.productNameSnapshot ??
+                                            line.salesOrderLine
+                                                ?.materialCodeSnapshot ??
+                                            'Item'}
+                                    </p>
+                                    <p className="text-[11px] text-gray-400">
+                                        Reason:{' '}
+                                        {(line.reason ?? request.reason ?? '—').replace(
+                                            /_/g,
+                                            ' ',
+                                        )}
+                                    </p>
+                                </div>
+                                <span className="shrink-0 text-sm font-semibold text-gray-700">
+                                    ×{Number(line.quantity)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {request.refunds[0] ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs">
+                            <span className="font-semibold text-emerald-800">
+                                {formatPrice(Number(request.refunds[0].amount))}
+                            </span>
+                            <span className="text-emerald-700">
+                                {request.refunds[0].refundMethod?.replace(
+                                    /_/g,
+                                    ' ',
+                                ) ?? 'Refund'}
+                            </span>
+                            {request.refunds[0].isDemo ? (
+                                <span className="rounded bg-emerald-200/60 px-1.5 py-0.5 font-semibold text-emerald-700">
+                                    DEMO
+                                </span>
+                            ) : null}
+                            {request.refunds[0].creditMemo ? (
+                                <span className="text-emerald-700">
+                                    Credit memo{' '}
+                                    {request.refunds[0].creditMemo.creditMemoNumber}
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {request.conditionNote ? (
+                        <p className="mt-2 text-[11px] text-gray-400">
+                            Note: {request.conditionNote}
+                        </p>
+                    ) : null}
+                </article>
+            ))}
+        </div>
+    )
+}
+
 const FALLBACK_PILL: Record<
     Exclude<OrdersFilter, 'all'>,
     { status: CustomerOrderStatus; label: string }
@@ -177,6 +320,35 @@ const MarketplaceOrdersPage = () => {
     const [filter, setFilter] = useState<OrdersFilter>('all')
     const [searchQuery, setSearchQuery] = useState('')
     const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+
+    /** My Orders ↔ My Returns views (Returns reachable via tab or ?view=returns). */
+    const searchParams = useSearchParams()
+    const [view, setView] = useState<'orders' | 'returns'>(() =>
+        searchParams.get('view') === 'returns' ? 'returns' : 'orders',
+    )
+    const [returns, setReturns] = useState<CustomerReturnRequestRecord[] | null>(
+        null,
+    )
+    const [returnsLoading, setReturnsLoading] = useState(false)
+
+    useEffect(() => {
+        if (view !== 'returns' || !sessionToken) return
+        let alive = true
+        setReturnsLoading(true)
+        listMyCustomerReturns(sessionToken)
+            .then((rows) => {
+                if (alive) setReturns(rows)
+            })
+            .catch(() => {
+                if (alive) setReturns([])
+            })
+            .finally(() => {
+                if (alive) setReturnsLoading(false)
+            })
+        return () => {
+            alive = false
+        }
+    }, [view, sessionToken])
 
     const [returnOrder, setReturnOrder] = useState<SalesOrderRecord | null>(null)
     const [returnMessage, setReturnMessage] = useState<string | null>(null)
@@ -630,7 +802,7 @@ const MarketplaceOrdersPage = () => {
                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar rounded-2xl bg-gray-100/90 p-1.5">
                         {FILTERS.map((tabKey) => {
                             const config = FILTER_CONFIG[tabKey]
-                            const isActive = filter === tabKey
+                            const isActive = view === 'orders' && filter === tabKey
                             const count = countFor(tabKey)
                             const TabIcon = config.icon
 
@@ -638,7 +810,10 @@ const MarketplaceOrdersPage = () => {
                                 <button
                                     key={tabKey}
                                     type="button"
-                                    onClick={() => setFilter(tabKey)}
+                                    onClick={() => {
+                                        setView('orders')
+                                        setFilter(tabKey)
+                                    }}
                                     className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
                                         isActive
                                             ? 'bg-white text-emerald-800 shadow-sm'
@@ -665,10 +840,50 @@ const MarketplaceOrdersPage = () => {
                                 </button>
                             )
                         })}
+                        <button
+                            key="returns"
+                            type="button"
+                            onClick={() =>
+                                setView((current) =>
+                                    current === 'returns' ? 'orders' : 'returns',
+                                )
+                            }
+                            className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
+                                view === 'returns'
+                                    ? 'bg-white text-emerald-800 shadow-sm'
+                                    : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'
+                            }`}
+                        >
+                            <HiOutlineReply
+                                className={`text-sm ${
+                                    view === 'returns'
+                                        ? 'text-emerald-600'
+                                        : 'text-gray-400'
+                                }`}
+                            />
+                            <span>Returns</span>
+                            <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                    view === 'returns'
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : 'bg-gray-200/70 text-gray-600'
+                                }`}
+                            >
+                                {returns?.length ?? 0}
+                            </span>
+                        </button>
                     </div>
                 </div>
 
-                {/* Orders Content Feed */}
+                {/* Orders / Returns Content Feed */}
+                {view === 'returns' ? (
+                    <ReturnsFeed
+                        requests={returns}
+                        loading={returnsLoading && returns === null}
+                    />
+                ) : (
+                    <>
+                    {/* Orders Content Feed */}
                 {loading && !orders ? (
                     <div className="flex h-64 flex-col items-center justify-center gap-3">
                         <Spinner size="lg" />
@@ -889,6 +1104,34 @@ const MarketplaceOrdersPage = () => {
                                                                 {line.quantity} × {formatPrice(line.unitPrice)}
                                                             </span>
                                                         </div>
+
+                                                        {/* Sales Return status under the item */}
+                                                        {order.customerReturns
+                                                            ?.filter((r) =>
+                                                                r.lines.some(
+                                                                    (rl) =>
+                                                                        rl.salesOrderLineId ===
+                                                                        line.lineId,
+                                                                ),
+                                                            )
+                                                            .map((r) => (
+                                                                <div
+                                                                    key={r.id}
+                                                                    className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]"
+                                                                >
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-200">
+                                                                        <HiOutlineReply className="text-[11px]" />
+                                                                        Return:{' '}
+                                                                        {r.status.replace(/_/g, ' ')}
+                                                                    </span>
+                                                                    {r.refundStatus !== 'NONE' && (
+                                                                        <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 font-semibold text-sky-700 ring-1 ring-sky-200">
+                                                                            Refund:{' '}
+                                                                            {r.refundStatus.replace(/_/g, ' ')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ))}
                                                     </div>
 
                                                     <div className="text-right">
@@ -1065,6 +1308,8 @@ const MarketplaceOrdersPage = () => {
                             )
                         })}
                     </div>
+                )}
+                    </>
                 )}
             </main>
 

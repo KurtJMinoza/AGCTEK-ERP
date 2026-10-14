@@ -57,7 +57,11 @@ const WITH_MATERIAL_CATEGORY = {
                 },
             },
             material: {
-                select: { materialCategory: { select: { name: true } } },
+                select: {
+                    materialCategory: {
+                        select: { name: true, imageUrl: true },
+                    },
+                },
             },
         },
     },
@@ -409,6 +413,8 @@ export class ProductService {
             materialAssignments.find((row) => row.materialId === primaryId) ??
             materialAssignments[0]
         const category = primary?.material.materialCategory?.name
+        const categoryImageUrl =
+            primary?.material.materialCategory?.imageUrl?.trim() || null
         const company = primary?.company
             ? {
                   id: primary.company.id,
@@ -417,7 +423,9 @@ export class ProductService {
                   logoUrl: primary.company.logoUrl,
               }
             : null
-        const base = category ? { ...product, category } : product
+        const base = category
+            ? { ...product, category, categoryImageUrl }
+            : product
         return { ...base, company }
     }
 
