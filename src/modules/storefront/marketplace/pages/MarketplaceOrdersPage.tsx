@@ -18,9 +18,11 @@ import {
     HiOutlineSearch,
     HiOutlineShare,
     HiOutlineShoppingBag,
+    HiOutlineStar,
     HiOutlineTruck,
     HiOutlineX,
     HiOutlineXCircle,
+    HiStar,
 } from 'react-icons/hi'
 import type { IconType } from 'react-icons'
 import Alert from '@/components/ui/Alert'
@@ -44,7 +46,14 @@ import {
     type OrderTracking,
     type SalesOrderRecord,
 } from '@/modules/sd/services/salesOrderDashboardService'
-import { RetailSessionExpiredError } from '@/services/storefront/retailClientService'
+import {
+    RetailSessionExpiredError,
+    fetchMyProductReviews,
+    type ShopperReview,
+} from '@/services/storefront/retailClientService'
+import MarketplaceReviewDialog, {
+    type ReviewTarget,
+} from '../components/MarketplaceReviewDialog'
 import OrderTrackingTimeline from '../components/OrderTrackingTimeline'
 import {
     DeliveryMapPanel,
@@ -364,6 +373,34 @@ const MarketplaceOrdersPage = () => {
     )
     const [cancelError, setCancelError] = useState<string | null>(null)
     const [cancelling, setCancelling] = useState(false)
+
+    const [myReviews, setMyReviews] = useState<ShopperReview[]>([])
+    const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
+
+    const loadMyReviews = useCallback(async () => {
+        if (!sessionToken) return
+        try {
+            setMyReviews(await fetchMyProductReviews(sessionToken))
+        } catch (err) {
+            if (err instanceof RetailSessionExpiredError) setError(err.message)
+        }
+    }, [sessionToken])
+
+    useEffect(() => {
+        void loadMyReviews()
+    }, [loadMyReviews])
+
+    /** One review per product, so any order line for a reviewed product shows it. */
+    const reviewByProduct = useMemo(
+        () =>
+            new Map(
+                myReviews.map((review) => [
+                    productLookupKey(review.product.divisionId, review.product.sku),
+                    review,
+                ]),
+            ),
+        [myReviews],
+    )
 
     const productsByKey = useMemo(
         () =>
@@ -922,6 +959,10 @@ const MarketplaceOrdersPage = () => {
                                 bucketById.get(order.id) ?? 'Pending Delivery'
                             const isPending = bucket === 'Pending Delivery'
                             const isCompleted = order.status === 'Completed'
+                            const canReview =
+                                Boolean(sessionToken) &&
+                                (order.status === 'Delivered' ||
+                                    order.status === 'Completed')
                             const expanded = expandedId === order.id
                             const currentCheckpoint = tracking?.checkpoints.find(
                                 (c) => c.current,
@@ -1066,6 +1107,12 @@ const MarketplaceOrdersPage = () => {
                                             )
                                             const image =
                                                 line.productImage || product?.imageUrl
+                                            const review = reviewByProduct.get(
+                                                productLookupKey(
+                                                    line.divisionId ?? order.divisionId,
+                                                    line.sku,
+                                                ),
+                                            )
 
                                             return (
                                                 <div
@@ -1134,10 +1181,40 @@ const MarketplaceOrdersPage = () => {
                                                             ))}
                                                     </div>
 
-                                                    <div className="text-right">
+                                                    <div className="flex shrink-0 flex-col items-end gap-2 text-right">
                                                         <div className="text-sm font-bold text-gray-900">
                                                             {formatPrice(line.lineTotal)}
                                                         </div>
+                                                        {canReview && review ? (
+                                                            <span
+                                                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200"
+                                                                title={review.comment}
+                                                            >
+                                                                <HiStar className="text-xs text-amber-400" />
+                                                                Reviewed · {review.rating}/5
+                                                            </span>
+                                                        ) : null}
+                                                        {canReview && !review && line.lineId ? (
+                                                            <Button
+                                                                size="xs"
+                                                                variant="default"
+                                                                icon={<HiOutlineStar />}
+                                                                className="!rounded-lg !border-amber-400 !text-amber-700 hover:!bg-amber-50 font-semibold"
+                                                                onClick={() =>
+                                                                    setReviewTarget({
+                                                                        salesOrderId: order.id,
+                                                                        orderNumber: order.orderId,
+                                                                        salesOrderLineId: line.lineId,
+                                                                        productName:
+                                                                            line.productName ?? line.name,
+                                                                        variantName: line.variantName,
+                                                                        image: image ?? null,
+                                                                    })
+                                                                }
+                                                            >
+                                                                Rate &amp; review
+                                                            </Button>
+                                                        ) : null}
                                                     </div>
                                                 </div>
                                             )
@@ -1381,6 +1458,21 @@ const MarketplaceOrdersPage = () => {
                             `Return request ${requestNumber} submitted for order ${returnOrder.orderId}.`,
                         )
                         void load()
+                    }}
+                />
+            )}
+
+            {sessionToken && (
+                <MarketplaceReviewDialog
+                    target={reviewTarget}
+                    token={sessionToken}
+                    onClose={() => setReviewTarget(null)}
+                    onSubmitted={(target) => {
+                        setReviewTarget(null)
+                        setReturnMessage(
+                            `Thanks! Your review of ${target.productName} is now posted.`,
+                        )
+                        void loadMyReviews()
                     }}
                 />
             )}

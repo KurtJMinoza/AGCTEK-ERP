@@ -3820,20 +3820,28 @@ model SdProduct {
 }
 
 /// Customer review and star rating on an SD storefront product.
+/// Exactly one author: an ERP `User` or a storefront `RetailClient` (shopper).
 model ProductReview {
-  id        String    @id @default(cuid())
-  productId String
-  product   SdProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rating    Int
-  comment   String    @db.Text
-  imageUrls String[]  @default([])
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             String        @id @default(cuid())
+  productId      String
+  product        SdProduct     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  retailClientId String?
+  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: Cascade)
+  /// Delivered order that verifies the shopper's purchase.
+  salesOrderId   String?
+  salesOrder     SdSalesOrder? @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  rating         Int
+  comment        String        @db.Text
+  imageUrls      String[]      @default([])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
+  @@unique([retailClientId, productId])
   @@index([productId])
   @@index([userId])
+  @@index([salesOrderId])
   @@map("product_reviews")
 }
 
@@ -4049,6 +4057,7 @@ model SdSalesOrder {
   invoices           SdSalesInvoice[]
   returnRequests     SdReturnRequest[]
   payments           SdSalesOrderPayment[]
+  productReviews     ProductReview[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -7206,6 +7215,7 @@ model RetailClient {
   notifications Notification[]
   /// SD Customer Master record linked via Add New Customer (shop reference).
   sdCustomer   SdCustomer?
+  productReviews ProductReview[]
 
   @@index([email])
 }

@@ -11,9 +11,8 @@ export async function GET(request: Request) {
         }
 
         const session = await auth()
-        const resolvedUserId =
-            searchParams.get('userId') ||
-            (session?.user as { id?: string } | undefined)?.id
+        const resolvedUserId = (session?.user as { id?: string } | undefined)
+            ?.id
 
         if (!resolvedUserId) {
             return NextResponse.json({ eligible: false })

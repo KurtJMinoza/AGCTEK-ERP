@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
     HiOutlineArrowLeft,
@@ -52,7 +53,7 @@ import {
 import CustomerReviewsSection from '@/components/reviews/CustomerReviewsSection'
 import { useProductAvailability } from '../components/product/useProductAvailability'
 import { productsHref } from '../browseQuery'
-import { MARKETPLACE_PATH } from '../host'
+import { MARKETPLACE_ORDERS_PATH, MARKETPLACE_PATH } from '../host'
 import { notify, useMarketplace } from '../MarketplaceProvider'
 import {
     CompanyLogo,
@@ -708,6 +709,15 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     <CustomerReviewsSection
                         productId={product.id}
                         productName={product.name}
+                        reviewHint={
+                            <Link
+                                href={MARKETPLACE_ORDERS_PATH}
+                                className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:underline"
+                            >
+                                Bought this? Rate it from My Orders
+                                <ChevronRight aria-hidden className="h-4 w-4" />
+                            </Link>
+                        }
                     />
                 </div>
 

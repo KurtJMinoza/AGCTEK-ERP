@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { auth } from '@/auth'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5MB
 const ALLOWED_MIME_TYPES = new Set([
@@ -13,6 +14,13 @@ const ALLOWED_MIME_TYPES = new Set([
 
 export async function POST(request: Request) {
     try {
+        const session = await auth()
+        if (!(session?.user as { id?: string } | undefined)?.id) {
+            return NextResponse.json(
+                { error: 'Please sign in to upload review photos' },
+                { status: 401 },
+            )
+        }
         const formData = await request.formData()
         const files: File[] = []
 
