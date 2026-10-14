@@ -138,10 +138,17 @@ export class AuthService {
             throw new UnauthorizedException('Invalid credentials.')
         }
 
-        const user = await this.prisma.user.findUnique({
-            where: { userName },
-            include: WITH_ROLE_NAME,
-        })
+        const user =
+            (await this.prisma.user.findUnique({
+                where: { userName },
+                include: WITH_ROLE_NAME,
+            })) ??
+            (userName.includes('@')
+                ? await this.prisma.user.findFirst({
+                      where: { email: { equals: userName, mode: 'insensitive' } },
+                      include: WITH_ROLE_NAME,
+                  })
+                : null)
 
         if (!user) {
             throw new UnauthorizedException('Invalid credentials.')

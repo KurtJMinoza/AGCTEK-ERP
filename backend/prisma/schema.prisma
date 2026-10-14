@@ -3747,6 +3747,11 @@ model SdCustomer {
   availableCredit Decimal  @default(0) @db.Decimal(18, 2)
   /// ACTIVE | BLOCKED
   status          String   @default("ACTIVE")
+  /// RETAIL (e-commerce shopper) | B2B (corporate account with credit)
+  customerType    String   @default("B2B")
+  /// RETAIL only: the storefront login this customer shops with.
+  retailClientId  String?       @unique
+  retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime @default(now())
@@ -3763,6 +3768,7 @@ model SdCustomer {
 
   @@index([status])
   @@index([companyName])
+  @@index([customerType])
   @@map("sd_customers")
 }
 
@@ -7102,6 +7108,7 @@ model RetailClient {
   updatedAt    DateTime              @updatedAt
   cartItems    RetailCartItem[]
   addresses    RetailClientAddress[]
+  sdCustomer   SdCustomer?
 
   @@index([email])
 }

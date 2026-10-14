@@ -8,8 +8,10 @@ import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
+import { RetailClientService } from '../retail/retail-client.service'
 import {
     CreateCustomerDto,
+    CustomerType,
     ListCustomersQueryDto,
     UpdateCustomerDto,
 } from './dto/customer.dto'
@@ -19,7 +21,10 @@ const MAX_CREATE_ATTEMPTS = 3
 
 @Injectable()
 export class CustomerService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private retailClients: RetailClientService,
+    ) {}
 
     list(query: ListCustomersQueryDto) {
         const search = query.search?.trim()
@@ -57,29 +62,28 @@ export class CustomerService {
         dto: CreateCustomerDto,
         client: PrismaService | Prisma.TransactionClient = this.prisma,
     ) {
-        const attempts = client === this.prisma ? MAX_CREATE_ATTEMPTS : 1
+        const customerType = this.resolveCustomerType(dto)
+        const onRoot = client === this.prisma
+        const attempts = onRoot ? MAX_CREATE_ATTEMPTS : 1
         for (let attempt = 0; attempt < attempts; attempt++) {
-            const customerNumber = await this.nextCustomerNumber(attempt, client)
             try {
-                return await client.sdCustomer.create({
-                    data: {
-                        customerNumber,
-                        companyName: dto.companyName,
-                        contactName: dto.contactName,
-                        email: dto.email,
-                        phone: dto.phone ?? '',
-                        creditLimit: new Decimal(dto.creditLimit),
-                        availableCredit: new Decimal(dto.creditLimit),
-                        status: dto.status ?? 'ACTIVE',
-                        createdBy: dto.createdBy,
-                        updatedBy: dto.createdBy,
-                    },
-                })
+                // A new shop login must not outlive a failed customer insert.
+                if (customerType === 'RETAIL' && onRoot) {
+                    return await this.prisma.$transaction((tx) =>
+                        this.insert(dto, customerType, attempt, tx),
+                    )
+                }
+                return await this.insert(dto, customerType, attempt, client)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('email')) {
                     throw new ConflictException(
                         `A customer with email ${dto.email} already exists`,
+                    )
+                }
+                if (target?.includes('retailClientId')) {
+                    throw new ConflictException(
+                        'That shop account is already linked to another customer',
                     )
                 }
                 if (target?.includes('customerNumber')) continue
@@ -89,6 +93,81 @@ export class CustomerService {
         throw new ConflictException(
             'Could not allocate a customer number, please retry',
         )
+    }
+
+    /** Shop logins that can still be referenced by a new RETAIL customer. */
+    listLinkableShopAccounts() {
+        return this.retailClients.listUnlinkedAccounts()
+    }
+
+    private resolveCustomerType(dto: CreateCustomerDto): CustomerType {
+        const customerType = dto.customerType ?? 'B2B'
+        const linksAccount = Boolean(dto.retailClientId)
+        const createsAccount = Boolean(dto.shopPassword)
+
+        if (customerType === 'B2B') {
+            if (linksAccount || createsAccount) {
+                throw new BadRequestException(
+                    'Shop accounts apply only to RETAIL customers',
+                )
+            }
+            if (dto.creditLimit === undefined) {
+                throw new BadRequestException('B2B customers need a credit limit')
+            }
+            return customerType
+        }
+
+        if (linksAccount === createsAccount) {
+            throw new BadRequestException(
+                'RETAIL customers need either an existing shop account or a new shop login password',
+            )
+        }
+        if ((dto.creditLimit ?? 0) > 0) {
+            throw new BadRequestException('RETAIL customers do not carry a credit limit')
+        }
+        return customerType
+    }
+
+    private async insert(
+        dto: CreateCustomerDto,
+        customerType: CustomerType,
+        attempt: number,
+        client: PrismaService | Prisma.TransactionClient,
+    ) {
+        let retailClientId: string | undefined
+        if (customerType === 'RETAIL') {
+            const account = dto.shopPassword
+                ? await this.retailClients.createAccount(
+                      {
+                          email: dto.email,
+                          password: dto.shopPassword,
+                          fullName: dto.contactName,
+                          phone: dto.phone,
+                      },
+                      client,
+                  )
+                : await this.retailClients.requireAccount(dto.retailClientId!, client)
+            retailClientId = account.id
+        }
+
+        const customerNumber = await this.nextCustomerNumber(attempt, client)
+        const creditLimit = new Decimal(dto.creditLimit ?? 0)
+        return client.sdCustomer.create({
+            data: {
+                customerNumber,
+                companyName: dto.companyName,
+                contactName: dto.contactName,
+                email: dto.email,
+                phone: dto.phone ?? '',
+                creditLimit,
+                availableCredit: creditLimit,
+                status: dto.status ?? 'ACTIVE',
+                customerType,
+                retailClientId,
+                createdBy: dto.createdBy,
+                updatedBy: dto.createdBy,
+            },
+        })
     }
 
     /**
@@ -106,6 +185,13 @@ export class CustomerService {
         if (dto.email !== undefined) data.email = dto.email
         if (dto.phone !== undefined) data.phone = dto.phone
         if (dto.status !== undefined) data.status = dto.status
+        if (
+            current.customerType === 'RETAIL' &&
+            dto.creditLimit !== undefined &&
+            dto.creditLimit > 0
+        ) {
+            throw new BadRequestException('RETAIL customers do not carry a credit limit')
+        }
         if (dto.creditLimit !== undefined) {
             const newLimit = new Decimal(dto.creditLimit)
             const delta = newLimit.minus(current.creditLimit)

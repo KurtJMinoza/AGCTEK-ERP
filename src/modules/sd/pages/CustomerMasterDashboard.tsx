@@ -154,6 +154,16 @@ const CustomerMasterDashboard = () => {
                 ),
             },
             {
+                header: 'Type',
+                id: 'customerType',
+                cell: ({ row }) =>
+                    row.original.customerType === 'RETAIL' ? (
+                        <StatusBadge tone="info">Retail</StatusBadge>
+                    ) : (
+                        <StatusBadge>B2B</StatusBadge>
+                    ),
+            },
+            {
                 header: 'Contact',
                 id: 'contact',
                 cell: ({ row }) => (
@@ -169,26 +179,32 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Credit Limit',
                 id: 'creditLimit',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {formatPrice(row.original.creditLimit)}
-                    </span>
-                ),
+                cell: ({ row }) =>
+                    row.original.customerType === 'RETAIL' ? (
+                        <span className="text-gray-400">—</span>
+                    ) : (
+                        <span className="whitespace-nowrap">
+                            {formatPrice(row.original.creditLimit)}
+                        </span>
+                    ),
             },
             {
                 header: 'Available Credit',
                 id: 'availableCredit',
-                cell: ({ row }) => (
-                    <span
-                        className={
-                            row.original.availableCredit < 0
-                                ? 'whitespace-nowrap font-semibold text-red-600'
-                                : 'whitespace-nowrap font-semibold'
-                        }
-                    >
-                        {formatPrice(row.original.availableCredit)}
-                    </span>
-                ),
+                cell: ({ row }) =>
+                    row.original.customerType === 'RETAIL' ? (
+                        <span className="text-gray-400">—</span>
+                    ) : (
+                        <span
+                            className={
+                                row.original.availableCredit < 0
+                                    ? 'whitespace-nowrap font-semibold text-red-600'
+                                    : 'whitespace-nowrap font-semibold'
+                            }
+                        >
+                            {formatPrice(row.original.availableCredit)}
+                        </span>
+                    ),
             },
             {
                 header: 'Status',
@@ -227,7 +243,7 @@ const CustomerMasterDashboard = () => {
             <Breadcrumb items={breadcrumbItems} className="mb-4" />
             <PageHeader
                 title="Customer Master"
-                description="B2B clients, credit limits and account status for Sales & Distribution."
+                description="Retail shoppers and B2B clients, credit limits and account status for Sales & Distribution."
                 actions={
                     <div className="flex items-center gap-2">
                         <Button

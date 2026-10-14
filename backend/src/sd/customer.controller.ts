@@ -17,6 +17,13 @@ export class CustomerController {
         return this.customers.list(query)
     }
 
+    /** Shop logins not yet linked to a customer, for registering RETAIL customers. */
+    @Get('shop-accounts')
+    @RequirePermission('sd.customer-master', 'create')
+    listShopAccounts() {
+        return this.customers.listLinkableShopAccounts()
+    }
+
     @Get(':id')
     @RequirePermission(['sd.customer-master', 'crm'], 'read')
     findOne(@Param('id') id: string) {

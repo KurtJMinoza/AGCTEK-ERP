@@ -89,7 +89,15 @@ export class RetailClientService {
         }
     }
 
-    async register(input: RetailRegisterDto) {
+    /**
+     * Shared by shopper self-registration and SD Customer Master (staff creating a
+     * shop login for a RETAIL customer). `client` lets the caller include the
+     * account in its own transaction.
+     */
+    async createAccount(
+        input: { email: string; password: string; fullName?: string; phone?: string },
+        client: PrismaService | Prisma.TransactionClient = this.prisma,
+    ) {
         const email = input.email.trim().toLowerCase()
         const password = input.password
 
@@ -101,7 +109,7 @@ export class RetailClientService {
             )
         }
 
-        const existing = await this.prisma.retailClient.findUnique({
+        const existing = await client.retailClient.findUnique({
             where: { email },
         })
         if (existing) {
@@ -111,14 +119,13 @@ export class RetailClientService {
         }
 
         const passwordHash = await bcrypt.hash(password, 10)
-        const fullName = (input.firstName || input.fullName || 'Valued Customer').trim()
-        let client
         try {
-            client = await this.prisma.retailClient.create({
+            return await client.retailClient.create({
                 data: {
                     email,
                     passwordHash,
-                    fullName,
+                    fullName: (input.fullName || 'Valued Customer').trim(),
+                    phone: input.phone?.trim() ?? '',
                 },
             })
         } catch (error) {
@@ -134,6 +141,37 @@ export class RetailClientService {
             }
             throw error
         }
+    }
+
+    async requireAccount(
+        id: string,
+        client: PrismaService | Prisma.TransactionClient = this.prisma,
+    ) {
+        const account = await client.retailClient.findUnique({
+            where: { id: id.trim() },
+            select: { id: true, email: true, fullName: true },
+        })
+        if (!account) {
+            throw new NotFoundException('Shop account not found.')
+        }
+        return account
+    }
+
+    /** Shop logins not yet referenced by an SD customer record. */
+    listUnlinkedAccounts() {
+        return this.prisma.retailClient.findMany({
+            where: { sdCustomer: null },
+            select: { id: true, email: true, fullName: true },
+            orderBy: { email: 'asc' },
+        })
+    }
+
+    async register(input: RetailRegisterDto) {
+        const client = await this.createAccount({
+            email: input.email,
+            password: input.password,
+            fullName: input.firstName || input.fullName,
+        })
 
         return {
             status: 'success',

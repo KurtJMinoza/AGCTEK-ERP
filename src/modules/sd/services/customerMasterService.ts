@@ -2,6 +2,14 @@ import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError } from './apiError'
 
 export type CustomerStatus = 'ACTIVE' | 'BLOCKED'
+export type CustomerType = 'RETAIL' | 'B2B'
+
+/** A storefront login a RETAIL customer can be linked to. */
+export type ShopAccount = {
+    id: string
+    email: string
+    fullName: string
+}
 
 export type Customer = {
     id: string
@@ -16,6 +24,8 @@ export type Customer = {
     /** Server-maintained; negative when the customer is over their limit. */
     availableCredit: number
     status: CustomerStatus
+    customerType: CustomerType
+    retailClientId: string | null
     createdAt: string
     updatedAt: string
 }
@@ -31,18 +41,30 @@ export type CreateCustomerInput = {
     contactName: string
     email: string
     phone?: string
-    creditLimit: number
+    /** Required for B2B; RETAIL customers carry no credit. */
+    creditLimit?: number
     status?: CustomerStatus
+    customerType?: CustomerType
+    /** RETAIL: link an existing shop login… */
+    retailClientId?: string
+    /** …or create one with the customer's email and this password. */
+    shopPassword?: string
 }
 
-export type UpdateCustomerInput = Partial<CreateCustomerInput>
+export type UpdateCustomerInput = Partial<
+    Omit<CreateCustomerInput, 'customerType' | 'retailClientId' | 'shopPassword'>
+>
 
 type DecimalString = string | number
 
-type ApiCustomer = Omit<Customer, 'creditLimit' | 'availableCredit' | 'status'> & {
+type ApiCustomer = Omit<
+    Customer,
+    'creditLimit' | 'availableCredit' | 'status' | 'customerType'
+> & {
     creditLimit: DecimalString
     availableCredit: DecimalString
     status: string
+    customerType?: string
 }
 
 const BASE_PATH = '/sd/customers'
@@ -52,7 +74,21 @@ const toCustomer = (row: ApiCustomer): Customer => ({
     creditLimit: Number(row.creditLimit),
     availableCredit: Number(row.availableCredit),
     status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
+    customerType: row.customerType === 'RETAIL' ? 'RETAIL' : 'B2B',
+    retailClientId: row.retailClientId ?? null,
 })
+
+/** GET /sd/customers/shop-accounts — shop logins not yet linked to a customer. */
+export async function getLinkableShopAccounts(): Promise<ShopAccount[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<ShopAccount[]>(
+            `${BASE_PATH}/shop-accounts`,
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load shop accounts')
+    }
+}
 
 /** GET /sd/customers — sorted by company name. */
 export async function getCustomers(
