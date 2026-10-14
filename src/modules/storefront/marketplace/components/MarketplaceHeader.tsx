@@ -16,7 +16,7 @@ import Button from '@/components/ui/Button'
 import Dropdown from '@/components/ui/Dropdown'
 import Input from '@/components/ui/Input'
 import { productsHref } from '../browseQuery'
-import { CART_PATH, MARKETPLACE_PATH } from '../host'
+import { CART_PATH, MARKETPLACE_ORDERS_PATH, MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
 import { MARKETPLACE_NAME } from '../marketplaceUi'
 import { useMarketplaceBrowseStore } from '../store/useMarketplaceBrowseStore'
@@ -155,6 +155,14 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                                 }}
                             >
                                 My Orders
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                onClick={() => {
+                                    router.push(`${MARKETPLACE_ORDERS_PATH}?view=returns`)
+                                }}
+                            >
+                                My Returns
                             </Dropdown.Item>
                             <Dropdown.Item variant="divider" />
                             <Dropdown.Item

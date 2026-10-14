@@ -24,6 +24,8 @@ export interface MmMaterialCategory {
     parentId?: string | null
     parent?: MmMaterialCategory | null
     children?: MmMaterialCategory[]
+    /** Uploaded category image (shown in the shop's Explore Popular Categories). */
+    imageUrl: string
     isActive: boolean
     sortOrder: number
     createdAt: string

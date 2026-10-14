@@ -47,12 +47,13 @@ export const materialCategoryService = {
             ErpAxiosBase.get<MmMaterialCategory[]>(`${API}/material-categories`).then((r) => r.data),
         ),
     get: (id: string) => ErpAxiosBase.get<MmMaterialCategory>(`${API}/material-categories/${id}`).then((r) => r.data),
-    create: (data: { code: string; name: string; description?: string; parentId?: string; sortOrder?: number }) =>
+    /** JSON payload or multipart FormData (`data` + `image`). */
+    create: (data: FormData | { code: string; name: string; description?: string; parentId?: string; sortOrder?: number }) =>
         ErpAxiosBase.post<MmMaterialCategory>(`${API}/material-categories`, data).then((r) => {
             mmInvalidateCache('material-categories')
             return r.data
         }),
-    update: (id: string, data: Partial<{ code: string; name: string; description: string; parentId: string; isActive: boolean; sortOrder: number }>) =>
+    update: (id: string, data: FormData | Partial<{ code: string; name: string; description: string; parentId: string; isActive: boolean; sortOrder: number; imageUrl: string }>) =>
         ErpAxiosBase.put<MmMaterialCategory>(`${API}/material-categories/${id}`, data).then((r) => {
             mmInvalidateCache('material-categories')
             return r.data

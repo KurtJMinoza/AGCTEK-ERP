@@ -128,6 +128,20 @@ export class SalesOrderController {
         return this.returnRequests.createForCustomer(clientId, id, dto)
     }
 
+    /** The signed-in shopper's own return requests (My Returns view). */
+    @Get('retail/returns')
+    listMyReturns(@Headers('authorization') authorization?: string) {
+        const clientId = this.retailSessions.clientIdFromAuthorization(
+            authorization,
+        )
+        if (!clientId) {
+            throw new UnauthorizedException(
+                'Please sign in to view your returns',
+            )
+        }
+        return this.returnRequests.listForCustomer(clientId)
+    }
+
     /** Multipart POD upload (field `file`); returns `{ imageUrl }` to attach to an order. */
     @Post('delivery-proof-image')
     @RequirePermission(['sd.sales-orders', 'sd.pos'], 'update')

@@ -70,29 +70,41 @@ export type MarketplaceCategory = {
     /** The only store selling this category, or null when several do. */
     divisionId: string | null
     count: number
+    /** Image uploaded on the MM material category (falls back to the icon). */
+    imageUrl: string | null
 }
 
 /**
  * Categories present in the live catalogue (product.category comes from the
- * linked MM material), most-stocked first.
+ * linked MM material), most-stocked first. The category image is the one
+ * uploaded in Material Master → Material Categories.
  */
 export const marketplaceCategories = (
     records: SdProductRecord[],
 ): MarketplaceCategory[] => {
-    const byName = new Map<string, { divisions: Set<string>; count: number }>()
+    const byName = new Map<
+        string,
+        { divisions: Set<string>; count: number; imageUrl: string | null }
+    >()
     for (const product of records) {
         const name = product.category?.trim()
         if (!name) continue
-        const entry = byName.get(name) ?? { divisions: new Set(), count: 0 }
+        const entry =
+            byName.get(name) ??
+            { divisions: new Set<string>(), count: 0, imageUrl: null }
         entry.divisions.add(product.divisionId)
         entry.count += 1
+        if (!entry.imageUrl && product.categoryImageUrl?.trim()) {
+            entry.imageUrl = product.categoryImageUrl.trim()
+        }
         byName.set(name, entry)
     }
     return [...byName.entries()]
-        .map(([name, { divisions, count }]) => ({
+        .map(([name, { divisions, count, imageUrl }]) => ({
             name,
             divisionId: divisions.size === 1 ? [...divisions][0] : null,
             count,
+            imageUrl,
         }))
         .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 }
@@ -109,12 +121,12 @@ const MarketplaceCategoryGrid = ({
     categories,
     onSelect,
 }: MarketplaceCategoryGridProps) => (
-    <ul className="grid grid-cols-4 gap-x-4 gap-y-8 sm:grid-cols-5 lg:grid-cols-10">
+    <ul className="grid grid-cols-4 gap-x-4 gap-y-9 sm:grid-cols-5 lg:grid-cols-8">
         {categories.map((category) => {
             const Icon = CATEGORY_ICONS[category.name] ?? Package
             const theme = divisionTheme(category.divisionId)
             const active = activeCategory === category.name
-            const { count } = category
+            const { count, imageUrl } = category
             return (
                 <li key={category.name}>
                     <button
@@ -126,17 +138,31 @@ const MarketplaceCategoryGrid = ({
                     >
                         <span
                             className={classNames(
-                                'flex h-20 w-20 cursor-pointer items-center justify-center rounded-full transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md',
-                                active
-                                    ? [theme.solid, 'shadow-sm']
-                                    : [theme.tile, theme.hoverSolid],
+                                'flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md sm:h-28 sm:w-28',
+                                imageUrl
+                                    ? [
+                                          'bg-white ring-1 ring-gray-200',
+                                          active ? 'ring-2 ring-emerald-500' : '',
+                                      ]
+                                    : active
+                                      ? [theme.solid, 'shadow-sm']
+                                      : [theme.tile, theme.hoverSolid],
                             )}
                         >
-                            <Icon
-                                aria-hidden
-                                className="h-7 w-7"
-                                strokeWidth={1.5}
-                            />
+                            {imageUrl ? (
+                                <img
+                                    src={imageUrl}
+                                    alt=""
+                                    loading="lazy"
+                                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                />
+                            ) : (
+                                <Icon
+                                    aria-hidden
+                                    className="h-9 w-9"
+                                    strokeWidth={1.5}
+                                />
+                            )}
                         </span>
                         <span className="flex flex-col items-center gap-0.5 text-center">
                             <span
