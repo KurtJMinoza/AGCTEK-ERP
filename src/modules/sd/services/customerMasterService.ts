@@ -2,6 +2,7 @@ import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError } from './apiError'
 
 export type CustomerStatus = 'ACTIVE' | 'BLOCKED'
+export type CustomerType = 'RETAIL' | 'B2B'
 
 export type Customer = {
     id: string
@@ -16,6 +17,7 @@ export type Customer = {
     /** Server-maintained; negative when the customer is over their limit. */
     availableCredit: number
     status: CustomerStatus
+    customerType: CustomerType
     /** Linked Shop (storefront) account, when one was referenced. */
     retailClientId: string | null
     /** Shop account profile (present when the customer references a shop account). */
@@ -35,16 +37,19 @@ export type CreateCustomerInput = {
     contactName: string
     email: string
     phone?: string
-    /** No longer collected in Add New Customer (defaults to 0 server-side). */
+    /** Required for B2B; RETAIL customers carry no credit. */
     creditLimit?: number
-    /** Shop (storefront) account to reference/link. */
-    retailClientId?: string
-    /** Provisions the Shop login for this customer (Shop account creation). */
-    password?: string
     status?: CustomerStatus
+    customerType?: CustomerType
+    /** RETAIL: link an existing shop login… */
+    retailClientId?: string
+    /** …or create one with the customer's email and this password. */
+    password?: string
 }
 
-export type UpdateCustomerInput = Partial<CreateCustomerInput>
+export type UpdateCustomerInput = Partial<
+    Omit<CreateCustomerInput, 'customerType' | 'retailClientId' | 'password'>
+>
 
 /** Shop (storefront) account shown in the Add New Customer reference picker. */
 export type ShopAccount = {
@@ -62,10 +67,14 @@ export type ShopAccount = {
 
 type DecimalString = string | number
 
-type ApiCustomer = Omit<Customer, 'creditLimit' | 'availableCredit' | 'status'> & {
+type ApiCustomer = Omit<
+    Customer,
+    'creditLimit' | 'availableCredit' | 'status' | 'customerType'
+> & {
     creditLimit: DecimalString
     availableCredit: DecimalString
     status: string
+    customerType?: string
 }
 
 const BASE_PATH = '/sd/customers'
@@ -75,6 +84,7 @@ const toCustomer = (row: ApiCustomer): Customer => ({
     creditLimit: Number(row.creditLimit),
     availableCredit: Number(row.availableCredit),
     status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
+    customerType: row.customerType === 'RETAIL' ? 'RETAIL' : 'B2B',
     retailClientId: row.retailClientId ?? null,
     retailClient: row.retailClient ?? null,
 })

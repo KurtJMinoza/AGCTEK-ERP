@@ -3755,9 +3755,11 @@ model SdCustomer {
   availableCredit Decimal  @default(0) @db.Decimal(18, 2)
   /// ACTIVE | BLOCKED
   status          String   @default("ACTIVE")
-  /// Linked shop (storefront) account created through Shop sign-up.
-  retailClientId String?    @unique
-  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
+  /// RETAIL (e-commerce shopper) | B2B (corporate account with credit)
+  customerType    String   @default("B2B")
+  /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
+  retailClientId  String?       @unique
+  retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime @default(now())
@@ -3774,6 +3776,7 @@ model SdCustomer {
 
   @@index([status])
   @@index([companyName])
+  @@index([customerType])
   @@map("sd_customers")
 }
 

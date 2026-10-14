@@ -1,6 +1,7 @@
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
+import type { RetailClientService } from '../retail/retail-client.service'
 import { CustomerService } from './customer.service'
 
 const numberCollision = () =>
@@ -11,29 +12,34 @@ const numberCollision = () =>
     })
 
 function mockClient() {
-    return {
+    const client = {
         retailClient: {
             findUnique: jest.fn().mockResolvedValue(null),
-            create: jest.fn((args: { data: Record<string, unknown> }) =>
-                Promise.resolve({ id: 'shop-1', ...args.data }),
-            ),
         },
         sdCustomer: {
             count: jest.fn().mockResolvedValue(4),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
                 Promise.resolve({ id: 'cust-new', ...args.data }),
             ),
-            findUnique: jest.fn().mockResolvedValue({
-                id: 'cust-new',
-                customerNumber: 'CUST-000005',
-                retailClientId: 'shop-1',
-            }),
-            update: jest.fn((args: { data: Record<string, unknown> }) =>
-                Promise.resolve({ id: 'cust-new', ...args.data }),
-            ),
         },
+        $transaction: jest.fn(),
+    }
+    client.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(client))
+    return client
+}
+
+function mockRetailClients() {
+    return {
+        createAccount: jest.fn().mockResolvedValue({ id: 'shop-new' }),
+        requireAccount: jest.fn().mockResolvedValue({ id: 'shop-existing' }),
     }
 }
+
+const makeService = (root: ReturnType<typeof mockClient>, retail = mockRetailClients()) =>
+    new CustomerService(
+        root as unknown as PrismaService,
+        retail as unknown as RetailClientService,
+    )
 
 const dto = { companyName: 'Acme', contactName: 'Ann', email: 'ann@acme.test', creditLimit: 0 }
 
@@ -41,7 +47,7 @@ describe('CustomerService.create', () => {
     it('writes through a caller-supplied transaction client', async () => {
         const root = mockClient()
         const tx = mockClient()
-        const service = new CustomerService(root as unknown as PrismaService)
+        const service = makeService(root)
 
         const created = await service.create(dto, tx as unknown as Prisma.TransactionClient)
 
@@ -54,7 +60,7 @@ describe('CustomerService.create', () => {
     it('retries a number collision on the root client', async () => {
         const root = mockClient()
         root.sdCustomer.create.mockRejectedValueOnce(numberCollision())
-        const service = new CustomerService(root as unknown as PrismaService)
+        const service = makeService(root)
 
         await service.create(dto)
 
@@ -65,7 +71,7 @@ describe('CustomerService.create', () => {
         const root = mockClient()
         const tx = mockClient()
         tx.sdCustomer.create.mockRejectedValueOnce(numberCollision())
-        const service = new CustomerService(root as unknown as PrismaService)
+        const service = makeService(root)
 
         await expect(
             service.create(dto, tx as unknown as Prisma.TransactionClient),
@@ -73,34 +79,89 @@ describe('CustomerService.create', () => {
         expect(tx.sdCustomer.create).toHaveBeenCalledTimes(1)
     })
 
-    it('provisions a Shop account (with password) and links it to the customer', async () => {
+    it('defaults to a B2B customer with no shop account', async () => {
         const root = mockClient()
-        const service = new CustomerService(root as unknown as PrismaService)
+        const created = await makeService(root).create({ ...dto, creditLimit: 5000 })
 
-        const created = await service.create({
-            ...dto,
-            password: 'shopPass123',
-        })
-
-        expect(root.retailClient.create).toHaveBeenCalledTimes(1)
-        const shopData = root.retailClient.create.mock.calls[0][0].data
-        expect(shopData.email).toBe('ann@acme.test')
-        expect(shopData.passwordHash).toBeTruthy()
-        expect(root.sdCustomer.update).toHaveBeenCalledWith({
-            where: { id: 'cust-new' },
-            data: { retailClientId: 'shop-1' },
-        })
-        expect(created.retailClientId).toBe('shop-1')
+        expect(created).toMatchObject({ customerType: 'B2B', retailClientId: undefined })
+        expect(root.$transaction).not.toHaveBeenCalled()
     })
 
-    it('rejects a provisioning password when a Shop account already exists', async () => {
+    it('creates the shop login and RETAIL customer in one transaction', async () => {
         const root = mockClient()
-        root.retailClient.findUnique.mockResolvedValue({ id: 'shop-existing' })
-        const service = new CustomerService(root as unknown as PrismaService)
+        const retail = mockRetailClients()
+
+        const created = await makeService(root, retail).create({
+            ...dto,
+            customerType: 'RETAIL',
+            password: 'secret123',
+        })
+
+        expect(root.$transaction).toHaveBeenCalledTimes(1)
+        expect(retail.createAccount).toHaveBeenCalledWith(
+            expect.objectContaining({ email: dto.email, password: 'secret123', fullName: 'Ann' }),
+            root,
+        )
+        expect(created).toMatchObject({ customerType: 'RETAIL', retailClientId: 'shop-new' })
+    })
+
+    it('links an existing shop account to a RETAIL customer', async () => {
+        const root = mockClient()
+        const retail = mockRetailClients()
+
+        const created = await makeService(root, retail).create({
+            ...dto,
+            customerType: 'RETAIL',
+            retailClientId: 'shop-existing',
+        })
+
+        expect(retail.requireAccount).toHaveBeenCalledWith('shop-existing', root)
+        expect(retail.createAccount).not.toHaveBeenCalled()
+        expect(created).toMatchObject({ retailClientId: 'shop-existing' })
+    })
+
+    it.each([
+        ['neither shop option', { customerType: 'RETAIL' as const }],
+        [
+            'both shop options',
+            { customerType: 'RETAIL' as const, retailClientId: 'x', password: 'secret123' },
+        ],
+        [
+            'a credit limit',
+            { customerType: 'RETAIL' as const, retailClientId: 'x', creditLimit: 100 },
+        ],
+        ['a shop account on B2B', { customerType: 'B2B' as const, retailClientId: 'x' }],
+    ])('rejects a RETAIL/B2B mismatch: %s', async (_label, overrides) => {
+        const root = mockClient()
+        await expect(makeService(root).create({ ...dto, ...overrides })).rejects.toBeInstanceOf(
+            BadRequestException,
+        )
+        expect(root.sdCustomer.create).not.toHaveBeenCalled()
+    })
+
+    it('auto-links a shop account that already uses the customer email', async () => {
+        const root = mockClient()
+        root.retailClient.findUnique.mockResolvedValue({ id: 'shop-by-email' })
+
+        const created = await makeService(root).create({ ...dto, customerType: 'RETAIL' })
+
+        expect(created).toMatchObject({ customerType: 'RETAIL', retailClientId: 'shop-by-email' })
+    })
+
+    it('does not create the customer when the new shop login is rejected', async () => {
+        const root = mockClient()
+        const retail = mockRetailClients()
+        retail.createAccount.mockRejectedValue(
+            new ConflictException('An account with this email already exists.'),
+        )
 
         await expect(
-            service.create({ ...dto, password: 'shopPass123' }),
+            makeService(root, retail).create({
+                ...dto,
+                customerType: 'RETAIL',
+                password: 'shopPass123',
+            }),
         ).rejects.toThrow(ConflictException)
-        expect(root.retailClient.create).not.toHaveBeenCalled()
+        expect(root.sdCustomer.create).not.toHaveBeenCalled()
     })
 })
