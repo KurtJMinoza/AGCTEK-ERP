@@ -83,6 +83,37 @@ export type TripStop = {
     failureCode: DeliveryFailureReason | null
     failedAt: string | null
     shipments?: TripStopShipment[]
+    /** Cash on Delivery for the orders dropped here; null when nothing is COD. */
+    collection?: CodCollection | null
+}
+
+/** PENDING = cash still to collect · COLLECTED = all Paid · NOT_COLLECTIBLE = cancelled/refunded etc. */
+export type CodCollectionStatus = 'PENDING' | 'COLLECTED' | 'NOT_COLLECTIBLE'
+
+/** Server-computed COD state (SD payment records are authoritative). */
+export type CodCollection = {
+    paymentMethod: 'COD'
+    status: CodCollectionStatus
+    currency: string
+    /** Outstanding cash; null when the amount is missing on the order. */
+    amountDue: number | null
+    amountCollected: number
+    collectedAt: string | null
+    orders: Array<{
+        salesOrderId: string
+        orderNumber: string
+        paymentStatus: string | null
+        amount: number | null
+    }>
+}
+
+export type CashReceivedResult = {
+    trip: Trip
+    collection: CodCollection & {
+        amountReceived: number | null
+        change: number | null
+        collectedOrderIds: string[]
+    }
 }
 
 export type DeliveryFailureReason =

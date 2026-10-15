@@ -158,6 +158,8 @@ SD owns pricing, order management, and billing. MM provides availability. FICO p
 
 **Billing policy (configurable):** distinguish **Goods Issue** (inventory), **Delivered** (POD), and **Invoice** (SD → FICO). Triggers may be GI, delivery, POD, or contract milestone — not one hardcoded global rule.
 
+*Current SD rule (e-commerce / retail orders):* GI → invoice **DRAFT**; driver POD success (`shipment.delivered`, per stop) → invoice **POSTED** (`ISSUED`), or straight to `PAID` when the order payment is already settled. COD stays `Pending Collection` until the driver confirms **Cash Received** (`POST /scm/trips/:id/stops/:stopId/cash-received`), which moves the SD payment to `Paid` and a posted invoice to `PAID`.
+
 **Product options & variants:** a parent product groups options (Size, Color, Bottle Size, Flavor, Pack…); the **variant is the sellable stock item** with its own SKU/price/barcode and linked MM material for ATP, reservation and goods issue. Detail: [`SD_PRODUCT_VARIANTS.md`](./SD_PRODUCT_VARIANTS.md).
 
 ---
