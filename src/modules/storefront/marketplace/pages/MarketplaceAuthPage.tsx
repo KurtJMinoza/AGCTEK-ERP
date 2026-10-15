@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { HiOutlineArrowLeft } from 'react-icons/hi'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
+import AuthBrandScene from '../components/AuthBrandScene'
 import MarketplaceAuthForm, {
     type MarketplaceAuthMode,
 } from '../components/MarketplaceAuthForm'
@@ -45,28 +46,33 @@ const BrandingColumn = ({
             isSignUp ? 'translate-x-0' : 'translate-x-full'
         }`}
     >
+        <AuthBrandScene />
         <div
-            className={`relative z-10 flex max-w-md flex-col items-center px-10 text-center ${contentFade(isMoving)}`}
+            className={`relative z-20 flex max-w-md flex-col items-center px-10 text-center ${contentFade(isMoving)}`}
         >
-            <div className="relative h-40 w-40">
+            <div
+                className="pointer-events-none absolute -inset-x-16 -inset-y-20 -z-10 bg-[radial-gradient(ellipse_at_center,rgba(7,27,56,0.92)_0%,rgba(7,27,56,0.7)_45%,transparent_72%)]"
+                aria-hidden
+            />
+            <div className="relative h-32 w-32 rounded-full shadow-[0_0_0_6px_rgba(255,255,255,0.08),0_20px_40px_rgba(0,0,0,0.5)]">
                 <Image
                     src={MARKETPLACE_LOGO_SRC}
                     alt={`${MARKETPLACE_NAME} logo`}
                     fill
                     priority
-                    sizes="160px"
+                    sizes="128px"
                     className="object-contain"
                 />
             </div>
-            <p className="mt-10 text-xs font-semibold uppercase tracking-[0.3em] text-shop-300">
+            <p className="mt-8 text-xs font-semibold uppercase tracking-[0.4em] text-shop-300 [text-shadow:0_1px_8px_rgba(7,27,56,0.9)]">
                 {MARKETPLACE_NAME}
             </p>
-            <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-white drop-shadow-md">
-                Join the AWIC &amp; LPG Insider Community
+            <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-white drop-shadow-md [text-shadow:0_2px_4px_rgba(0,0,0,0.6),0_4px_28px_rgba(7,27,56,0.95)]">
+                Seamless Shopping, Direct to Your Door
             </h2>
-            <p className="mt-4 text-base leading-relaxed text-white/85 drop-shadow-md">
-                Member-only pricing, faster checkout and live delivery tracking
-                across every store in the marketplace.
+            <p className="mt-4 text-base leading-relaxed text-white/90 drop-shadow-md [text-shadow:0_1px_3px_rgba(0,0,0,0.7),0_2px_18px_rgba(7,27,56,0.95)]">
+                Sign in for faster checkout, exclusive customer pricing, and
+                real-time delivery tracking on all your orders.
             </p>
         </div>
     </aside>
