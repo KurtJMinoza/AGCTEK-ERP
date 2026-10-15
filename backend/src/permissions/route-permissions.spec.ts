@@ -26,6 +26,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'auth#updateProfile': 'Own account (identified by userName; not a business resource)',
     'auth#changePassword': 'Own account (identified by userName; not a business resource)',
     'permissions#me': "Any signed-in user reads their own effective permissions",
+    'module-activity#summary': 'Own navigation badges; counts are limited to resources the user can read',
+    'module-activity#markSeen': "Own navigation badges (the user's last-seen timestamps)",
     'system-settings#getPublic': 'Branding and maintenance state shown before sign-in',
     'notifications#findAll': 'Notification inbox: no resource in the permission catalog',
     'notifications#getCount': 'Notification inbox: no resource in the permission catalog',

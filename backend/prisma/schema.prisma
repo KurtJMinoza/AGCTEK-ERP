@@ -33,8 +33,22 @@ model User {
   companies             UserCompany[]
   updatedSystemSettings SystemSetting[]
   reviews               ProductReview[]
+  moduleSeen            UserModuleSeen[]
 
   @@index([role])
+}
+
+/// When a user last opened an ERP module or page (navigation "new data" badges).
+/// `key` is a module code (`module:sd`), a registry page path, or `__baseline__` (first visit).
+model UserModuleSeen {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key    String
+  seenAt DateTime
+
+  @@unique([userId, key])
+  @@map("user_module_seen")
 }
 
 /// Assignable role. Permissions belong to roles; `isSystem` roles cannot be deleted or recoded.
