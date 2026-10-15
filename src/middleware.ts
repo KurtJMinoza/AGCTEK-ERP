@@ -16,6 +16,7 @@ import {
     MARKETPLACE_ACCOUNT_PATH,
     MARKETPLACE_SIGN_IN_PATH,
     MARKETPLACE_SIGN_UP_PATH,
+    MARKETPLACE_OTP_PATH,
     isMarketplaceHost,
     isMarketplaceProductPath,
     isMarketplaceTrackPath,
@@ -100,6 +101,7 @@ export default auth(async (req) => {
             MARKETPLACE_ACCOUNT_PATH,
             MARKETPLACE_SIGN_IN_PATH,
             MARKETPLACE_SIGN_UP_PATH,
+            MARKETPLACE_OTP_PATH,
         ].map((page) => page.slice(MARKETPLACE_PATH.length))
         const isShopPage = (shopPath: string) =>
             shopPages.includes(shopPath) ||

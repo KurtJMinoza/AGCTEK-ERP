@@ -24,6 +24,8 @@ export const MARKETPLACE_PRODUCTS_PATH = `${MARKETPLACE_PATH}/products` as const
 /** Shopper account pages. */
 export const MARKETPLACE_SIGN_IN_PATH = `${MARKETPLACE_PATH}/sign-in` as const
 export const MARKETPLACE_SIGN_UP_PATH = `${MARKETPLACE_PATH}/sign-up` as const
+/** Mobile-number OTP step (UI only until the SMS backend exists). */
+export const MARKETPLACE_OTP_PATH = `${MARKETPLACE_SIGN_IN_PATH}/otp` as const
 export const MARKETPLACE_ACCOUNT_PATH = `${MARKETPLACE_PATH}/account` as const
 export const MARKETPLACE_ORDERS_PATH = `${MARKETPLACE_PATH}/orders` as const
 

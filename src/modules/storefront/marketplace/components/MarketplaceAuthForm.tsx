@@ -4,8 +4,10 @@ import { useMemo, useState } from 'react'
 import { Controller, useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { FcGoogle } from 'react-icons/fc'
 import {
     HiOutlineCheckCircle,
+    HiOutlineDeviceMobile,
     HiOutlineInformationCircle,
     HiOutlineMail,
     HiOutlineUser,
@@ -16,8 +18,11 @@ import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import { Form, FormItem } from '@/components/ui/Form'
 import Input from '@/components/ui/Input'
+import Notification from '@/components/ui/Notification'
 import Tabs from '@/components/ui/Tabs'
+import toast from '@/components/ui/toast'
 import { toApiError } from '@/modules/sd/services/apiError'
+import { normalizePhilippineMobile } from '@/modules/storefront/shared/components/storefrontAccountFields'
 import { PRIMARY_BUTTON } from '../marketplaceUi'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
 
@@ -25,33 +30,69 @@ const PASSWORD_MIN = 8
 
 export type MarketplaceAuthMode = 'sign-in' | 'sign-up'
 
-const signUpSchema = z.object({
-    email: z
-        .string()
-        .trim()
-        .min(1, 'Email is required')
-        .email('Enter a valid email address'),
-    firstName: z
-        .string()
-        .trim()
-        .min(1, 'First name is required')
-        .max(120, 'First name must be 120 characters or fewer'),
-    password: z
-        .string()
-        .min(PASSWORD_MIN, `Use at least ${PASSWORD_MIN} characters`)
-        .regex(/[A-Za-z]/, 'Include at least one letter')
-        .regex(/\d/, 'Include at least one number'),
-})
+/** Mobile number is the default; email is the alternative (and the only channel the API supports today). */
+type AuthChannel = 'mobile' | 'email'
 
-type AuthValues = z.infer<typeof signUpSchema>
+/** Digits after +63, e.g. "0917 123 4567" or "+63 917…" → "9171234567". */
+const localMobileDigits = (value: string) =>
+    normalizePhilippineMobile(value).replace(/^(?:\+?63|0)/, '')
 
-const signInSchema = signUpSchema.extend({
-    firstName: z.string(),
-    password: z.string().min(1, 'Password is required'),
-})
+const optional = z.string()
+
+const buildSchema = (mode: MarketplaceAuthMode, channel: AuthChannel) =>
+    z.object({
+        email:
+            channel === 'email'
+                ? z
+                      .string()
+                      .trim()
+                      .min(1, 'Email is required')
+                      .email('Enter a valid email address')
+                : optional,
+        mobile:
+            channel === 'mobile'
+                ? z
+                      .string()
+                      .trim()
+                      .min(1, 'Mobile number is required')
+                      .refine(
+                          (value) => /^9\d{9}$/.test(localMobileDigits(value)),
+                          'Enter a valid mobile number, e.g. 917 123 4567',
+                      )
+                : optional,
+        firstName:
+            mode === 'sign-up'
+                ? z
+                      .string()
+                      .trim()
+                      .min(1, 'First name is required')
+                      .max(120, 'First name must be 120 characters or fewer')
+                : optional,
+        password:
+            channel === 'mobile'
+                ? optional
+                : mode === 'sign-up'
+                  ? z
+                        .string()
+                        .min(
+                            PASSWORD_MIN,
+                            `Use at least ${PASSWORD_MIN} characters`,
+                        )
+                        .regex(/[A-Za-z]/, 'Include at least one letter')
+                        .regex(/\d/, 'Include at least one number')
+                  : z.string().min(1, 'Password is required'),
+    })
+
+type AuthValues = {
+    email: string
+    mobile: string
+    firstName: string
+    password: string
+}
 
 const EMPTY_VALUES: AuthValues = {
     email: '',
+    mobile: '',
     firstName: '',
     password: '',
 }
@@ -111,9 +152,7 @@ const PasswordChecklist = ({ password }: { password: string }) => {
                         }
                     >
                         <HiOutlineCheckCircle
-                            className={
-                                met ? 'text-shop-600' : 'text-gray-300'
-                            }
+                            className={met ? 'text-shop-600' : 'text-gray-300'}
                             aria-hidden
                         />
                         {label}
@@ -124,21 +163,46 @@ const PasswordChecklist = ({ password }: { password: string }) => {
     )
 }
 
+const OrDivider = () => (
+    <div className="my-6 flex items-center gap-3" role="separator">
+        <span className="h-px flex-1 bg-gray-200" />
+        <span className="text-xs font-medium tracking-wider text-gray-400">
+            OR
+        </span>
+        <span className="h-px flex-1 bg-gray-200" />
+    </div>
+)
+
+const notifyGoogleUnavailable = () =>
+    toast.push(
+        <Notification type="info" title="Google sign-in" closable>
+            Continue with Google is not available yet. Use your mobile number or
+            email for now.
+        </Notification>,
+        { placement: 'top-end' },
+    )
+
 type AuthPanelProps = {
     mode: MarketplaceAuthMode
+    channel: AuthChannel
+    onChannelChange: (channel: AuthChannel) => void
     onAuthenticated: (mode: MarketplaceAuthMode) => void
+    onMobileSubmit: () => void
 }
 
-const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
+const AuthPanel = ({
+    mode,
+    channel,
+    onChannelChange,
+    onAuthenticated,
+    onMobileSubmit,
+}: AuthPanelProps) => {
     const login = useMarketplaceClientStore((state) => state.login)
     const register = useMarketplaceClientStore((state) => state.register)
     const [message, setMessage] = useState<string | null>(null)
     const resolver = useMemo<Resolver<AuthValues>>(
-        () =>
-            zodResolver(
-                mode === 'sign-in' ? signInSchema : signUpSchema,
-            ) as Resolver<AuthValues>,
-        [mode],
+        () => zodResolver(buildSchema(mode, channel)) as Resolver<AuthValues>,
+        [mode, channel],
     )
     const {
         control,
@@ -153,6 +217,7 @@ const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
     })
     const values = useWatch({ control })
     const email = values.email ?? ''
+    const mobile = values.mobile ?? ''
     const password = values.password ?? ''
     const shouldShow = (field: keyof AuthValues) =>
         Boolean(dirtyFields[field] || isSubmitted)
@@ -167,6 +232,10 @@ const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
 
     const onSubmit = async (form: AuthValues) => {
         setMessage(null)
+        if (channel === 'mobile') {
+            onMobileSubmit()
+            return
+        }
         try {
             if (mode === 'sign-in') {
                 await login({
@@ -206,39 +275,78 @@ const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
                 </Alert>
             ) : null}
 
-            <FormItem
-                asterisk
-                label={mode === 'sign-in' ? 'Email' : 'Email address'}
-                extra={
-                    <FieldState
-                        valid={fieldValid('email', email)}
-                        label="Email looks good"
-                    />
-                }
-                invalid={fieldInvalid('email')}
-                errorMessage={errors.email?.message}
-            >
-                <Controller
-                    name="email"
-                    control={control}
-                    render={({ field }) => (
-                        <Input
-                            type="email"
-                            placeholder="you@example.com"
-                            autoComplete="email"
-                            aria-invalid={fieldInvalid('email')}
-                            prefix={
-                                <HiOutlineMail className="text-lg text-gray-400" />
-                            }
-                            {...field}
-                            onChange={(event) => {
-                                field.onChange(event)
-                                clearOnChange('email')
-                            }}
+            {channel === 'mobile' ? (
+                <FormItem
+                    asterisk
+                    label="Mobile number"
+                    extra={
+                        <FieldState
+                            valid={fieldValid('mobile', mobile)}
+                            label="Number looks good"
                         />
-                    )}
-                />
-            </FormItem>
+                    }
+                    invalid={fieldInvalid('mobile')}
+                    errorMessage={errors.mobile?.message}
+                >
+                    <Controller
+                        name="mobile"
+                        control={control}
+                        render={({ field }) => (
+                            <Input
+                                type="tel"
+                                inputMode="tel"
+                                placeholder="917 123 4567"
+                                autoComplete="tel-national"
+                                aria-invalid={fieldInvalid('mobile')}
+                                prefix={
+                                    <span className="text-sm font-medium text-gray-400">
+                                        +63
+                                    </span>
+                                }
+                                {...field}
+                                onChange={(event) => {
+                                    field.onChange(event)
+                                    clearOnChange('mobile')
+                                }}
+                            />
+                        )}
+                    />
+                </FormItem>
+            ) : (
+                <FormItem
+                    asterisk
+                    label={mode === 'sign-in' ? 'Email' : 'Email address'}
+                    extra={
+                        <FieldState
+                            valid={fieldValid('email', email)}
+                            label="Email looks good"
+                        />
+                    }
+                    invalid={fieldInvalid('email')}
+                    errorMessage={errors.email?.message}
+                >
+                    <Controller
+                        name="email"
+                        control={control}
+                        render={({ field }) => (
+                            <Input
+                                type="email"
+                                placeholder="you@example.com"
+                                autoComplete="email"
+                                aria-invalid={fieldInvalid('email')}
+                                prefix={
+                                    <HiOutlineMail className="text-lg text-gray-400" />
+                                }
+                                {...field}
+                                onChange={(event) => {
+                                    field.onChange(event)
+                                    clearOnChange('email')
+                                }}
+                            />
+                        )}
+                    />
+                </FormItem>
+            )}
 
             {mode === 'sign-up' ? (
                 <FormItem
@@ -278,55 +386,64 @@ const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
                 </FormItem>
             ) : null}
 
-            <FormItem
-                asterisk
-                label="Password"
-                extra={
-                    <FieldState
-                        valid={
-                            mode === 'sign-in'
-                                ? fieldValid('password', password)
-                                : passwordIsStrong
+            {channel === 'mobile' ? (
+                <p className="-mt-2 mb-5 text-xs text-gray-500">
+                    We will send you a one-time password (OTP) via SMS to verify
+                    your number.
+                </p>
+            ) : (
+                <>
+                    <FormItem
+                        asterisk
+                        label="Password"
+                        extra={
+                            <FieldState
+                                valid={
+                                    mode === 'sign-in'
+                                        ? fieldValid('password', password)
+                                        : passwordIsStrong
+                                }
+                                label={
+                                    mode === 'sign-in'
+                                        ? 'Ready to sign in'
+                                        : 'Strong password'
+                                }
+                            />
                         }
-                        label={
-                            mode === 'sign-in'
-                                ? 'Ready to sign in'
-                                : 'Strong password'
-                        }
-                    />
-                }
-                invalid={fieldInvalid('password')}
-                errorMessage={errors.password?.message}
-            >
-                <Controller
-                    name="password"
-                    control={control}
-                    render={({ field }) => (
-                        <PasswordInput
-                            placeholder={
-                                mode === 'sign-in'
-                                    ? 'Enter your password'
-                                    : `At least ${PASSWORD_MIN} characters`
-                            }
-                            autoComplete={
-                                mode === 'sign-in'
-                                    ? 'current-password'
-                                    : 'new-password'
-                            }
-                            aria-invalid={fieldInvalid('password')}
-                            {...field}
-                            onChange={(event) => {
-                                field.onChange(event)
-                                clearOnChange('password')
-                            }}
+                        invalid={fieldInvalid('password')}
+                        errorMessage={errors.password?.message}
+                    >
+                        <Controller
+                            name="password"
+                            control={control}
+                            render={({ field }) => (
+                                <PasswordInput
+                                    placeholder={
+                                        mode === 'sign-in'
+                                            ? 'Enter your password'
+                                            : `At least ${PASSWORD_MIN} characters`
+                                    }
+                                    autoComplete={
+                                        mode === 'sign-in'
+                                            ? 'current-password'
+                                            : 'new-password'
+                                    }
+                                    aria-invalid={fieldInvalid('password')}
+                                    {...field}
+                                    onChange={(event) => {
+                                        field.onChange(event)
+                                        clearOnChange('password')
+                                    }}
+                                />
+                            )}
                         />
-                    )}
-                />
-            </FormItem>
+                    </FormItem>
 
-            {mode === 'sign-up' ? (
-                <PasswordChecklist password={password} />
-            ) : null}
+                    {mode === 'sign-up' ? (
+                        <PasswordChecklist password={password} />
+                    ) : null}
+                </>
+            )}
 
             <Button
                 block
@@ -335,10 +452,45 @@ const AuthPanel = ({ mode, onAuthenticated }: AuthPanelProps) => {
                 loading={isSubmitting}
                 customColorClass={PRIMARY_BUTTON}
             >
-                {COPY[mode].action}
+                {channel === 'mobile' ? 'Send Code' : COPY[mode].action}
             </Button>
 
-            {mode === 'sign-in' ? (
+            <OrDivider />
+
+            <div className="flex flex-col gap-3">
+                {channel === 'mobile' ? (
+                    <Button
+                        block
+                        type="button"
+                        variant="default"
+                        icon={<HiOutlineMail />}
+                        onClick={() => onChannelChange('email')}
+                    >
+                        Continue with Email
+                    </Button>
+                ) : (
+                    <Button
+                        block
+                        type="button"
+                        variant="default"
+                        icon={<HiOutlineDeviceMobile />}
+                        onClick={() => onChannelChange('mobile')}
+                    >
+                        Continue with Mobile Number
+                    </Button>
+                )}
+                <Button
+                    block
+                    type="button"
+                    variant="default"
+                    icon={<FcGoogle />}
+                    onClick={notifyGoogleUnavailable}
+                >
+                    Continue with Google
+                </Button>
+            </div>
+
+            {channel === 'email' && mode === 'sign-in' ? (
                 <p className="mt-4 text-center text-xs text-gray-400">
                     We validate your details as you type. Your sign-in is
                     protected with secure encryption.
@@ -352,6 +504,8 @@ type MarketplaceAuthFormProps = {
     mode: MarketplaceAuthMode
     onModeChange: (mode: MarketplaceAuthMode) => void
     onAuthenticated: (mode: MarketplaceAuthMode) => void
+    /** Mobile-number sign-in / sign-up continues to OTP verification. */
+    onMobileSubmit: () => void
 }
 
 /** The marketplace's only shopper sign-in and account-creation form. */
@@ -359,7 +513,9 @@ const MarketplaceAuthForm = ({
     mode,
     onModeChange,
     onAuthenticated,
+    onMobileSubmit,
 }: MarketplaceAuthFormProps) => {
+    const [channel, setChannel] = useState<AuthChannel>('mobile')
     const copy = COPY[mode]
 
     const selectMode = (nextMode: MarketplaceAuthMode) => {
@@ -398,9 +554,12 @@ const MarketplaceAuthForm = ({
             </Tabs>
 
             <AuthPanel
-                key={mode}
+                key={`${mode}-${channel}`}
                 mode={mode}
+                channel={channel}
+                onChannelChange={setChannel}
                 onAuthenticated={onAuthenticated}
+                onMobileSubmit={onMobileSubmit}
             />
         </div>
     )

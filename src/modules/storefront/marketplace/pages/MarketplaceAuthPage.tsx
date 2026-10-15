@@ -12,27 +12,19 @@ import MarketplaceAuthForm, {
 } from '../components/MarketplaceAuthForm'
 import {
     MARKETPLACE_ACCOUNT_PATH,
+    MARKETPLACE_OTP_PATH,
     MARKETPLACE_PATH,
     MARKETPLACE_SIGN_IN_PATH,
     MARKETPLACE_SIGN_UP_PATH,
     marketplaceAuthHref,
     safeReturnPath,
 } from '../host'
-import { MARKETPLACE_LOGO_SRC, MARKETPLACE_NAME } from '../marketplaceUi'
+import {
+    BRAND_GRID_SURFACE,
+    MARKETPLACE_LOGO_SRC,
+    MARKETPLACE_NAME,
+} from '../marketplaceUi'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
-
-/** Slow-moving green blobs behind the logo; purely decorative. */
-const BrandBackdrop = () => (
-    <div
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-        aria-hidden
-    >
-        <div className="absolute -left-32 -top-32 h-[28rem] w-[28rem] animate-[spin_40s_linear_infinite] rounded-full bg-shop-500 opacity-50 blur-3xl [transform-origin:65%_60%]" />
-        <div className="absolute -bottom-40 -right-24 h-[32rem] w-[32rem] animate-[spin_55s_linear_infinite_reverse] rounded-full bg-leaf-500 opacity-40 blur-3xl [transform-origin:35%_40%]" />
-        <div className="absolute left-1/3 top-1/2 h-72 w-72 animate-pulse rounded-full bg-leaf-400 opacity-30 blur-3xl [animation-duration:6s]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(7,27,56,0.6)_75%)]" />
-    </div>
-)
 
 const SWAP_MS = 800
 const SWAP_TRANSITION =
@@ -49,15 +41,14 @@ const BrandingColumn = ({
     isMoving: boolean
 }) => (
     <aside
-        className={`absolute left-0 top-0 z-10 hidden h-full w-1/2 overflow-hidden bg-gradient-to-br from-shop-800 via-shop-900 to-shop-950 lg:flex lg:items-center lg:justify-center ${SWAP_TRANSITION} ${
+        className={`absolute left-0 top-0 z-10 hidden h-full w-1/2 overflow-hidden ${BRAND_GRID_SURFACE} lg:flex lg:items-center lg:justify-center ${SWAP_TRANSITION} ${
             isSignUp ? 'translate-x-0' : 'translate-x-full'
         }`}
     >
-        <BrandBackdrop />
         <div
             className={`relative z-10 flex max-w-md flex-col items-center px-10 text-center ${contentFade(isMoving)}`}
         >
-            <div className="relative h-40 w-40 drop-shadow-[0_20px_40px_rgba(169,206,90,0.35)]">
+            <div className="relative h-40 w-40">
                 <Image
                     src={MARKETPLACE_LOGO_SRC}
                     alt={`${MARKETPLACE_NAME} logo`}
@@ -70,10 +61,10 @@ const BrandingColumn = ({
             <p className="mt-10 text-xs font-semibold uppercase tracking-[0.3em] text-shop-300">
                 {MARKETPLACE_NAME}
             </p>
-            <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-white">
+            <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-white drop-shadow-md">
                 Join the AWIC &amp; LPG Insider Community
             </h2>
-            <p className="mt-4 text-base leading-relaxed text-shop-100/80">
+            <p className="mt-4 text-base leading-relaxed text-white/85 drop-shadow-md">
                 Member-only pricing, faster checkout and live delivery tracking
                 across every store in the marketplace.
             </p>
@@ -175,6 +166,13 @@ const MarketplaceAuthPage = ({
                     <MarketplaceAuthForm
                         mode={mode}
                         onModeChange={changeMode}
+                        onMobileSubmit={() =>
+                            router.push(
+                                returnPath === MARKETPLACE_PATH
+                                    ? MARKETPLACE_OTP_PATH
+                                    : `${MARKETPLACE_OTP_PATH}?${new URLSearchParams({ next: returnPath })}`,
+                            )
+                        }
                         onAuthenticated={handleAuthenticated}
                     />
                 </div>
