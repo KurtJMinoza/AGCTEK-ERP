@@ -4,6 +4,7 @@ import {
     Delete,
     Get,
     Headers,
+    HttpCode,
     Param,
     Patch,
     Post,
@@ -29,8 +30,9 @@ export class TripsController {
     /** Driver mobile — active ASSIGNED / IN_TRANSIT trip. */
     @Get('active')
     @RequirePermission(['scm.trips', 'scm.trip-planning', 'scm.tracking'], 'read')
-    findActive(@Query('driverId') driverId: string) {
-        return this.tripsService.findActiveForDriver(driverId)
+    async findActive(@Query('driverId') driverId: string) {
+        const trip = await this.tripsService.findActiveForDriver(driverId)
+        return trip ? this.tripsService.withCodCollections(trip) : null
     }
 
     /** @deprecated Use POST /scm/tms/load-plans/:id/lines (cargo-first load building). */
@@ -42,8 +44,8 @@ export class TripsController {
 
     @Get(':id')
     @RequirePermission(['scm.trips', 'scm.trip-planning', 'scm.tracking'], 'read')
-    findOne(@Param('id') id: string) {
-        return this.tripsService.findOne(id)
+    async findOne(@Param('id') id: string) {
+        return this.tripsService.withCodCollections(await this.tripsService.findOne(id))
     }
 
     /** @deprecated with shipment stops — use POST /scm/tms/trips from a READY load plan. */
@@ -71,8 +73,8 @@ export class TripsController {
     /** Driver 5.1 — start route. Driver endpoints require `x-driver-id` = trip's assigned driver. */
     @Patch(':id/start')
     @RequirePermission('scm.trips', 'update')
-    start(@Param('id') id: string, @Headers('x-driver-id') driverId?: string) {
-        return this.tripsService.startTrip(id, driverId)
+    async start(@Param('id') id: string, @Headers('x-driver-id') driverId?: string) {
+        return this.tripsService.withCodCollections(await this.tripsService.startTrip(id, driverId))
     }
 
     @Post(':id/stops')
@@ -93,36 +95,58 @@ export class TripsController {
 
     @Patch(':id/stops/:stopId/arrive')
     @RequirePermission('scm.trips', 'update')
-    arriveStop(
+    async arriveStop(
         @Param('id') id: string,
         @Param('stopId') stopId: string,
         @Body() body: Record<string, unknown>,
         @Headers('x-driver-id') driverId?: string,
     ) {
-        return this.tripsService.arriveStop(id, stopId, driverId, body as never)
+        return this.tripsService.withCodCollections(
+            await this.tripsService.arriveStop(id, stopId, driverId, body as never),
+        )
     }
 
     @Patch(':id/stops/:stopId/pod')
     @RequirePermission('scm.trips', 'update')
-    saveStopPod(
+    async saveStopPod(
         @Param('id') id: string,
         @Param('stopId') stopId: string,
         @Body() body: Record<string, unknown>,
         @Headers('x-driver-id') driverId?: string,
     ) {
-        return this.tripsService.saveStopPod(id, stopId, body as never, driverId)
+        return this.tripsService.withCodCollections(
+            await this.tripsService.saveStopPod(id, stopId, body as never, driverId),
+        )
     }
 
     /** outcome DELIVERED → stop COMPLETED; outcome FAILED requires reasonCode. */
     @Patch(':id/stops/:stopId/deliver')
     @RequirePermission('scm.trips', 'update')
-    deliverStop(
+    async deliverStop(
         @Param('id') id: string,
         @Param('stopId') stopId: string,
         @Body() body: Record<string, unknown>,
         @Headers('x-driver-id') driverId?: string,
     ) {
-        return this.tripsService.deliverStop(id, stopId, body as never, driverId)
+        return this.tripsService.withCodCollections(
+            await this.tripsService.deliverStop(id, stopId, body as never, driverId),
+        )
+    }
+
+    /**
+     * Driver COD "Cash Received" — full collection only; body `{ amountReceived, clientActionId? }`.
+     * Returns `{ trip, collection }`; replays return the same collected state.
+     */
+    @Post(':id/stops/:stopId/cash-received')
+    @HttpCode(200)
+    @RequirePermission('scm.trips', 'update')
+    collectCash(
+        @Param('id') id: string,
+        @Param('stopId') stopId: string,
+        @Body() body: Record<string, unknown>,
+        @Headers('x-driver-id') driverId?: string,
+    ) {
+        return this.tripsService.collectCash(id, stopId, body as never, driverId)
     }
 
     @Delete(':id/stops/:stopId')

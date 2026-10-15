@@ -34,6 +34,10 @@ import { OrderTrackingNotifierListener } from './order-tracking-notifier.listene
 import { ReturnRequestService } from './return-request.service'
 import { ReturnRequestController } from './return-request.controller'
 import { ReviewModule } from './reviews/review.module'
+import { DeliveryController } from './delivery.controller'
+import { DeliveryMonitorService } from './delivery-monitor.service'
+import { SalesInvoiceController } from './sales-invoice.controller'
+import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
 
 @Module({
     imports: [
@@ -52,6 +56,8 @@ import { ReviewModule } from './reviews/review.module'
         QuotationController,
         SalesReturnController,
         ReturnRequestController,
+        DeliveryController,
+        SalesInvoiceController,
     ],
     providers: [
         CustomerService,
@@ -74,6 +80,8 @@ import { ReviewModule } from './reviews/review.module'
         SalesInvoiceService,
         SdFulfillmentEventsListener,
         ReturnRequestService,
+        DeliveryMonitorService,
+        SalesInvoicePdfService,
         OrderTrackingService,
         OrderTrackingNotifierListener,
     ],

@@ -33,8 +33,22 @@ model User {
   companies             UserCompany[]
   updatedSystemSettings SystemSetting[]
   reviews               ProductReview[]
+  moduleSeen            UserModuleSeen[]
 
   @@index([role])
+}
+
+/// When a user last opened an ERP module or page (navigation "new data" badges).
+/// `key` is a module code (`module:sd`), a registry page path, or `__baseline__` (first visit).
+model UserModuleSeen {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key    String
+  seenAt DateTime
+
+  @@unique([userId, key])
+  @@map("user_module_seen")
 }
 
 /// Assignable role. Permissions belong to roles; `isSystem` roles cannot be deleted or recoded.
@@ -3755,9 +3769,11 @@ model SdCustomer {
   availableCredit Decimal  @default(0) @db.Decimal(18, 2)
   /// ACTIVE | BLOCKED
   status          String   @default("ACTIVE")
-  /// Linked shop (storefront) account created through Shop sign-up.
-  retailClientId String?    @unique
-  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
+  /// RETAIL (e-commerce shopper) | B2B (corporate account with credit)
+  customerType    String   @default("B2B")
+  /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
+  retailClientId  String?       @unique
+  retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime @default(now())
@@ -3774,6 +3790,7 @@ model SdCustomer {
 
   @@index([status])
   @@index([companyName])
+  @@index([customerType])
   @@map("sd_customers")
 }
 
@@ -3820,20 +3837,28 @@ model SdProduct {
 }
 
 /// Customer review and star rating on an SD storefront product.
+/// Exactly one author: an ERP `User` or a storefront `RetailClient` (shopper).
 model ProductReview {
-  id        String    @id @default(cuid())
-  productId String
-  product   SdProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rating    Int
-  comment   String    @db.Text
-  imageUrls String[]  @default([])
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             String        @id @default(cuid())
+  productId      String
+  product        SdProduct     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  retailClientId String?
+  retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: Cascade)
+  /// Delivered order that verifies the shopper's purchase.
+  salesOrderId   String?
+  salesOrder     SdSalesOrder? @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  rating         Int
+  comment        String        @db.Text
+  imageUrls      String[]      @default([])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
+  @@unique([retailClientId, productId])
   @@index([productId])
   @@index([userId])
+  @@index([salesOrderId])
   @@map("product_reviews")
 }
 
@@ -4049,6 +4074,7 @@ model SdSalesOrder {
   invoices           SdSalesInvoice[]
   returnRequests     SdReturnRequest[]
   payments           SdSalesOrderPayment[]
+  productReviews     ProductReview[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -6495,6 +6521,8 @@ enum TripStopEventType {
   ARRIVED
   COMPLETED
   FAILED
+  /// Driver confirmed Cash on Delivery collected (SD payment → Paid)
+  CASH_COLLECTED
 }
 
 enum ShipmentStatus {
@@ -7206,6 +7234,7 @@ model RetailClient {
   notifications Notification[]
   /// SD Customer Master record linked via Add New Customer (shop reference).
   sdCustomer   SdCustomer?
+  productReviews ProductReview[]
 
   @@index([email])
 }

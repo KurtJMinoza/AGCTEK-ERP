@@ -10,11 +10,15 @@ import {
     MaxLength,
     Min,
     MinLength,
+    ValidateIf,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
 export const CUSTOMER_STATUSES = ['ACTIVE', 'BLOCKED'] as const
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number]
+
+export const CUSTOMER_TYPES = ['RETAIL', 'B2B'] as const
+export type CustomerType = (typeof CUSTOMER_TYPES)[number]
 
 const MAX_CREDIT_LIMIT = 999_999_999_999.99
 
@@ -59,21 +63,32 @@ export class CreateCustomerDto {
     @MaxLength(40)
     phone?: string
 
-    @IsOptional()
+    /** Required for B2B; RETAIL customers carry no credit (omit or send 0). */
+    @ValidateIf((o: CreateCustomerDto) => o.customerType !== 'RETAIL' || o.creditLimit !== undefined)
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
     creditLimit?: number
 
-    /** Shop (storefront) account to link — Add New Customer → Shop account. */
     @IsOptional()
+    @IsIn(CUSTOMER_STATUSES)
+    status?: CustomerStatus
+
+    /** Defaults to B2B. */
+    @IsOptional()
+    @IsIn(CUSTOMER_TYPES)
+    customerType?: CustomerType
+
+    /** RETAIL: link an existing shop login (mutually exclusive with password). */
+    @IsOptional()
+    @Transform(trim)
     @IsString()
+    @IsNotEmpty()
     retailClientId?: string
 
     /**
-     * Provision a Shop (storefront) login for this customer: creates the shop
-     * account with this password and links it. Omit to keep the customer
-     * SD/B2B-only. Mirrors the Shop sign-up password policy (demo only).
+     * RETAIL: create a new shop login with the customer's email and this password.
+     * Mirrors the Shop sign-up password policy.
      */
     @IsOptional()
     @IsString()
@@ -82,10 +97,6 @@ export class CreateCustomerDto {
     @Matches(/[A-Za-z]/, { message: 'Password must include at least one letter' })
     @Matches(/\d/, { message: 'Password must include at least one number' })
     password?: string
-
-    @IsOptional()
-    @IsIn(CUSTOMER_STATUSES)
-    status?: CustomerStatus
 
     @IsOptional()
     @IsString()

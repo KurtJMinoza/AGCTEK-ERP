@@ -224,7 +224,7 @@ export class SalesOrderController {
 
     /** Idempotently create the missing MM reservation/allocation/picking work. */
     @Post(':id/fulfillment')
-    @RequirePermission('sd.sales-orders', 'update')
+    @RequirePermission(['sd.sales-orders', 'sd.deliveries'], 'update')
     createMissingFulfillment(@Param('id') id: string) {
         return this.salesOrders.createMissingFulfillment(id)
     }

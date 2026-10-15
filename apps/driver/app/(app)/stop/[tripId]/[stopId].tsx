@@ -11,14 +11,17 @@ import {
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { CashReceivedSheet } from '@/src/components/CashReceivedSheet'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { SignaturePad } from '@/src/components/SignaturePad'
 import { StatusBadge } from '@/src/components/StatusBadge'
 import {
     apiArriveStop,
+    apiCashReceived,
     apiDeliverStop,
     apiGetTrip,
 } from '@/src/api/client'
+import { formatMoney } from '@/src/utils/money'
 import { captureStopMeta } from '@/src/api/stopMeta'
 import { stopQty } from '@/src/hooks/useActiveTrip'
 import type { DeliveryFailureReason, Trip, TripStop } from '@/src/types'
@@ -50,6 +53,12 @@ export default function StopDetailScreen() {
     const [signatureUrl, setSignatureUrl] = useState<string | null>(null)
     const [failureReason, setFailureReason] = useState('')
     const [failureCode, setFailureCode] = useState<DeliveryFailureReason | null>(null)
+    const [cashSheetOpen, setCashSheetOpen] = useState(false)
+    const [cashBusy, setCashBusy] = useState(false)
+    const [cashError, setCashError] = useState<string | null>(null)
+    /** One id per collection attempt — a retry after a dropped response replays, never double-collects. */
+    const [cashActionId, setCashActionId] = useState<string | null>(null)
+    const [cashReceipt, setCashReceipt] = useState<string | null>(null)
 
     const reload = useCallback(async () => {
         if (!tripId) return
@@ -123,6 +132,40 @@ export default function StopDetailScreen() {
         }
     }
 
+    const openCashSheet = () => {
+        setCashError(null)
+        setCashActionId(
+            (current) =>
+                current ?? `cash-${stopId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        )
+        setCashSheetOpen(true)
+    }
+
+    const onConfirmCash = async (amountReceived: number) => {
+        if (!tripId || !stopId || !cashActionId) return
+        setCashBusy(true)
+        setCashError(null)
+        try {
+            const { trip: updated, collection } = await apiCashReceived(tripId, stopId, {
+                ...(await captureStopMeta()),
+                clientActionId: cashActionId,
+                amountReceived,
+            })
+            setTrip(updated)
+            setCashSheetOpen(false)
+            setCashActionId(null)
+            setCashReceipt(
+                collection.change != null
+                    ? `Cash collected. Change ${formatMoney(collection.change, collection.currency)}.`
+                    : 'Cash already recorded for this stop.',
+            )
+        } catch (err) {
+            setCashError(err instanceof Error ? err.message : 'Could not record cash')
+        } finally {
+            setCashBusy(false)
+        }
+    }
+
     const onDeliver = async (outcome: 'DELIVERED' | 'FAILED') => {
         if (!tripId || !stopId) return
         if (outcome === 'FAILED' && !failureCode) {
@@ -181,6 +224,10 @@ export default function StopDetailScreen() {
     const canArrive = tripInTransit && stop.status === 'PENDING' && !blockingStop
     const canDeliverOrFail = tripInTransit && stop.status === 'ARRIVED'
     const failureLabel = FAILURE_REASONS.find((r) => r.code === stop.failureCode)?.label
+    const cod = stop.collection ?? null
+    // Same window as Confirm delivered, plus right after POD (server allows ARRIVED / COMPLETED).
+    const canCollectCash =
+        cod?.status === 'PENDING' && (canDeliverOrFail || stop.status === 'COMPLETED')
 
     return (
         <ScrollView contentContainerStyle={styles.content}>
@@ -230,6 +277,52 @@ export default function StopDetailScreen() {
                     </Text>
                 </View>
             ))}
+
+            {cod ? (
+                <>
+                    <Text style={styles.section}>Payment · Cash on delivery</Text>
+                    <View style={styles.manifestRow}>
+                        {cod.status === 'COLLECTED' ? (
+                            <Text style={styles.codCollected}>
+                                Collected {formatMoney(cod.amountCollected, cod.currency)}
+                            </Text>
+                        ) : cod.status === 'PENDING' ? (
+                            <Text style={styles.codDue}>
+                                {cod.amountDue != null
+                                    ? `Collect ${formatMoney(cod.amountDue, cod.currency)}`
+                                    : 'Amount due unavailable — contact dispatch'}
+                            </Text>
+                        ) : (
+                            <Text style={styles.manifestMeta}>
+                                Not collectible — payment{' '}
+                                {cod.orders.map((o) => o.paymentStatus ?? 'missing').join(', ')}
+                            </Text>
+                        )}
+                        <Text style={styles.manifestMeta}>
+                            {cod.orders.map((o) => o.orderNumber).join(', ')}
+                        </Text>
+                    </View>
+                    {cashReceipt ? <Text style={styles.savedSig}>{cashReceipt}</Text> : null}
+                    {canCollectCash ? (
+                        <PrimaryButton
+                            title="Cash received"
+                            disabled={cod.amountDue == null}
+                            onPress={openCashSheet}
+                        />
+                    ) : null}
+                    {cod.status === 'PENDING' && cod.amountDue != null ? (
+                        <CashReceivedSheet
+                            visible={cashSheetOpen}
+                            amountDue={cod.amountDue}
+                            currency={cod.currency}
+                            busy={cashBusy}
+                            error={cashError}
+                            onCancel={() => setCashSheetOpen(false)}
+                            onConfirm={(amount) => void onConfirmCash(amount)}
+                        />
+                    ) : null}
+                </>
+            ) : null}
 
             {canDeliverOrFail ? (
                 <>
@@ -388,6 +481,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#e5e7eb',
     },
     savedSig: { marginTop: 8, color: '#047857', fontWeight: '600' },
+    codDue: { fontSize: 18, fontWeight: '800', color: '#b45309' },
+    codCollected: { fontSize: 18, fontWeight: '800', color: '#047857' },
     hint: { marginTop: 16, color: '#92400e', lineHeight: 22, fontSize: 15 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {

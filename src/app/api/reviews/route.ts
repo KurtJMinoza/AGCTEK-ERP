@@ -34,9 +34,7 @@ export async function POST(request: Request) {
         const body = await request.json()
         const session = await auth()
         const resolvedUserId =
-            body.userId ||
-            (session?.user as { id?: string } | undefined)?.id ||
-            undefined
+            (session?.user as { id?: string } | undefined)?.id || undefined
 
         if (!resolvedUserId) {
             return NextResponse.json(

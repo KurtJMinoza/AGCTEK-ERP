@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common'
 import type { PrismaService } from '../prisma/prisma.service'
 import { SalesInvoiceService } from './sales-invoice.service'
 
@@ -9,8 +10,13 @@ describe('SalesInvoiceService payment projection', () => {
         sdSalesInvoice: {
             findUnique: jest.fn(),
             findMany: jest.fn(),
+            count: jest.fn(),
+            groupBy: jest.fn(),
             update: jest.fn(),
             updateMany: jest.fn(),
+        },
+        sdCustomer: {
+            findMany: jest.fn(),
         },
     }
 
@@ -21,87 +27,104 @@ describe('SalesInvoiceService payment projection', () => {
         service = new SalesInvoiceService(prisma as unknown as PrismaService)
     })
 
-    it('lists invoices with the authoritative sales-order payment projection', async () => {
-        prisma.sdSalesInvoice.findMany.mockResolvedValue([])
+    const invoiceRow = (customerId: string, overrides: Record<string, unknown> = {}) => ({
+        id: `inv-${customerId}`,
+        invoiceNumber: 'INV-20261014-0001',
+        status: 'ISSUED',
+        salesOrder: {
+            orderNumber: 'SO-1',
+            customerId,
+            customerName: 'Juan Dela Cruz',
+            customerEmail: 'juan@example.com',
+            paymentMethod: 'COD',
+            paymentStatus: 'Pending Collection',
+        },
+        ...overrides,
+    })
 
-        await service.listByCompany('company-1')
+    describe('findOne', () => {
+        it('returns the invoice with bill-to', async () => {
+            prisma.sdSalesInvoice.findUnique.mockResolvedValue(invoiceRow('web-user-9'))
+            prisma.sdCustomer.findMany.mockResolvedValue([])
 
-        expect(prisma.sdSalesInvoice.findMany).toHaveBeenCalledWith({
-            where: { companyId: 'company-1' },
-            include: {
-                lines: { orderBy: { lineNumber: 'asc' } },
-                salesOrder: {
-                    select: {
-                        paymentMethod: true,
-                        paymentStatus: true,
-                        paymentReference: true,
-                        paymentProvider: true,
-                        isDemoPayment: true,
-                    },
-                },
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 200,
+            const result = await service.findOne('inv-web-user-9')
+
+            expect(result.billTo.name).toBe('Juan Dela Cruz')
+            expect(result.billingStatus).toBe('UNPAID')
+        })
+
+        it('throws NotFound for an unknown invoice', async () => {
+            prisma.sdSalesInvoice.findUnique.mockResolvedValue(null)
+            await expect(service.findOne('missing')).rejects.toBeInstanceOf(NotFoundException)
         })
     })
 
-    it('marks all non-terminal invoices for a paid sales order as paid', async () => {
+    it('marks only a posted invoice paid — a DRAFT is never Paid before POD', async () => {
         const paidAt = new Date('2026-10-10T08:30:00.000Z')
         prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
 
         await service.markPaidForSalesOrder('so-1', paidAt)
 
         expect(prisma.sdSalesInvoice.updateMany).toHaveBeenCalledWith({
-            where: {
-                salesOrderId: 'so-1',
-                status: { notIn: ['CANCELLED', 'REFUNDED'] },
-            },
+            where: { salesOrderId: 'so-1', status: 'ISSUED' },
             data: { status: 'PAID', paidAt },
         })
     })
 
-    it('issues a paid invoice as PAID using the payment record timestamp', async () => {
-        const paidAt = new Date('2026-10-10T08:30:00.000Z')
-        prisma.sdSalesOrder.findUnique.mockResolvedValue({
-            paymentStatus: 'Paid',
-            payments: [{ paidAt }],
-        })
-        prisma.sdSalesInvoice.findUnique.mockResolvedValue({
-            id: 'inv-1',
-            status: 'DRAFT',
-        })
-        prisma.sdSalesInvoice.update.mockResolvedValue({
-            id: 'inv-1',
-            status: 'PAID',
-            paidAt,
+    describe('issueForSalesOrder (POD posting)', () => {
+        it('posts a DRAFT, then settles it PAID with the payment timestamp', async () => {
+            const paidAt = new Date('2026-10-10T08:30:00.000Z')
+            prisma.sdSalesInvoice.findUnique
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT' })
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'PAID', paidAt })
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
+            prisma.sdSalesOrder.findUnique.mockResolvedValue({
+                paymentStatus: 'Paid',
+                payments: [{ paidAt }],
+            })
+
+            const result = await service.issueForSalesOrder('so-1')
+
+            expect(prisma.sdSalesInvoice.updateMany).toHaveBeenNthCalledWith(1, {
+                where: { id: 'inv-1', status: 'DRAFT' },
+                data: { status: 'ISSUED', issuedAt: expect.any(Date) },
+            })
+            expect(prisma.sdSalesInvoice.updateMany).toHaveBeenNthCalledWith(2, {
+                where: { salesOrderId: 'so-1', status: 'ISSUED' },
+                data: { status: 'PAID', paidAt },
+            })
+            expect(result).toMatchObject({ status: 'PAID' })
         })
 
-        await service.issueForSalesOrder('so-1')
+        it('posts an unpaid COD invoice as ISSUED and leaves payment untouched', async () => {
+            prisma.sdSalesInvoice.findUnique
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT' })
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'ISSUED' })
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
+            prisma.sdSalesOrder.findUnique.mockResolvedValue({
+                paymentStatus: 'Pending Collection',
+                payments: [],
+            })
 
-        expect(prisma.sdSalesOrder.findUnique).toHaveBeenCalledWith({
-            where: { id: 'so-1' },
-            select: {
-                paymentStatus: true,
-                payments: {
-                    where: { status: 'Paid' },
-                    orderBy: { paidAt: 'desc' },
-                    take: 1,
-                    select: { paidAt: true },
-                },
-            },
+            await service.issueForSalesOrder('so-1')
+
+            expect(prisma.sdSalesInvoice.updateMany).toHaveBeenCalledTimes(1)
+            expect(prisma.sdSalesInvoice.updateMany).toHaveBeenCalledWith({
+                where: { id: 'inv-1', status: 'DRAFT' },
+                data: { status: 'ISSUED', issuedAt: expect.any(Date) },
+            })
         })
-        expect(prisma.sdSalesInvoice.update).toHaveBeenCalledWith(
-            expect.objectContaining({
-                where: { id: 'inv-1' },
-                data: expect.objectContaining({
-                    status: 'PAID',
-                    paidAt,
-                    issuedAt: expect.any(Date),
-                }),
-                include: expect.objectContaining({
-                    salesOrder: expect.any(Object),
-                }),
-            }),
-        )
+
+        it('is a no-op re-post for an already posted invoice', async () => {
+            prisma.sdSalesInvoice.findUnique.mockResolvedValue({ id: 'inv-1', status: 'ISSUED' })
+            prisma.sdSalesOrder.findUnique.mockResolvedValue({
+                paymentStatus: 'Pending Collection',
+                payments: [],
+            })
+
+            await service.issueForSalesOrder('so-1')
+
+            expect(prisma.sdSalesInvoice.updateMany).not.toHaveBeenCalled()
+        })
     })
 })

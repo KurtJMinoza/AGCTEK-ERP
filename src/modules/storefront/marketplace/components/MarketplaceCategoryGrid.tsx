@@ -115,13 +115,13 @@ type MarketplaceCategoryGridProps = {
     onSelect: (category: MarketplaceCategory) => void
 }
 
-/** Round category shortcuts in an even grid (one row of ten on desktop). */
+/** Round category shortcuts in an even grid (one row of six on desktop). */
 const MarketplaceCategoryGrid = ({
     activeCategory,
     categories,
     onSelect,
 }: MarketplaceCategoryGridProps) => (
-    <ul className="grid grid-cols-4 gap-x-4 gap-y-9 sm:grid-cols-5 lg:grid-cols-8">
+    <ul className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-4 lg:grid-cols-6">
         {categories.map((category) => {
             const Icon = CATEGORY_ICONS[category.name] ?? Package
             const theme = divisionTheme(category.divisionId)
@@ -138,7 +138,7 @@ const MarketplaceCategoryGrid = ({
                     >
                         <span
                             className={classNames(
-                                'flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md sm:h-28 sm:w-28',
+                                'flex h-28 w-28 cursor-pointer items-center justify-center overflow-hidden rounded-full transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md sm:h-36 sm:w-36 lg:h-40 lg:w-40',
                                 imageUrl
                                     ? [
                                           'bg-white ring-1 ring-gray-200',
@@ -159,7 +159,7 @@ const MarketplaceCategoryGrid = ({
                             ) : (
                                 <Icon
                                     aria-hidden
-                                    className="h-9 w-9"
+                                    className="h-12 w-12 lg:h-14 lg:w-14"
                                     strokeWidth={1.5}
                                 />
                             )}
@@ -167,7 +167,7 @@ const MarketplaceCategoryGrid = ({
                         <span className="flex flex-col items-center gap-0.5 text-center">
                             <span
                                 className={classNames(
-                                    'text-sm leading-snug text-gray-900',
+                                    'text-base leading-snug text-gray-900',
                                     active ? 'font-semibold' : 'font-medium',
                                 )}
                             >

@@ -133,6 +133,33 @@ export function getActiveModuleCode(pathname: string): string | undefined {
     return best?.code
 }
 
+/** Deepest registry page (submodule, hub or feature) containing `pathname`, detail routes included. */
+export function getActiveNavPath(pathname: string): string | undefined {
+    const contains = (path: string) =>
+        pathname === path || pathname.startsWith(`${path}/`)
+    let best: string | undefined
+    for (const module of getResolvedErpModules()) {
+        for (const category of module.categories) {
+            for (const submodule of category.submodules) {
+                const paths = [
+                    submodule.path,
+                    ...(submodule.children ?? []).map((child) => child.path),
+                ]
+                for (const path of paths) {
+                    if (
+                        path &&
+                        contains(path) &&
+                        (!best || path.length > best.length)
+                    ) {
+                        best = path
+                    }
+                }
+            }
+        }
+    }
+    return best
+}
+
 /**
  * Removes consecutive breadcrumb items that share the same label to avoid
  * redundant chains like "Materials Management / Materials Management" or

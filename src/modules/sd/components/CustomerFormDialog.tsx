@@ -1,44 +1,64 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { HiOutlineOfficeBuilding } from 'react-icons/hi'
 import FormDialog from '@/components/shared/FormDialog'
 import NumericInput from '@/components/shared/NumericInput'
+import PasswordInput from '@/components/shared/PasswordInput'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import Radio from '@/components/ui/Radio'
 import Select from '@/components/ui/Select'
 import { Form, FormItem } from '@/components/ui/Form'
-import type {
-    CreateCustomerInput,
-    Customer,
-    CustomerStatus,
-    ShopAccount,
+import {
+    getShopAccounts,
+    type CreateCustomerInput,
+    type Customer,
+    type CustomerStatus,
+    type CustomerType,
+    type ShopAccount,
 } from '../services/customerMasterService'
-import { getShopAccounts } from '../services/customerMasterService'
 
 const MAX_CREDIT_LIMIT = 999_999_999_999.99
+const NEW_SHOP_LOGIN = ''
 
 const customerSchema = z.object({
+    customerType: z.enum(['RETAIL', 'B2B']),
     companyName: z.string().trim().min(2, 'At least 2 characters').max(200),
     contactName: z.string().trim().min(2, 'At least 2 characters').max(120),
     email: z.string().trim().email('Enter a valid email').max(200),
     phone: z.string().trim().max(40),
+    retailClientId: z.string(),
+    password: z.string(),
     creditLimit: z
         .number({ message: 'Credit limit is required' })
         .min(0, 'Cannot be negative')
-        .max(MAX_CREDIT_LIMIT, 'Credit limit is too large')
-        .optional(),
-    password: z
-        .string()
-        .max(72)
-        .regex(/[A-Za-z]/, 'Include at least one letter')
-        .regex(/\d/, 'Include at least one number')
-        .optional()
-        .or(z.literal('')),
+        .max(MAX_CREDIT_LIMIT, 'Credit limit is too large'),
     status: z.enum(['ACTIVE', 'BLOCKED']),
+})
+
+/** Matches the storefront password policy enforced by the backend. */
+const isValidShopPassword = (password: string) =>
+    password.length >= 8 &&
+    password.length <= 72 &&
+    /[A-Za-z]/.test(password) &&
+    /\d/.test(password)
+
+const createCustomerSchema = customerSchema.superRefine((values, ctx) => {
+    if (
+        values.customerType === 'RETAIL' &&
+        values.retailClientId === NEW_SHOP_LOGIN &&
+        !isValidShopPassword(values.password)
+    ) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['password'],
+            message: '8–72 characters with at least one letter and one number',
+        })
+    }
 })
 
 type FormShape = z.infer<typeof customerSchema>
@@ -50,39 +70,49 @@ const STATUS_OPTIONS: StatusOption[] = [
     { value: 'BLOCKED', label: 'Blocked' },
 ]
 
+const NEW_SHOP_LOGIN_OPTION: ShopAccountOption = {
+    value: NEW_SHOP_LOGIN,
+    label: 'New shop login (uses the email above)',
+}
+
 const FORM_ID = 'sd-customer-form'
 
 const blankValues: FormShape = {
+    customerType: 'RETAIL',
     companyName: '',
     contactName: '',
     email: '',
     phone: '',
+    retailClientId: NEW_SHOP_LOGIN,
     password: '',
+    creditLimit: 0,
     status: 'ACTIVE',
 }
 
 const toFormValues = (customer?: Customer | null): FormShape =>
     customer
         ? {
+              customerType: customer.customerType,
               companyName: customer.companyName,
               contactName: customer.contactName,
               email: customer.email,
               phone: customer.phone,
+              retailClientId: customer.retailClientId ?? NEW_SHOP_LOGIN,
+              password: '',
               creditLimit: customer.creditLimit,
               status: customer.status,
           }
         : blankValues
 
+const toShopAccountOption = (account: ShopAccount): ShopAccountOption => ({
+    value: account.id,
+    label: `${account.fullName} · ${account.email}`,
+})
+
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
         value,
     )
-
-/** Shopping account label — includes a marker when already linked. */
-const shopOptionLabel = (account: ShopAccount) =>
-    `${account.fullName} — ${account.email}${
-        account.linkedCustomer ? ` (linked: ${account.linkedCustomer.customerNumber})` : ''
-    }`
 
 type CustomerFormDialogProps = {
     isOpen: boolean
@@ -101,81 +131,112 @@ const CustomerFormDialog = ({
     onClose,
     onSubmit,
 }: CustomerFormDialogProps) => {
+    const isCreate = mode === 'create'
+    const [loadedShopAccounts, setShopAccounts] = useState<ShopAccount[] | null>(null)
+    const [shopAccountsError, setShopAccountsError] = useState<string | null>(null)
+    const shopAccounts = loadedShopAccounts ?? []
+    const shopAccountsLoading = loadedShopAccounts === null && !shopAccountsError
+
     const {
         control,
         handleSubmit,
         reset,
+        getValues,
         setValue,
         formState: { errors },
     } = useForm<FormShape>({
         defaultValues: toFormValues(customer),
-        resolver: zodResolver(customerSchema),
+        resolver: zodResolver(isCreate ? createCustomerSchema : customerSchema),
     })
 
-    /** Shop accounts for the Add New Customer reference (create mode only). */
-    const [shopAccounts, setShopAccounts] = useState<ShopAccount[]>([])
-    const [shopAccountId, setShopAccountId] = useState('')
+    const customerType = useWatch({ control, name: 'customerType' })
+    const retailClientId = useWatch({ control, name: 'retailClientId' })
+    const email = useWatch({ control, name: 'email' })
+    const isRetail = customerType === 'RETAIL'
+    const createsShopLogin = isCreate && retailClientId === NEW_SHOP_LOGIN
 
     useEffect(() => {
         if (isOpen) reset(toFormValues(customer))
     }, [isOpen, customer, reset])
 
     useEffect(() => {
-        if (!isOpen || mode !== 'create') return
-        let alive = true
+        if (!isOpen || !isCreate) return
+        let cancelled = false
         getShopAccounts()
             .then((accounts) => {
-                if (alive) setShopAccounts(accounts)
+                if (!cancelled) {
+                    setShopAccounts(accounts.filter((account) => !account.linkedCustomer))
+                    setShopAccountsError(null)
+                }
             })
-            .catch(() => undefined)
+            .catch((error: unknown) => {
+                if (!cancelled) {
+                    setShopAccountsError(
+                        error instanceof Error ? error.message : 'Unable to load shop accounts',
+                    )
+                }
+            })
         return () => {
-            alive = false
+            cancelled = true
         }
-    }, [isOpen, mode])
+    }, [isOpen, isCreate])
 
-    const shopOptions: ShopAccountOption[] = shopAccounts.map((account) => ({
-        value: account.id,
-        label: shopOptionLabel(account),
-    }))
-    const selectedShop = shopAccounts.find((a) => a.id === shopAccountId) ?? null
+    const shopAccountOptions = [
+        NEW_SHOP_LOGIN_OPTION,
+        ...shopAccounts.map(toShopAccountOption),
+    ]
 
-    const pickShopAccount = (option: ShopAccountOption | null) => {
-        setShopAccountId(option?.value ?? '')
-        const account = shopAccounts.find((a) => a.id === option?.value)
-        if (!account) return
-        // Fetch the shop account details into the customer form.
-        setValue('companyName', account.fullName, { shouldValidate: true })
-        setValue('email', account.email, { shouldValidate: true })
-        if (account.phone) setValue('phone', account.phone)
+    const onValid = (values: FormShape) => {
+        const shared = {
+            companyName: values.companyName,
+            contactName: values.contactName,
+            email: values.email,
+            phone: values.phone || undefined,
+            status: values.status,
+        }
+        const retail = values.customerType === 'RETAIL'
+
+        if (!isCreate) {
+            return onSubmit(retail ? shared : { ...shared, creditLimit: values.creditLimit })
+        }
+        if (!retail) {
+            return onSubmit({ ...shared, customerType: 'B2B', creditLimit: values.creditLimit })
+        }
+        return onSubmit({
+            ...shared,
+            customerType: 'RETAIL',
+            ...(values.retailClientId === NEW_SHOP_LOGIN
+                ? { password: values.password }
+                : { retailClientId: values.retailClientId }),
+        })
     }
 
-    const onValid = (values: FormShape) =>
-        onSubmit({
-            ...values,
-            phone: values.phone || undefined,
-            // No credit limit is collected when adding a customer.
-            creditLimit: mode === 'create' ? undefined : values.creditLimit,
-            ...(mode === 'create' && shopAccountId
-                ? { retailClientId: shopAccountId }
-                : {}),
-            ...(mode === 'create' && !shopAccountId && values.password
-                ? { password: values.password }
-                : {}),
-        })
+    const handleShopAccountChange = (option: ShopAccountOption | null) => {
+        const id = option?.value ?? NEW_SHOP_LOGIN
+        setValue('retailClientId', id)
+        if (id === NEW_SHOP_LOGIN) return
+        setValue('password', '')
+        const account = shopAccounts.find((entry) => entry.id === id)
+        if (!account) return
+        if (!getValues('email').trim()) setValue('email', account.email)
+        if (!getValues('contactName').trim()) setValue('contactName', account.fullName)
+    }
+
+    const description = isCreate
+        ? isRetail
+            ? 'Register an e-commerce shopper and link their shop login.'
+            : 'Register a corporate client and assign a credit limit.'
+        : customer
+          ? `${customer.customerNumber} · ${customer.companyName}`
+          : ''
 
     return (
         <FormDialog
             isOpen={isOpen}
             onClose={onClose}
             size="lg"
-            title={mode === 'create' ? 'Add New Customer' : 'Edit Customer'}
-            description={
-                mode === 'create'
-                    ? 'Register a new customer. Optionally reference the shop account created during sign-up.'
-                    : customer
-                      ? `${customer.customerNumber} · ${customer.companyName}`
-                      : ''
-            }
+            title={isCreate ? 'Add New Customer' : 'Edit Customer'}
+            description={description}
             icon={<HiOutlineOfficeBuilding />}
             footer={
                 <div className="flex items-center gap-2">
@@ -189,12 +250,34 @@ const CustomerFormDialog = ({
                         form={FORM_ID}
                         loading={saving}
                     >
-                        {mode === 'create' ? 'Register customer' : 'Save changes'}
+                        {isCreate ? 'Register customer' : 'Save changes'}
                     </Button>
                 </div>
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
+                <FormItem label="Customer type" asterisk>
+                    <Controller
+                        name="customerType"
+                        control={control}
+                        render={({ field }) => (
+                            <Radio.Group
+                                value={field.value}
+                                disabled={!isCreate}
+                                onChange={(value: CustomerType) => field.onChange(value)}
+                            >
+                                <Radio value="RETAIL">Retail (E-commerce)</Radio>
+                                <Radio value="B2B">B2B (Corporate)</Radio>
+                            </Radio.Group>
+                        )}
+                    />
+                    {!isCreate ? (
+                        <p className="mt-1 text-xs text-gray-500">
+                            Customer type is fixed after registration.
+                        </p>
+                    ) : null}
+                </FormItem>
+
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                     <FormItem
                         label="Company name"
@@ -256,64 +339,73 @@ const CustomerFormDialog = ({
                         />
                     </FormItem>
 
-                    {mode === 'create' && shopAccounts.length > 0 ? (
-                        <FormItem
-                            label="Shop account (reference)"
-                            className="md:col-span-2"
-                        >
-                            <Select<ShopAccountOption>
-                                isClearable
-                                isSearchable
-                                options={shopOptions}
-                                value={shopOptions.find(
-                                    (option) => option.value === shopAccountId,
-                                )}
-                                onChange={pickShopAccount}
-                            />
-                            <p className="mt-1 text-xs text-gray-500">
-                                Pick the account the customer created in the Shop — its
-                                name, email and phone are fetched into this form and the
-                                customer record is linked to it.
-                            </p>
-                            {selectedShop?.linkedCustomer && (
-                                <p className="mt-1 text-xs text-amber-600">
-                                    This shop account is already linked to{' '}
-                                    {selectedShop.linkedCustomer.customerNumber} (
-                                    {selectedShop.linkedCustomer.companyName}).
+                    {isRetail && isCreate ? (
+                        <>
+                            <FormItem
+                                label="Shop account (reference)"
+                                invalid={Boolean(shopAccountsError)}
+                                errorMessage={shopAccountsError ?? undefined}
+                            >
+                                <Select<ShopAccountOption>
+                                    isLoading={shopAccountsLoading}
+                                    options={shopAccountOptions}
+                                    value={shopAccountOptions.find(
+                                        (option) => option.value === retailClientId,
+                                    )}
+                                    onChange={handleShopAccountChange}
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Link an existing storefront login, or create a new one.
                                 </p>
-                            )}
-                        </FormItem>
+                            </FormItem>
+                            <FormItem
+                                label="Shop login password"
+                                asterisk={createsShopLogin}
+                                invalid={Boolean(errors.password)}
+                                errorMessage={errors.password?.message}
+                            >
+                                <Controller
+                                    name="password"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <PasswordInput
+                                            autoComplete="new-password"
+                                            placeholder={
+                                                createsShopLogin
+                                                    ? 'At least 8 characters'
+                                                    : 'Not needed for an existing account'
+                                            }
+                                            disabled={!createsShopLogin}
+                                            {...field}
+                                        />
+                                    )}
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    {createsShopLogin
+                                        ? `The customer signs in to the shop as ${email.trim() || 'the email above'}.`
+                                        : 'The customer keeps the linked account’s password.'}
+                                </p>
+                            </FormItem>
+                        </>
                     ) : null}
 
-                    {mode === 'create' && !shopAccountId ? (
-                        <FormItem
-                            label="Shop login password"
-                            className="md:col-span-2"
-                            invalid={Boolean(errors.password)}
-                            errorMessage={errors.password?.message}
-                        >
-                            <Controller
-                                name="password"
-                                control={control}
-                                render={({ field }) => (
-                                    <Input
-                                        type="password"
-                                        placeholder="Leave blank for an SD-only customer"
-                                        {...field}
-                                    />
-                                )}
+                    {isRetail && !isCreate ? (
+                        <FormItem label="Shop account (reference)">
+                            <Input
+                                disabled
+                                value={
+                                    customer?.retailClientId
+                                        ? 'Linked to a storefront login'
+                                        : 'No storefront login linked'
+                                }
                             />
-                            <p className="mt-1 text-xs text-gray-500">
-                                Setting a password creates the Shop account for this
-                                customer (email is the login) and connects it to this
-                                record — they can then sign in to the Shop.
-                            </p>
                         </FormItem>
                     ) : null}
 
-                    {mode === 'edit' ? (
+                    {!isRetail ? (
                         <FormItem
                             label="Credit limit (PHP)"
+                            asterisk
                             invalid={Boolean(errors.creditLimit)}
                             errorMessage={errors.creditLimit?.message}
                         >
@@ -328,13 +420,11 @@ const CustomerFormDialog = ({
                                         fixedDecimalScale
                                         allowNegative={false}
                                         value={field.value}
-                                        onValueChange={(v) =>
-                                            field.onChange(v.floatValue ?? 0)
-                                        }
+                                        onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
                                     />
                                 )}
                             />
-                            {customer ? (
+                            {!isCreate && customer ? (
                                 <p className="mt-1 text-xs text-gray-500">
                                     Available now: {formatPrice(customer.availableCredit)}.
                                     Changing the limit shifts available credit by the same
@@ -343,29 +433,29 @@ const CustomerFormDialog = ({
                             ) : null}
                         </FormItem>
                     ) : null}
-
-                    <FormItem label="Status">
-                        <Controller
-                            name="status"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<StatusOption>
-                                    isSearchable={false}
-                                    options={STATUS_OPTIONS}
-                                    value={STATUS_OPTIONS.find(
-                                        (option) => option.value === field.value,
-                                    )}
-                                    onChange={(option) =>
-                                        field.onChange(option?.value ?? 'ACTIVE')
-                                    }
-                                />
-                            )}
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                            Blocked customers stay on file but are marked on hold.
-                        </p>
-                    </FormItem>
                 </div>
+
+                <FormItem label="Status" asterisk className="md:max-w-[calc(50%-0.5rem)]">
+                    <Controller
+                        name="status"
+                        control={control}
+                        render={({ field }) => (
+                            <Select<StatusOption>
+                                isSearchable={false}
+                                options={STATUS_OPTIONS}
+                                value={STATUS_OPTIONS.find(
+                                    (option) => option.value === field.value,
+                                )}
+                                onChange={(option) =>
+                                    field.onChange(option?.value ?? 'ACTIVE')
+                                }
+                            />
+                        )}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                        Blocked customers stay on file but are marked on hold.
+                    </p>
+                </FormItem>
             </Form>
         </FormDialog>
     )

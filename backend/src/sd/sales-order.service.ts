@@ -39,6 +39,15 @@ import {
 import { QuotationService } from './quotation.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { SalesInvoiceService } from './sales-invoice.service'
+import {
+    COD_PENDING_STATUS,
+    fromCents,
+    summarizeCodCollection,
+    toCents,
+    type CodCollectionResult,
+    type CodCollectionSummary,
+    type CodOrderState,
+} from './cod-collection'
 
 /** Retail order to persist: single-division (header `divisionId`) or a marketplace master (lines tagged). */
 type RetailOrderInput = Omit<
@@ -1167,13 +1176,24 @@ export class SalesOrderService {
             )
         }
 
+        await this.transitionPayment(id, payment, target)
+        return this.findOne(id)
+    }
+
+    /**
+     * Claims the exact observed payment state. Only the request that wins
+     * this compare-and-set applies side effects (invoice PAID, fulfillment
+     * release); a concurrent request gets `false` and changes nothing.
+     */
+    private async transitionPayment(
+        salesOrderId: string,
+        payment: { id: string; status: string; paidAt: Date | null },
+        target: UpdateOrderPaymentStatusDto['status'],
+    ): Promise<boolean> {
         const paidAt =
             target === 'Paid' || target === 'Verified'
                 ? (payment.paidAt ?? new Date())
                 : payment.paidAt
-        // Claim the exact observed payment state. Only the request that wins
-        // this compare-and-set may release warehouse fulfillment; a concurrent
-        // Verify/Mark Paid click simply returns the now-current order.
         const transitioned = await this.prisma.$transaction(async (tx) => {
             const claim = await tx.sdSalesOrderPayment.updateMany({
                 where: { id: payment.id, status: payment.status },
@@ -1181,12 +1201,12 @@ export class SalesOrderService {
             })
             if (claim.count === 0) return false
             await tx.sdSalesOrder.update({
-                where: { id },
+                where: { id: salesOrderId },
                 data: { paymentStatus: target },
             })
             return true
         })
-        if (!transitioned) return this.findOne(id)
+        if (!transitioned) return false
 
         // Fulfillment gate opens when payment is cleared (Paid / Verified / Authorized):
         // reserve + auto picking if picking does not exist yet.
@@ -1197,13 +1217,127 @@ export class SalesOrderService {
         ) {
             if (target === 'Paid') {
                 await this.invoices.markPaidForSalesOrder(
-                    id,
+                    salesOrderId,
                     paidAt ?? new Date(),
                 )
             }
-            await this.createReservationAndPickingForSalesOrder(id)
+            await this.createReservationAndPickingForSalesOrder(salesOrderId)
         }
-        return this.findOne(id)
+        return true
+    }
+
+    /** COD collection state of the given orders; null when none is Cash on Delivery. */
+    async getCodCollection(salesOrderIds: string[]): Promise<CodCollectionSummary | null> {
+        return summarizeCodCollection(await this.loadCodOrders(salesOrderIds))
+    }
+
+    /**
+     * Driver "Cash Received": full collection of every Pending Collection COD
+     * order in the set, through the same payment transition as the admin
+     * action (payment Paid → posted invoice PAID). Partial collection is not
+     * supported. Idempotent: already-collected orders return their state.
+     */
+    async collectCashOnDelivery(
+        salesOrderIds: string[],
+        amountReceived: number,
+    ): Promise<CodCollectionResult> {
+        const orders = await this.loadCodOrders(salesOrderIds)
+        const before = summarizeCodCollection(orders)
+        if (!before) {
+            throw new BadRequestException(
+                'This stop has no Cash on Delivery order — nothing to collect',
+            )
+        }
+        if (before.status === 'COLLECTED') {
+            return { ...before, amountReceived: null, change: null, collectedOrderIds: [] }
+        }
+        if (before.status === 'NOT_COLLECTIBLE') {
+            throw new BadRequestException(
+                `Cash on Delivery cannot be collected (payment ${[
+                    ...new Set(orders.map((o) => o.paymentStatus ?? 'missing')),
+                ].join(', ')})`,
+            )
+        }
+        if (before.amountDue == null) {
+            throw new BadRequestException(
+                'Amount due is missing for this Cash on Delivery order — contact dispatch',
+            )
+        }
+        if (!Number.isFinite(amountReceived) || amountReceived < 0) {
+            throw new BadRequestException('amountReceived must be a non-negative number')
+        }
+        const dueCents = toCents(before.amountDue)
+        if (toCents(amountReceived) < dueCents) {
+            throw new BadRequestException(
+                `Cash received (${amountReceived.toFixed(2)}) is less than the amount due ` +
+                    `(${before.amountDue.toFixed(2)}) — partial collection is not supported`,
+            )
+        }
+        const pending = orders.filter((o) => o.paymentStatus === COD_PENDING_STATUS)
+        const blocked = pending.find(
+            (o) => o.orderStatus === 'CANCELLED' || o.orderStatus === 'COMPLETED',
+        )
+        if (blocked) {
+            throw new ConflictException(
+                `Cannot record payment for ${blocked.orderStatus.toLowerCase()} order ${blocked.orderNumber}`,
+            )
+        }
+
+        const payments = await this.prisma.sdSalesOrderPayment.findMany({
+            where: { salesOrderId: { in: pending.map((o) => o.salesOrderId) } },
+            select: { id: true, salesOrderId: true, status: true, paidAt: true },
+        })
+        const collectedOrderIds: string[] = []
+        for (const payment of payments) {
+            if (await this.transitionPayment(payment.salesOrderId, payment, 'Paid')) {
+                collectedOrderIds.push(payment.salesOrderId)
+            }
+        }
+
+        const after = summarizeCodCollection(await this.loadCodOrders(salesOrderIds))!
+        if (!collectedOrderIds.length) {
+            // A concurrent request collected first — same state, no second receipt.
+            return { ...after, amountReceived: null, change: null, collectedOrderIds }
+        }
+        return {
+            ...after,
+            amountDue: before.amountDue,
+            amountReceived,
+            change: fromCents(toCents(amountReceived) - dueCents),
+            collectedOrderIds,
+        }
+    }
+
+    private async loadCodOrders(salesOrderIds: string[]): Promise<CodOrderState[]> {
+        const ids = [...new Set(salesOrderIds)]
+        if (!ids.length) return []
+        const orders = await this.prisma.sdSalesOrder.findMany({
+            where: { id: { in: ids }, paymentMethod: 'COD' },
+            select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                currency: true,
+                paymentStatus: true,
+                payments: {
+                    select: { status: true, amount: true, currency: true, paidAt: true },
+                    take: 1,
+                },
+            },
+            orderBy: { orderNumber: 'asc' },
+        })
+        return orders.map((order) => {
+            const payment = order.payments[0]
+            return {
+                salesOrderId: order.id,
+                orderNumber: order.orderNumber,
+                orderStatus: order.status,
+                paymentStatus: payment?.status ?? order.paymentStatus ?? null,
+                amount: payment ? Number(payment.amount) : null,
+                currency: payment?.currency ?? order.currency ?? SD_CATALOG_CURRENCY,
+                paidAt: payment?.paidAt ?? null,
+            }
+        })
     }
 
     /**

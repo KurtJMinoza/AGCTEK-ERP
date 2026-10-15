@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation'
 import Menu from '@/components/ui/Menu'
 import Tooltip from '@/components/ui/Tooltip'
 import ErpIcon from '@/components/erp/ErpIcon'
+import NewDataBadge from '@/components/erp/NewDataBadge'
+import { useModuleBadgeCount } from '@/utils/hooks/useModuleActivity'
 import {
     getAllSubmodules,
     getResolvedErpModules,
@@ -118,14 +120,27 @@ function ModuleMenuItem({
     collapsed: boolean
     onNavigate?: () => void
 }) {
-    const label = module.title
+    const newCount = useModuleBadgeCount(module.code)
+    const label = newCount ? `${module.title} · ${newCount} new` : module.title
 
     const linkClassName = 'flex h-full w-full items-center gap-2'
     const linkBody = (
         <>
-            <ErpIcon icon={module.icon} />
+            <span className="relative inline-flex">
+                <ErpIcon icon={module.icon} />
+                {collapsed ? (
+                    <NewDataBadge
+                        count={newCount}
+                        dot
+                        className="absolute -right-1.5 -top-1"
+                    />
+                ) : null}
+            </span>
             {!collapsed ? (
-                <span className="truncate">{module.title}</span>
+                <>
+                    <span className="truncate">{module.title}</span>
+                    <NewDataBadge count={newCount} className="ml-auto" />
+                </>
             ) : null}
         </>
     )
