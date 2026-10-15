@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
-import { redirect } from 'next/navigation'
+import MarketplaceAuthPage from '@/modules/storefront/marketplace/pages/MarketplaceAuthPage'
 
 export const metadata: Metadata = {
-    title: 'Create account | Amalgated Marketplace',
+    title: 'Create account | Amalgated Shop',
     description:
-        'Create an Amalgated Marketplace account and save your delivery details for checkout.',
+        'Create an Amalgated Shop account and save your delivery details for checkout.',
 }
 
 export default async function SignUpRoute({
@@ -13,7 +13,10 @@ export default async function SignUpRoute({
     searchParams: Promise<{ next?: string | string[] }>
 }) {
     const { next } = await searchParams
-    const returnPath =
-        typeof next === 'string' ? `&next=${encodeURIComponent(next)}` : ''
-    redirect(`/shop?auth=sign-up${returnPath}`)
+    return (
+        <MarketplaceAuthPage
+            initialMode="sign-up"
+            next={typeof next === 'string' ? next : null}
+        />
+    )
 }

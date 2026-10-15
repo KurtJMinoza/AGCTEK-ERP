@@ -269,7 +269,7 @@ const MarketplaceCheckoutPageContent = () => {
                 {!hydrated ? null : placed ? (
                     <section className="mx-auto mt-6 max-w-md rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
                         <HiOutlineCheckCircle
-                            className="mx-auto text-5xl text-emerald-500"
+                            className="mx-auto text-5xl text-shop-500"
                             aria-hidden
                         />
                         <h1 className="mt-3 text-2xl font-bold tracking-tight text-gray-900">
@@ -450,7 +450,7 @@ const MarketplaceCheckoutPageContent = () => {
                                             {shipping.postalCode}
                                         </p>
                                         {shippingIsDefault && shipping ? (
-                                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                                            <p className="mt-1 text-xs font-medium text-shop-700">
                                                 Default address
                                             </p>
                                         ) : null}
@@ -475,7 +475,7 @@ const MarketplaceCheckoutPageContent = () => {
                                                 <li key={address.id}>
                                                     <button
                                                         type="button"
-                                                        className="flex w-full items-start justify-between gap-2 rounded-xl border border-gray-100 bg-white p-3 text-left hover:border-emerald-200"
+                                                        className="flex w-full items-start justify-between gap-2 rounded-xl border border-gray-100 bg-white p-3 text-left hover:border-shop-200"
                                                         onClick={() => {
                                                             setShipping(
                                                                 addressToShipping(
@@ -507,7 +507,7 @@ const MarketplaceCheckoutPageContent = () => {
                                                             </span>
                                                         </span>
                                                         {address.isDefault ? (
-                                                            <span className="shrink-0 text-xs font-semibold text-emerald-700">
+                                                            <span className="shrink-0 text-xs font-semibold text-shop-700">
                                                                 Default
                                                             </span>
                                                         ) : null}
@@ -519,7 +519,7 @@ const MarketplaceCheckoutPageContent = () => {
                                 ) : null}
                                 <button
                                     type="button"
-                                    className="mt-3 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+                                    className="mt-3 text-sm font-medium text-shop-700 hover:text-shop-800"
                                     onClick={openAccount}
                                 >
                                     Manage addresses

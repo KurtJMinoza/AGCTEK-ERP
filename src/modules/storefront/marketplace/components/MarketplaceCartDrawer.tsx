@@ -116,7 +116,7 @@ const MarketplaceCartDrawer = ({
         return (
             <div className="container mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
                 <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-gray-100 bg-white p-12 text-center shadow-sm sm:p-16">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 shadow-inner">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-shop-50 text-shop-600 shadow-inner">
                         <HiOutlineShoppingCart className="text-4xl" aria-hidden />
                     </div>
                     <div className="max-w-md space-y-1">
@@ -129,10 +129,10 @@ const MarketplaceCartDrawer = ({
                     </div>
                     <Link
                         href={MARKETPLACE_PATH}
-                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
+                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-shop-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-shop-700"
                     >
                         <HiOutlineArrowLeft className="text-base" />
-                        Explore Marketplace
+                        Explore the Shop
                     </Link>
                 </div>
             </div>
@@ -145,8 +145,8 @@ const MarketplaceCartDrawer = ({
                 {/* Main left column: Cart Items (approx 2/3 width) */}
                 <div className="flex flex-col gap-5 lg:col-span-2">
                     {storeCount > 1 ? (
-                        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3.5 text-xs text-emerald-900">
-                            <HiOutlineInformationCircle className="shrink-0 text-base text-emerald-700" />
+                        <div className="flex items-center gap-2.5 rounded-xl border border-shop-100 bg-shop-50/70 p-3.5 text-xs text-shop-900">
+                            <HiOutlineInformationCircle className="shrink-0 text-base text-shop-700" />
                             <span>
                                 Items from <strong>{storeCount} stores</strong> ship separately, so you will receive one delivery and invoice per store.
                             </span>
@@ -205,7 +205,7 @@ const MarketplaceCartDrawer = ({
                                 <div className="mb-4 flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
                                     <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
                                         <HiOutlineOfficeBuilding
-                                            className="text-lg text-emerald-600"
+                                            className="text-lg text-shop-600"
                                             aria-hidden
                                         />
                                         {first
@@ -329,7 +329,7 @@ const MarketplaceCartDrawer = ({
                                     </span>
                                 </div>
                                 {pricing.discountAmount > 0 && (
-                                    <div className="flex justify-between text-emerald-600">
+                                    <div className="flex justify-between text-shop-600">
                                         <span>Discount</span>
                                         <span className="font-semibold">
                                             -{formatPrice(pricing.discountAmount)}
@@ -338,7 +338,7 @@ const MarketplaceCartDrawer = ({
                                 )}
                                 <div className="border-t border-gray-100 pt-3 flex justify-between text-base font-bold text-gray-900">
                                     <span>Total</span>
-                                    <span className="text-lg text-emerald-700">
+                                    <span className="text-lg text-shop-700">
                                         {formatPrice(pricing.grandTotal)}
                                     </span>
                                 </div>
@@ -365,7 +365,7 @@ const MarketplaceCartDrawer = ({
 
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="text-center text-xs font-medium text-gray-500 transition-colors hover:text-emerald-700"
+                            className="text-center text-xs font-medium text-gray-500 transition-colors hover:text-shop-700"
                         >
                             ← Continue shopping
                         </Link>
@@ -373,11 +373,11 @@ const MarketplaceCartDrawer = ({
                         {/* Trust markers */}
                         <div className="border-t border-gray-100 pt-4 space-y-2 text-[11px] text-gray-400">
                             <div className="flex items-center gap-2">
-                                <HiOutlineShieldCheck className="text-sm text-emerald-600" />
+                                <HiOutlineShieldCheck className="text-sm text-shop-600" />
                                 <span>Direct authorized MM fulfillment & tracking</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <HiOutlineTruck className="text-sm text-emerald-600" />
+                                <HiOutlineTruck className="text-sm text-shop-600" />
                                 <span>Fast delivery across verified store branches</span>
                             </div>
                         </div>

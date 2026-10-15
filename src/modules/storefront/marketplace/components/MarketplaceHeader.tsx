@@ -1,12 +1,12 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
     HiOutlineChevronDown,
     HiOutlineLogout,
     HiOutlineSearch,
-    HiOutlineShoppingBag,
     HiOutlineShoppingCart,
     HiOutlineUserCircle,
     HiX,
@@ -18,7 +18,7 @@ import Input from '@/components/ui/Input'
 import { productsHref } from '../browseQuery'
 import { CART_PATH, MARKETPLACE_ORDERS_PATH, MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
-import { MARKETPLACE_NAME } from '../marketplaceUi'
+import { MARKETPLACE_LOGO_SRC, MARKETPLACE_NAME } from '../marketplaceUi'
 import { useMarketplaceBrowseStore } from '../store/useMarketplaceBrowseStore'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
 import MarketplaceNotificationBell from './MarketplaceNotificationBell'
@@ -28,7 +28,7 @@ type MarketplaceHeaderProps = {
     onSearchSubmit?: () => void
 }
 
-const ICON_BUTTON = '!text-gray-500 hover:!text-emerald-600'
+const ICON_BUTTON = '!text-gray-500 hover:!text-shop-600'
 
 /** Sticky marketplace top bar: home logo, product search, orders, account and cart. */
 const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
@@ -48,7 +48,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
     const cartLink = (
         <Link
             href={CART_PATH}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:text-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:text-shop-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 focus-visible:ring-offset-2"
             aria-label={`Cart, ${itemCount} item${itemCount === 1 ? '' : 's'}`}
         >
             <HiOutlineShoppingCart className="text-xl" />
@@ -61,23 +61,28 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                 <Link
                     href={MARKETPLACE_PATH}
                     aria-label={`${MARKETPLACE_NAME} home`}
-                    className="group flex shrink-0 items-center gap-2.5 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                    className="group flex shrink-0 items-center gap-2.5 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 focus-visible:ring-offset-2"
                     onClick={() => {
                         resetBrowse()
                         window.scrollTo({ top: 0, behavior: 'smooth' })
                     }}
                 >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-sm shadow-emerald-500/30 transition-transform duration-200 group-hover:scale-105">
-                        <HiOutlineShoppingBag className="text-lg" aria-hidden />
-                    </span>
-                    <span className="hidden text-base font-semibold tracking-tight text-gray-900 transition-colors group-hover:text-emerald-700 md:inline">
+                    <Image
+                        src={MARKETPLACE_LOGO_SRC}
+                        alt=""
+                        width={40}
+                        height={40}
+                        priority
+                        className="h-10 w-10 rounded-full object-contain transition-transform duration-200 group-hover:scale-105"
+                    />
+                    <span className="hidden text-base font-semibold tracking-tight text-gray-900 transition-colors group-hover:text-shop-700 md:inline">
                         {MARKETPLACE_NAME}
                     </span>
                 </Link>
                 <div className="mx-auto min-w-0 max-w-2xl flex-1">
                     <Input
                         size="sm"
-                        className="!rounded-full !border-gray-100 !bg-gray-50 focus:!border-emerald-500 focus:!bg-white focus:!ring-emerald-500"
+                        className="!rounded-full !border-gray-100 !bg-gray-50 focus:!border-shop-500 focus:!bg-white focus:!ring-shop-500"
                         prefix={
                             <HiOutlineSearch className="text-lg text-gray-400" />
                         }
@@ -141,7 +146,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                             </Dropdown.Item>
                             <Dropdown.Item variant="divider" />
                             <Dropdown.Item
-                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-shop-700"
                                 onClick={() => {
                                     openAccount()
                                 }}
@@ -149,7 +154,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                                 My Account
                             </Dropdown.Item>
                             <Dropdown.Item
-                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-shop-700"
                                 onClick={() => {
                                     openOrders()
                                 }}
@@ -157,7 +162,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                                 My Orders
                             </Dropdown.Item>
                             <Dropdown.Item
-                                className="!py-2 !text-sm !text-gray-700 hover:!text-emerald-700"
+                                className="!py-2 !text-sm !text-gray-700 hover:!text-shop-700"
                                 onClick={() => {
                                     router.push(`${MARKETPLACE_ORDERS_PATH}?view=returns`)
                                 }}

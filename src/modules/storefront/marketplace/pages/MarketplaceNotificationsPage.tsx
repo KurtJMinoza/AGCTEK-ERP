@@ -177,13 +177,13 @@ export default function MarketplaceNotificationsPage() {
                                         onClick={() => handleItemClick(item)}
                                         className={`flex cursor-pointer items-start gap-4 p-5 transition-colors hover:bg-gray-50/80 ${
                                             isUnread
-                                                ? 'bg-emerald-50/20'
+                                                ? 'bg-shop-50/20'
                                                 : 'bg-white'
                                         }`}
                                     >
                                         <div className="shrink-0 mt-0.5">
                                             {isApproval ? (
-                                                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                                                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-shop-100 text-shop-600">
                                                     <HiOutlineCheckCircle className="text-xl" />
                                                 </span>
                                             ) : isCancel ? (
@@ -219,7 +219,7 @@ export default function MarketplaceNotificationsPage() {
 
                                         {isUnread && (
                                             <span
-                                                className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"
+                                                className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-shop-500"
                                                 aria-label="Unread notification"
                                             />
                                         )}

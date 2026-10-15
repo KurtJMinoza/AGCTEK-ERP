@@ -102,7 +102,7 @@ const MarketplaceCartPageContent = () => {
                     <nav className="flex items-center gap-2">
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="text-gray-500 hover:text-emerald-700 hover:underline"
+                            className="text-gray-500 hover:text-shop-700 hover:underline"
                         >
                             Home
                         </Link>
@@ -191,7 +191,7 @@ const MarketplaceCartPage = () => (
     <Suspense
         fallback={
             <div className="flex min-h-screen items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-shop-600 border-t-transparent" />
             </div>
         }
     >

@@ -152,7 +152,7 @@ const ProductVariantSelector = ({
         if (style === 'DROPDOWN') {
             return (
                 <select
-                    className="w-full max-w-sm rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium text-gray-800 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    className="w-full max-w-sm rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium text-gray-800 focus:border-shop-400 focus:outline-none focus:ring-2 focus:ring-shop-100"
                     value={selectedValueId}
                     onChange={(event) =>
                         pick(option.id, event.target.value)
@@ -197,9 +197,9 @@ const ProductVariantSelector = ({
                                 className={classNames(
                                     'relative h-9 w-9 shrink-0 rounded-full border-2 transition',
                                     selected
-                                        ? 'border-emerald-500 ring-2 ring-emerald-200'
+                                        ? 'border-shop-500 ring-2 ring-shop-200'
                                         : available
-                                          ? 'border-white shadow ring-1 ring-gray-200 hover:ring-emerald-300'
+                                          ? 'border-white shadow ring-1 ring-gray-200 hover:ring-shop-300'
                                           : 'cursor-not-allowed border-gray-100 opacity-40',
                                 )}
                                 style={{
@@ -240,9 +240,9 @@ const ProductVariantSelector = ({
                                 className={classNames(
                                     'h-14 w-14 shrink-0 overflow-hidden rounded-xl border-2 transition',
                                     selected
-                                        ? 'border-emerald-500 ring-2 ring-emerald-200'
+                                        ? 'border-shop-500 ring-2 ring-shop-200'
                                         : available
-                                          ? 'border-white shadow ring-1 ring-gray-200 hover:ring-emerald-300'
+                                          ? 'border-white shadow ring-1 ring-gray-200 hover:ring-shop-300'
                                           : 'cursor-not-allowed border-gray-100 opacity-40',
                                 )}
                             >
@@ -284,11 +284,11 @@ const ProductVariantSelector = ({
                                 disabled={!available}
                                 onClick={() => pick(option.id, value.id)}
                                 className={classNames(
-                                    'min-w-16 rounded-lg border px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                                    'min-w-16 rounded-lg border px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
                                     selected
-                                        ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
+                                        ? 'border-shop-500 bg-shop-500 text-white shadow-sm'
                                         : available
-                                          ? 'border-gray-200 bg-white text-gray-800 hover:border-emerald-300 hover:text-emerald-700'
+                                          ? 'border-gray-200 bg-white text-gray-800 hover:border-shop-300 hover:text-shop-700'
                                           : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300 line-through',
                                 )}
                             >
@@ -319,11 +319,11 @@ const ProductVariantSelector = ({
                                 }))
                             }
                             className={classNames(
-                                'rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                                'rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
                                 selected
-                                    ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
+                                    ? 'border-shop-500 bg-shop-500 text-white shadow-sm'
                                     : available
-                                      ? 'border-gray-200 bg-white text-gray-800 hover:border-emerald-300 hover:text-emerald-700'
+                                      ? 'border-gray-200 bg-white text-gray-800 hover:border-shop-300 hover:text-shop-700'
                                       : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300 line-through',
                             )}
                         >
@@ -354,7 +354,7 @@ const ProductVariantSelector = ({
             ))}
 
             {selectedVariant ? (
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3.5 py-2.5 text-sm">
+                <div className="rounded-xl border border-shop-100 bg-shop-50/60 px-3.5 py-2.5 text-sm">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-medium text-gray-900">
                             {selectedVariant.variantName}
@@ -371,7 +371,7 @@ const ProductVariantSelector = ({
                                 Out of stock
                             </span>
                         ) : stock ? (
-                            <span className="text-xs font-semibold text-emerald-700">
+                            <span className="text-xs font-semibold text-shop-700">
                                 {stock.availableQuantity > 0
                                     ? `${stock.availableQuantity} available`
                                     : 'In stock'}

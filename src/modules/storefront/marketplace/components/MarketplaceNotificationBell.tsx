@@ -179,7 +179,7 @@ export default function MarketplaceNotificationBell() {
         <button
             type="button"
             onClick={() => setIsOpen((open) => !open)}
-            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:text-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:text-shop-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 focus-visible:ring-offset-2"
             aria-label={`Notifications, ${unreadCount} unread`}
         >
             <HiOutlineBell className="text-xl" />
@@ -218,7 +218,7 @@ export default function MarketplaceNotificationBell() {
                             <button
                                 type="button"
                                 onClick={handleMarkAllRead}
-                                className="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                                className="flex items-center gap-1 text-xs font-medium text-shop-600 hover:text-shop-700 transition-colors"
                             >
                                 <HiOutlineCheck className="text-sm" />
                                 Mark all as read
@@ -266,13 +266,13 @@ export default function MarketplaceNotificationBell() {
                                         onClick={() => handleItemClick(item)}
                                         className={`group relative flex cursor-pointer items-start gap-3 p-3.5 transition-colors hover:bg-gray-50/80 ${
                                             isUnread
-                                                ? 'bg-emerald-50/30'
+                                                ? 'bg-shop-50/30'
                                                 : 'bg-white'
                                         }`}
                                     >
                                         <div className="shrink-0 mt-0.5">
                                             {isApproval ? (
-                                                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                                                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-shop-100 text-shop-600">
                                                     <HiOutlineCheckCircle className="text-lg" />
                                                 </span>
                                             ) : isCancel ? (
@@ -306,7 +306,7 @@ export default function MarketplaceNotificationBell() {
                                         </div>
                                         {isUnread && (
                                             <span
-                                                className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-white"
+                                                className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-shop-500 ring-2 ring-white"
                                                 aria-label="Unread"
                                             />
                                         )}
@@ -322,7 +322,7 @@ export default function MarketplaceNotificationBell() {
                             <Link
                                 href="/notifications"
                                 onClick={() => setIsOpen(false)}
-                                className="inline-block text-xs font-medium text-emerald-600 hover:text-emerald-700 py-1 transition-colors"
+                                className="inline-block text-xs font-medium text-shop-600 hover:text-shop-700 py-1 transition-colors"
                             >
                                 View all notifications &rarr;
                             </Link>

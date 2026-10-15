@@ -201,7 +201,7 @@ const MarketplaceProductCard = ({
                                 <Tag aria-hidden className="h-3 w-3" />
                                 −{discount}%
                             </span>
-                            <span className="text-xs font-medium text-emerald-700">
+                            <span className="text-xs font-medium text-shop-700">
                                 You save{' '}
                                 {formatPrice(
                                     product.originalPrice - product.price,
@@ -214,8 +214,8 @@ const MarketplaceProductCard = ({
 
             <div {...stopCardClick}>
                 {quantity > 0 ? (
-                    <div className="flex w-full items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1">
-                        <span className="text-xs font-medium text-emerald-700">
+                    <div className="flex w-full items-center justify-between rounded-lg border border-shop-100 bg-shop-50 px-2 py-1">
+                        <span className="text-xs font-medium text-shop-700">
                             In cart
                         </span>
                         <QuantityStepper

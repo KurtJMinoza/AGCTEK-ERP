@@ -40,9 +40,6 @@ import {
     type RetailClientProfile,
 } from '@/services/storefront/retailClientService'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
-import MarketplaceAuthDialog, {
-    type MarketplaceAuthMode,
-} from './components/MarketplaceAuthDialog'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
 import {
@@ -50,8 +47,10 @@ import {
     CHECKOUT_PATH,
     MARKETPLACE_ACCOUNT_PATH,
     MARKETPLACE_ORDERS_PATH,
+    MARKETPLACE_SIGN_IN_PATH,
+    MARKETPLACE_SIGN_UP_PATH,
+    marketplaceAuthHref,
     productHref,
-    safeReturnPath,
 } from './host'
 import {
     PRIMARY_BUTTON,
@@ -174,11 +173,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         name: string
     } | null>(null)
     const [confirmClearOpen, setConfirmClearOpen] = useState(false)
-    const [authMode, setAuthMode] = useState<MarketplaceAuthMode | null>(null)
-    const [authReturnPath, setAuthReturnPath] = useState<string | null>(null)
-    const [afterSignIn, setAfterSignIn] = useState<
-        'checkout' | 'orders' | null
-    >(null)
     /** Add-to-cart awaiting confirmation. */
     const [requestedAdd, setRequestedAdd] = useState<PendingAdd | null>(null)
     const checkoutIdRef = useRef<string | null>(null)
@@ -192,73 +186,36 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         if (catalog.ready) syncCatalog(catalog.records)
     }, [catalog.ready, catalog.records, syncCatalog])
 
-    /** Open the one marketplace auth modal; it resumes the protected action after sign-in. */
+    /** Full-page sign-in; the shopper returns to the protected page (or this one) afterwards. */
     const openAuth = useCallback(
-        (
-            intent: 'checkout' | 'orders' | null,
-            mode: MarketplaceAuthMode = 'sign-in',
-        ) => {
-            setAfterSignIn(intent)
-            setAuthReturnPath(null)
-            setAuthMode(mode)
+        (intent: 'checkout' | 'orders' | null) => {
+            const query = searchParams.toString()
+            const next =
+                intent === 'checkout'
+                    ? CHECKOUT_PATH
+                    : intent === 'orders'
+                      ? MARKETPLACE_ORDERS_PATH
+                      : query
+                        ? `${pathname}?${query}`
+                        : pathname
+            router.push(marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, next))
         },
-        [],
+        [pathname, router, searchParams],
     )
 
-    const closeAuth = useCallback(() => {
-        setAuthMode(null)
-        setAfterSignIn(null)
-        setAuthReturnPath(null)
-    }, [])
-
-    /** Legacy auth links land on the storefront and open the same modal. */
+    /** Legacy `?auth=` links now go to the full-page sign-in / sign-up. */
     useEffect(() => {
         const requestedMode = searchParams.get('auth')
         if (requestedMode !== 'sign-in' && requestedMode !== 'sign-up') return
-
-        setAuthMode(requestedMode)
-        setAuthReturnPath(safeReturnPath(searchParams.get('next')))
-
-        const params = new URLSearchParams(searchParams.toString())
-        params.delete('auth')
-        params.delete('next')
-        const query = params.toString()
-        router.replace(query ? `${pathname}?${query}` : pathname, {
-            scroll: false,
-        })
-    }, [pathname, router, searchParams])
-
-    useEffect(() => {
-        if (!afterSignIn || !signedInClient) return
-        // Checkout is a full page now; the modal shown after sign-in was removed.
-        if (afterSignIn === 'checkout') router.push(CHECKOUT_PATH)
-        else router.push(MARKETPLACE_ORDERS_PATH)
-        setAfterSignIn(null)
-        setAuthReturnPath(null)
-    }, [afterSignIn, signedInClient, router])
-
-    const handleAuthenticated = useCallback(
-        (mode: MarketplaceAuthMode) => {
-            setAuthMode(null)
-            notify(
-                'success',
-                mode === 'sign-in' ? 'Welcome back' : 'Account created',
-                mode === 'sign-in'
-                    ? 'You are now signed in.'
-                    : 'Add your phone number and delivery addresses in My Account.',
-            )
-            if (afterSignIn) return
-
-            const returnPath = authReturnPath
-            setAuthReturnPath(null)
-            if (returnPath && returnPath !== pathname) {
-                router.replace(returnPath)
-            } else if (mode === 'sign-up') {
-                router.push(MARKETPLACE_ACCOUNT_PATH)
-            }
-        },
-        [afterSignIn, authReturnPath, pathname, router],
-    )
+        router.replace(
+            marketplaceAuthHref(
+                requestedMode === 'sign-in'
+                    ? MARKETPLACE_SIGN_IN_PATH
+                    : MARKETPLACE_SIGN_UP_PATH,
+                searchParams.get('next'),
+            ),
+        )
+    }, [router, searchParams])
 
     const quantityByKey = useMemo(
         () =>
@@ -544,13 +501,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     return (
         <MarketplaceContext.Provider value={value}>
             {children}
-
-            <MarketplaceAuthDialog
-                isOpen={authMode !== null}
-                initialMode={authMode ?? 'sign-in'}
-                onClose={closeAuth}
-                onAuthenticated={handleAuthenticated}
-            />
 
             <ConfirmDialog
                 isOpen={requestedAdd !== null}

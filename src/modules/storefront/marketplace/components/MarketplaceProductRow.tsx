@@ -32,7 +32,7 @@ const MarketplaceProductRow = ({
                 <Button
                     size="xs"
                     variant="plain"
-                    className="shrink-0 !px-1 text-sm font-medium !text-gray-500 hover:!text-emerald-600"
+                    className="shrink-0 !px-1 text-sm font-medium !text-gray-500 hover:!text-shop-600"
                     aria-label={`View all: ${title}`}
                     onClick={onViewAll}
                 >

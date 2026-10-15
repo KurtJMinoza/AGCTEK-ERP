@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import { redirect } from 'next/navigation'
+import MarketplaceAuthPage from '@/modules/storefront/marketplace/pages/MarketplaceAuthPage'
 
 export const metadata: Metadata = {
-    title: 'Sign in | Amalgated Marketplace',
+    title: 'Sign in | Amalgated Shop',
     description: 'Sign in to check out faster with saved delivery details.',
 }
 
@@ -12,7 +12,10 @@ export default async function SignInRoute({
     searchParams: Promise<{ next?: string | string[] }>
 }) {
     const { next } = await searchParams
-    const returnPath =
-        typeof next === 'string' ? `&next=${encodeURIComponent(next)}` : ''
-    redirect(`/shop?auth=sign-in${returnPath}`)
+    return (
+        <MarketplaceAuthPage
+            initialMode="sign-in"
+            next={typeof next === 'string' ? next : null}
+        />
+    )
 }

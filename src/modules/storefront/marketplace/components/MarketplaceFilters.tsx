@@ -37,7 +37,7 @@ const FilterSection = ({
                 vertical
                 value={selected}
                 className="gap-3"
-                checkboxClass="text-emerald-600"
+                checkboxClass="text-shop-600"
                 onChange={(values) => onChange(values.map(String))}
             >
                 {options.map((option) => (
@@ -84,7 +84,7 @@ const MarketplaceFilters = ({
             <Button
                 size="sm"
                 variant="plain"
-                className="self-start !px-0 text-sm font-medium !text-gray-500 hover:!text-emerald-600"
+                className="self-start !px-0 text-sm font-medium !text-gray-500 hover:!text-shop-600"
                 onClick={onReset}
             >
                 Clear filters
