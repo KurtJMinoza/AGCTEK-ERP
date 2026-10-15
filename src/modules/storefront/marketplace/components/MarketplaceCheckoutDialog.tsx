@@ -122,7 +122,7 @@ const MarketplaceCheckoutDialog = ({
                     type="button"
                     size="xs"
                     variant="plain"
-                    className="!px-0 !text-emerald-700 dark:!text-emerald-400"
+                    className="!px-0 !text-shop-700 dark:!text-shop-400"
                     onClick={onOpenAccount}
                 >
                     Edit in account

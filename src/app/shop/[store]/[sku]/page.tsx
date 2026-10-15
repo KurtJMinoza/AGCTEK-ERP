@@ -4,7 +4,7 @@ import { productDivisionLabel } from '@/modules/sd/catalogs/productDivisions'
 import { divisionForStoreSlug } from '@/modules/storefront/marketplace/host'
 import MarketplaceProductPage from '@/modules/storefront/marketplace/pages/MarketplaceProductPage'
 
-const MARKETPLACE_NAME = 'Amalgated Marketplace'
+const MARKETPLACE_NAME = 'Amalgated Shop'
 
 type ProductRouteProps = {
     params: Promise<{ store: string; sku: string }>

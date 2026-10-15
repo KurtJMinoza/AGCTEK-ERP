@@ -118,7 +118,7 @@ const formatReviewDate = (value?: string) => {
 }
 
 const TAB_CLASS =
-    'hover:!text-emerald-700 aria-selected:!border-emerald-600 aria-selected:!text-emerald-700'
+    'hover:!text-shop-700 aria-selected:!border-shop-600 aria-selected:!text-shop-700'
 
 const Gallery = ({ product }: { product: SdProductRecord }) => {
     const media = mediaOf(product)
@@ -209,7 +209,7 @@ const Gallery = ({ product }: { product: SdProductRecord }) => {
                                 type="button"
                                 aria-label={label}
                                 className={classNames(
-                                    'absolute top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white/90 text-gray-700 shadow-sm transition hover:bg-white hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:opacity-0 md:group-hover:opacity-100',
+                                    'absolute top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white/90 text-gray-700 shadow-sm transition hover:bg-white hover:text-shop-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 md:opacity-0 md:group-hover:opacity-100',
                                     side,
                                 )}
                                 onClick={() => step(delta)}
@@ -232,12 +232,12 @@ const Gallery = ({ product }: { product: SdProductRecord }) => {
                                 aria-label={`Show ${item.kind === 'video' ? 'video' : 'photo'} ${i + 1}`}
                                 aria-current={i === index}
                                 className={classNames(
-                                    'relative block h-14 w-14 cursor-pointer overflow-hidden rounded-lg border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                                    'relative block h-14 w-14 cursor-pointer overflow-hidden rounded-lg border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
                                     item.kind === 'video'
                                         ? 'bg-black'
                                         : 'bg-gray-50 p-1',
                                     i === index
-                                        ? 'border-emerald-500'
+                                        ? 'border-shop-500'
                                         : 'border-transparent opacity-70 hover:opacity-100',
                                 )}
                                 onClick={() => setIndex(i)}
@@ -275,7 +275,7 @@ const Gallery = ({ product }: { product: SdProductRecord }) => {
 
 const Perk = ({ icon, children }: { icon: ReactNode; children: ReactNode }) => (
     <li className="flex items-center gap-2 text-xs text-gray-600">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-base text-emerald-600">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-shop-50 text-base text-shop-600">
             {icon}
         </span>
         {children}
@@ -313,8 +313,8 @@ const StockStatus = ({
                 `Only ${available} left in stock`,
             ]
           : [
-                'bg-emerald-500',
-                'text-emerald-700',
+                'bg-shop-500',
+                'text-shop-700',
                 `In stock · ${available} available`,
             ]
 
@@ -413,7 +413,7 @@ const ProductDetail = ({
                             <ul className="grid grid-cols-1 gap-2 text-sm text-gray-600 sm:grid-cols-2">
                                 {highlights.map((point) => (
                                     <li key={point} className="flex gap-2">
-                                        <HiOutlineCheck className="mt-0.5 shrink-0 text-emerald-600" />
+                                        <HiOutlineCheck className="mt-0.5 shrink-0 text-shop-600" />
                                         <span>{point}</span>
                                     </li>
                                 ))}
@@ -561,7 +561,7 @@ const ProductDetail = ({
                             ) : null}
                         </div>
                         {discount ? (
-                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                            <p className="mt-1 text-xs font-medium text-shop-700">
                                 You save{' '}
                                 {formatPrice(
                                     product.originalPrice! - product.price,

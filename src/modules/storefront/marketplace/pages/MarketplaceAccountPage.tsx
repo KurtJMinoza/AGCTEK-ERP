@@ -302,7 +302,7 @@ const AddressDialog = ({
                                         <button
                                             key={type}
                                             type="button"
-                                            className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-colors ${draft.addressType === type ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500' : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300'}`}
+                                            className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-colors ${draft.addressType === type ? 'border-shop-500 bg-shop-50 text-shop-800 ring-1 ring-shop-500' : 'border-gray-200 bg-white text-gray-600 hover:border-shop-300'}`}
                                             onClick={() =>
                                                 setDraft((current) => ({
                                                     ...current,
@@ -338,7 +338,7 @@ const AddressDialog = ({
                                             <button
                                                 key={place.id}
                                                 type="button"
-                                                className="block w-full border-b border-gray-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-emerald-50"
+                                                className="block w-full border-b border-gray-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-shop-50"
                                                 onClick={() =>
                                                     selectPlace(place)
                                                 }
@@ -464,7 +464,7 @@ const AddressDialog = ({
                         <Checkbox
                             checked={draft.isDefault}
                             disabled={editor?.address?.isDefault}
-                            checkboxClass="text-emerald-600"
+                            checkboxClass="text-shop-600"
                             onChange={(isDefault) =>
                                 setDraft((current) => ({
                                     ...current,
@@ -658,7 +658,7 @@ const MarketplaceAccountPage = () => {
             <MarketplaceHeader />
             <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
                 <div className="mb-7">
-                    <p className="text-sm font-semibold text-emerald-700">
+                    <p className="text-sm font-semibold text-shop-700">
                         My Account
                     </p>
                     <h1 className="mt-1 text-3xl font-bold tracking-tight text-gray-900">
@@ -674,7 +674,7 @@ const MarketplaceAccountPage = () => {
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
                     <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
                         <div className="mb-5 flex items-center gap-3">
-                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-shop-50 text-shop-700">
                                 <HiOutlineUserCircle className="text-xl" />
                             </span>
                             <div>
@@ -792,17 +792,17 @@ const MarketplaceAccountPage = () => {
                         {!addressesLoading &&
                         addresses.length === 0 &&
                         hasProfileAddress ? (
-                            <article className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                            <article className="rounded-xl border border-shop-200 bg-shop-50/40 p-4">
                                 <div className="flex flex-wrap items-start justify-between gap-2">
                                     <div className="flex items-center gap-2">
                                         <h3 className="font-semibold text-gray-900">
                                             Delivery Address
                                         </h3>
-                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                                        <span className="rounded-full bg-shop-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-shop-800">
                                             Default
                                         </span>
                                     </div>
-                                    <span className="text-xs font-medium text-emerald-700">
+                                    <span className="text-xs font-medium text-shop-700">
                                         Active Profile Address
                                     </span>
                                 </div>
@@ -870,8 +870,8 @@ const MarketplaceAccountPage = () => {
                         {!addressesLoading &&
                         addresses.length === 0 &&
                         !hasProfileAddress ? (
-                            <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50/50 p-6 text-center">
-                                <HiOutlineLocationMarker className="mx-auto text-3xl text-emerald-600" />
+                            <div className="rounded-xl border border-dashed border-shop-200 bg-shop-50/50 p-6 text-center">
+                                <HiOutlineLocationMarker className="mx-auto text-3xl text-shop-600" />
                                 <h3 className="mt-2 font-semibold text-gray-800">
                                     No saved addresses yet
                                 </h3>
@@ -895,7 +895,7 @@ const MarketplaceAccountPage = () => {
                                                     : 'Work'}
                                             </h3>
                                             {address.isDefault ? (
-                                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                                                <span className="rounded-full bg-shop-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-shop-800">
                                                     Default
                                                 </span>
                                             ) : null}

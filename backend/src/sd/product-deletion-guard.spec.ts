@@ -213,7 +213,10 @@ describe('ProductService.remove (deletion guard)', () => {
 
     it('404 for an unknown product', async () => {
         const prisma = {
-            sdProduct: { findUnique: jest.fn().mockResolvedValue(null) },
+            sdProduct: {
+                findUnique: jest.fn().mockResolvedValue(null),
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
         }
         const service = new ProductService(
             prisma as unknown as PrismaService,

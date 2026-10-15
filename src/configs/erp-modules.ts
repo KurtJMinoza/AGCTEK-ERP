@@ -31,7 +31,7 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'ecommerce',
                         title: 'E-commerce',
                         description:
-                            'Open the Amalgated Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+                            'Open the Amalgated Shop — the customer-facing online store for AWIC, MCONPINCO and LPG.',
                         path: '/shop',
                         icon: 'storefront',
                         isExternalLink: true,

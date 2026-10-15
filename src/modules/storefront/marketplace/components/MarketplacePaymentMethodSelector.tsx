@@ -99,7 +99,7 @@ const MarketplacePaymentMethodSelector = ({
                             className={classNames(
                                 'flex w-full items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors',
                                 active
-                                    ? 'border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-500/10'
+                                    ? 'border-shop-500 bg-shop-50 dark:border-shop-400 dark:bg-shop-500/10'
                                     : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800',
                             )}
                         >
@@ -107,7 +107,7 @@ const MarketplacePaymentMethodSelector = ({
                                 className={classNames(
                                     'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
                                     active
-                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                        ? 'bg-shop-100 text-shop-700 dark:bg-shop-500/20 dark:text-shop-300'
                                         : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300',
                                 )}
                                 aria-hidden
@@ -120,7 +120,7 @@ const MarketplacePaymentMethodSelector = ({
                                         className={classNames(
                                             'font-medium',
                                             active
-                                                ? 'text-emerald-800 dark:text-emerald-300'
+                                                ? 'text-shop-800 dark:text-shop-300'
                                                 : 'text-gray-900 dark:text-gray-100',
                                         )}
                                     >
@@ -140,13 +140,13 @@ const MarketplacePaymentMethodSelector = ({
                                 className={classNames(
                                     'mt-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
                                     active
-                                        ? 'border-emerald-500'
+                                        ? 'border-shop-500'
                                         : 'border-gray-300 dark:border-gray-500',
                                 )}
                                 aria-hidden
                             >
                                 {active ? (
-                                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                    <span className="h-2 w-2 rounded-full bg-shop-500" />
                                 ) : null}
                             </span>
                         </button>

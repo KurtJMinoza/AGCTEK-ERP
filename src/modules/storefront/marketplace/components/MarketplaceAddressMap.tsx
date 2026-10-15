@@ -19,7 +19,7 @@ type MarketplaceAddressMapProps = {
     readOnly?: boolean
 }
 
-const markerIcon = createMapPinIcon({ color: '#059669' })
+const markerIcon = createMapPinIcon({ color: '#0B4DA3' })
 
 function MapClick({
     onPinChange,

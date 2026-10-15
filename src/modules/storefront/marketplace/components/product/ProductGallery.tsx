@@ -25,7 +25,7 @@ const SWIPE_PX = 40
 const ZOOM = 2.2
 
 const ROUND_BUTTON =
-    'flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white/90 text-gray-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500'
+    'flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white/90 text-gray-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-shop-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500'
 
 const stopClick = {
     onClick: (event: React.MouseEvent) => event.stopPropagation(),
@@ -92,10 +92,10 @@ const Thumbnails = ({
                     aria-label={`Show ${item.kind === 'video' ? 'video' : 'photo'} ${i + 1}`}
                     aria-current={i === index}
                     className={classNames(
-                        'relative block h-16 w-16 cursor-pointer overflow-hidden rounded-xl border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 sm:h-20 sm:w-20',
+                        'relative block h-16 w-16 cursor-pointer overflow-hidden rounded-xl border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 sm:h-20 sm:w-20',
                         item.kind === 'video' ? 'bg-black' : 'bg-white p-1.5',
                         i === index
-                            ? 'border-emerald-500 shadow-sm'
+                            ? 'border-shop-500 shadow-sm'
                             : 'border-gray-100 opacity-70 hover:border-gray-200 hover:opacity-100',
                     )}
                     onClick={() => onSelect(i)}
@@ -250,7 +250,7 @@ const ProductGallery = ({
                 aria-label={`${product.name} photos`}
                 tabIndex={0}
                 className={classNames(
-                    'group relative mx-auto aspect-square w-full min-w-0 max-w-[26rem] flex-1 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 sm:max-w-[30rem] lg:max-w-[34rem]',
+                    'group relative mx-auto aspect-square w-full min-w-0 max-w-[26rem] flex-1 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500 sm:max-w-[30rem] lg:max-w-[34rem]',
                     current.kind === 'image' &&
                         (zoom ? 'cursor-zoom-in' : 'cursor-pointer'),
                 )}

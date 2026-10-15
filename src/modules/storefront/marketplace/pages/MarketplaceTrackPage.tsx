@@ -78,7 +78,7 @@ const MarketplaceTrackPage = ({ token }: { token: string }) => {
                         </div>
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="text-sm font-semibold text-emerald-700 hover:underline"
+                            className="text-sm font-semibold text-shop-700 hover:underline"
                         >
                             Go to the marketplace
                         </Link>
