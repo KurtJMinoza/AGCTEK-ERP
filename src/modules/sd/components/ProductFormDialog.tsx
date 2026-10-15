@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { HiOutlineArrowLeft, HiOutlineArrowRight, HiOutlineCube, HiOutlineViewGrid } from 'react-icons/hi'
+import { HiOutlineArrowLeft, HiOutlineArrowRight, HiOutlineCube } from 'react-icons/hi'
 import Steps from '@/components/ui/Steps'
 import FormDialog from '@/components/shared/FormDialog'
 import NumericInput from '@/components/shared/NumericInput'
@@ -77,6 +77,8 @@ const productSchema = z
         sortOrder: z.number().int().min(0).max(100_000),
         isActive: z.boolean(),
         productType: z.literal('STOCK_ITEM'),
+        /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
+        productConfig: z.enum(['SIMPLE', 'VARIABLE']),
         companyId: z.string(),
         materialLinkMode: z.enum(['single', 'multiple']),
         materialIds: z.array(z.string()),
@@ -124,13 +126,24 @@ type Option = { value: string; label: string }
 
 const FORM_ID = 'sd-product-form'
 
-const CREATE_WIZARD_STEPS = [
-    'Storefront',
-    'MM material',
-    'Pricing & media',
-    'Details',
-    'Options & Variants',
-] as const
+/** Dynamic wizard steps based on product config selection. */
+const getCreateWizardSteps = (config: 'SIMPLE' | 'VARIABLE') =>
+    config === 'VARIABLE'
+        ? [
+              'Product info',
+              'MM material',
+              'Pricing & media',
+              'Details',
+              'Options & Variants',
+          ] as const
+        : [
+              'Product info',
+              'MM material',
+              'Pricing & media',
+              'Details',
+          ] as const
+
+type WizardSteps = ReturnType<typeof getCreateWizardSteps>
 
 const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}`)[][] = [
     ['sku', 'name'],
@@ -166,6 +179,7 @@ const toFormValues = (
               sortOrder: product.sortOrder,
               isActive: product.isActive,
               productType: 'STOCK_ITEM',
+              productConfig: ((product as SdProductRecord & { productConfig?: string }).productConfig === 'VARIABLE' ? 'VARIABLE' : 'SIMPLE') as 'SIMPLE' | 'VARIABLE',
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
@@ -187,6 +201,7 @@ const toFormValues = (
               sortOrder: 0,
               isActive: true,
               productType: 'STOCK_ITEM',
+              productConfig: 'SIMPLE' as const,
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
@@ -357,7 +372,9 @@ const ProductFormDialog = ({
 
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
+    const productConfig = useWatch({ control, name: 'productConfig' })
     const materialIds = useWatch({ control, name: 'materialIds' })
+    const CREATE_WIZARD_STEPS = getCreateWizardSteps(productConfig ?? 'SIMPLE')
     const editing = mode === 'edit'
     const createWizard = !editing
     const [wizardStep, setWizardStep] = useState(0)
@@ -535,7 +552,9 @@ const ProductFormDialog = ({
     }
 
     const onValid = async (values: FormShape) => {
-        const optionIssues = validateOptionsVariants(optionsDraft)
+        const optionIssues = values.productConfig === 'VARIABLE'
+            ? validateOptionsVariants(optionsDraft)
+            : []
         if (optionIssues.length > 0) {
             setOptionsAttempted(true)
             if (createWizard) {
@@ -610,6 +629,7 @@ const ProductFormDialog = ({
             sku: autoSku ? '' : values.sku.toUpperCase(),
             badge: values.badge || null,
             productType: 'STOCK_ITEM' satisfies SdProductType,
+            productConfig: values.productConfig,
             autoGenerateSku: !editing && autoSku,
             imageGallery,
             attributes,
@@ -946,6 +966,53 @@ const ProductFormDialog = ({
                             )}
                         />
                     </FormItem>
+                    {!editing ? (
+                        <FormItem
+                            label="Product configuration"
+                            className="md:col-span-2"
+                        >
+                            <Controller
+                                name="productConfig"
+                                control={control}
+                                render={({ field }) => (
+                                    <div className="flex flex-col gap-2">
+                                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 transition hover:border-primary dark:border-gray-600">
+                                            <input
+                                                type="radio"
+                                                className="mt-0.5"
+                                                checked={field.value === 'SIMPLE'}
+                                                onChange={() => field.onChange('SIMPLE')}
+                                            />
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                    Product without customer-selectable options
+                                                </p>
+                                                <p className="text-xs text-gray-500">
+                                                    One item, one material, one stock level (e.g. Vitamin D3, Single-variant LPG tank)
+                                                </p>
+                                            </div>
+                                        </label>
+                                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 transition hover:border-primary dark:border-gray-600">
+                                            <input
+                                                type="radio"
+                                                className="mt-0.5"
+                                                checked={field.value === 'VARIABLE'}
+                                                onChange={() => field.onChange('VARIABLE')}
+                                            />
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                    Product with customer-selectable options
+                                                </p>
+                                                <p className="text-xs text-gray-500">
+                                                    Size, Color, Flavor, Volume, Pack Quantity, etc. — each combination gets its own material and stock
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                )}
+                            />
+                        </FormItem>
+                    ) : null}
                     </>
                     ) : null}
                     {showStep(1) ? (
@@ -1289,7 +1356,7 @@ const ProductFormDialog = ({
                         is kept as-is.
                     </p>
                 ) : null}
-                {showStep(4) ? (
+                {(productConfig === 'VARIABLE' && showStep(4)) || (editing && (product as SdProductRecord & { productConfig?: string } | undefined)?.productConfig === 'VARIABLE') ? (
                     <div className="mt-6" ref={optionsSectionRef}>
                         <p className="mb-3 text-sm font-semibold text-gray-900">
                             Options & Variants

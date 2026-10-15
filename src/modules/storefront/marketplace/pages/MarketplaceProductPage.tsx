@@ -283,6 +283,18 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
               ),
           }
         : undefined
+    const buildVariantInfo = () => {
+        if (!selectedVariant) return undefined
+        return {
+            variantId: selectedVariant.id,
+            variantName: selectedVariant.variantName,
+            variantSku: selectedVariant.sku,
+            materialId: selectedVariant.materialId ?? undefined,
+            unitPrice: selectedVariant.price ?? product.price,
+            companyId: selectedVariant.companyId ?? product.company?.id ?? undefined,
+            optionValues: selectedVariant.optionValues.map((link) => link.value),
+        }
+    }
     const addToCart = () => {
         if (hasVariants && !selectedVariant) {
             notify(
@@ -292,7 +304,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(product, quantity, false)
+        requestAdd(product, quantity, false, buildVariantInfo())
     }
     const buyNow = () => {
         if (hasVariants && !selectedVariant) {
@@ -303,7 +315,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(product, quantity, true)
+        requestAdd(product, quantity, true, buildVariantInfo())
     }
 
     /** Variant prices/images override the parent display once one is selected. */

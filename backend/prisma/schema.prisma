@@ -1192,6 +1192,12 @@ model MmMaterial {
   sdProductVariants SdProductVariant[] @relation("SdVariantMaterial")
   packageScanLogs   WmPackageScanLog[]
 
+  /// The SD variant that triggered automatic creation of this material (null = created independently).
+  catalogVariantId String?
+  catalogVariant   SdProductVariant? @relation("CatalogVariantMaterial", fields: [catalogVariantId], references: [id], onDelete: SetNull)
+  /// AUTO_CREATED | MANUALLY_LINKED — how this material was associated with its catalog variant.
+  catalogSource    String?
+
   companyId          String?
   company            Company?   @relation(fields: [companyId], references: [id])
   defaultWarehouseId String?
@@ -3817,10 +3823,17 @@ model SdProduct {
   sortOrder           Int                           @default(0)
   /// STOCK_ITEM | NON_STOCK_ITEM | SERVICE
   productType         String                        @default("STOCK_ITEM")
+  /// SIMPLE | VARIABLE — whether the product has customer-selectable option combinations.
+  /// SIMPLE products use one hidden default variant; VARIABLE products have visible option combos.
+  productConfig       String                        @default("SIMPLE")
   salesUomId          String?
   salesUom            MmUom?                        @relation("SdProductSalesUom", fields: [salesUomId], references: [id])
   /// Division-specific storefront content (features, specs, includes, gallery, reviews).
   attributes          Json?
+  /// FK to the default (pre-selected) variant shown on storefront / POS.
+  defaultVariantId    String?
+  /// Client-generated UUID to prevent duplicate product creation on retries.
+  idempotencyKey      String?                       @unique
   createdBy           String?
   updatedBy           String?
   createdAt           DateTime                      @default(now())
@@ -3901,11 +3914,14 @@ model SdProductOptionValue {
 }
 
 /// Sellable variant of an SD product. Parent = display / grouping; variant = the stock item.
+/// Every product has at least one variant (SIMPLE → hidden default; VARIABLE → one per combination).
 model SdProductVariant {
   id             String                        @id @default(cuid())
   productId      String
   product        SdProduct                     @relation("ProductVariants", fields: [productId], references: [id], onDelete: Cascade)
   variantName    String
+  /// Normalized option combination key, e.g. "color:black|size:medium". "__default__" for simple products.
+  combinationKey String                        @default("__default__")
   sku            String                        @unique
   barcode        String?                       @unique
   /// Sellable price override; null → inherit the parent product price.
@@ -3917,6 +3933,10 @@ model SdProductVariant {
   isActive       Boolean                       @default(true)
   /// Default preset variant on the storefront / POS (one per product).
   isDefault      Boolean                       @default(false)
+  /// Whether the variant is visible on the storefront.
+  isPublished    Boolean                       @default(true)
+  /// Hidden variants are not shown to customers (used for SIMPLE product default variants).
+  isHidden       Boolean                       @default(false)
   sortOrder      Int                           @default(0)
   /// MM stock authority for this variant (null = non-stock / service variant)
   materialId     String?
@@ -3930,8 +3950,11 @@ model SdProductVariant {
   createdAt      DateTime                      @default(now())
   updatedAt      DateTime                      @updatedAt
   optionValues   SdProductVariantOptionValue[] @relation("VariantOptionValues")
+  /// Materials auto-created from this variant (source tracking).
+  catalogMaterials MmMaterial[]                @relation("CatalogVariantMaterial")
 
   @@unique([productId, variantName])
+  @@unique([productId, combinationKey])
   @@index([productId, isActive])
   @@index([productId, sortOrder])
   @@index([materialId])

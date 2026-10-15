@@ -210,6 +210,14 @@ export class MaterialsService {
         company: true,
         defaultWarehouse: true,
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+        catalogVariant: {
+            select: {
+                id: true,
+                variantName: true,
+                sku: true,
+                product: { select: { id: true, name: true, sku: true } },
+            },
+        },
     }
 
     /** List / dropdown — avoid loading every UOM/valuation relation. */
@@ -390,21 +398,37 @@ export class MaterialsService {
     }
 
     async create(dto: CreateMaterialDto) {
-        const materialCode = dto.materialCode || await this.generateNextCode()
-        await this.assertUniqueCode(materialCode)
+        return this.createWithClient(dto, this.prisma)
+    }
 
-        const sku = dto.sku?.trim() || (await this.generateNextSku())
-        await this.assertUniqueSku(sku)
+    /**
+     * Create a material using the provided Prisma client (or transaction client).
+     * ProductFamilyService passes a `$transaction` client so material creation
+     * is atomic with product + variant creation.
+     */
+    async createWithClient(
+        dto: CreateMaterialDto,
+        client: PrismaService | Prisma.TransactionClient,
+    ) {
+        const db = 'mmMaterial' in client ? client : this.prisma
+        const mmMaterial = (db as any).mmMaterial
+        const mmCurrency = (db as any).mmCurrency
+
+        const materialCode = dto.materialCode || await this.generateNextCode(db)
+        await this.assertUniqueCode(materialCode, undefined, db)
+
+        const sku = dto.sku?.trim() || (await this.generateNextSku(db))
+        await this.assertUniqueSku(sku, undefined, db)
         this.validateThresholds(dto)
 
         const [deletedByCode, deletedBySku] = await Promise.all([
-            this.prisma.mmMaterial.findFirst({
+            mmMaterial.findFirst({
                 where: {
                     materialCode: { equals: materialCode, mode: 'insensitive' },
                     deletedAt: { not: null },
                 },
             }),
-            this.prisma.mmMaterial.findFirst({
+            mmMaterial.findFirst({
                 where: {
                     sku: { equals: sku, mode: 'insensitive' },
                     deletedAt: { not: null },
@@ -418,21 +442,17 @@ export class MaterialsService {
             )
         }
 
-        // Never create directly as ACTIVE without activation checks
         let status = dto.status || 'DRAFT'
         if (status === 'ACTIVE') {
-            await assertActivateReady(this.prisma, dto as any)
+            await assertActivateReady(db as any, dto as any)
         } else if (status === 'BLOCKED') {
-            // allow create as blocked only via explicit status after draft path — force DRAFT
             status = 'DRAFT'
         }
 
-        // Materials default to the PHP currency. The New/Edit Material form no
-        // longer exposes a currency picker; the API remains the authority.
         const currencyId =
             dto.currencyId && dto.currencyId.trim() !== ''
                 ? dto.currencyId
-                : ((await this.prisma.mmCurrency.findFirst({
+                : ((await mmCurrency.findFirst({
                       where: { code: 'PHP' },
                       select: { id: true },
                   }))?.id ?? null)
@@ -445,14 +465,13 @@ export class MaterialsService {
             currencyId,
             onHandQty: new Decimal(0),
             reservedQty: new Decimal(0),
-            // storageBinId is a posting target, not a Material Master column.
             storageBinId: undefined,
         }
 
         const deletedMaterial = deletedByCode ?? deletedBySku
         try {
             const material = deletedMaterial
-                ? await this.prisma.mmMaterial.update({
+                ? await mmMaterial.update({
                       where: { id: deletedMaterial.id },
                       data: {
                           ...data,
@@ -460,13 +479,11 @@ export class MaterialsService {
                       } as Prisma.MmMaterialUncheckedUpdateInput,
                       include: this.includes,
                   })
-                : await this.prisma.mmMaterial.create({
+                : await mmMaterial.create({
                       data,
                       include: this.includes,
                   })
 
-            // Opening stock entered on the material form is ledger-owned: post
-            // it through the inventory engine (cache only mirrors the ledger).
             if (Number(dto.onHandQty ?? 0) > 0) {
                 await this.postStockChange({
                     materialId: material.id,
@@ -496,22 +513,24 @@ export class MaterialsService {
         }
     }
 
-    private async generateNextCode(): Promise<string> {
-        const materials = await this.prisma.mmMaterial.findMany({
+    private async generateNextCode(client?: any): Promise<string> {
+        const db = client ?? this.prisma
+        const materials = await db.mmMaterial.findMany({
             where: { materialCode: { startsWith: 'MAT-' } },
             select: { materialCode: true },
         })
-        const seq = this.nextNumericSuffix(materials.map(({ materialCode }) => materialCode), 'MAT-')
+        const seq = this.nextNumericSuffix(materials.map(({ materialCode }: any) => materialCode), 'MAT-')
         return `MAT-${String(seq).padStart(6, '0')}`
     }
 
-    private async generateNextSku(): Promise<string> {
-        const materials = await this.prisma.mmMaterial.findMany({
+    private async generateNextSku(client?: any): Promise<string> {
+        const db = client ?? this.prisma
+        const materials = await db.mmMaterial.findMany({
             where: { sku: { startsWith: 'SKU-' } },
             select: { sku: true },
         })
         const seq = this.nextNumericSuffix(
-            materials.flatMap(({ sku }) => sku ? [sku] : []),
+            materials.flatMap(({ sku }: any) => sku ? [sku] : []),
             'SKU-',
         )
         return `SKU-${String(seq).padStart(6, '0')}`
@@ -717,8 +736,9 @@ export class MaterialsService {
         })
     }
 
-    private async assertUniqueCode(code: string, excludeId?: string) {
-        const existing = await this.prisma.mmMaterial.findFirst({
+    private async assertUniqueCode(code: string, excludeId?: string, client?: any) {
+        const db = client ?? this.prisma
+        const existing = await db.mmMaterial.findFirst({
             where: {
                 materialCode: { equals: code, mode: 'insensitive' },
                 deletedAt: null,
@@ -730,8 +750,9 @@ export class MaterialsService {
         }
     }
 
-    private async assertUniqueSku(sku: string, excludeId?: string) {
-        const existing = await this.prisma.mmMaterial.findFirst({
+    private async assertUniqueSku(sku: string, excludeId?: string, client?: any) {
+        const db = client ?? this.prisma
+        const existing = await db.mmMaterial.findFirst({
             where: {
                 sku: { equals: sku, mode: 'insensitive' },
                 deletedAt: null,

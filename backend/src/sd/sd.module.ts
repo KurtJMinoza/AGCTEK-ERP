@@ -38,6 +38,7 @@ import { DeliveryController } from './delivery.controller'
 import { DeliveryMonitorService } from './delivery-monitor.service'
 import { SalesInvoiceController } from './sales-invoice.controller'
 import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
+import { ProductFamilyService } from './product-family.service'
 
 @Module({
     imports: [
@@ -84,6 +85,7 @@ import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
         SalesInvoicePdfService,
         OrderTrackingService,
         OrderTrackingNotifierListener,
+        ProductFamilyService,
     ],
     exports: [
         SalesOrderService,

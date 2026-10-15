@@ -66,6 +66,8 @@ export type ProductInput = {
     sortOrder?: number
     attributes?: ProductAttributes | null
     productType?: SdProductType
+    /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
+    productConfig?: 'SIMPLE' | 'VARIABLE'
     /** Required for STOCK_ITEM — explicit SD ↔ MM link at creation. */
     materialId?: string
     materialIds?: string[]
@@ -296,6 +298,81 @@ export async function createProduct(
     } catch (error) {
         throw toError(error, 'Unable to create product')
     }
+}
+
+/**
+ * Unified product-family creation: parent product + options + variants +
+ * auto-created MM materials — all in one atomic transaction.
+ */
+export async function createProductFamily(
+    input: CreateProductFamilyInput,
+): Promise<SdProductRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            '/sd/products/family',
+            input,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Unable to create product family')
+    }
+}
+
+/** Input for the unified product-family creation endpoint. */
+export type CreateProductFamilyInput = {
+    divisionId: string
+    name: string
+    description?: string
+    brand?: string
+    category?: string
+    price: number
+    originalPrice?: number
+    imageUrl?: string
+    badge?: string
+    productConfig: 'SIMPLE' | 'VARIABLE'
+    salesUomId?: string
+    sku?: string
+    idempotencyKey?: string
+    materialDefaults: {
+        companyId: string
+        materialTypeId: string
+        materialCategoryId: string
+        baseUomId: string
+        salesUomId?: string
+        defaultWarehouseId?: string
+        storageBinId?: string
+        standardCost?: number
+        safetyStock?: number
+        maximumStock?: number
+        reorderPoint?: number
+        batchManaged?: boolean
+        serialManaged?: boolean
+        expiryManaged?: boolean
+    }
+    options?: Array<{
+        name: string
+        displayStyle?: string
+        isRequired?: boolean
+        sortOrder?: number
+        values: Array<{
+            value: string
+            swatchColor?: string
+            imageUrl?: string
+            sortOrder?: number
+        }>
+    }>
+    variants?: Array<{
+        enabled: boolean
+        sku?: string
+        barcode?: string
+        price?: number
+        compareAtPrice?: number
+        imageUrl?: string
+        weight?: number
+        optionValues: string[]
+        materialOverrides?: Record<string, unknown>
+        existingMaterialId?: string
+    }>
 }
 
 export async function updateProduct(

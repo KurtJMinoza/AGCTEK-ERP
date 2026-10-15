@@ -25,6 +25,8 @@ import { UpdateProductOptionsVariantsDto } from './dto/product-option-variants.d
 import { ProductService } from './product.service'
 import { ProductOptionVariantsService } from './product-option-variants.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
+import { ProductFamilyService } from './product-family.service'
+import { CreateProductFamilyDto } from './dto/create-product-family.dto'
 import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
 import { RequirePermission } from '../permissions/permission.guard'
 
@@ -85,6 +87,7 @@ export class ProductController {
         private products: ProductService,
         private availabilityService: CommercialAvailabilityService,
         private optionVariants: ProductOptionVariantsService,
+        private productFamily: ProductFamilyService,
     ) {}
 
     @Get()
@@ -215,6 +218,33 @@ export class ProductController {
     @RequirePermission('sd.product-catalog', 'create')
     create(@Body() dto: CreateProductDto) {
         return this.products.create(dto)
+    }
+
+    /**
+     * Unified product-family creation: parent product + options + variants +
+     * auto-created MM materials — all in one atomic transaction.
+     */
+    @Post('family')
+    @RequirePermission('sd.product-catalog', 'create')
+    createFamily(@Body() dto: CreateProductFamilyDto) {
+        return this.productFamily.createProductFamily(dto)
+    }
+
+    /** Add new option values + variant combinations to an existing variable product. */
+    @Post(':id/variants')
+    @RequirePermission('sd.product-catalog', 'update')
+    addVariants(
+        @Param('id') id: string,
+        @Body() body: { newOptionValues: { optionName: string; values: string[] }[]; newVariants: any[] },
+    ) {
+        return this.productFamily.addVariants(id, body.newOptionValues, body.newVariants)
+    }
+
+    /** Archive a variant (hide from shop, preserve history). */
+    @Patch('variants/:variantId/archive')
+    @RequirePermission('sd.product-catalog', 'update')
+    archiveVariant(@Param('variantId') variantId: string) {
+        return this.productFamily.archiveVariant(variantId)
     }
 
     /** JSON, or multipart with `data` (JSON) + optional `image` and `gallery` files. */

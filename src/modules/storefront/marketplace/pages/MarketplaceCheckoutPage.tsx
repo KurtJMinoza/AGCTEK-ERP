@@ -159,6 +159,9 @@ const MarketplaceCheckoutPageContent = () => {
                 divisionId: item.product.divisionId as SalesDivisionId,
                 sku: item.product.sku,
                 quantity: item.quantity,
+                variantId: item.variant?.variantId,
+                variantName: item.variant?.variantName,
+                unitPrice: item.variant?.unitPrice,
             })),
         [sourceItems],
     )

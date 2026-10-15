@@ -178,6 +178,34 @@ const MaterialDetailPage = () => {
                 }
             />
 
+            {(material as any).catalogVariantId ? (
+                <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+                    <HiOutlineCube className="h-5 w-5 shrink-0" />
+                    <span>
+                        <strong>Created from Product Catalog</strong>
+                        {(material as any).catalogVariant?.product?.name
+                            ? ` — Product: ${(material as any).catalogVariant.product.name}`
+                            : ''}
+                        {(material as any).catalogVariant?.variantName
+                            ? `, Variant: ${(material as any).catalogVariant.variantName}`
+                            : ''}
+                    </span>
+                    {(material as any).catalogSource === 'AUTO_CREATED' ? (
+                        <Tag className="!text-[10px]">Auto-created</Tag>
+                    ) : (material as any).catalogSource === 'MANUALLY_LINKED' ? (
+                        <Tag className="!text-[10px]">Manually linked</Tag>
+                    ) : null}
+                    {(material as any).catalogVariant?.product?.sku ? (
+                        <a
+                            href={`/modules/sd/product-catalog`}
+                            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-300"
+                        >
+                            Open in Product Catalog
+                        </a>
+                    ) : null}
+                </div>
+            ) : null}
+
             <div className="mb-4 flex items-center gap-2">
                 <StatusBadge tone={STATUS_TONE[material.status] ?? 'default'}>{material.status}</StatusBadge>
                 {material.materialType && <Tag>{material.materialType.name}</Tag>}
