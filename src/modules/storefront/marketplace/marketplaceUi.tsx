@@ -23,6 +23,10 @@ import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 export const MARKETPLACE_NAME = 'Amalgated Shop'
 export const MARKETPLACE_LOGO_SRC = '/storefront/aci.png'
 
+/** Deep navy with a faint architectural grid (sign-in branding panel, OTP screen). */
+export const BRAND_GRID_SURFACE =
+    'bg-shop-950 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:4rem_4rem]'
+
 /** Brand primary button colours, for ECME `customColorClass` props. */
 export const PRIMARY_BUTTON = () =>
     'bg-shop-600 hover:bg-shop-700 text-white transition-colors'
