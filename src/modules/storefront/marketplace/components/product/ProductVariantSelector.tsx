@@ -9,7 +9,6 @@ import {
     type ProductOptionsVariants,
     type ProductVariantDefinition,
     type VariantImageMode,
-    type VariantStockAvailability,
 } from '@/modules/sd/services/productOptionVariantsService'
 
 /**
@@ -32,8 +31,6 @@ const ProductVariantSelector = ({
 }) => {
     const [payload, setPayload] = useState<ProductOptionsVariants | null>(null)
     const [selection, setSelection] = useState<Record<string, string>>({})
-    const [stock, setStock] = useState<VariantStockAvailability | null>(null)
-
     useEffect(() => {
         let alive = true
         productOptionVariantsService
@@ -95,28 +92,6 @@ const ProductVariantSelector = ({
             selectedVariant && selectedVariant.isActive ? selectedVariant : null,
         )
     }, [selectedVariant, onVariantChange])
-
-    useEffect(() => {
-        let alive = true
-        if (!selectedVariant) {
-            setStock(null)
-            return
-        }
-        productOptionVariantsService
-            .variantAvailability(
-                selectedVariant.id,
-                selectedVariant.companyId ?? product.company?.id ?? null,
-            )
-            .then((data) => {
-                if (alive) setStock(data)
-            })
-            .catch(() => {
-                if (alive) setStock(null)
-            })
-        return () => {
-            alive = false
-        }
-    }, [selectedVariant, product.company?.id])
 
     if (!payload || !payload.hasVariants) return null
 
@@ -335,10 +310,6 @@ const ProductVariantSelector = ({
         )
     }
 
-    const variantSoldOut = stock
-        ? stock.state === 'OUT_OF_STOCK' || stock.state === 'NOT_MAPPED'
-        : false
-
     return (
         <div className="flex flex-col gap-4">
             {payload.options.map((option) => (
@@ -352,40 +323,6 @@ const ProductVariantSelector = ({
                     <div className="mt-2">{renderOption(option)}</div>
                 </div>
             ))}
-
-            {selectedVariant ? (
-                <div className="rounded-xl border border-shop-100 bg-shop-50/60 px-3.5 py-2.5 text-sm">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-medium text-gray-900">
-                            {selectedVariant.variantName}
-                        </span>
-                        <span className="text-gray-300">·</span>
-                        <span className="text-xs text-gray-500">
-                            SKU {selectedVariant.sku}
-                            {selectedVariant.barcode
-                                ? ` · Barcode ${selectedVariant.barcode}`
-                                : ''}
-                        </span>
-                        {variantSoldOut ? (
-                            <span className="text-xs font-semibold text-rose-600">
-                                Out of stock
-                            </span>
-                        ) : stock ? (
-                            <span className="text-xs font-semibold text-shop-700">
-                                {stock.availableQuantity > 0
-                                    ? `${stock.availableQuantity} available`
-                                    : 'In stock'}
-                            </span>
-                        ) : null}
-                    </div>
-                    {stock ? (
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            On hand {stock.physicalStock} · Reserved{' '}
-                            {stock.reservedQuantity}
-                        </p>
-                    ) : null}
-                </div>
-            ) : null}
         </div>
     )
 }

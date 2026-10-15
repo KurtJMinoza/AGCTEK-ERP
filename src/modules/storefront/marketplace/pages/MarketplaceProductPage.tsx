@@ -460,9 +460,6 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                     </span>
                                 </a>
                             ) : null}
-                            <span className="text-sm text-gray-400">
-                                {product.sku}
-                            </span>
                         </div>
                     </div>
 
