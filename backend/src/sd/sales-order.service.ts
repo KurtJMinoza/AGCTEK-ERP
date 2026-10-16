@@ -2082,6 +2082,139 @@ export class SalesOrderService {
     }
 
     /**
+     * Customer Return approve (REPLACEMENT): open a new $0 outbound sales order
+     * for the returned materials, confirm it, and start MM reservation/picking.
+     * Idempotent on `SdReturnRequest.replacementSalesOrderId` (caller stores the link).
+     */
+    async createReplacementForReturnRequest(input: {
+        returnRequestId: string
+        companyId: string
+        createdBy?: string
+    }) {
+        const request = await this.prisma.sdReturnRequest.findFirst({
+            where: { id: input.returnRequestId, companyId: input.companyId },
+            include: {
+                lines: true,
+                salesOrder: {
+                    select: {
+                        id: true,
+                        orderNumber: true,
+                        companyId: true,
+                        warehouseId: true,
+                        customerId: true,
+                        customerName: true,
+                        customerEmail: true,
+                        shipToName: true,
+                        shipToPhone: true,
+                        shipToAddressLine1: true,
+                        shipToCity: true,
+                        shipToRegion: true,
+                        shipToPostalCode: true,
+                        shipToCountry: true,
+                        branchId: true,
+                        divisionId: true,
+                        currency: true,
+                    },
+                },
+            },
+        })
+        if (!request) {
+            throw new NotFoundException('Return request not found in company scope')
+        }
+        if (request.replacementSalesOrderId) {
+            return this.findOne(request.replacementSalesOrderId)
+        }
+        const original = request.salesOrder
+        if (!original?.companyId || !original.warehouseId) {
+            throw new BadRequestException(
+                'Original order needs company and warehouse before a replacement can ship',
+            )
+        }
+        const lines = request.lines.filter(
+            (l) =>
+                l.materialId &&
+                l.disposition !== 'REFUND_ONLY' &&
+                new Decimal(l.quantity.toString()).gt(0),
+        )
+        if (!lines.length) {
+            throw new BadRequestException(
+                'No replaceable lines on this return (need materials that are not refund-only)',
+            )
+        }
+
+        const idempotencyKey = `replacement:${request.id}`
+        const existing = await this.prisma.sdSalesOrder.findUnique({
+            where: { idempotencyKey },
+            select: { id: true },
+        })
+        if (existing) return this.findOne(existing.id)
+
+        const orderNumber = await this.nextOrderNumber()
+        const created = await this.prisma.sdSalesOrder.create({
+            data: {
+                orderNumber,
+                companyId: original.companyId,
+                warehouseId: original.warehouseId,
+                customerId: original.customerId,
+                customerName: original.customerName,
+                customerEmail: original.customerEmail,
+                shipToName: original.shipToName,
+                shipToPhone: original.shipToPhone,
+                shipToAddressLine1: original.shipToAddressLine1,
+                shipToCity: original.shipToCity,
+                shipToRegion: original.shipToRegion,
+                shipToPostalCode: original.shipToPostalCode,
+                shipToCountry: original.shipToCountry,
+                branchId: original.branchId,
+                divisionId: original.divisionId,
+                channel: 'STANDARD',
+                source: 'ERP',
+                correlationId: randomUUID(),
+                idempotencyKey,
+                createdBy: input.createdBy ?? null,
+                status: 'DRAFT',
+                currency: original.currency ?? SD_CATALOG_CURRENCY,
+                paymentMethod: 'STORE_CREDIT',
+                paymentStatus: 'Paid',
+                subtotal: 0,
+                discountAmount: 0,
+                shippingAmount: 0,
+                totalAmount: 0,
+                notes: `Replacement for return ${request.requestNumber} (original ${original.orderNumber})`,
+                lines: {
+                    create: lines.map((line, idx) => ({
+                        lineNumber: idx + 1,
+                        materialId: line.materialId!,
+                        quantity: line.quantity,
+                        unitPrice: 0,
+                        lineTotal: 0,
+                        description: `Replacement — ${request.requestNumber}`,
+                    })),
+                },
+                payments: {
+                    create: {
+                        companyId: original.companyId,
+                        customerId: original.customerId,
+                        paymentMethod: 'STORE_CREDIT',
+                        amount: 0,
+                        currency: original.currency ?? SD_CATALOG_CURRENCY,
+                        status: 'Paid',
+                        paidAt: new Date(),
+                        isDemo: true,
+                    },
+                },
+            },
+            include: this.includes,
+        })
+
+        await this.confirm(created.id)
+        await this.createReservationAndPickingForSalesOrder(created.id, {
+            throwOnIneligible: true,
+        })
+        return this.findOne(created.id)
+    }
+
+    /**
      * Idempotently repair the SD-to-MM handoff for an eligible order.
      */
     async createMissingFulfillment(id: string) {

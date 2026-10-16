@@ -4466,6 +4466,8 @@ model SdReturnRequest {
   /// SCM damage evidence this return was created from (POD reject / driver report). Unique ⇒ one CR per report.
   damageReportId     String?       @unique
   damageReport       DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
+  /// Child sales order opened on approve when preferredResolution = REPLACEMENT (new outbound).
+  replacementSalesOrderId String?  @unique
   requestedBy        String?
   approvedBy         String?
   approvedAt         DateTime?

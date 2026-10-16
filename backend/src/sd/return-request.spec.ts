@@ -368,6 +368,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         preferredResolution: string | null
         refundStatus: string
         mmCustomerReturnId: string | null
+        replacementSalesOrderId?: string | null
         rejectReason?: string | null
         approvedAt?: Date | null
         refundAmount?: Decimal | null
@@ -413,6 +414,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
             preferredResolution: 'REFUND',
             refundStatus: 'NONE',
             mmCustomerReturnId: 'mm-1',
+            replacementSalesOrderId: null,
             lines: [
                 {
                     id: 'rrl-1',
@@ -592,11 +594,40 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
                 findUnique: async () => ({ baseUomId: 'uom-1' }),
             },
         }
+        const replacementCalls: Array<{
+            returnRequestId: string
+            companyId: string
+            createdBy?: string
+        }> = []
+        const salesOrders = {
+            createReplacementForReturnRequest: async (input: {
+                returnRequestId: string
+                companyId: string
+                createdBy?: string
+            }) => {
+                replacementCalls.push(input)
+                return {
+                    id: 'so-repl-1',
+                    orderNumber: 'SO-REPL-1',
+                    status: 'CONFIRMED',
+                }
+            },
+        }
         const service = new ReturnRequestService(
             prisma as unknown as PrismaService,
             mm as unknown as CustomerReturnService,
+            salesOrders as never,
         )
-        return { service, row, paymentCas, mmCalls, refunds, memos }
+        return {
+            service,
+            row,
+            paymentCas,
+            mmCalls,
+            refunds,
+            memos,
+            salesOrders,
+            replacementCalls,
+        }
     }
 
     it('approve moves REQUESTED → AWAITING_RETURN and creates the MM intake', async () => {
@@ -605,6 +636,38 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         expect(updated.status).toBe('AWAITING_RETURN')
         expect(updated.approvedAt).toBeTruthy()
         expect(row.mmCustomerReturnId).toBe('mm-2')
+    })
+
+    it('approve with REPLACEMENT opens a child sales order and stores the link', async () => {
+        const { service, row, replacementCalls } = phase4Setup({
+            mmCustomerReturnId: 'mm-1',
+            preferredResolution: 'REFUND',
+        })
+        const updated = await service.approve('rr-1', 'comp-1', 'user-1', {
+            preferredResolution: 'REPLACEMENT',
+        })
+        expect(updated.status).toBe('AWAITING_RETURN')
+        expect(row.preferredResolution).toBe('REPLACEMENT')
+        expect(row.replacementSalesOrderId).toBe('so-repl-1')
+        expect(replacementCalls).toEqual([
+            {
+                returnRequestId: 'rr-1',
+                companyId: 'comp-1',
+                createdBy: 'user-1',
+            },
+        ])
+    })
+
+    it('approve REPLACEMENT is idempotent when replacementSalesOrderId already set', async () => {
+        const { service, replacementCalls } = phase4Setup({
+            status: 'REQUESTED',
+            preferredResolution: 'REPLACEMENT',
+            replacementSalesOrderId: 'so-repl-existing',
+        })
+        await service.approve('rr-1', 'comp-1', 'user-1', {
+            preferredResolution: 'REPLACEMENT',
+        })
+        expect(replacementCalls).toEqual([])
     })
 
     it('reject moves REQUESTED → REJECTED with a reason', async () => {

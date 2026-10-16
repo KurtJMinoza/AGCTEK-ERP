@@ -254,14 +254,28 @@ const CustomerReturnsPage = () => {
                     }
                     if (r.status === 'REQUESTED') {
                         items.push({
-                            label: 'Approve',
+                            label: 'Approve (refund)',
                             run: () =>
                                 void confirmRun(
-                                    'Approve return',
-                                    'Approve this return request? The customer will be instructed to send the item back.',
+                                    'Approve return — refund',
+                                    'Approve and open MM intake. Resolution: refund after goods are received.',
                                     () =>
                                         customerReturnRequestService.approve(r.id, {
                                             companyId: company,
+                                            preferredResolution: 'REFUND',
+                                        }),
+                                ),
+                        })
+                        items.push({
+                            label: 'Approve (replacement)',
+                            run: () =>
+                                void confirmRun(
+                                    'Approve return — replacement',
+                                    'Approve, open MM intake, and start a $0 replacement sales order (pick/pack outbound)?',
+                                    () =>
+                                        customerReturnRequestService.approve(r.id, {
+                                            companyId: company,
+                                            preferredResolution: 'REPLACEMENT',
                                         }),
                                 ),
                         })
@@ -674,6 +688,12 @@ const CustomerReturnsPage = () => {
                                 <dt className="text-xs text-gray-500">Preferred resolution</dt>
                                 <dd className="font-medium">
                                     {detail.preferredResolution ?? '—'}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs text-gray-500">Replacement SO</dt>
+                                <dd className="font-medium font-mono text-xs">
+                                    {detail.replacementSalesOrderId ?? '—'}
                                 </dd>
                             </div>
                             <div>

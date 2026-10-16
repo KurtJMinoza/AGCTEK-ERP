@@ -1,7 +1,7 @@
 # COD delivery + optional damage + Customer Returns
 
-**Status:** Phase 0 locked (2026-10-16). Phases 1–3 implemented. Phase 4+ not started.  
-**Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake are downstream after approve.
+**Status:** Phase 0 locked (2026-10-16). Phases 1–4 implemented. Phase 5 (QA scenarios) next.  
+**Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake run on approve.
 
 Related: [`SCM_DAMAGE_REPORT_DESIGN.md`](./SCM_DAMAGE_REPORT_DESIGN.md) (evidence + prior Sales Returns handoff — commercial spine moves to Customer Returns per Phase 2).
 
@@ -94,7 +94,15 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 - Credit memos stay for post-paid refunds; on-spot partial never collected → no credit memo needed.
 - Helper: `sales-invoice-pod-acceptance.ts` (shipment → stop lines → reservation chain → SO line).
 
+## Phase 4 — shipped (approve → MM + replacement)
+
+- Approve (`POST …/returns/:id/approve`) opens MM `CustomerReturn` DRAFT intake (idempotent via `mmCustomerReturnId`).
+- Optional body `preferredResolution`: `REFUND` | `REPLACEMENT` | `STORE_CREDIT` (overrides request preference).
+- **REPLACEMENT:** `SalesOrderService.createReplacementForReturnRequest` creates a $0 child SO (`STORE_CREDIT` / Paid), confirms it, and starts MM reservation/picking. Link stored on `SdReturnRequest.replacementSalesOrderId` (unique; idempotent).
+- Damaged pickup as a multi-stop trip type remains deferred (policy 6A outbound only).
+- Admin UI: Approve (refund) / Approve (replacement); detail shows replacement SO id.
+- Migration: `20261016160000_return_replacement_so`.
+
 ### Still next
 
-- Phase 4: approve → MM intake + replacement outbound.
 - Phase 5: scripted scenarios 1–6.

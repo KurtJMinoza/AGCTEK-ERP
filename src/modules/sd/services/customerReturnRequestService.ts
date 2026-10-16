@@ -42,6 +42,8 @@ export type CustomerReturnRequestRow = {
     reason: string | null
     conditionNote: string | null
     preferredResolution: string | null
+    /** Child SO opened on approve when resolution is REPLACEMENT. */
+    replacementSalesOrderId: string | null
     refundAmount: string | null
     branchId: string | null
     warehouseId: string | null
@@ -91,6 +93,10 @@ export type ListCustomerReturnsParams = {
 
 /** Admin action payloads — company scope is required server-side. */
 export type ReturnActionPayload = { companyId: string; performedBy?: string }
+export type ApproveReturnPayload = ReturnActionPayload & {
+    approvedBy?: string
+    preferredResolution?: 'REFUND' | 'REPLACEMENT' | 'STORE_CREDIT'
+}
 export type RejectReturnPayload = ReturnActionPayload & { reason?: string }
 export type InspectReturnPayload = ReturnActionPayload & {
     result?: string
@@ -103,7 +109,7 @@ export const customerReturnRequestService = {
             (r) => r.data,
         ),
 
-    approve: (id: string, data: ReturnActionPayload) =>
+    approve: (id: string, data: ApproveReturnPayload) =>
         ErpAxiosBase.post<CustomerReturnRequestRow>(
             `${BASE}/${encodeURIComponent(id)}/approve`,
             data,

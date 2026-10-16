@@ -1,14 +1,18 @@
 import {
     BadRequestException,
     ConflictException,
+    Inject,
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
+    forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
+import { SalesOrderService } from './sales-order.service'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
@@ -166,6 +170,9 @@ export class ReturnRequestService {
     constructor(
         private prisma: PrismaService,
         private customerReturns: CustomerReturnService,
+        @Optional()
+        @Inject(forwardRef(() => SalesOrderService))
+        private readonly salesOrders?: SalesOrderService,
     ) {}
 
     /**
@@ -504,14 +511,15 @@ export class ReturnRequestService {
 
     /**
      * Approval routes the request to MM customer returns for intake/inspection
-     * and final disposition (restock / quality hold / damaged / scrap / disposal
-     * / refund-only). Idempotent via a unique MM return link per request.
-     * Once approved the return awaits the physical goods (AWAITING_RETURN).
+     * and final disposition. When preferredResolution is REPLACEMENT, also opens
+     * a $0 child sales order and starts pick/pack (new outbound). Idempotent via
+     * unique MM return link and replacementSalesOrderId.
      */
     async approve(
         id: string,
         companyId: string,
         approvedBy?: string,
+        opts: { preferredResolution?: string } = {},
     ) {
         const request = await this.prisma.sdReturnRequest.findFirst({
             where: { id, companyId },
@@ -528,6 +536,10 @@ export class ReturnRequestService {
                 `Only a REQUESTED return can be approved (current: ${request.status})`,
             )
         }
+
+        const resolution =
+            validateResolution(opts.preferredResolution) ??
+            request.preferredResolution
 
         const order = await this.prisma.sdSalesOrder.findUnique({
             where: { id: request.salesOrderId },
@@ -565,6 +577,9 @@ export class ReturnRequestService {
                     customerRef: request.customerId,
                     reason: request.reason,
                     status: 'DRAFT',
+                    ...(request.damageReportId
+                        ? { damageReportId: request.damageReportId }
+                        : {}),
                     lines: {
                         create: request.lines.map((line, index) => ({
                             lineNumber: index + 1,
@@ -590,15 +605,35 @@ export class ReturnRequestService {
             })
         }
 
-        return this.prisma.sdReturnRequest.update({
+        let replacementSalesOrderId = request.replacementSalesOrderId
+        if (resolution === 'REPLACEMENT' && !replacementSalesOrderId) {
+            if (!this.salesOrders) {
+                throw new BadRequestException(
+                    'Replacement fulfillment is unavailable — SalesOrderService not wired',
+                )
+            }
+            const replacement =
+                await this.salesOrders.createReplacementForReturnRequest({
+                    returnRequestId: request.id,
+                    companyId,
+                    createdBy: approvedBy,
+                })
+            replacementSalesOrderId = replacement.id
+        }
+
+        await this.prisma.sdReturnRequest.update({
             where: { id: request.id },
             data: {
                 status: 'AWAITING_RETURN',
                 approvedBy,
                 approvedAt: new Date(),
+                ...(resolution ? { preferredResolution: resolution } : {}),
+                ...(replacementSalesOrderId
+                    ? { replacementSalesOrderId }
+                    : {}),
             },
-            include: { lines: true },
         })
+        return this.findOne(request.id)
     }
 
     /** REQUESTED → REJECTED (admin refuses the return). */
