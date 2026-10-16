@@ -1,6 +1,6 @@
 # COD delivery + optional damage + Customer Returns
 
-**Status:** Phase 0 locked (2026-10-16). Phases 1–2 implemented. Phase 3+ not started.  
+**Status:** Phase 0 locked (2026-10-16). Phases 1–3 implemented. Phase 4+ not started.  
 **Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake are downstream after approve.
 
 Related: [`SCM_DAMAGE_REPORT_DESIGN.md`](./SCM_DAMAGE_REPORT_DESIGN.md) (evidence + prior Sales Returns handoff — commercial spine moves to Customer Returns per Phase 2).
@@ -85,12 +85,16 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 - SCM damage dialog links to `/modules/sd/customer-returns`.
 - Migration: `20261016140000_damage_to_customer_return`.
 
+## Phase 3 — shipped (SI = accepted / collected)
+
+- On `issueForSalesOrder` (POD), before DRAFT → ISSUED, rewrite the draft invoice from POD acceptance:
+  - Line qty / `lineTotal` = accepted qty × unit price
+  - Header `totalAmount` = `TripStop.codAmountDue` when set (shipping residual absorbs the difference)
+- Full deliver (no acceptance recorded) → unchanged full SI.
+- Credit memos stay for post-paid refunds; on-spot partial never collected → no credit memo needed.
+- Helper: `sales-invoice-pod-acceptance.ts` (shipment → stop lines → reservation chain → SO line).
+
 ### Still next
 
-- Phase 3: SI qty/amount = accepted/collected (POD still issues full SI today).
 - Phase 4: approve → MM intake + replacement outbound.
 - Phase 5: scripted scenarios 1–6.
-
-### Known gap until Phase 3
-
-POD still emits `shipment.delivered` → issue SI for the order. Partial accept may temporarily leave SI ahead of collected cash until Phase 3 aligns invoice/payment to accepted qty.

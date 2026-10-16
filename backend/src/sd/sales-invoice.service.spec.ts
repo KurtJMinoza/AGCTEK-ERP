@@ -15,7 +15,16 @@ describe('SalesInvoiceService payment projection', () => {
             update: jest.fn(),
             updateMany: jest.fn(),
         },
+        sdSalesInvoiceLine: {
+            update: jest.fn(),
+        },
         sdCustomer: {
+            findMany: jest.fn(),
+        },
+        shipment: {
+            findMany: jest.fn(),
+        },
+        tripStopShipment: {
             findMany: jest.fn(),
         },
     }
@@ -24,6 +33,8 @@ describe('SalesInvoiceService payment projection', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        prisma.shipment.findMany.mockResolvedValue([])
+        prisma.tripStopShipment.findMany.mockResolvedValue([])
         service = new SalesInvoiceService(prisma as unknown as PrismaService)
     })
 
@@ -75,7 +86,7 @@ describe('SalesInvoiceService payment projection', () => {
         it('posts a DRAFT, then settles it PAID with the payment timestamp', async () => {
             const paidAt = new Date('2026-10-10T08:30:00.000Z')
             prisma.sdSalesInvoice.findUnique
-                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT' })
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT', lines: [] })
                 .mockResolvedValueOnce({ id: 'inv-1', status: 'PAID', paidAt })
             prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
             prisma.sdSalesOrder.findUnique.mockResolvedValue({
@@ -98,7 +109,7 @@ describe('SalesInvoiceService payment projection', () => {
 
         it('posts an unpaid COD invoice as ISSUED and leaves payment untouched', async () => {
             prisma.sdSalesInvoice.findUnique
-                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT' })
+                .mockResolvedValueOnce({ id: 'inv-1', status: 'DRAFT', lines: [] })
                 .mockResolvedValueOnce({ id: 'inv-1', status: 'ISSUED' })
             prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
             prisma.sdSalesOrder.findUnique.mockResolvedValue({
@@ -113,6 +124,113 @@ describe('SalesInvoiceService payment projection', () => {
                 where: { id: 'inv-1', status: 'DRAFT' },
                 data: { status: 'ISSUED', issuedAt: expect.any(Date) },
             })
+        })
+
+        it('rewrites DRAFT qty/total from POD acceptance before posting', async () => {
+            const Decimal = (
+                await import('@prisma/client/runtime/library')
+            ).Decimal
+            prisma.shipment.findMany.mockResolvedValue([
+                {
+                    id: 'sh-1',
+                    lines: [
+                        { id: 'sl-1', quantity: 10, packageItemId: 'pi-1' },
+                    ],
+                },
+            ])
+            prisma.tripStopShipment.findMany.mockResolvedValue([
+                {
+                    shipmentId: 'sh-1',
+                    tripStop: {
+                        codAmountDue: 1039.2,
+                        lines: [
+                            { shipmentLineId: 'sl-1', acceptedQuantity: 8 },
+                        ],
+                    },
+                },
+            ])
+            Object.assign(prisma, {
+                wmPackageItem: {
+                    findUnique: jest
+                        .fn()
+                        .mockResolvedValue({ materialId: 'm-1' }),
+                },
+                mmInventoryReservationHeader: {
+                    findFirst: jest.fn().mockResolvedValue({ id: 'rh-1' }),
+                },
+                mmInventoryReservationLine: {
+                    findMany: jest
+                        .fn()
+                        .mockResolvedValue([
+                            { demandReferenceLineId: 'ol-1' },
+                        ]),
+                },
+            })
+
+            prisma.sdSalesInvoice.findUnique
+                .mockResolvedValueOnce({
+                    id: 'inv-1',
+                    status: 'DRAFT',
+                    invoiceNumber: 'INV-1',
+                    discountAmount: new Decimal(0),
+                    shippingAmount: new Decimal(50),
+                    lines: [
+                        {
+                            id: 'il-1',
+                            salesOrderLineId: 'ol-1',
+                            quantity: new Decimal(10),
+                            unitPrice: new Decimal(129.9),
+                            lineTotal: new Decimal(1299),
+                        },
+                    ],
+                })
+                .mockResolvedValueOnce({
+                    id: 'inv-1',
+                    status: 'DRAFT',
+                    invoiceNumber: 'INV-1',
+                    discountAmount: new Decimal(0),
+                    shippingAmount: new Decimal(50),
+                    lines: [
+                        {
+                            id: 'il-1',
+                            salesOrderLineId: 'ol-1',
+                            quantity: new Decimal(10),
+                            unitPrice: new Decimal(129.9),
+                            lineTotal: new Decimal(1299),
+                        },
+                    ],
+                })
+                .mockResolvedValueOnce({
+                    id: 'inv-1',
+                    status: 'ISSUED',
+                    totalAmount: new Decimal(1039.2),
+                })
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
+            prisma.sdSalesInvoiceLine.update.mockResolvedValue({})
+            prisma.sdSalesOrder.findUnique.mockResolvedValue({
+                paymentStatus: 'Pending Collection',
+                payments: [],
+            })
+
+            await service.issueForSalesOrder('so-1')
+
+            expect(prisma.sdSalesInvoiceLine.update).toHaveBeenCalledWith({
+                where: { id: 'il-1' },
+                data: {
+                    quantity: 8,
+                    lineTotal: expect.objectContaining({
+                        toString: expect.any(Function),
+                    }),
+                },
+            })
+            expect(prisma.sdSalesInvoice.updateMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 'inv-1', status: 'DRAFT' },
+                    data: expect.objectContaining({
+                        totalAmount: expect.anything(),
+                    }),
+                }),
+            )
         })
 
         it('is a no-op re-post for an already posted invoice', async () => {

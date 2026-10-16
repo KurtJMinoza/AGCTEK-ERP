@@ -10,6 +10,11 @@ import {
     type BillingStatus,
 } from './sales-invoice-billing'
 import { INVOICE_PDF_DEFAULT_COMPANY, type InvoicePdfInput } from './sales-invoice-pdf.model'
+import {
+    isPartialPodAcceptance,
+    loadPodAcceptanceForOrder,
+    money,
+} from './sales-invoice-pod-acceptance'
 
 type Tx = Prisma.TransactionClient
 
@@ -146,15 +151,19 @@ export class SalesInvoiceService {
 
     /**
      * DRAFT → ISSUED on delivery POD, then settled to PAID when the order
-     * payment is already Paid. Posting happens before the payment read so a
-     * collection racing with POD is never lost: either this read sees Paid,
-     * or the collection's `markPaidForSalesOrder` sees ISSUED. Idempotent.
+     * payment is already Paid. Before posting, a COD partial-accept rewrite
+     * aligns DRAFT qty/totals with POD accepted qty / `TripStop.codAmountDue`
+     * so the issued SI matches what was (or will be) collected. Idempotent.
      */
     async issueForSalesOrder(salesOrderId: string) {
         const invoice =
-            (await this.prisma.sdSalesInvoice.findUnique({ where: { salesOrderId } })) ??
-            (await this.createForSalesOrder(salesOrderId))
+            (await this.prisma.sdSalesInvoice.findUnique({
+                where: { salesOrderId },
+                include: { lines: true },
+            })) ?? (await this.createForSalesOrder(salesOrderId))
+
         if (invoice.status === 'DRAFT') {
+            await this.applyPodAcceptanceToDraft(invoice.id, salesOrderId)
             await this.prisma.sdSalesInvoice.updateMany({
                 where: { id: invoice.id, status: 'DRAFT' },
                 data: { status: 'ISSUED', issuedAt: new Date() },
@@ -184,6 +193,84 @@ export class SalesInvoiceService {
             where: { id: invoice.id },
             include: invoiceInclude,
         })
+    }
+
+    /**
+     * Rewrite a DRAFT invoice to accepted POD qty / COD due. No-op when there
+     * was no partial accept. Never touches ISSUED/PAID invoices.
+     */
+    private async applyPodAcceptanceToDraft(
+        invoiceId: string,
+        salesOrderId: string,
+    ) {
+        const acceptance = await loadPodAcceptanceForOrder(
+            this.prisma,
+            salesOrderId,
+        )
+        if (!acceptance || !isPartialPodAcceptance(acceptance)) return
+
+        const invoice = await this.prisma.sdSalesInvoice.findUnique({
+            where: { id: invoiceId },
+            include: { lines: true },
+        })
+        if (!invoice || invoice.status !== 'DRAFT') return
+
+        const acceptedByLine = new Map(
+            acceptance.lines.map((l) => [l.salesOrderLineId, l]),
+        )
+        const lineTotals: Decimal[] = []
+
+        for (const line of invoice.lines) {
+            const soLineId = line.salesOrderLineId
+            if (!soLineId) {
+                lineTotals.push(new Decimal(line.lineTotal.toString()))
+                continue
+            }
+            const accepted = acceptedByLine.get(soLineId)
+            if (!accepted) {
+                lineTotals.push(new Decimal(line.lineTotal.toString()))
+                continue
+            }
+            const qty = accepted.acceptedQuantity
+            const unitPrice = new Decimal(line.unitPrice.toString())
+            const lineTotal = money.mul(qty, unitPrice)
+            lineTotals.push(lineTotal)
+            await this.prisma.sdSalesInvoiceLine.update({
+                where: { id: line.id },
+                data: { quantity: qty, lineTotal },
+            })
+        }
+
+        const subtotal = money.sum(lineTotals)
+        const discount = new Decimal(invoice.discountAmount.toString())
+        let shipping = new Decimal(invoice.shippingAmount.toString())
+        let total: Decimal
+
+        if (acceptance.codAmountDue != null) {
+            total = new Decimal(acceptance.codAmountDue).toDecimalPlaces(2)
+            // Keep merchandise + discount consistent; shipping absorbs the COD residual.
+            shipping = Decimal.max(
+                new Decimal(0),
+                total.minus(subtotal).plus(discount),
+            ).toDecimalPlaces(2)
+        } else {
+            const anyAccepted = acceptance.lines.some((l) => l.acceptedQuantity > 0)
+            if (!anyAccepted) shipping = new Decimal(0)
+            total = subtotal.minus(discount).plus(shipping).toDecimalPlaces(2)
+        }
+
+        await this.prisma.sdSalesInvoice.updateMany({
+            where: { id: invoiceId, status: 'DRAFT' },
+            data: {
+                subtotal,
+                shippingAmount: shipping,
+                totalAmount: total,
+            },
+        })
+
+        this.logger.log(
+            `Invoice ${invoice.invoiceNumber}: POD partial accept → total ${total.toString()}`,
+        )
     }
 
     /**
