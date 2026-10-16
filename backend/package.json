@@ -42,6 +42,7 @@
     "prisma:clean-billing-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-billing-demo.ts --clean",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit",
+    "test:cod-delivery-qa": "jest src/sd/cod-delivery-customer-returns.scenarios.spec.ts src/scm/trips/pod-acceptance.rules.spec.ts src/sd/sales-invoice-pod-acceptance.spec.ts src/scm/damage-reports/damage-reports.spec.ts src/sd/return-request.spec.ts --runInBand --forceExit --no-coverage",
     "test:pg": "jest --runInBand --forceExit --testRegex \"\\.pg-spec\\.ts$\""
   },
   "jest": {

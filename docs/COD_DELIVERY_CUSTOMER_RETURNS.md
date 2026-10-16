@@ -1,6 +1,6 @@
 # COD delivery + optional damage + Customer Returns
 
-**Status:** Phase 0 locked (2026-10-16). Phases 1–4 implemented. Phase 5 (QA scenarios) next.  
+**Status:** Phase 0 locked (2026-10-16). Phases 1–5 complete (programme closed for this scope).  
 **Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake run on approve.
 
 Related: [`SCM_DAMAGE_REPORT_DESIGN.md`](./SCM_DAMAGE_REPORT_DESIGN.md) (evidence + prior Sales Returns handoff — commercial spine moves to Customer Returns per Phase 2).
@@ -103,6 +103,27 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 - Admin UI: Approve (refund) / Approve (replacement); detail shows replacement SO id.
 - Migration: `20261016160000_return_replacement_so`.
 
-### Still next
+## Phase 5 — shipped (QA scenarios 1–6)
 
-- Phase 5: scripted scenarios 1–6.
+Scripted acceptance locks the Phase 0 commercial table. No live API seed required.
+
+### How to run
+
+```bash
+cd backend && npm run test:cod-delivery-qa
+# or from repo root:
+node scripts/run-cod-delivery-qa.mjs
+```
+
+### Pass checklist
+
+| # | Scenario | Asserted by |
+|---|----------|-------------|
+| 1 | Happy path — accept all, SI full | `cod-delivery-customer-returns.scenarios` + `pod-acceptance.rules` |
+| 2 | Partial accept — COD reduced, DamageReport + CR, SI rewrite, `NOT_REQUIRED` | scenarios + `sales-invoice-pod-acceptance` + `damage-reports` + `return-request` |
+| 3 | Refuse all — must use `FAILED` (COMPLETE blocked) | scenarios + `trips.service` gate |
+| 4 | Accept all incl. damaged — pay full, no auto CR | scenarios (partial reject gate) |
+| 5 | Hidden damage later — CR with `refundStatus NONE` → refund/credit | scenarios + `return-request` create/refund |
+| 6 | Replacement after approve — MM intake + $0 child SO | scenarios + `return-request` REPLACEMENT tests |
+
+Deferred (out of this programme): damaged-goods pickup as a multi-stop trip type.
