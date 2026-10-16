@@ -569,7 +569,7 @@ export class TripsService {
             )?.shipmentId
             if (!shipmentId) continue
             try {
-                await this.damageReports.createFromDriver(
+                const report = await this.damageReports.createFromDriver(
                     tripId,
                     stopId,
                     {
@@ -583,9 +583,15 @@ export class TripsService {
                     driverId,
                     actor,
                 )
+                // Phase 2: evidence → Customer Return (refund NOT_REQUIRED — COD never collected for rejects).
+                if (report.status === 'SUBMITTED') {
+                    await this.damageReports.initiateSalesReturn(report.id, actor, {
+                        onSpotCodPartial: true,
+                    })
+                }
             } catch (err) {
                 this.logger.warn(
-                    `POD reject damage report failed for line ${line.shipmentLineId}: ${
+                    `POD reject damage/return failed for line ${line.shipmentLineId}: ${
                         err instanceof Error ? err.message : err
                     }`,
                 )

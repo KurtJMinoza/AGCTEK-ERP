@@ -182,8 +182,8 @@ describe('ReturnRequestService — return eligibility', () => {
         ).resolves.toBeTruthy()
     })
 
-    it.each(['CONFIRMED', 'SHIPPED', 'CANCELLED', 'DRAFT'])(
-        'rejects %s orders (pending/picking/dispatched/cancelled are not returnable)',
+    it.each(['CONFIRMED', 'CANCELLED', 'DRAFT'])(
+        'rejects %s orders (pending/picking/cancelled are not returnable)',
         async (status) => {
             const { service } = setup({ orderStatus: status })
             await expect(
@@ -193,6 +193,15 @@ describe('ReturnRequestService — return eligibility', () => {
             ).rejects.toThrow(BadRequestException)
         },
     )
+
+    it('allows SHIPPED orders (on-spot POD reject during delivery)', async () => {
+        const { service } = setup({ orderStatus: 'SHIPPED' })
+        await expect(
+            service.createForCustomer('cust-1', 'so-1', {
+                lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }],
+            }),
+        ).resolves.toBeTruthy()
+    })
 
     it('rejects a request when the order does not belong to the customer', async () => {
         const { service } = setup({ orderOwner: 'other-customer' })

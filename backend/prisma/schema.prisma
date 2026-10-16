@@ -4463,6 +4463,9 @@ model SdReturnRequest {
   closedAt           DateTime?
   /// MM customer return created on approval (link to MM processing).
   mmCustomerReturnId String?
+  /// SCM damage evidence this return was created from (POD reject / driver report). Unique ⇒ one CR per report.
+  damageReportId     String?       @unique
+  damageReport       DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
   requestedBy        String?
   approvedBy         String?
   approvedAt         DateTime?
@@ -6792,9 +6795,9 @@ model DamageReport {
   source           String              @default("STAFF")
   /// Trip stop the driver delivered when source = DRIVER (plain id; SCM-internal reference).
   tripStopId       String?
-  /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED set once an SD Sales Return exists).
+  /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED once an SD Customer Return / legacy Sales Return exists).
   status           String              @default("SUBMITTED")
-  /// SD Sales Return created from this report (Phase 3 traceability back-reference).
+  /// Legacy SD Sales Return created from this report (pre–Customer Returns spine). Prefer sdReturnRequest via damageReportId.
   sdSalesReturnId  String?
   /// MM Customer Return Intake opened from this report (Phase 4 traceability back-reference).
   /// Plain id: the MM intake holds the authoritative FK (MmCustomerReturn.damageReportId).
@@ -6808,6 +6811,7 @@ model DamageReport {
   audits           DamageReportAudit[]
   customerReturns  MmCustomerReturn[]
   sdSalesReturn    SdSalesReturn?
+  sdReturnRequest  SdReturnRequest?
 
   @@index([shipmentId, createdAt])
   @@index([shipmentLineId])

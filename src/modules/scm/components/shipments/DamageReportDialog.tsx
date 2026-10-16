@@ -175,7 +175,7 @@ export default function DamageReportDialog({
             setFormError(
                 getApiErrorMessage(
                     err,
-                    'Failed to initiate the SD sales return',
+                    'Failed to initiate the customer return',
                 ),
             )
         } finally {
@@ -330,12 +330,20 @@ export default function DamageReportDialog({
                                         report.reportedAt,
                                     ).toLocaleString()}
                                 </p>
-                                {report.sdSalesReturnId ? (
+                                {report.sdReturnRequest ? (
+                                    <Link
+                                        href={`/modules/sd/customer-returns?requestId=${report.sdReturnRequest.id}`}
+                                        className="mt-1 inline-block text-xs text-primary hover:underline"
+                                    >
+                                        View customer return{' '}
+                                        {report.sdReturnRequest.requestNumber}
+                                    </Link>
+                                ) : report.sdSalesReturnId ? (
                                     <Link
                                         href={`/modules/sd/sales-returns?returnId=${report.sdSalesReturnId}`}
                                         className="mt-1 inline-block text-xs text-primary hover:underline"
                                     >
-                                        View sales return
+                                        View sales return (legacy)
                                     </Link>
                                 ) : null}
                             </div>
@@ -381,9 +389,15 @@ export default function DamageReportDialog({
 
             {handoffInfo ? (
                 <Alert showIcon type="success" className="mt-4">
-                    {handoffInfo.created
-                        ? `Sales return ${handoffInfo.salesReturn.returnNumber} created — it is REQUESTED until authorized in SD.`
-                        : `Already created ${handoffInfo.salesReturn.returnNumber} for this report.`}
+                    {(() => {
+                        const ref =
+                            handoffInfo.customerReturn?.requestNumber ??
+                            handoffInfo.salesReturn?.returnNumber
+                        if (!ref) return 'Return already linked to this report.'
+                        return handoffInfo.created
+                            ? `Customer return ${ref} created — open Customer Returns to approve.`
+                            : `Already linked as ${ref}.`
+                    })()}
                 </Alert>
             ) : null}
         </FormDialog>

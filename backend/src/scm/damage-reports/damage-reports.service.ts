@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { SalesReturnService } from '../../sd/sales-return.service'
+import { ReturnRequestService } from '../../sd/return-request.service'
 import {
     assertFound,
     optionalString,
@@ -89,6 +90,14 @@ const reportInclude = {
             quantity: true,
         },
     },
+    sdReturnRequest: {
+        select: {
+            id: true,
+            requestNumber: true,
+            status: true,
+            refundStatus: true,
+        },
+    },
     audits: { orderBy: { performedAt: 'asc' as const } },
 } satisfies Prisma.DamageReportInclude
 
@@ -129,6 +138,7 @@ export class DamageReportsService {
         private readonly prisma: PrismaService,
         private readonly shipments: ShipmentsService,
         private readonly salesReturns: SalesReturnService,
+        private readonly returnRequests: ReturnRequestService,
     ) {}
 
     async createForShipment(
@@ -443,7 +453,7 @@ export class DamageReportsService {
             report.status === DAMAGE_REPORT_STATUS.RETURN_CREATED
         ) {
             throw new ConflictException(
-                'Cannot cancel a damage report that already created its SD sales return',
+                'Cannot cancel a damage report that already created its customer return',
             )
         }
         await this.prisma.$transaction(async (tx) => {
@@ -474,18 +484,20 @@ export class DamageReportsService {
     }
 
     /**
-     * SCM → SD handoff (Phase 3). Creating a Sales Return from this report is a command, not a
-     * fact: it runs inside one transaction with the SD create (SD writes its own tables, SCM
-     * writes the link), is idempotent on `damageReportId`, and only ever produces a REQUESTED
-     * return — authorization is a separate SD transition. UNRESOLVED or non-line-level reports
-     * stay SUBMITTED for manual handling and are never guessed.
+     * SCM → SD Customer Return handoff (COD Phase 2). Creates a REQUESTED
+     * `SdReturnRequest` linked by unique `damageReportId`. Legacy Sales Returns
+     * already linked to this report are returned as-is (no second commercial doc).
+     * UNRESOLVED / non-line-level reports stay SUBMITTED.
      */
-    async initiateSalesReturn(reportId: string, user: DamageReportActor) {
+    async initiateSalesReturn(
+        reportId: string,
+        user: DamageReportActor,
+        opts: { onSpotCodPartial?: boolean } = {},
+    ) {
         if (!user.role)
             throw new BadRequestException(
                 'Missing role for cross-module handoff',
             )
-        const actor = { id: user.id, userName: user.userName, role: user.role }
         const report = await this.findOne(reportId)
         if (report.salesOrderStatus !== 'RESOLVED' || !report.salesOrderId) {
             throw new ConflictException(
@@ -495,20 +507,43 @@ export class DamageReportsService {
         if (report.status !== DAMAGE_REPORT_STATUS.SUBMITTED) {
             throw new ConflictException(
                 report.status === DAMAGE_REPORT_STATUS.RETURN_CREATED
-                    ? 'This report already created its SD sales return'
+                    ? 'This report already created its customer return'
                     : 'This report is cancelled and cannot be handed off',
             )
         }
         const salesOrderId = report.salesOrderId
+        const onSpotCodPartial =
+            opts.onSpotCodPartial === true ||
+            report.source === DAMAGE_REPORT_SOURCE.DRIVER
 
         const result = await this.prisma.$transaction(async (tx) => {
-            // Optimistic claim: only one handoff per report may proceed; the loser returns the
-            // winner's return (idempotent) instead of creating a duplicate.
+            const existingCr = await tx.sdReturnRequest.findUnique({
+                where: { damageReportId: reportId },
+                select: { id: true, requestNumber: true, status: true },
+            })
+            if (existingCr) {
+                return {
+                    created: false,
+                    customerReturn: existingCr,
+                    salesReturn: null as null,
+                }
+            }
+            const legacySr = await tx.sdSalesReturn.findUnique({
+                where: { damageReportId: reportId },
+                select: { id: true },
+            })
+            if (legacySr) {
+                return {
+                    created: false,
+                    customerReturn: null as null,
+                    salesReturn: await this.salesReturns.findOne(legacySr.id),
+                }
+            }
+
             const claim = await tx.damageReport.updateMany({
                 where: {
                     id: reportId,
                     status: DAMAGE_REPORT_STATUS.SUBMITTED,
-                    sdSalesReturnId: null,
                 },
                 data: {
                     status: DAMAGE_REPORT_STATUS.RETURN_CREATED,
@@ -516,16 +551,15 @@ export class DamageReportsService {
                 },
             })
             if (claim.count === 0) {
-                const existing = await tx.sdSalesReturn.findUnique({
+                const raced = await tx.sdReturnRequest.findUnique({
                     where: { damageReportId: reportId },
-                    select: { id: true },
+                    select: { id: true, requestNumber: true, status: true },
                 })
-                if (existing) {
+                if (raced) {
                     return {
                         created: false,
-                        salesReturn: await this.salesReturns.findOne(
-                            existing.id,
-                        ),
+                        customerReturn: raced,
+                        salesReturn: null as null,
                     }
                 }
                 throw new ConflictException(
@@ -533,31 +567,34 @@ export class DamageReportsService {
                 )
             }
 
-            // Exact line resolution against the reservation chain; rejects ambiguity (guardrail 2).
             const target = await this.resolveHandoffTarget(tx, report)
-            const created = await this.salesReturns.create(
+            const photos = report.photoUrls
+            const created = await this.returnRequests.createFromDamageReport(
                 {
-                    salesOrderId,
                     companyId: report.companyId,
+                    salesOrderId,
                     damageReportId: reportId,
-                    reason: 'DAMAGED_IN_TRANSIT',
-                    notes: `Damage report ${report.reference}`,
-                    lines: [
-                        {
-                            salesOrderLineId: target.salesOrderLineId,
-                            materialId: target.materialId,
-                            quantity: report.damagedQuantity,
-                        },
-                    ],
+                    salesOrderLineId: target.salesOrderLineId,
+                    quantity: report.damagedQuantity,
+                    reason: 'DAMAGED_ITEM',
+                    conditionNote: `Damage report ${report.reference}: ${report.description}`,
+                    photos: Array.isArray(photos) ? photos : undefined,
+                    requestedBy: user.id,
+                    onSpotCodPartial,
                 },
-                actor,
                 { tx },
             )
-            await tx.damageReport.update({
-                where: { id: reportId },
-                data: { sdSalesReturnId: created.id },
-            })
-            return { created: true, salesReturn: created }
+            return {
+                created: true,
+                customerReturn: {
+                    id: created!.id,
+                    requestNumber: created!.requestNumber,
+                    status: created!.status,
+                    refundStatus: (created as { refundStatus?: string })
+                        .refundStatus,
+                },
+                salesReturn: null as null,
+            }
         })
 
         return { ...result, damageReport: await this.findOne(reportId) }

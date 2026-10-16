@@ -92,6 +92,7 @@ import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
         CustomerService,
         QuotationService,
         SalesReturnService,
+        ReturnRequestService,
         ReviewModule,
     ],
 })

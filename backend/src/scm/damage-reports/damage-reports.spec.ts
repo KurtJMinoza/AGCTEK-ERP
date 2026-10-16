@@ -124,6 +124,9 @@ function setup(
         sdSalesReturn: {
             findUnique: async () => null,
         },
+        sdReturnRequest: {
+            findUnique: async () => null as { id: string; requestNumber: string; status: string } | null,
+        },
         damageReport: {
             findUnique: async ({
                 where,
@@ -182,11 +185,7 @@ function setup(
                 data: Record<string, unknown>
             }) => {
                 const index = reports.findIndex(
-                    (r) =>
-                        r.id === where.id &&
-                        r.status === where.status &&
-                        (where.sdSalesReturnId === undefined ||
-                            r.sdSalesReturnId === null),
+                    (r) => r.id === where.id && r.status === where.status,
                 )
                 if (index === -1) return { count: 0 }
                 Object.assign(reports[index], data)
@@ -229,12 +228,29 @@ function setup(
             returnNumber: 'SR-000001',
         })),
     }
+    const returnRequests = {
+        createFromDamageReport: jest.fn(async () => ({
+            id: 'cr-1',
+            requestNumber: 'RR-000001',
+            status: 'REQUESTED',
+            refundStatus: 'NOT_REQUIRED',
+        })),
+    }
     const service = new DamageReportsService(
         prisma as never,
         shipments as never,
         salesReturns as never,
+        returnRequests as never,
     )
-    return { service, shipments, reports, audits, salesReturns, prisma }
+    return {
+        service,
+        shipments,
+        reports,
+        audits,
+        salesReturns,
+        returnRequests,
+        prisma,
+    }
 }
 
 const input = {
@@ -468,7 +484,7 @@ describe('DamageReportsService read + lifecycle', () => {
     })
 })
 
-describe('DamageReportsService.initiateSalesReturn (SCM → SD handoff)', () => {
+describe('DamageReportsService.initiateSalesReturn (SCM → Customer Return handoff)', () => {
     const handoffUser = { id: 'user-1', role: 'sales' }
     const reportRow = (overrides: Record<string, unknown> = {}) => ({
         id: 'dr-x',
@@ -480,45 +496,52 @@ describe('DamageReportsService.initiateSalesReturn (SCM → SD handoff)', () => 
         salesOrderStatus: 'RESOLVED',
         damagedQuantity: 2,
         description: 'Crate crushed during drop-off',
+        source: 'STAFF',
         status: 'SUBMITTED',
         sdSalesReturnId: null as string | null,
         customerReturnId: null as string | null,
+        photoUrls: null,
         ...overrides,
     })
 
-    it('creates exactly one REQUESTED sales return and links the report back to it', async () => {
-        const { service, salesReturns, reports, prisma } = setup({
+    it('creates exactly one REQUESTED customer return from the damage report', async () => {
+        const { service, returnRequests, salesReturns, reports, prisma } = setup({
             chain: true,
         })
         reports.push(reportRow())
 
         const result = await service.initiateSalesReturn('dr-x', handoffUser)
 
-        expect(salesReturns.create).toHaveBeenCalledWith(
-            {
+        expect(returnRequests.createFromDamageReport).toHaveBeenCalledWith(
+            expect.objectContaining({
                 salesOrderId: 'so-1',
                 companyId: 'comp-1',
                 damageReportId: 'dr-x',
-                reason: 'DAMAGED_IN_TRANSIT',
-                notes: 'Damage report DR-X',
-                lines: [
-                    {
-                        salesOrderLineId: 'so-line-1',
-                        materialId: 'm-1',
-                        quantity: 2,
-                    },
-                ],
-            },
-            handoffUser,
+                salesOrderLineId: 'so-line-1',
+                quantity: 2,
+                reason: 'DAMAGED_ITEM',
+                onSpotCodPartial: false,
+            }),
             { tx: prisma },
         )
-        expect(reports[0]).toMatchObject({
-            status: 'RETURN_CREATED',
-            sdSalesReturnId: 'sr-1',
-        })
+        expect(salesReturns.create).not.toHaveBeenCalled()
+        expect(reports[0].status).toBe('RETURN_CREATED')
         expect(result.created).toBe(true)
-        expect(result.salesReturn.returnNumber).toBe('SR-000001')
+        expect(result.customerReturn?.requestNumber).toBe('RR-000001')
+        expect(result.salesReturn).toBeNull()
         expect(result.damageReport.status).toBe('RETURN_CREATED')
+    })
+
+    it('marks on-spot COD partial for driver-sourced reports', async () => {
+        const { service, returnRequests, reports } = setup({ chain: true })
+        reports.push(reportRow({ source: 'DRIVER' }))
+
+        await service.initiateSalesReturn('dr-x', handoffUser)
+
+        expect(returnRequests.createFromDamageReport).toHaveBeenCalledWith(
+            expect.objectContaining({ onSpotCodPartial: true }),
+            expect.anything(),
+        )
     })
 
     it('refuses UNRESOLVED reports, which stay SUBMITTED for manual handling', async () => {
@@ -560,43 +583,44 @@ describe('DamageReportsService.initiateSalesReturn (SCM → SD handoff)', () => 
     })
 
     it('leaves the report intact and retryable when SD creation fails (transaction rolls back)', async () => {
-        const { service, salesReturns, reports } = setup({ chain: true })
+        const { service, returnRequests, reports } = setup({ chain: true })
         reports.push(reportRow())
-        salesReturns.create.mockRejectedValue(new Error('SD down'))
+        returnRequests.createFromDamageReport.mockRejectedValue(new Error('SD down'))
 
         await expect(
             service.initiateSalesReturn('dr-x', handoffUser),
         ).rejects.toThrow('SD down')
         expect(reports[0].status).toBe('SUBMITTED')
-        expect(reports[0].sdSalesReturnId).toBeNull()
     })
 
-    it('is idempotent: a retry whose claim lost returns the existing return, never a duplicate', async () => {
-        const { service, salesReturns, reports, prisma } = setup({
+    it('is idempotent: returns an existing Customer Return without creating another', async () => {
+        const { service, returnRequests, reports, prisma } = setup({
             chain: true,
         })
-        reports.push(reportRow({ sdSalesReturnId: 'sr-1' }))
+        reports.push(reportRow())
         ;(
-            prisma as unknown as { sdSalesReturn: { findUnique: jest.Mock } }
-        ).sdSalesReturn.findUnique = jest.fn().mockResolvedValue({ id: 'sr-1' })
+            prisma as unknown as { sdReturnRequest: { findUnique: jest.Mock } }
+        ).sdReturnRequest.findUnique = jest.fn().mockResolvedValue({
+            id: 'cr-1',
+            requestNumber: 'RR-000001',
+            status: 'REQUESTED',
+        })
 
         const result = await service.initiateSalesReturn('dr-x', handoffUser)
 
-        expect(salesReturns.create).not.toHaveBeenCalled()
-        expect(reports[0].status).toBe('SUBMITTED')
+        expect(returnRequests.createFromDamageReport).not.toHaveBeenCalled()
         expect(result.created).toBe(false)
-        expect(salesReturns.findOne).toHaveBeenCalledWith('sr-1')
+        expect(result.customerReturn?.requestNumber).toBe('RR-000001')
     })
 
-    it('never authorizes automatically: the created return is REQUESTED and the report is not cancelled/reopened', async () => {
-        const { service, salesReturns, reports } = setup({ chain: true })
+    it('never auto-approves: the created return stays REQUESTED', async () => {
+        const { service, returnRequests, reports } = setup({ chain: true })
         reports.push(reportRow())
 
-        await service.initiateSalesReturn('dr-x', handoffUser)
+        const result = await service.initiateSalesReturn('dr-x', handoffUser)
 
-        const dto = salesReturns.create.mock.calls[0][0] as { reason: string }
-        expect(dto.reason).toBe('DAMAGED_IN_TRANSIT')
-        expect(salesReturns.create).toHaveBeenCalledTimes(1)
+        expect(returnRequests.createFromDamageReport).toHaveBeenCalledTimes(1)
+        expect(result.customerReturn?.status).toBe('REQUESTED')
     })
 })
 

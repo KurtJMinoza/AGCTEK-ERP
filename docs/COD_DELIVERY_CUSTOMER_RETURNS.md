@@ -1,6 +1,6 @@
 # COD delivery + optional damage + Customer Returns
 
-**Status:** Phase 0 locked (2026-10-16). Phase 1 implemented (API + driver UI); Phase 2+ not started.  
+**Status:** Phase 0 locked (2026-10-16). Phases 1–2 implemented. Phase 3+ not started.  
 **Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake are downstream after approve.
 
 Related: [`SCM_DAMAGE_REPORT_DESIGN.md`](./SCM_DAMAGE_REPORT_DESIGN.md) (evidence + prior Sales Returns handoff — commercial spine moves to Customer Returns per Phase 2).
@@ -76,9 +76,17 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 - **Driver app:** Accepted qty steppers on ARRIVED drop-offs; cash sheet shows the reduced due after partial deliver.
 - Migration: `20261016120000_pod_acceptance_cod`.
 
-### Not in Phase 1 (next)
+## Phase 2 — shipped (Customer Returns spine)
 
-- Phase 2: create/link **Customer Return** (`SdReturnRequest`) for rejected qty; redirect Sales Returns handoff.
+- `SdReturnRequest.damageReportId` (unique) links evidence → commercial return.
+- `POST …/damage-reports/:id/initiate-return` creates a **Customer Return** (`REQUESTED`), not a new Sales Return. Legacy Sales Returns already linked are returned unchanged.
+- Driver-sourced / POD reject reports set `refundStatus = NOT_REQUIRED` (COD never collected for rejected qty).
+- POD partial accept auto-creates DamageReport **and** initiates the Customer Return after deliver.
+- SCM damage dialog links to `/modules/sd/customer-returns`.
+- Migration: `20261016140000_damage_to_customer_return`.
+
+### Still next
+
 - Phase 3: SI qty/amount = accepted/collected (POD still issues full SI today).
 - Phase 4: approve → MM intake + replacement outbound.
 - Phase 5: scripted scenarios 1–6.

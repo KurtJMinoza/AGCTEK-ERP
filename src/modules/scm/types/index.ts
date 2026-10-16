@@ -926,8 +926,15 @@ export type DamageReport = {
     /** STAFF (back office) or DRIVER (driver app, right after delivering). */
     source?: 'STAFF' | 'DRIVER'
     status: DamageReportStatus
-    /** SD Sales Return created from this report (Phase 3 traceability back-reference). */
+    /** Legacy SD Sales Return (pre–Customer Returns spine). */
     sdSalesReturnId: string | null
+    /** Customer Return created from this report (commercial spine). */
+    sdReturnRequest?: {
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus?: string
+    } | null
     /** MM Customer Return Intake opened from this report (set from Phase 4). */
     customerReturnId: string | null
     createdAt: string
@@ -942,7 +949,15 @@ export type DamageReport = {
 
 export type InitiateSalesReturnResult = {
     created: boolean
-    salesReturn: { id: string; returnNumber: string; status: string }
+    /** Customer Return spine (Phase 2). Prefer this over legacy salesReturn. */
+    customerReturn?: {
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus?: string
+    } | null
+    /** Legacy Sales Return — only when a pre–Phase-2 handoff already exists. */
+    salesReturn?: { id: string; returnNumber: string; status: string } | null
     damageReport: DamageReport
 }
 

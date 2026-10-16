@@ -204,6 +204,6 @@ SD decides what the customer pays. The existing chain stays the backbone:
   sales return until staff link one in Customer Master.
 - No MM → SD write-back when the intake completes; SD cancel is not blocked once an intake exists.
 - **Commercial spine pivot (2026-10-16):** on-spot COD partial accept + Customer Returns
-  (`SdReturnRequest`) become the long-term path — see
-  [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md). Phase 2 will redirect
-  the Sales Returns handoff; until then DamageReport → SdSalesReturn still works for staff.
+  (`SdReturnRequest`) are the long-term path — see
+  [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md). Phase 2 redirects
+  `initiate-return` to Customer Returns; legacy Sales Returns remain readable when already linked.

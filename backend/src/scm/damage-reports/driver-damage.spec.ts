@@ -145,6 +145,7 @@ function setup(
         prisma as never,
         {} as never,
         {} as never,
+        {} as never,
     )
     const createForShipment = jest
         .spyOn(service, 'createForShipment')

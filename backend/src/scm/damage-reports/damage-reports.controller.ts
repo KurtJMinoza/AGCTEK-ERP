@@ -69,9 +69,9 @@ export class DamageReportsController {
     }
 
     /**
-     * SCM → SD handoff: creates a REQUESTED SD Sales Return from a submitted, resolvable report.
-     * Exactly one return per report (idempotent on damageReportId). The SD permission
-     * (sd.sales-returns:create) is asserted inside the SD service, mirroring the CRM handoff.
+     * SCM → SD handoff: creates a REQUESTED Customer Return (`SdReturnRequest`) from a
+     * submitted, resolvable report. Idempotent on `damageReportId`. Legacy Sales Returns
+     * already linked to the report are returned unchanged.
      */
     @Post(':id/initiate-return')
     @HttpCode(200)

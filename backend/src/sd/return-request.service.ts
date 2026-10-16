@@ -15,7 +15,9 @@ import { CustomerReturnService } from '../mm/returns-disposal/customer-return.se
  * pre-picking/packing window; from delivery onward the correct flow is a
  * Sales Return (Phase 2 eligibility).
  */
+/** Delivered / completed for storefront claims; SHIPPED allowed for on-spot POD rejects. */
 export const RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'SHIPPED',
     'DELIVERED',
     'COMPLETED',
 ])
@@ -110,6 +112,13 @@ export type CreateReturnRequestInput = {
     photos?: unknown
     requestedBy?: string
     preferredResolution?: string
+    /** SCM damage evidence — unique; handoff retries return the same request. */
+    damageReportId?: string
+    /**
+     * On-spot COD partial: cash was never collected for rejected qty → NOT_REQUIRED.
+     * Defaults to NONE for storefront / later claims.
+     */
+    refundStatus?: (typeof REFUND_STATUSES)[number]
     lines: Array<{
         salesOrderLineId: string
         quantity: number
@@ -233,14 +242,87 @@ export class ReturnRequestService {
     }
 
     /** Idempotent: an open (REQUESTED) request for the same order + lines is returned. */
-    async create(input: CreateReturnRequestInput) {
+    async create(
+        input: CreateReturnRequestInput,
+        opts: { tx?: Prisma.TransactionClient } = {},
+    ) {
+        if (opts.tx) return this.createIn(opts.tx, input)
         return this.prisma.$transaction((tx) => this.createIn(tx, input))
+    }
+
+    /**
+     * SCM damage handoff → Customer Return. Resolves the shopper/customer id from the
+     * sales order (storefront orders store the shop account on `customerId`).
+     */
+    async createFromDamageReport(
+        input: {
+            companyId: string
+            salesOrderId: string
+            damageReportId: string
+            salesOrderLineId: string
+            quantity: number
+            reason?: string
+            conditionNote?: string
+            photos?: unknown
+            requestedBy?: string
+            /** True when COD was already reduced for these units at POD. */
+            onSpotCodPartial?: boolean
+        },
+        opts: { tx?: Prisma.TransactionClient } = {},
+    ) {
+        const client = opts.tx ?? this.prisma
+        const existing = await client.sdReturnRequest.findUnique({
+            where: { damageReportId: input.damageReportId },
+            select: { id: true },
+        })
+        if (existing) return this.findOneInclude(existing.id)
+
+        const order = await client.sdSalesOrder.findUnique({
+            where: { id: input.salesOrderId },
+            select: { customerId: true, companyId: true },
+        })
+        if (!order) throw new NotFoundException('Sales order not found')
+        if (order.companyId !== input.companyId) {
+            throw new NotFoundException('Sales order not found in company scope')
+        }
+
+        return this.create(
+            {
+                companyId: input.companyId,
+                salesOrderId: input.salesOrderId,
+                customerId: order.customerId,
+                damageReportId: input.damageReportId,
+                reason: input.reason ?? 'DAMAGED_ITEM',
+                conditionNote: input.conditionNote,
+                photos: input.photos,
+                requestedBy: input.requestedBy,
+                preferredResolution: 'REFUND',
+                refundStatus: input.onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE',
+                lines: [
+                    {
+                        salesOrderLineId: input.salesOrderLineId,
+                        quantity: input.quantity,
+                        reason: input.reason ?? 'DAMAGED_ITEM',
+                        conditionNote: input.conditionNote,
+                    },
+                ],
+            },
+            opts,
+        )
     }
 
     private async createIn(
         client: PrismaClientLike,
         input: CreateReturnRequestInput,
     ) {
+        if (input.damageReportId) {
+            const byDamage = await client.sdReturnRequest.findUnique({
+                where: { damageReportId: input.damageReportId },
+                select: { id: true },
+            })
+            if (byDamage) return this.findOneInclude(byDamage.id)
+        }
+
         const order = await client.sdSalesOrder.findUnique({
             where: { id: input.salesOrderId },
             include: {
@@ -256,18 +338,20 @@ export class ReturnRequestService {
         assertReturnableOrder(order)
 
         const lineIds = input.lines.map((l) => l.salesOrderLineId)
-        const existing = await client.sdReturnRequest.findFirst({
-            where: { salesOrderId: order.id, status: 'REQUESTED' },
-            include: { lines: { select: { salesOrderLineId: true } } },
-        })
-        if (
-            existing &&
-            existing.lines.length === lineIds.length &&
-            lineIds.every((id) =>
-                existing.lines.some((l) => l.salesOrderLineId === id),
-            )
-        ) {
-            return this.findOneInclude(existing.id)
+        if (!input.damageReportId) {
+            const existing = await client.sdReturnRequest.findFirst({
+                where: { salesOrderId: order.id, status: 'REQUESTED' },
+                include: { lines: { select: { salesOrderLineId: true } } },
+            })
+            if (
+                existing &&
+                existing.lines.length === lineIds.length &&
+                lineIds.every((id) =>
+                    existing.lines.some((l) => l.salesOrderLineId === id),
+                )
+            ) {
+                return this.findOneInclude(existing.id)
+            }
         }
 
         // Delivered quantities per material from dispatched packages (base UOM).
@@ -369,7 +453,10 @@ export class ReturnRequestService {
                 warehouseId: order.warehouseId ?? null,
                 invoiceNumber: order.invoices[0]?.invoiceNumber ?? null,
                 preferredResolution,
-                refundStatus: 'NONE',
+                refundStatus: input.refundStatus ?? 'NONE',
+                ...(input.damageReportId
+                    ? { damageReportId: input.damageReportId }
+                    : {}),
                 requestedBy: input.requestedBy,
                 status: 'REQUESTED',
                 lines: {
