@@ -43,6 +43,14 @@ export type Vehicle = {
     telematicsDeviceId: string | null
 }
 
+export type ShipmentLine = {
+    id: string
+    lineNo: number
+    materialCode: string | null
+    description: string | null
+    quantity: number
+}
+
 export type Shipment = {
     id: string
     reference: string
@@ -54,6 +62,7 @@ export type Shipment = {
     movementType: string
     /** DRAFT | READY | ASSIGNED | IN_TRANSIT | DELIVERED | CANCELLED | EXCEPTION_HOLD */
     status: string
+    lines?: ShipmentLine[]
 }
 
 export type TripStopShipment = {
@@ -83,6 +92,8 @@ export type TripStop = {
     failureCode: DeliveryFailureReason | null
     failedAt: string | null
     shipments?: TripStopShipment[]
+    /** POD acceptance on cargo-first stop lines (null acceptedQuantity = full). */
+    lines?: Array<{ shipmentLineId: string; acceptedQuantity: number | null }>
     /** Cash on Delivery for the orders dropped here; null when nothing is COD. */
     collection?: CodCollection | null
 }
@@ -124,6 +135,39 @@ export type DeliveryFailureReason =
     | 'VEHICLE_ISSUE'
     | 'PAYMENT_ISSUE'
     | 'OTHER'
+
+export type DamageShipmentLine = {
+    id: string
+    lineNo: number
+    materialCode: string | null
+    description: string | null
+    quantity: number
+}
+
+export type DamageReportSummary = {
+    id: string
+    reference: string
+    shipmentId: string
+    shipmentLineId: string | null
+    damagedQuantity: number
+    description: string
+    status: 'SUBMITTED' | 'CANCELLED' | 'RETURN_CREATED'
+    reportedAt: string
+    photoUrls: string[] | null
+}
+
+/** What the driver may report on a delivered stop, and what already was. */
+export type StopDamageContext = {
+    canReport: boolean
+    blockedReason: string | null
+    shipments: Array<{
+        id: string
+        reference: string
+        customerName: string | null
+        lines: DamageShipmentLine[]
+    }>
+    reports: DamageReportSummary[]
+}
 
 /** Optional best-effort metadata sent with arrive / deliver / fail. */
 export type StopExecutionMeta = {

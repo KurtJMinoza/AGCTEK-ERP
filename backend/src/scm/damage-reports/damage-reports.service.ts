@@ -17,6 +17,13 @@ import {
     type PaginatedResult,
 } from '../scm.utils'
 import { ShipmentsService } from '../shipments/shipments.service'
+import { assertAssignedDriver } from '../trips/trip-execution.rules'
+import {
+    DAMAGE_REPORT_SOURCE,
+    driverReportBlocker,
+    driverReportGraceMinutes,
+    parseDriverPhotos,
+} from './driver-damage.rules'
 
 export const DAMAGE_REPORT_STATUS = {
     SUBMITTED: 'SUBMITTED',
@@ -48,6 +55,17 @@ export type CreateDamageReportInput = {
     idempotencyKey?: string
 }
 
+export type DriverDamageReportInput = {
+    shipmentId?: string
+    shipmentLineId?: string
+    damagedQuantity?: number
+    description?: string
+    photoUrls?: unknown
+    idempotencyKey?: string
+}
+
+type ReportOrigin = { tripStopId: string; driverId: string }
+
 type CancelDamageReportInput = { reason?: string }
 
 const reportInclude = {
@@ -73,6 +91,14 @@ const reportInclude = {
     },
     audits: { orderBy: { performedAt: 'asc' as const } },
 } satisfies Prisma.DamageReportInclude
+
+function dropoffShipmentIds(stop: {
+    shipments: Array<{ action: string; shipmentId: string }>
+}): string[] {
+    return stop.shipments
+        .filter((link) => link.action === 'DROPOFF')
+        .map((link) => link.shipmentId)
+}
 
 function parsePhotoUrls(
     value: string[] | string | null | undefined,
@@ -109,6 +135,7 @@ export class DamageReportsService {
         shipmentId: string,
         input: CreateDamageReportInput,
         user: DamageReportActor,
+        driverOrigin?: ReportOrigin,
     ) {
         const idempotencyKey = input.idempotencyKey?.trim() || null
         if (idempotencyKey) {
@@ -140,7 +167,7 @@ export class DamageReportsService {
         }
         const description = requireString(input.description, 'description')
 
-        let shipmentLineId: string | null = input.shipmentLineId || null
+        const shipmentLineId: string | null = input.shipmentLineId || null
         if (shipmentLineId) {
             const line = shipment.lines.find((l) => l.id === shipmentLineId)
             if (!line) {
@@ -197,6 +224,10 @@ export class DamageReportsService {
                     damagedQuantity,
                     description,
                     photoUrls: photoUrls as Prisma.InputJsonValue | undefined,
+                    source: driverOrigin
+                        ? DAMAGE_REPORT_SOURCE.DRIVER
+                        : DAMAGE_REPORT_SOURCE.STAFF,
+                    tripStopId: driverOrigin?.tripStopId ?? null,
                     reportedBy: user.id,
                     createdBy: user.id,
                     ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -204,7 +235,17 @@ export class DamageReportsService {
                         create: {
                             action: 'CREATED',
                             performedBy: user.id,
-                            details: { companyId, salesOrderStatus },
+                            details: {
+                                companyId,
+                                salesOrderStatus,
+                                ...(driverOrigin
+                                    ? {
+                                          source: DAMAGE_REPORT_SOURCE.DRIVER,
+                                          driverId: driverOrigin.driverId,
+                                          tripStopId: driverOrigin.tripStopId,
+                                      }
+                                    : {}),
+                            },
                         },
                     },
                 },
@@ -239,6 +280,140 @@ export class DamageReportsService {
             this.prisma.damageReport.count({ where }),
         ])
         return { data, total, page, pageSize }
+    }
+
+    /** Driver app: what can be reported on a delivered stop, and what already was. */
+    async driverStopContext(
+        tripId: string,
+        stopId: string,
+        callerDriverId: string | null | undefined,
+    ) {
+        const { trip, stop } = await this.loadDriverStop(
+            tripId,
+            stopId,
+            callerDriverId,
+        )
+        const shipmentIds = dropoffShipmentIds(stop)
+        const [shipments, reports] = await Promise.all([
+            this.prisma.shipment.findMany({
+                where: { id: { in: shipmentIds } },
+                select: {
+                    id: true,
+                    reference: true,
+                    customerName: true,
+                    status: true,
+                    lines: {
+                        orderBy: { lineNo: 'asc' },
+                        select: {
+                            id: true,
+                            lineNo: true,
+                            materialCode: true,
+                            description: true,
+                            quantity: true,
+                        },
+                    },
+                },
+            }),
+            this.prisma.damageReport.findMany({
+                where: {
+                    shipmentId: { in: shipmentIds },
+                    status: { not: DAMAGE_REPORT_STATUS.CANCELLED },
+                },
+                include: reportInclude,
+                orderBy: { createdAt: 'desc' },
+            }),
+        ])
+        const blockedReason = driverReportBlocker(
+            trip,
+            stop,
+            new Date(),
+            driverReportGraceMinutes(),
+        )
+        return {
+            canReport: blockedReason === null,
+            blockedReason,
+            shipments,
+            reports,
+        }
+    }
+
+    /**
+     * Driver evidence after a successful delivery. The stop stays COMPLETED and the shipment
+     * DELIVERED — damage is never a failed delivery. Line-level only, so staff can hand it to SD.
+     */
+    async createFromDriver(
+        tripId: string,
+        stopId: string,
+        input: DriverDamageReportInput,
+        callerDriverId: string | null | undefined,
+        user: DamageReportActor,
+    ) {
+        const { trip, stop } = await this.loadDriverStop(
+            tripId,
+            stopId,
+            callerDriverId,
+        )
+        const blockedReason = driverReportBlocker(
+            trip,
+            stop,
+            new Date(),
+            driverReportGraceMinutes(),
+        )
+        if (blockedReason) throw new ConflictException(blockedReason)
+
+        const shipmentId = requireString(input.shipmentId, 'shipmentId')
+        if (!dropoffShipmentIds(stop).includes(shipmentId)) {
+            throw new BadRequestException(
+                'This shipment was not delivered at this stop',
+            )
+        }
+        const shipmentLineId = requireString(
+            input.shipmentLineId,
+            'shipmentLineId',
+        )
+        return this.createForShipment(
+            shipmentId,
+            {
+                shipmentLineId,
+                damagedQuantity: input.damagedQuantity,
+                description: input.description,
+                photoUrls: parseDriverPhotos(input.photoUrls) ?? undefined,
+                idempotencyKey: input.idempotencyKey,
+            },
+            user,
+            { tripStopId: stopId, driverId: trip.driverId! },
+        )
+    }
+
+    private async loadDriverStop(
+        tripId: string,
+        stopId: string,
+        callerDriverId: string | null | undefined,
+    ) {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+            select: {
+                id: true,
+                driverId: true,
+                status: true,
+                completedAt: true,
+                stops: {
+                    where: { id: stopId },
+                    select: {
+                        id: true,
+                        status: true,
+                        shipments: {
+                            select: { action: true, shipmentId: true },
+                        },
+                    },
+                },
+            },
+        })
+        if (!trip) throw new NotFoundException('Trip not found')
+        assertAssignedDriver(trip, callerDriverId)
+        const stop = trip.stops[0]
+        if (!stop) throw new NotFoundException('Stop not found on this trip')
+        return { trip, stop }
     }
 
     async findOne(reportId: string) {

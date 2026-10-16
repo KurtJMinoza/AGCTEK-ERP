@@ -9,9 +9,9 @@ import {
     TextInput,
     View,
 } from 'react-native'
-import * as ImagePicker from 'expo-image-picker'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { CashReceivedSheet } from '@/src/components/CashReceivedSheet'
+import { DamageReportSection } from '@/src/components/DamageReportSection'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { SignaturePad } from '@/src/components/SignaturePad'
 import { StatusBadge } from '@/src/components/StatusBadge'
@@ -21,6 +21,7 @@ import {
     apiDeliverStop,
     apiGetTrip,
 } from '@/src/api/client'
+import { capturePhotoDataUrl } from '@/src/utils/camera'
 import { formatMoney } from '@/src/utils/money'
 import { captureStopMeta } from '@/src/api/stopMeta'
 import { stopQty } from '@/src/hooks/useActiveTrip'
@@ -59,6 +60,8 @@ export default function StopDetailScreen() {
     /** One id per collection attempt — a retry after a dropped response replays, never double-collects. */
     const [cashActionId, setCashActionId] = useState<string | null>(null)
     const [cashReceipt, setCashReceipt] = useState<string | null>(null)
+    /** shipmentLineId → qty the customer keeps (defaults to full line qty). */
+    const [acceptedByLine, setAcceptedByLine] = useState<Record<string, number>>({})
 
     const reload = useCallback(async () => {
         if (!tripId) return
@@ -72,6 +75,18 @@ export default function StopDetailScreen() {
                 setNotes(stop.podNotes ?? stop.notes ?? '')
                 setPhotoUri(stop.podPhotoUrl)
                 setSignatureUrl(stop.podSignatureUrl)
+                const next: Record<string, number> = {}
+                for (const link of stop.shipments ?? []) {
+                    if (link.action !== 'DROPOFF') continue
+                    for (const line of link.shipment?.lines ?? []) {
+                        const recorded = stop.lines?.find(
+                            (l) => l.shipmentLineId === line.id,
+                        )?.acceptedQuantity
+                        next[line.id] =
+                            recorded != null ? recorded : line.quantity
+                    }
+                }
+                setAcceptedByLine(next)
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load stop')
@@ -92,31 +107,12 @@ export default function StopDetailScreen() {
     )
 
     const pickPhoto = async () => {
-        const perm = await ImagePicker.requestCameraPermissionsAsync()
-        if (!perm.granted) {
-            const lib = await ImagePicker.requestMediaLibraryPermissionsAsync()
-            if (!lib.granted) {
-                setError('Camera / photo permission required')
-                return
-            }
+        try {
+            const dataUrl = await capturePhotoDataUrl()
+            if (dataUrl) setPhotoUri(dataUrl)
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not take photo')
         }
-        const result = await ImagePicker.launchCameraAsync({
-            quality: 0.55,
-            base64: true,
-            allowsEditing: true,
-        }).catch(async () =>
-            ImagePicker.launchImageLibraryAsync({
-                quality: 0.55,
-                base64: true,
-                allowsEditing: true,
-            }),
-        )
-        if (result.canceled || !result.assets[0]) return
-        const asset = result.assets[0]
-        const dataUrl = asset.base64
-            ? `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`
-            : asset.uri
-        setPhotoUri(dataUrl)
     }
 
     const onArrive = async () => {
@@ -166,6 +162,44 @@ export default function StopDetailScreen() {
         }
     }
 
+    const dropoffLines = useMemo(() => {
+        const rows: Array<{
+            shipmentLineId: string
+            label: string
+            quantity: number
+        }> = []
+        for (const link of stop?.shipments ?? []) {
+            if (link.action !== 'DROPOFF') continue
+            for (const line of link.shipment?.lines ?? []) {
+                rows.push({
+                    shipmentLineId: line.id,
+                    label:
+                        line.description ??
+                        line.materialCode ??
+                        link.shipment?.reference ??
+                        'Item',
+                    quantity: line.quantity,
+                })
+            }
+        }
+        return rows
+    }, [stop])
+
+    const acceptedLinesPayload = useMemo(() => {
+        if (!dropoffLines.length) return undefined
+        const lines = dropoffLines.map((l) => ({
+            shipmentLineId: l.shipmentLineId,
+            acceptedQuantity: acceptedByLine[l.shipmentLineId] ?? l.quantity,
+        }))
+        const anyReject = lines.some(
+            (l) =>
+                l.acceptedQuantity <
+                (dropoffLines.find((d) => d.shipmentLineId === l.shipmentLineId)
+                    ?.quantity ?? 0),
+        )
+        return anyReject ? lines : undefined
+    }, [dropoffLines, acceptedByLine])
+
     const onDeliver = async (outcome: 'DELIVERED' | 'FAILED') => {
         if (!tripId || !stopId) return
         if (outcome === 'FAILED' && !failureCode) {
@@ -175,6 +209,16 @@ export default function StopDetailScreen() {
         if (outcome === 'FAILED' && failureCode === 'OTHER' && !failureReason.trim()) {
             setError('Describe what happened')
             return
+        }
+        if (outcome === 'DELIVERED' && dropoffLines.length) {
+            const totalAccepted = dropoffLines.reduce(
+                (n, l) => n + (acceptedByLine[l.shipmentLineId] ?? l.quantity),
+                0,
+            )
+            if (totalAccepted === 0) {
+                setError('Refuse all units with Mark failed — or accept at least one unit')
+                return
+            }
         }
         setBusy(true)
         setError(null)
@@ -188,9 +232,13 @@ export default function StopDetailScreen() {
                 ...(outcome === 'FAILED'
                     ? { reasonCode: failureCode!, failureReason: failureReason.trim() || null }
                     : {}),
+                ...(outcome === 'DELIVERED' && acceptedLinesPayload
+                    ? { acceptedLines: acceptedLinesPayload }
+                    : {}),
             })
             setTrip(updated)
-            router.back()
+            // Stay after a delivery so the driver can collect COD / report more damage.
+            if (outcome === 'FAILED') router.back()
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Deliver failed')
         } finally {
@@ -326,6 +374,70 @@ export default function StopDetailScreen() {
 
             {canDeliverOrFail ? (
                 <>
+                    {dropoffLines.length > 0 ? (
+                        <>
+                            <Text style={styles.section}>Accepted qty</Text>
+                            <Text style={styles.acceptHint}>
+                                Customer keeps these units and pays COD for them. Reduce
+                                qty for damaged/rejected units (or Mark failed to refuse
+                                all).
+                            </Text>
+                            {dropoffLines.map((line) => {
+                                const accepted =
+                                    acceptedByLine[line.shipmentLineId] ?? line.quantity
+                                const rejected = line.quantity - accepted
+                                return (
+                                    <View key={line.shipmentLineId} style={styles.manifestRow}>
+                                        <Text style={styles.ref} numberOfLines={2}>
+                                            {line.label}
+                                        </Text>
+                                        <Text style={styles.manifestMeta}>
+                                            Shipped {line.quantity}
+                                            {rejected > 0
+                                                ? ` · reject ${rejected}`
+                                                : ''}
+                                        </Text>
+                                        <View style={styles.qtyRow}>
+                                            <Pressable
+                                                accessibilityLabel="Decrease accepted"
+                                                disabled={accepted <= 0 || busy}
+                                                onPress={() =>
+                                                    setAcceptedByLine((prev) => ({
+                                                        ...prev,
+                                                        [line.shipmentLineId]: Math.max(
+                                                            0,
+                                                            accepted - 1,
+                                                        ),
+                                                    }))
+                                                }
+                                                style={styles.qtyBtn}
+                                            >
+                                                <Text style={styles.qtyBtnLabel}>−</Text>
+                                            </Pressable>
+                                            <Text style={styles.qtyValue}>{accepted}</Text>
+                                            <Pressable
+                                                accessibilityLabel="Increase accepted"
+                                                disabled={accepted >= line.quantity || busy}
+                                                onPress={() =>
+                                                    setAcceptedByLine((prev) => ({
+                                                        ...prev,
+                                                        [line.shipmentLineId]: Math.min(
+                                                            line.quantity,
+                                                            accepted + 1,
+                                                        ),
+                                                    }))
+                                                }
+                                                style={styles.qtyBtn}
+                                            >
+                                                <Text style={styles.qtyBtnLabel}>+</Text>
+                                            </Pressable>
+                                        </View>
+                                    </View>
+                                )
+                            })}
+                        </>
+                    ) : null}
+
                     <Text style={styles.section}>POD notes</Text>
                     <TextInput
                         value={notes}
@@ -414,9 +526,12 @@ export default function StopDetailScreen() {
                 </Text>
             ) : null}
             {stop.status === 'COMPLETED' ? (
-                <Text style={styles.done}>
-                    Stop completed. Use back to continue the route.
-                </Text>
+                <>
+                    <Text style={styles.done}>
+                        Stop completed. Use back to continue the route.
+                    </Text>
+                    <DamageReportSection tripId={tripId!} stopId={stopId!} />
+                </>
             ) : null}
         </ScrollView>
     )
@@ -484,6 +599,25 @@ const styles = StyleSheet.create({
     codDue: { fontSize: 18, fontWeight: '800', color: '#b45309' },
     codCollected: { fontSize: 18, fontWeight: '800', color: '#047857' },
     hint: { marginTop: 16, color: '#92400e', lineHeight: 22, fontSize: 15 },
+    acceptHint: { marginBottom: 10, color: '#6b7280', lineHeight: 20, fontSize: 14 },
+    qtyRow: {
+        marginTop: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    qtyBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#d1d5db',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f9fafb',
+    },
+    qtyBtnLabel: { fontSize: 22, fontWeight: '700', color: '#111827', lineHeight: 24 },
+    qtyValue: { minWidth: 36, textAlign: 'center', fontSize: 20, fontWeight: '800' },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {
         borderWidth: 1,

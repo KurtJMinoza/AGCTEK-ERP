@@ -37,6 +37,12 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
         },
         tripStop: {
             findFirst: async ({ where }: { where: { id: string } }) => state.stops.find((s) => s.id === where.id) ?? null,
+            findUnique: async ({ where }: { where: { id: string } }) =>
+                state.stops.find((s) => s.id === where.id) ?? null,
+            findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+                state.stops
+                    .filter((s) => where.id.in.includes(s.id))
+                    .map((s) => ({ id: s.id, codAmountDue: (s as { codAmountDue?: unknown }).codAmountDue ?? null })),
             update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
                 assign(state.stops.find((s) => s.id === where.id)!, data)
             },
@@ -46,6 +52,13 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
                 assign(s, data)
                 return { count: 1 }
             },
+        },
+        shipmentLine: {
+            findMany: async () => [],
+            findUnique: async () => null,
+        },
+        tripStopLine: {
+            updateMany: async () => ({ count: 0 }),
         },
         tripStopEvent: {
             create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -87,6 +100,7 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
         getCodCollection: jest.fn().mockResolvedValue(null),
         collectCashOnDelivery: jest.fn(),
     }
+    const damageReports = { createFromDriver: jest.fn() }
     const events = { emit: jest.fn() }
     const service = new TripsService(
         prisma as never,
@@ -94,6 +108,7 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
         {} as never,
         {} as never,
         salesOrders as never,
+        damageReports as never,
         events as never,
     )
     const completeTrip = jest.spyOn(service, 'updateStatus').mockResolvedValue({} as never)
@@ -245,7 +260,9 @@ describe('TripsService stop execution', () => {
 
             const result = await service.collectCash('t1', 's1', { amountReceived: 300, clientActionId: 'cash-1' }, 'drv-1')
 
-            expect(salesOrders.collectCashOnDelivery).toHaveBeenCalledWith(['so-shA'], 300)
+            expect(salesOrders.collectCashOnDelivery).toHaveBeenCalledWith(['so-shA'], 300, {
+                amountDue: null,
+            })
             expect(result.collection).toMatchObject({ status: 'COLLECTED', change: 50 })
             expect(state.events.at(-1)).toMatchObject({
                 eventType: 'CASH_COLLECTED',

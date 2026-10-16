@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer'
 import {
     IsArray,
+    IsIn,
     IsNotEmpty,
     IsNumber,
     IsOptional,
@@ -90,6 +91,18 @@ export class SalesReturnActionDto {
     @Transform(trim)
     @IsString()
     reason?: string
+}
+
+export class SettleSalesReturnDto {
+    /** KEEP_AND_PAY_FULL | CREDIT_AND_RETURN | CREDIT_NO_RETURN */
+    @IsString()
+    @IsIn(['KEEP_AND_PAY_FULL', 'CREDIT_AND_RETURN', 'CREDIT_NO_RETURN'])
+    settlement!: string
+
+    @IsOptional()
+    @Transform(trim)
+    @IsString()
+    note?: string
 }
 
 export class InitiateMmIntakeLineDto {

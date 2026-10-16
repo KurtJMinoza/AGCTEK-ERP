@@ -1232,14 +1232,16 @@ export class SalesOrderService {
     }
 
     /**
-     * Driver "Cash Received": full collection of every Pending Collection COD
-     * order in the set, through the same payment transition as the admin
-     * action (payment Paid → posted invoice PAID). Partial collection is not
-     * supported. Idempotent: already-collected orders return their state.
+     * Driver "Cash Received": collect every Pending Collection COD order in the
+     * set (payment Paid → posted invoice PAID). By default the received cash
+     * must cover the full payment amount. Pass `amountDue` after a POD partial
+     * accept so the due (and stored payment amount) matches accepted qty.
+     * Idempotent: already-collected orders return their state.
      */
     async collectCashOnDelivery(
         salesOrderIds: string[],
         amountReceived: number,
+        opts: { amountDue?: number | null } = {},
     ): Promise<CodCollectionResult> {
         const orders = await this.loadCodOrders(salesOrderIds)
         const before = summarizeCodCollection(orders)
@@ -1266,11 +1268,24 @@ export class SalesOrderService {
         if (!Number.isFinite(amountReceived) || amountReceived < 0) {
             throw new BadRequestException('amountReceived must be a non-negative number')
         }
-        const dueCents = toCents(before.amountDue)
+        const amountDue =
+            opts.amountDue != null && Number.isFinite(opts.amountDue)
+                ? opts.amountDue
+                : before.amountDue
+        if (amountDue < 0) {
+            throw new BadRequestException('amountDue must be non-negative')
+        }
+        if (toCents(amountDue) > toCents(before.amountDue)) {
+            throw new BadRequestException(
+                `COD due (${amountDue.toFixed(2)}) cannot exceed the order payment ` +
+                    `(${before.amountDue.toFixed(2)})`,
+            )
+        }
+        const dueCents = toCents(amountDue)
         if (toCents(amountReceived) < dueCents) {
             throw new BadRequestException(
                 `Cash received (${amountReceived.toFixed(2)}) is less than the amount due ` +
-                    `(${before.amountDue.toFixed(2)}) — partial collection is not supported`,
+                    `(${amountDue.toFixed(2)})`,
             )
         }
         const pending = orders.filter((o) => o.paymentStatus === COD_PENDING_STATUS)
@@ -1285,10 +1300,18 @@ export class SalesOrderService {
 
         const payments = await this.prisma.sdSalesOrderPayment.findMany({
             where: { salesOrderId: { in: pending.map((o) => o.salesOrderId) } },
-            select: { id: true, salesOrderId: true, status: true, paidAt: true },
+            select: { id: true, salesOrderId: true, status: true, paidAt: true, amount: true },
         })
         const collectedOrderIds: string[] = []
+        const reduced = toCents(amountDue) < toCents(before.amountDue)
         for (const payment of payments) {
+            if (reduced && pending.length === 1) {
+                // Single COD order at the stop: payment amount becomes the accepted due.
+                await this.prisma.sdSalesOrderPayment.update({
+                    where: { id: payment.id },
+                    data: { amount: amountDue },
+                })
+            }
             if (await this.transitionPayment(payment.salesOrderId, payment, 'Paid')) {
                 collectedOrderIds.push(payment.salesOrderId)
             }
@@ -1301,7 +1324,7 @@ export class SalesOrderService {
         }
         return {
             ...after,
-            amountDue: before.amountDue,
+            amountDue,
             amountReceived,
             change: fromCents(toCents(amountReceived) - dueCents),
             collectedOrderIds,

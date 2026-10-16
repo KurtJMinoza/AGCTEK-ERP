@@ -30,6 +30,14 @@ import {
     validateStopExecution,
     type ExecutionMeta,
 } from './trip-execution.rules'
+import {
+    hasAnyAccept,
+    hasPartialReject,
+    parseAcceptedLines,
+    proportionalCodDue,
+    type AcceptedLineResolved,
+} from './pod-acceptance.rules'
+import { DamageReportsService } from '../damage-reports/damage-reports.service'
 import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
 import {
     TRIP_EVENTS,
@@ -124,7 +132,10 @@ type PodBody = {
 }
 
 type CashReceivedBody = StopExecutionBody & {
-    /** Cash handed over by the customer; must cover the amount due (no partial collection). */
+    /**
+     * Cash handed over by the customer. Must cover the stop's COD due
+     * (full payment amount, or `TripStop.codAmountDue` after partial accept).
+     */
     amountReceived?: number | string
 }
 
@@ -144,6 +155,11 @@ type DeliverStopBody = StopExecutionBody &
         reasonCode?: string
         /** Free-text failure note (required when reasonCode = OTHER) */
         failureReason?: string | null
+        /**
+         * Per DROPOFF shipment line: qty the customer kept. Omit = accept all.
+         * Rejected qty creates a driver DamageReport; refuse-all must use FAILED.
+         */
+        acceptedLines?: Array<{ shipmentLineId?: string; acceptedQuantity?: number }>
     }
 
 /** Shipments that a stop outcome must not overwrite. */
@@ -174,7 +190,20 @@ const tripInclude = {
         orderBy: { sequence: 'asc' as const },
         include: {
             shipments: {
-                include: { shipment: true },
+                include: {
+                    shipment: {
+                        include: {
+                            lines: { orderBy: { lineNo: 'asc' as const } },
+                        },
+                    },
+                },
+            },
+            /** POD acceptance qty when recorded (cargo-first trips). */
+            lines: {
+                select: {
+                    shipmentLineId: true,
+                    acceptedQuantity: true,
+                },
             },
         },
     },
@@ -193,6 +222,10 @@ export class TripsService {
         /** SD owns COD payment state; SCM only resolves the stop's orders and audits the action. */
         @Inject(forwardRef(() => SalesOrderService))
         private readonly salesOrders: SalesOrderService,
+        /** Optional — POD rejects create evidence reports after the stop is delivered. */
+        @Optional()
+        @Inject(forwardRef(() => DamageReportsService))
+        private readonly damageReports?: DamageReportsService,
         /** Optional — used to notify SD when the trip delivers (order completion). */
         @Optional() private readonly events?: EventEmitter2,
     ) {}
@@ -367,6 +400,24 @@ export class TripsService {
         })
         const now = new Date()
 
+        let acceptance: AcceptedLineResolved[] | null = null
+        let codAmountDue: number | null = null
+        if (outcome === 'COMPLETE') {
+            acceptance = await this.resolvePodAcceptance(stop, body.acceptedLines)
+            if (acceptance && !hasAnyAccept(acceptance)) {
+                throw new BadRequestException(
+                    'Refuse all units with outcome FAILED — partial accept needs at least one accepted unit',
+                )
+            }
+            if (acceptance && hasPartialReject(acceptance)) {
+                const orderIds = (await this.salesOrderIdsByStop([stop])).get(stop.id) ?? []
+                const fullDue = (await this.salesOrders.getCodCollection(orderIds))?.amountDue
+                if (fullDue != null) {
+                    codAmountDue = proportionalCodDue(fullDue, acceptance)
+                }
+            }
+        }
+
         await this.runStopTransition(async (tx) => {
             if (outcome === 'FAIL') {
                 await this.transitionStop(tx, stopId, StopStatus.ARRIVED, {
@@ -386,8 +437,12 @@ export class TripsService {
                     ...podFields(body),
                     status: StopStatus.COMPLETED,
                     completedAt: now,
+                    ...(codAmountDue != null ? { codAmountDue } : {}),
                 })
                 await this.settleDeliveredShipments(tx, stop.shipments, body, now)
+                if (acceptance) {
+                    await this.persistPodAcceptance(tx, stopId, acceptance)
+                }
             }
             await this.recordStopEvent(tx, {
                 tripId,
@@ -399,7 +454,7 @@ export class TripsService {
                 notes:
                     outcome === 'FAIL'
                         ? failureNote
-                        : optionalString(body.podNotes) ?? optionalString(body.notes) ?? null,
+                        : this.podCompletionNotes(body, acceptance, codAmountDue),
             })
         })
 
@@ -420,12 +475,122 @@ export class TripsService {
             this.events?.emit('shipment.delivered', { shipmentIds: dropoffShipmentIds })
         }
 
+        // Evidence for rejected qty — after DELIVERED so damage-report status gate passes.
+        if (outcome === 'COMPLETE' && acceptance && hasPartialReject(acceptance)) {
+            await this.recordPodRejectDamage(
+                tripId,
+                stopId,
+                acceptance,
+                trip.driverId,
+                callerDriverId,
+            )
+        }
+
         const refreshed = await this.findOne(tripId)
         const remaining = refreshed.stops.filter((s) => !isTerminalStop(s.status))
         if (remaining.length === 0 && refreshed.status === TripStatus.IN_TRANSIT) {
             return this.updateStatus(tripId, TripStatus.COMPLETED)
         }
         return refreshed
+    }
+
+    private podCompletionNotes(
+        body: DeliverStopBody,
+        acceptance: AcceptedLineResolved[] | null,
+        codAmountDue: number | null,
+    ): string | null {
+        const base = optionalString(body.podNotes) ?? optionalString(body.notes) ?? null
+        if (!acceptance || !hasPartialReject(acceptance)) return base
+        const rejected = acceptance
+            .filter((l) => l.rejectedQuantity > 0)
+            .map((l) => `${l.rejectedQuantity} of ${l.shippedQuantity}`)
+            .join(', ')
+        const due =
+            codAmountDue != null ? ` · COD due ${codAmountDue.toFixed(2)}` : ''
+        const tag = `Partial accept — rejected ${rejected}${due}`
+        return base ? `${base}\n${tag}` : tag
+    }
+
+    private async resolvePodAcceptance(
+        stop: { id: string; shipments: Array<{ action: string; shipmentId: string }> },
+        acceptedLines: DeliverStopBody['acceptedLines'],
+    ) {
+        const dropoffIds = stop.shipments
+            .filter((l) => l.action === 'DROPOFF')
+            .map((l) => l.shipmentId)
+        if (!dropoffIds.length) {
+            if (acceptedLines?.length) {
+                throw new BadRequestException('acceptedLines requires a DROPOFF shipment at this stop')
+            }
+            return null
+        }
+        const lines = await this.prisma.shipmentLine.findMany({
+            where: { shipmentId: { in: dropoffIds } },
+            select: { id: true, shipmentId: true, quantity: true },
+            orderBy: [{ shipmentId: 'asc' }, { lineNo: 'asc' }],
+        })
+        return parseAcceptedLines(acceptedLines, lines)
+    }
+
+    private async persistPodAcceptance(
+        tx: Prisma.TransactionClient,
+        stopId: string,
+        acceptance: AcceptedLineResolved[],
+    ) {
+        for (const line of acceptance) {
+            await tx.tripStopLine.updateMany({
+                where: { tripStopId: stopId, shipmentLineId: line.shipmentLineId },
+                data: { acceptedQuantity: line.acceptedQuantity },
+            })
+        }
+    }
+
+    private async recordPodRejectDamage(
+        tripId: string,
+        stopId: string,
+        acceptance: AcceptedLineResolved[],
+        tripDriverId: string | null,
+        callerDriverId?: string | null,
+    ) {
+        if (!this.damageReports) {
+            this.logger.warn('DamageReportsService unavailable — POD rejects not recorded')
+            return
+        }
+        const driverId = callerDriverId ?? tripDriverId
+        if (!driverId) return
+        const actor = { id: driverId, userName: 'driver', role: 'driver' }
+        for (const line of acceptance) {
+            if (line.rejectedQuantity < 1) continue
+            const shipmentId = (
+                await this.prisma.shipmentLine.findUnique({
+                    where: { id: line.shipmentLineId },
+                    select: { shipmentId: true },
+                })
+            )?.shipmentId
+            if (!shipmentId) continue
+            try {
+                await this.damageReports.createFromDriver(
+                    tripId,
+                    stopId,
+                    {
+                        shipmentId,
+                        shipmentLineId: line.shipmentLineId,
+                        damagedQuantity: line.rejectedQuantity,
+                        description:
+                            'Customer rejected at POD (not accepted / damaged) — COD collected for accepted qty only',
+                        idempotencyKey: `pod-reject:${stopId}:${line.shipmentLineId}`,
+                    },
+                    driverId,
+                    actor,
+                )
+            } catch (err) {
+                this.logger.warn(
+                    `POD reject damage report failed for line ${line.shipmentLineId}: ${
+                        err instanceof Error ? err.message : err
+                    }`,
+                )
+            }
+        }
     }
 
     /** DROPOFF shipments at a completed stop → DELIVERED (shipments on exception hold stay held). */
@@ -543,7 +708,16 @@ export class TripsService {
             throw new BadRequestException('No sales order is linked to this stop — nothing to collect')
         }
 
-        const collection = await this.salesOrders.collectCashOnDelivery(orderIds, amountReceived)
+        const stopRow = await this.prisma.tripStop.findUnique({
+            where: { id: stopId },
+            select: { codAmountDue: true },
+        })
+        const amountDueOverride =
+            stopRow?.codAmountDue != null ? Number(stopRow.codAmountDue) : null
+
+        const collection = await this.salesOrders.collectCashOnDelivery(orderIds, amountReceived, {
+            amountDue: amountDueOverride,
+        })
         if (collection.collectedOrderIds.length) {
             try {
                 await this.recordStopEvent(this.prisma, {
@@ -578,12 +752,34 @@ export class TripsService {
         trip: T,
     ): Promise<Omit<T, 'stops'> & { stops: Array<S & { collection: CodCollectionSummary | null }> }> {
         const byStop = await this.salesOrderIdsByStop(trip.stops)
+        const stopIds = trip.stops.map((s) => s.id)
+        const dueRows = stopIds.length
+            ? await this.prisma.tripStop.findMany({
+                  where: { id: { in: stopIds } },
+                  select: { id: true, codAmountDue: true },
+              })
+            : []
+        const dueByStop = new Map(
+            dueRows.map((r) => [
+                r.id,
+                r.codAmountDue != null ? Number(r.codAmountDue) : null,
+            ]),
+        )
         const stops = await Promise.all(
             trip.stops.map(async (stop) => {
                 const ids = byStop.get(stop.id) ?? []
-                const collection: CodCollectionSummary | null = ids.length
+                let collection: CodCollectionSummary | null = ids.length
                     ? await this.salesOrders.getCodCollection(ids)
                     : null
+                const override = dueByStop.get(stop.id)
+                if (
+                    collection &&
+                    collection.status === 'PENDING' &&
+                    override != null &&
+                    Number.isFinite(override)
+                ) {
+                    collection = { ...collection, amountDue: override }
+                }
                 return { ...stop, collection }
             }),
         )

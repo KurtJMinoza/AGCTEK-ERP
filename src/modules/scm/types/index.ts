@@ -921,8 +921,10 @@ export type DamageReport = {
     reportedAt: string
     damagedQuantity: number
     description: string
-    /** Evidence photo URLs (URL strings; there is no file-upload endpoint yet). */
+    /** Evidence photos: hosted URLs or image data URLs (driver camera). */
     photoUrls: string[] | null
+    /** STAFF (back office) or DRIVER (driver app, right after delivering). */
+    source?: 'STAFF' | 'DRIVER'
     status: DamageReportStatus
     /** SD Sales Return created from this report (Phase 3 traceability back-reference). */
     sdSalesReturnId: string | null

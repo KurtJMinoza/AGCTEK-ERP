@@ -1,6 +1,6 @@
 # SCM Delivery Damage Report → SD Sales Return → MM Intake — Design Notes
 
-Status: **Phase 2 (SCM Delivery Damage Report), Phase 3 (SD Sales Return + SCM→SD handoff), Phase 4 (SD → MM customer return intake) and Phase 5 (cross-module UI) implemented**.
+Status: **Phase 2 (SCM Delivery Damage Report), Phase 3 (SD Sales Return + SCM→SD handoff), Phase 4 (SD → MM customer return intake), Phase 5 (cross-module UI) and Phase 6 (driver damage report + SD settlement) implemented**.
 
 ## Two recorded decisions
 
@@ -81,7 +81,10 @@ Status: **Phase 2 (SCM Delivery Damage Report), Phase 3 (SD Sales Return + SCM�
   explicit SD transition (Phase 4 will open the MM intake from AUTHORIZED). SD service,
   controller routes, DTOs, and permission resource `sd.sales-returns`
   (`permissions.constants.ts`) are in place.
-- Enforcement: only `CONFIRMED`/`COMPLETED` orders are returnable; every return line must
+- Enforcement: only `CONFIRMED`/`SHIPPED`/`DELIVERED`/`COMPLETED` orders are returnable (damage is
+  found in transit or at the door, so the delivery listener's `DELIVERED` must qualify); the
+  return's `customerId` is the Customer Master record — storefront orders resolve through
+  `SdCustomer.retailClientId`, and an unlinked shop account is refused with 409; every return line must
   reference a real order line and (when supplied) a matching `materialId`; returnable quantity
   is computed atomically (`SELECT … FOR UPDATE` on order lines + sum of prior non-cancelled /
   non-rejected returns); `damageReportId @unique` is the DB-level idempotency backstop.
@@ -159,3 +162,48 @@ The chain is navigable from any of the three records; no central returns dashboa
   `damageReport`, so each screen shows references without extra round-trips.
 - UI changes stay additive: no existing page was restructured, and no inventory/FICO/supplier-return
   surface was touched.
+
+## Phase 6 — Optional delivery damage from the driver + SD settlement (shipped)
+
+Partial damage is **not** a failed delivery. The driver delivers, optionally records evidence, and
+SD decides what the customer pays. The existing chain stays the backbone:
+`DamageReport → SdSalesReturn → MmCustomerReturn`.
+
+### Locked rules
+
+| Rule | Decision |
+|------|----------|
+| Damage vs failed stop | A delivered stop stays `COMPLETED` and its shipments `DELIVERED`. `FAILED` (incl. `DAMAGED_GOODS`) remains only for true non-delivery. |
+| When the driver may report | Only on a stop they delivered (`COMPLETED`), while the trip is `IN_TRANSIT` — or within `DRIVER_DAMAGE_REPORT_GRACE_MINUTES` (default 60) after it auto-completes, so the last drop is covered. Afterwards staff file it from the shipment, any time. |
+| Driver scope | Evidence only: DROPOFF shipment of that stop, **line-level** (required, so staff can hand it to SD), damaged qty ≤ line qty, description, up to 3 photos. Never pricing or authorization. |
+| Photos | Camera data URLs stored on the report like the POD photo (≤ 3, ~2 MB each); hosted URLs also accepted. |
+| Who creates the SD return | Staff only (existing *Initiate return*). No auto-SR. UNRESOLVED orders keep the report and block the handoff with a clear message. |
+| Settlement (SD) | On a `REQUESTED` return: `KEEP_AND_PAY_FULL` → `REJECTED`, credit 0, no MM · `CREDIT_AND_RETURN` → `AUTHORIZED`, MM intake allowed · `CREDIT_NO_RETURN` → `AUTHORIZED`, MM intake **blocked**. "Reject claim" stays for denied claims. |
+| Credit | Recorded as intent: `creditAmount` = returned qty × order-line price (`unitPrice`, else `lineTotal/qty`; null if unpriced). No credit memo / FICO posting yet (follow-up). |
+| Confirmed SO | Never rewritten; the return document carries the credit. |
+
+### Implementation
+- **SCM** (`damage-reports/`): `DamageReport.source` (`STAFF`/`DRIVER`) + `tripStopId`;
+  `driver-damage.rules.ts` (window + photo validation); `DriverDamageReportsController` at
+  `GET|POST /api/v1/scm/trips/:tripId/stops/:stopId/damage-reports` (`x-driver-id` = assigned
+  driver; `scm.trips:update` for POST like other driver execution routes). Both delegate to the same
+  `DamageReportsService.createForShipment` (idempotency key, qty and SO-resolution rules unchanged).
+- **SD**: `SdSalesReturn.settlement`, `settlementNote`, `settledBy`, `settledAt`, `creditAmount`;
+  `POST /api/v1/sd/sales-returns/:id/settle` (`sd.sales-returns:update`) reuses the guarded
+  `transition()`; `initiateMmIntake` rejects `CREDIT_NO_RETURN`. Legacy `authorize`/`reject` stay
+  (settlement null ⇒ intake allowed as before).
+- **MM**: unchanged — intake → inspection → RESTOCK / SCRAP only for authorized returns that need
+  physical handling.
+- **UI**: driver app stop screen stays open after *Confirm delivered* and offers *Report damage
+  (optional)*; SCM damage dialog shows driver source + photos; SD Sales Returns has *Record
+  settlement* (three choices + note) and shows settlement and credit.
+
+### Known gaps (not in this phase)
+- No credit memo / FICO posting for `creditAmount`.
+- Shop accounts whose sign-up did not link a Customer Master record (best-effort) cannot get an SD
+  sales return until staff link one in Customer Master.
+- No MM → SD write-back when the intake completes; SD cancel is not blocked once an intake exists.
+- **Commercial spine pivot (2026-10-16):** on-spot COD partial accept + Customer Returns
+  (`SdReturnRequest`) become the long-term path — see
+  [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md). Phase 2 will redirect
+  the Sales Returns handoff; until then DamageReport → SdSalesReturn still works for staff.

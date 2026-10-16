@@ -303,7 +303,24 @@ export default function DamageReportDialog({
                                                 : 'requested'}
                                         </StatusBadge>
                                     ) : null}
+                                    {report.source === 'DRIVER' ? (
+                                        <StatusBadge tone="info">
+                                            Reported by driver
+                                        </StatusBadge>
+                                    ) : null}
                                 </div>
+                                {report.photoUrls?.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {report.photoUrls.map((url, index) => (
+                                            <img
+                                                key={index}
+                                                src={url}
+                                                alt={`Damage photo ${index + 1}`}
+                                                className="h-16 w-16 rounded-md border border-gray-200 object-cover dark:border-gray-700"
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null}
                                 <p className="mt-1 text-gray-500">
                                     {report.damagedQuantity} item
                                     {report.damagedQuantity === 1

@@ -4317,6 +4317,15 @@ model SdSalesReturn {
   cancelBy       String?
   cancelAt       DateTime?
   cancelReason   String?
+  /// Customer's commercial choice for the returned qty:
+  /// KEEP_AND_PAY_FULL (→ REJECTED, no credit) | CREDIT_AND_RETURN (→ AUTHORIZED, MM intake)
+  /// | CREDIT_NO_RETURN (→ AUTHORIZED, credit only, no MM intake). Null = legacy authorize/reject.
+  settlement     String?
+  settlementNote String?
+  settledBy      String?
+  settledAt      DateTime?
+  /// Credit intent at order-line price for the returned qty (no credit memo / FICO posting yet).
+  creditAmount   Decimal?
   createdBy      String?
   updatedBy      String?
   createdAt      DateTime             @default(now())
@@ -6777,8 +6786,12 @@ model DamageReport {
   /// Items reported damaged (ShipmentLine.quantity units).
   damagedQuantity  Int
   description      String
-  /// Evidence photo URLs (URL strings — no file-upload endpoint exists yet, like the POD fields).
+  /// Evidence photos: hosted URLs or image data URLs (driver camera, stored like the POD photo).
   photoUrls        Json?
+  /// STAFF (back office) | DRIVER (driver app, right after delivering the stop)
+  source           String              @default("STAFF")
+  /// Trip stop the driver delivered when source = DRIVER (plain id; SCM-internal reference).
+  tripStopId       String?
   /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED set once an SD Sales Return exists).
   status           String              @default("SUBMITTED")
   /// SD Sales Return created from this report (Phase 3 traceability back-reference).
@@ -6864,6 +6877,8 @@ model TripStopLine {
   loadPlanLine   LoadPlanLine @relation(fields: [loadPlanLineId], references: [id], onDelete: Cascade)
   shipmentLineId String
   shipmentLine   ShipmentLine @relation(fields: [shipmentLineId], references: [id], onDelete: Cascade)
+  /// Qty the customer accepted at POD (null = not recorded; treat as full line qty).
+  acceptedQuantity Int?
 
   @@unique([tripStopId, loadPlanLineId])
   @@index([loadPlanLineId])
@@ -6925,6 +6940,8 @@ model TripStop {
   podPhotoUrl        String?
   /// Driver POD notes
   podNotes           String?
+  /// COD cash due after POD acceptance (null = full payment amount). Set on partial accept.
+  codAmountDue       Decimal?               @db.Decimal(18, 2)
   /// Set when status = FAILED — free-text driver note
   failureReason      String?
   failureCode        DeliveryFailureReason?

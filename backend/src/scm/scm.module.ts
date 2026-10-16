@@ -7,6 +7,7 @@ import { ShipmentsController } from './shipments/shipments.controller'
 import { ShipmentsService } from './shipments/shipments.service'
 import { DamageReportsController } from './damage-reports/damage-reports.controller'
 import { DamageReportsService } from './damage-reports/damage-reports.service'
+import { DriverDamageReportsController } from './damage-reports/driver-damage-reports.controller'
 import { TripsController } from './trips/trips.controller'
 import { TripsService } from './trips/trips.service'
 import { TrackingController } from './tracking/tracking.controller'
@@ -44,6 +45,7 @@ import { SdModule } from '../sd/sd.module'
         DriversController,
         ShipmentsController,
         DamageReportsController,
+        DriverDamageReportsController,
         TripsController,
         TrackingController,
         MaintenanceController,
