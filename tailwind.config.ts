@@ -75,9 +75,19 @@ const config: Config = {
 					from: { transform: 'translateX(0)' },
 					to: { transform: 'translateX(-50%)' },
 				},
+				float: {
+					'0%, 100%': { transform: 'translateY(0)' },
+					'50%': { transform: 'translateY(-15px)' },
+				},
+				'slow-spin': {
+					from: { transform: 'rotate(0deg)' },
+					to: { transform: 'rotate(360deg)' },
+				},
 			},
 			animation: {
 				'retail-marquee': 'retail-marquee 32s linear infinite',
+				float: 'float 6s ease-in-out infinite',
+				'slow-spin': 'slow-spin 60s linear infinite',
 			},
 			colors: {
 				// World-class retail system: deep emerald + champagne gold on cool canvas

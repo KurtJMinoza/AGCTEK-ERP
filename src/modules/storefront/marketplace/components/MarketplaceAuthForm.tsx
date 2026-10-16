@@ -525,7 +525,7 @@ const MarketplaceAuthForm = ({
     return (
         <div className="w-full">
             <div className="flex items-start gap-4">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-shop-400 to-leaf-600 text-2xl text-white shadow-sm shadow-shop-500/30">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-shop-600 text-2xl text-white shadow-sm shadow-shop-500/30">
                     <HiOutlineUserCircle aria-hidden />
                 </span>
                 <div>
