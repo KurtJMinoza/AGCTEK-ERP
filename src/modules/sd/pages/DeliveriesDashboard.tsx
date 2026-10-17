@@ -20,6 +20,7 @@ import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Steps from '@/components/ui/Steps'
+import Tag from '@/components/ui/Tag'
 import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -39,25 +40,33 @@ import {
 const ROUTE_PATH = '/modules/sd/deliveries'
 const SEARCH_DEBOUNCE_MS = 350
 
-const STAGE_ORDER: DeliveryStage[] = ['PENDING_PICK', 'PICKING', 'PACKED', 'SHIPPED']
+const STAGE_ORDER: DeliveryStage[] = [
+    'PENDING_PICK',
+    'PICKING',
+    'PACKED',
+    'SHIPPED',
+]
 
+/** Automated GI status labels shown in SD (Goods Issue is never posted from here). */
 const STAGE_META: Record<DeliveryStage, { label: string; tone: StatusTone }> = {
-    PENDING_PICK: { label: 'Pending pick', tone: 'default' },
-    PICKING: { label: 'Picking', tone: 'warning' },
-    PACKED: { label: 'Packed', tone: 'info' },
-    SHIPPED: { label: 'Shipped / PGI', tone: 'success' },
+    PENDING_PICK: { label: 'Pending Picking', tone: 'warning' },
+    PICKING: { label: 'Pending Picking', tone: 'warning' },
+    PACKED: { label: 'Auto-GI Processing', tone: 'info' },
+    SHIPPED: { label: 'GI Completed / Shipped', tone: 'success' },
 }
 
-/** MM owns pick, pack and goods issue; SD hands the team over to the right screen. */
-const MM_SCREENS: Record<Exclude<DeliveryNextAction, 'RELEASE_TO_WAREHOUSE' | null>, {
-    label: string
-    path: string
-}> = {
-    PICK: { label: 'Go to Picking', path: '/modules/mm/warehouse-management/picking' },
-    PACK: { label: 'Go to Packing', path: '/modules/mm/warehouse-management/packing' },
-    POST_GOODS_ISSUE: {
-        label: 'Post Goods Issue',
-        path: '/modules/mm/inventory-management/goods-issue',
+/** MM owns pick and pack; SD only navigates there. Auto-GI posts in MM. */
+const MM_SCREENS: Record<
+    Exclude<DeliveryNextAction, 'RELEASE_TO_WAREHOUSE' | null>,
+    { label: string; path: string }
+> = {
+    PICK: {
+        label: 'Go to Picking',
+        path: '/modules/mm/warehouse-management/picking',
+    },
+    PACK: {
+        label: 'Go to Packing',
+        path: '/modules/mm/warehouse-management/packing',
     },
 }
 
@@ -65,7 +74,10 @@ type StageFilterOption = { value: DeliveryStage | ''; label: string }
 
 const STAGE_FILTER_OPTIONS: StageFilterOption[] = [
     { value: '', label: 'All stages' },
-    ...STAGE_ORDER.map((stage) => ({ value: stage, label: STAGE_META[stage].label })),
+    ...STAGE_ORDER.map((stage) => ({
+        value: stage,
+        label: STAGE_META[stage].label,
+    })),
 ]
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
@@ -78,11 +90,21 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
 
 const formatDate = (value: string | null) =>
     value
-        ? new Date(value).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+        ? new Date(value).toLocaleString('en-PH', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+          })
         : '—'
 
+const formatPhp = (amount: number, currency = 'PHP') =>
+    new Intl.NumberFormat('en-PH', { style: 'currency', currency }).format(
+        amount,
+    )
+
 const StageBadge = ({ stage }: { stage: DeliveryStage }) => (
-    <StatusBadge tone={STAGE_META[stage].tone}>{STAGE_META[stage].label}</StatusBadge>
+    <StatusBadge tone={STAGE_META[stage].tone}>
+        {STAGE_META[stage].label}
+    </StatusBadge>
 )
 
 const SummaryStat = ({
@@ -106,7 +128,13 @@ const SummaryStat = ({
     </Card>
 )
 
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+const Field = ({
+    label,
+    children,
+}: {
+    label: string
+    children: React.ReactNode
+}) => (
     <div className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-600">
         <p className="text-xs text-gray-500">{label}</p>
         <div className="text-sm font-medium">{children}</div>
@@ -122,7 +150,9 @@ const lineColumns: ColumnDef<DeliveryLine>[] = [
             <div className="min-w-[10rem]">
                 <div className="font-semibold">{row.original.name}</div>
                 {row.original.variantName ? (
-                    <div className="text-xs text-gray-500">{row.original.variantName}</div>
+                    <div className="text-xs text-gray-500">
+                        {row.original.variantName}
+                    </div>
                 ) : null}
             </div>
         ),
@@ -141,6 +171,22 @@ const lineColumns: ColumnDef<DeliveryLine>[] = [
             `${row.original.quantity}${row.original.uom ? ` ${row.original.uom}` : ''}`,
     },
     {
+        header: 'Unit price',
+        id: 'unitPrice',
+        cell: ({ row }) =>
+            row.original.unitPrice != null
+                ? formatPhp(row.original.unitPrice)
+                : '—',
+    },
+    {
+        header: 'Amount',
+        id: 'lineAmount',
+        cell: ({ row }) =>
+            row.original.totalAmount != null
+                ? formatPhp(row.original.totalAmount)
+                : '—',
+    },
+    {
         header: 'Picked',
         id: 'picked',
         cell: ({ row }) =>
@@ -148,7 +194,11 @@ const lineColumns: ColumnDef<DeliveryLine>[] = [
                 ? `${row.original.pickedQty} / ${row.original.pickRequiredQty}`
                 : '—',
     },
-    { header: 'Issued', id: 'issued', cell: ({ row }) => row.original.issuedQty },
+    {
+        header: 'Issued',
+        id: 'issued',
+        cell: ({ row }) => row.original.issuedQty,
+    },
 ]
 
 const DeliveriesDashboard = () => {
@@ -163,7 +213,10 @@ const DeliveriesDashboard = () => {
     const [pageSize, setPageSize] = useState(20)
     const [rows, setRows] = useState<Delivery[]>([])
     const [total, setTotal] = useState(0)
-    const [summary, setSummary] = useState<Record<DeliveryStage, number> | null>(null)
+    const [summary, setSummary] = useState<Record<
+        DeliveryStage,
+        number
+    > | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [releasingId, setReleasingId] = useState<string | null>(null)
@@ -184,7 +237,11 @@ const DeliveriesDashboard = () => {
             setSummary(result.summary)
             setError(null)
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unable to load deliveries')
+            setError(
+                err instanceof Error
+                    ? err.message
+                    : 'Unable to load deliveries',
+            )
         } finally {
             setLoading(false)
         }
@@ -227,7 +284,9 @@ const DeliveriesDashboard = () => {
         async (delivery: Delivery) => {
             setReleasingId(delivery.salesOrderId)
             try {
-                const result = await startSalesOrderFulfillment(delivery.salesOrderId)
+                const result = await startSalesOrderFulfillment(
+                    delivery.salesOrderId,
+                )
                 notify(
                     'success',
                     'Released to warehouse',
@@ -249,9 +308,25 @@ const DeliveriesDashboard = () => {
 
     const renderNextAction = useCallback(
         (delivery: Delivery) => {
+            if (delivery.stage === 'PACKED') {
+                return (
+                    <span className="text-xs text-blue-600 dark:text-blue-300">
+                        Auto-GI in progress
+                    </span>
+                )
+            }
+            if (delivery.stage === 'SHIPPED') {
+                return (
+                    <span className="text-xs text-gray-400">GI completed</span>
+                )
+            }
             const action = delivery.nextAction
             if (!action) {
-                return <span className="text-xs text-gray-400">No action needed</span>
+                return (
+                    <span className="text-xs text-gray-400">
+                        No action needed
+                    </span>
+                )
             }
             if (action === 'RELEASE_TO_WAREHOUSE') {
                 return canUpdate ? (
@@ -265,7 +340,9 @@ const DeliveriesDashboard = () => {
                         Release to warehouse
                     </Button>
                 ) : (
-                    <span className="text-xs text-gray-400">Awaiting release</span>
+                    <span className="text-xs text-gray-400">
+                        Awaiting release
+                    </span>
                 )
             }
             const screen = MM_SCREENS[action]
@@ -287,54 +364,99 @@ const DeliveriesDashboard = () => {
     const columns = useMemo<ColumnDef<Delivery>[]>(
         () => [
             {
-                header: 'Delivery #',
+                header: 'Delivery / SO #',
                 id: 'deliveryNumber',
                 cell: ({ row }) => (
                     <button
                         type="button"
-                        className="font-mono font-semibold text-primary hover:underline disabled:opacity-60"
+                        className="text-left disabled:opacity-60"
                         disabled={detailLoadingId === row.original.salesOrderId}
-                        onClick={() => void openDetail(row.original.salesOrderId)}
+                        onClick={() =>
+                            void openDetail(row.original.salesOrderId)
+                        }
                     >
-                        {row.original.deliveryNumber}
+                        <div className="font-mono font-semibold text-primary hover:underline">
+                            {row.original.deliveryNumber}
+                        </div>
+                        <div className="font-mono text-xs text-gray-500">
+                            {row.original.salesOrderReference}
+                        </div>
                     </button>
                 ),
             },
             {
-                header: 'Sales Order',
-                id: 'salesOrderReference',
+                header: 'Customer',
+                id: 'customer',
                 cell: ({ row }) => (
-                    <span className="font-mono text-xs">{row.original.salesOrderReference}</span>
+                    <div className="min-w-[8rem]">
+                        <div className="font-semibold">
+                            {row.original.customerName ?? '—'}
+                        </div>
+                        {row.original.customerCode ? (
+                            <div className="font-mono text-xs text-gray-500">
+                                {row.original.customerCode}
+                            </div>
+                        ) : null}
+                    </div>
                 ),
             },
             {
-                header: 'Customer',
-                id: 'customerName',
-                cell: ({ row }) => row.original.customerName ?? '—',
+                header: 'Product & SKU',
+                id: 'product',
+                cell: ({ row }) => {
+                    const { primaryProductName, primarySku, extraItemCount } =
+                        row.original
+                    return (
+                        <div className="min-w-[10rem]">
+                            <div className="font-semibold">
+                                {primaryProductName ?? '—'}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {primarySku ? (
+                                    <span className="font-mono text-xs text-gray-500">
+                                        {primarySku}
+                                    </span>
+                                ) : null}
+                                {extraItemCount > 0 ? (
+                                    <Tag className="border-0 bg-gray-100 text-xs font-semibold text-gray-600 dark:bg-gray-700 dark:text-gray-200">
+                                        +{extraItemCount} more
+                                    </Tag>
+                                ) : null}
+                            </div>
+                        </div>
+                    )
+                },
             },
             {
-                header: 'Status',
+                header: 'Amount',
+                id: 'totalAmount',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap font-semibold">
+                        {formatPhp(
+                            row.original.totalAmount,
+                            row.original.currency,
+                        )}
+                    </span>
+                ),
+            },
+            {
+                header: 'GI Status',
                 id: 'stage',
                 cell: ({ row }) => (
                     <div className="flex flex-col items-start gap-1">
                         <StageBadge stage={row.original.stage} />
-                        {row.original.stage === 'PICKING' && row.original.requiredQty > 0 ? (
+                        {row.original.stage === 'PICKING' &&
+                        row.original.requiredQty > 0 ? (
                             <span className="text-xs text-gray-500">
-                                {row.original.pickedQty} / {row.original.requiredQty} picked
+                                {row.original.pickedQty} /{' '}
+                                {row.original.requiredQty} picked
                             </span>
                         ) : null}
                     </div>
                 ),
             },
             {
-                header: 'Created',
-                id: 'createdAt',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">{formatDate(row.original.createdAt)}</span>
-                ),
-            },
-            {
-                header: 'Update Status',
+                header: 'Warehouse',
                 id: 'nextAction',
                 cell: ({ row }) => renderNextAction(row.original),
             },
@@ -345,7 +467,11 @@ const DeliveriesDashboard = () => {
     const shipToLines = detail
         ? [
               detail.shipTo.addressLine1,
-              [detail.shipTo.city, detail.shipTo.region, detail.shipTo.postalCode]
+              [
+                  detail.shipTo.city,
+                  detail.shipTo.region,
+                  detail.shipTo.postalCode,
+              ]
                   .filter(Boolean)
                   .join(', '),
               detail.shipTo.country,
@@ -358,7 +484,7 @@ const DeliveriesDashboard = () => {
             <Breadcrumb items={breadcrumbItems} className="mb-4" />
             <PageHeader
                 title="Outbound Deliveries"
-                description="Approved orders moving through picking, packing and goods issue. Warehouse steps are performed in Materials Management."
+                description="Approved orders moving through picking and packing. Goods Issue posts automatically from MM (Auto-GI) — there is no manual Post Goods Issue action in SD."
                 icon={<HiOutlineTruck />}
                 actions={
                     <Button
@@ -380,9 +506,9 @@ const DeliveriesDashboard = () => {
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
                 <Input
-                    className="md:max-w-md"
+                    className="md:max-w-lg"
                     prefix={<HiOutlineSearch className="text-lg" />}
-                    placeholder="Search order number, customer name or email..."
+                    placeholder="Search customer, order #, SKU or product name..."
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
                 />
@@ -390,7 +516,9 @@ const DeliveriesDashboard = () => {
                     <Select<StageFilterOption>
                         isSearchable={false}
                         options={STAGE_FILTER_OPTIONS}
-                        value={STAGE_FILTER_OPTIONS.find((option) => option.value === stage)}
+                        value={STAGE_FILTER_OPTIONS.find(
+                            (option) => option.value === stage,
+                        )}
                         onChange={(option) => selectStage(option?.value ?? '')}
                     />
                 </div>
@@ -428,7 +556,9 @@ const DeliveriesDashboard = () => {
                 onClose={() => setDetail(null)}
                 size="xl"
                 icon={<HiOutlineTruck />}
-                title={detail ? `Delivery ${detail.deliveryNumber}` : 'Delivery'}
+                title={
+                    detail ? `Delivery ${detail.deliveryNumber}` : 'Delivery'
+                }
                 description={
                     detail
                         ? `Sales order ${detail.salesOrderReference} · ${detail.channel}`
@@ -438,7 +568,10 @@ const DeliveriesDashboard = () => {
                     detail ? (
                         <Steps current={STAGE_ORDER.indexOf(detail.stage)}>
                             {STAGE_ORDER.map((key) => (
-                                <Steps.Item key={key} title={STAGE_META[key].label} />
+                                <Steps.Item
+                                    key={key}
+                                    title={STAGE_META[key].label}
+                                />
                             ))}
                         </Steps>
                     ) : undefined
@@ -463,11 +596,19 @@ const DeliveriesDashboard = () => {
                             </Field>
                             <Field label="Customer">
                                 {detail.customerName ?? '—'}
+                                {detail.customerCode ? (
+                                    <div className="font-mono text-xs font-normal text-gray-500">
+                                        {detail.customerCode}
+                                    </div>
+                                ) : null}
                                 {detail.customerEmail ? (
                                     <div className="text-xs font-normal text-gray-500">
                                         {detail.customerEmail}
                                     </div>
                                 ) : null}
+                            </Field>
+                            <Field label="Order amount">
+                                {formatPhp(detail.totalAmount, detail.currency)}
                             </Field>
                             <Field label="Warehouse">
                                 {detail.warehouses.length
@@ -476,8 +617,12 @@ const DeliveriesDashboard = () => {
                                           .join(', ')
                                     : 'Not assigned yet'}
                             </Field>
-                            <Field label="Created">{formatDate(detail.createdAt)}</Field>
-                            <Field label="Shipped">{formatDate(detail.shippedAt)}</Field>
+                            <Field label="Created">
+                                {formatDate(detail.createdAt)}
+                            </Field>
+                            <Field label="Shipped">
+                                {formatDate(detail.shippedAt)}
+                            </Field>
                             <Field label="Courier / tracking">
                                 {[detail.courierName, detail.trackingNumber]
                                     .filter(Boolean)
@@ -493,7 +638,8 @@ const DeliveriesDashboard = () => {
                                 {shipToLines.length ? (
                                     <div className="text-sm">
                                         <div className="font-semibold">
-                                            {detail.shipTo.name ?? detail.customerName}
+                                            {detail.shipTo.name ??
+                                                detail.customerName}
                                         </div>
                                         {shipToLines.map((line) => (
                                             <div key={line}>{line}</div>
@@ -535,21 +681,30 @@ const DeliveriesDashboard = () => {
                                 </h6>
                                 <div className="flex flex-wrap gap-2">
                                     {[
-                                        ...detail.documents.pickingTasks.map((d) => ({
-                                            ...d,
-                                            kind: 'Pick',
-                                        })),
-                                        ...detail.documents.packages.map((d) => ({
-                                            ...d,
-                                            kind: 'Package',
-                                        })),
-                                        ...detail.documents.goodsIssues.map((d) => ({
-                                            ...d,
-                                            kind: 'Goods issue',
-                                        })),
+                                        ...detail.documents.pickingTasks.map(
+                                            (d) => ({
+                                                ...d,
+                                                kind: 'Pick',
+                                            }),
+                                        ),
+                                        ...detail.documents.packages.map(
+                                            (d) => ({
+                                                ...d,
+                                                kind: 'Package',
+                                            }),
+                                        ),
+                                        ...detail.documents.goodsIssues.map(
+                                            (d) => ({
+                                                ...d,
+                                                kind: 'Goods issue',
+                                            }),
+                                        ),
                                     ].map((doc) => (
-                                        <StatusBadge key={`${doc.kind}-${doc.number}`}>
-                                            {doc.kind} {doc.number} · {doc.status}
+                                        <StatusBadge
+                                            key={`${doc.kind}-${doc.number}`}
+                                        >
+                                            {doc.kind} {doc.number} ·{' '}
+                                            {doc.status}
                                         </StatusBadge>
                                     ))}
                                 </div>
