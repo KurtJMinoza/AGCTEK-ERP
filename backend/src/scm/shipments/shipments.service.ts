@@ -4,7 +4,12 @@ import {
     Injectable,
     NotFoundException,
 } from '@nestjs/common'
-import { Prisma, ShipmentMovementType, ShipmentStatus } from '@prisma/client'
+import {
+    Prisma,
+    ShipmentExecutionMode,
+    ShipmentMovementType,
+    ShipmentStatus,
+} from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
     assertFound,
@@ -188,7 +193,14 @@ export class ShipmentsService {
         return assertFound(
             await this.prisma.shipment.findUnique({
                 where: { id },
-                include: { lines: { orderBy: { lineNo: 'asc' } } },
+                include: {
+                    lines: { orderBy: { lineNo: 'asc' } },
+                    courierConsignment: {
+                        include: {
+                            carrier: { select: { id: true, code: true, name: true } },
+                        },
+                    },
+                },
             }),
             'Shipment not found',
         )
@@ -309,6 +321,17 @@ export class ShipmentsService {
 
     async update(id: string, body: CreateShipmentBody) {
         const existing = await this.findOne(id)
+        if (
+            existing.executionMode === ShipmentExecutionMode.THIRD_PARTY &&
+            (body.status !== undefined ||
+                body.podSignatureUrl !== undefined ||
+                body.podPhotoUrl !== undefined)
+        ) {
+            // Courier status drives goods issue and SD delivery — only Couriers may change it.
+            throw new BadRequestException(
+                'This shipment ships with a third-party courier — update its status from the consignment',
+            )
+        }
         const data: Prisma.ShipmentUpdateInput = {}
 
         if (body.reference !== undefined) {
@@ -495,6 +518,15 @@ export class ShipmentsService {
 
     async remove(id: string) {
         await this.findOne(id)
+        const consignment = await this.prisma.courierConsignment.findUnique({
+            where: { shipmentId: id },
+            select: { id: true },
+        })
+        if (consignment) {
+            throw new ConflictException(
+                'Shipment has a courier consignment — cancel the consignment instead of deleting the shipment',
+            )
+        }
         await this.prisma.shipment.delete({ where: { id } })
         return { ok: true }
     }

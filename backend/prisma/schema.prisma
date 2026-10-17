@@ -6559,6 +6559,40 @@ enum ShipmentMovementType {
   PICKUP
 }
 
+/// Who carries the shipment last-mile. See docs/SCM_COURIERS.md.
+enum ShipmentExecutionMode {
+  /// Own fleet: load plan → trip → driver → POD
+  OWN_FLEET
+  /// Third-party courier (3PL): consignment + tracking number; no trip / driver
+  THIRD_PARTY
+}
+
+enum CarrierIntegrationType {
+  /// Dispatcher enters tracking number and status by hand
+  MANUAL
+  /// Booking / tracking through a carrier adapter (Phase 4)
+  API
+}
+
+/// Normalized courier status — UI and storefront never read vendor codes.
+enum CourierConsignmentStatus {
+  BOOKED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  EXCEPTION
+  RETURNED
+  /// Allowed only before PICKED_UP
+  CANCELLED
+}
+
+enum CourierEventSource {
+  MANUAL
+  WEBHOOK
+  POLL
+}
+
 enum MaintenanceType {
   PREVENTATIVE
   CORRECTIVE
@@ -6699,6 +6733,8 @@ model Shipment {
   requiresColdChain   Boolean                @default(false)
   /// DELIVERY = ship to customer; PICKUP = collect from customer/supplier
   movementType        ShipmentMovementType   @default(DELIVERY)
+  /// OWN_FLEET = trip / driver; THIRD_PARTY = courier consignment (no trip)
+  executionMode       ShipmentExecutionMode  @default(OWN_FLEET)
   status              ShipmentStatus         @default(DRAFT)
   requestedPickupAt   DateTime?
   requestedDeliveryAt DateTime?
@@ -6717,11 +6753,82 @@ model Shipment {
   tripStopShipments   TripStopShipment[]
   lines               ShipmentLine[]
   damageReports       DamageReport[]
+  /// Set when executionMode = THIRD_PARTY (authoritative carrier + tracking number)
+  courierConsignment  CourierConsignment?
 
   @@index([status])
   @@index([movementType])
   @@index([packageId])
   @@index([companyId, status])
+  @@index([executionMode, status])
+}
+
+/// Third-party courier (3PL) master — SCM Couriers. Not a vehicle or driver.
+model Carrier {
+  id                  String                 @id @default(cuid())
+  /// Short code, e.g. JNT, LBC, NINJAVAN
+  code                String                 @unique
+  name                String
+  isActive            Boolean                @default(true)
+  /// Courier may collect COD for us. Courier COD stays blocked until remittance (Phase 5).
+  supportsCod         Boolean                @default(false)
+  integrationType     CarrierIntegrationType @default(MANUAL)
+  /// Public tracking link; `{tracking}` is replaced with the tracking number
+  trackingUrlTemplate String?
+  notes               String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  consignments        CourierConsignment[]
+
+  @@index([isActive])
+}
+
+/// One courier hand-off per shipment (THIRD_PARTY). Status changes append CourierConsignmentEvent rows.
+model CourierConsignment {
+  id                String                    @id @default(cuid())
+  shipmentId        String                    @unique
+  shipment          Shipment                  @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  carrierId         String
+  carrier           Carrier                   @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  /// AWB / waybill number; unique per carrier when set
+  trackingNumber    String?
+  /// Carrier booking reference (API bookings)
+  externalBookingId String?
+  labelUrl          String?
+  status            CourierConsignmentStatus  @default(BOOKED)
+  bookedAt          DateTime                  @default(now())
+  pickedUpAt        DateTime?
+  deliveredAt       DateTime?
+  podUrl            String?
+  notes             String?
+  createdBy         String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  events            CourierConsignmentEvent[]
+
+  @@unique([carrierId, trackingNumber])
+  @@index([status])
+  @@index([carrierId, status])
+}
+
+/// Courier status history (manual entry now; webhook / poll in Phase 4).
+model CourierConsignmentEvent {
+  id             String                   @id @default(cuid())
+  consignmentId  String
+  consignment    CourierConsignment       @relation(fields: [consignmentId], references: [id], onDelete: Cascade)
+  status         CourierConsignmentStatus
+  occurredAt     DateTime                 @default(now())
+  source         CourierEventSource       @default(MANUAL)
+  /// Vendor status code as received (API sources)
+  rawStatus      String?
+  note           String?
+  payload        Json?
+  /// Webhook / poll de-duplication
+  idempotencyKey String?                  @unique
+  createdBy      String?
+  createdAt      DateTime                 @default(now())
+
+  @@index([consignmentId, occurredAt])
 }
 
 /// Cargo unit for load building. SHIP/RETURN prefer Warehouse master ids; TO is an address snapshot.

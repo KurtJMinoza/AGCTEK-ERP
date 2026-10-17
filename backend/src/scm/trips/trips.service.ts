@@ -13,6 +13,7 @@ import {
     DeliveryFailureReason,
     LoadPlanStatus,
     Prisma,
+    ShipmentExecutionMode,
     ShipmentMovementType,
     ShipmentStatus,
     StopStatus,
@@ -168,6 +169,20 @@ const SHIPMENT_CLOSED_STATUSES: ShipmentStatus[] = [
     ShipmentStatus.CANCELLED,
     ShipmentStatus.EXCEPTION_HOLD,
 ]
+
+/** Courier (THIRD_PARTY) shipments never go on a trip — see docs/SCM_COURIERS.md. */
+function assertOwnFleet(
+    shipments: Array<{ reference: string; executionMode: ShipmentExecutionMode }>,
+) {
+    const courier = shipments.filter(
+        (s) => s.executionMode === ShipmentExecutionMode.THIRD_PARTY,
+    )
+    if (courier.length > 0) {
+        throw new BadRequestException(
+            `Courier shipments cannot be put on a trip (${courier.map((s) => s.reference).join(', ')})`,
+        )
+    }
+}
 
 function podFields(body: PodBody): Prisma.TripStopUpdateManyMutationInput {
     const field = (value: string | null | undefined) =>
@@ -1034,6 +1049,7 @@ export class TripsService {
                     `Only READY shipments can be planned (${notReady.map((s) => s.reference).join(', ')})`,
                 )
             }
+            assertOwnFleet(shipments)
             await this.assertNotOnLoadPlan(shipmentIds)
 
             const alreadyLinked = await this.prisma.tripStopShipment.findFirst({
@@ -1561,6 +1577,7 @@ export class TripsService {
                 `Only READY shipments can be assigned (${notReady.map((s) => s.reference).join(', ')})`,
             )
         }
+        assertOwnFleet(shipments)
         await this.assertNotOnLoadPlan(shipmentIds)
 
         const alreadyLinked = await this.prisma.tripStopShipment.findFirst({
