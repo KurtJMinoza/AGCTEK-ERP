@@ -408,6 +408,8 @@ export async function createMarketplaceCheckout(
                     quantity: line.quantity,
                     unitPrice: line.unitPrice,
                     lineTotal: line.lineTotal,
+                    variantId: line.variantId,
+                    variantName: line.variantName,
                 })),
             },
             { headers: bearer(sessionToken) },

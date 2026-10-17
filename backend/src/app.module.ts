@@ -15,6 +15,7 @@ import { SdModule } from './sd/sd.module'
 import { PpModule } from './pp/pp.module'
 import { FicoModule } from './fico/fico.module'
 import { CrmModule } from './crm/crm.module'
+import { ModuleActivityModule } from './module-activity/module-activity.module'
 
 @Module({
     imports: [
@@ -32,6 +33,7 @@ import { CrmModule } from './crm/crm.module'
         FicoModule,
         CrmModule,
         RetailModule,
+        ModuleActivityModule,
     ],
     controllers: [AppController],
     providers: [AppService],

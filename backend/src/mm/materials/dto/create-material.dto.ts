@@ -217,4 +217,14 @@ export class CreateMaterialDto {
     @IsOptional()
     @IsString()
     preferredSupplierId?: string
+
+    /** SD variant that triggered auto-creation of this material (set by ProductFamilyService). */
+    @IsOptional()
+    @IsString()
+    catalogVariantId?: string
+
+    /** AUTO_CREATED | MANUALLY_LINKED — how this material was associated with its catalog variant. */
+    @IsOptional()
+    @IsIn(['AUTO_CREATED', 'MANUALLY_LINKED'])
+    catalogSource?: string
 }

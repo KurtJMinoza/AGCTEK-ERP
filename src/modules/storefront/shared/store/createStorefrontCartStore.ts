@@ -1,7 +1,24 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type StorefrontCartItem<P> = { product: P; quantity: number }
+/** Variant details attached to a cart line when adding a variant product. */
+export type CartVariantInfo = {
+    variantId: string
+    variantName: string
+    variantSku: string
+    materialId?: string
+    unitPrice?: number
+    companyId?: string
+    /** Selected option values for display, e.g. ["Black", "Medium"]. */
+    optionValues?: string[]
+}
+
+export type StorefrontCartItem<P> = {
+    product: P
+    quantity: number
+    /** When set, this cart line refers to a specific variant (not the parent product). */
+    variant?: CartVariantInfo
+}
 
 export type StorefrontCartState<P> = {
     items: StorefrontCartItem<P>[]
@@ -10,7 +27,7 @@ export type StorefrontCartState<P> = {
     isDrawerOpen: boolean
     openDrawer: () => void
     closeDrawer: () => void
-    addItem: (product: P, quantity?: number) => void
+    addItem: (product: P, quantity?: number, variant?: CartVariantInfo) => void
     updateQuantity: (key: string, quantity: number) => void
     removeItem: (key: string) => void
     removeItems: (keys: string[]) => void
@@ -23,8 +40,9 @@ export type StorefrontCartState<P> = {
 
 /**
  * Storefront cart. `keyOf` identifies a product line (e.g. division + SKU,
- * since SKUs are only unique per division). Prices are always recomputed by
- * SD pricing; the stored product is for display only.
+ * since SKUs are only unique per division). When a variant is present, the key
+ * is extended with `#variantId` so the same parent product with different
+ * variants occupies separate cart lines.
  *
  * Items persist in the browser under `storageKey`, so a guest's cart survives
  * reloads and carries over when they sign in or register. Selection is
@@ -38,13 +56,16 @@ export const createStorefrontCartStore = <P>(
     create<StorefrontCartState<P>>()(
         persist(
             (set) => {
+                const itemKey = (item: StorefrontCartItem<P>) =>
+                    item.variant
+                        ? `${keyOf(item.product)}#${item.variant.variantId}`
+                        : keyOf(item.product)
+
                 const prune = (
                     selectedKeys: string[],
                     items: StorefrontCartItem<P>[],
                 ) => {
-                    const valid = new Set(
-                        items.map((item) => keyOf(item.product)),
-                    )
+                    const valid = new Set(items.map(itemKey))
                     return selectedKeys.filter((key) => valid.has(key))
                 }
                 return {
@@ -53,16 +74,18 @@ export const createStorefrontCartStore = <P>(
                     isDrawerOpen: false,
                     openDrawer: () => set({ isDrawerOpen: true }),
                     closeDrawer: () => set({ isDrawerOpen: false }),
-                    addItem: (product, quantity = 1) =>
+                    addItem: (product, quantity = 1, variant) =>
                         set((state) => {
-                            const key = keyOf(product)
+                            const candidateKey = variant
+                                ? `${keyOf(product)}#${variant.variantId}`
+                                : keyOf(product)
                             const existing = state.items.find(
-                                (item) => keyOf(item.product) === key,
+                                (item) => itemKey(item) === candidateKey,
                             )
                             return {
                                 items: existing
                                     ? state.items.map((item) =>
-                                          keyOf(item.product) === key
+                                          itemKey(item) === candidateKey
                                               ? {
                                                     ...item,
                                                     quantity:
@@ -71,7 +94,7 @@ export const createStorefrontCartStore = <P>(
                                                 }
                                               : item,
                                       )
-                                    : [...state.items, { product, quantity }],
+                                    : [...state.items, { product, quantity, variant }],
                             }
                         }),
                     updateQuantity: (key, quantity) =>
@@ -80,10 +103,10 @@ export const createStorefrontCartStore = <P>(
                                 quantity < 1
                                     ? state.items.filter(
                                           (item) =>
-                                              keyOf(item.product) !== key,
+                                              itemKey(item) !== key,
                                       )
                                     : state.items.map((item) =>
-                                          keyOf(item.product) === key
+                                          itemKey(item) === key
                                               ? { ...item, quantity }
                                               : item,
                                       )
@@ -98,7 +121,7 @@ export const createStorefrontCartStore = <P>(
                     removeItem: (key) =>
                         set((state) => {
                             const newItems = state.items.filter(
-                                (item) => keyOf(item.product) !== key,
+                                (item) => itemKey(item) !== key,
                             )
                             return {
                                 items: newItems,
@@ -113,7 +136,7 @@ export const createStorefrontCartStore = <P>(
                             const excluded = new Set(keys)
                             const newItems = state.items.filter(
                                 (item) =>
-                                    !excluded.has(keyOf(item.product)),
+                                    !excluded.has(itemKey(item)),
                             )
                             return {
                                 items: newItems,
@@ -160,9 +183,7 @@ export const createStorefrontCartStore = <P>(
                     setSelectAll: (select) =>
                         set((state) => ({
                             selectedKeys: select
-                                ? state.items.map((item) =>
-                                      keyOf(item.product),
-                                  )
+                                ? state.items.map(itemKey)
                                 : [],
                         })),
                 }

@@ -232,6 +232,22 @@ export interface Material {
     preferredSupplierId?: string | null
     preferredSupplier?: { id: string; supplierCode: string; supplierName: string } | null
 
+    /** SD variant that triggered auto-creation (null = independently created). */
+    catalogVariantId?: string | null
+    /** AUTO_CREATED | MANUALLY_LINKED. */
+    catalogSource?: string | null
+    /** Resolved catalog variant details (populated by API). */
+    catalogVariant?: {
+        id: string
+        variantName: string
+        sku: string
+        product?: {
+            id: string
+            name: string
+            sku: string
+        }
+    } | null
+
     createdBy?: string | null
     updatedBy?: string | null
     createdAt: string

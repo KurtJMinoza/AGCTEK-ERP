@@ -72,6 +72,8 @@ type PendingAdd = {
     quantity: number
     /** "Buy now": open the cart after adding. */
     buyNow: boolean
+    /** Selected variant info (when the product has customer-selectable options). */
+    variantInfo?: import('@/modules/storefront/shared/store/createStorefrontCartStore').CartVariantInfo
 }
 
 type MarketplaceContextValue = {
@@ -89,6 +91,7 @@ type MarketplaceContextValue = {
         product: SdProductRecord,
         quantity?: number,
         buyNow?: boolean,
+        variantInfo?: import('@/modules/storefront/shared/store/createStorefrontCartStore').CartVariantInfo,
     ) => void | Promise<void>
     openCart: () => void
     openOrders: () => void
@@ -379,7 +382,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const requestAdd = useCallback(
-        async (product: SdProductRecord, quantity = 1, buyNow = false) => {
+        async (product: SdProductRecord, quantity = 1, buyNow = false, variantInfo?: PendingAdd['variantInfo']) => {
             // Product cards do not load ATP individually (to avoid an N+1
             // catalog request), so check just-in-time when a shopper adds an
             // item. Checkout repeats the check on the server before an SO can
@@ -405,7 +408,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 // The server checkout gate remains authoritative. Let shoppers
                 // keep browsing if this optional convenience check is offline.
             }
-            setRequestedAdd({ product, quantity, buyNow })
+            setRequestedAdd({ product, quantity, buyNow, variantInfo })
         },
         [],
     )
@@ -414,24 +417,27 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const confirmAdd = () => {
         if (!requestedAdd) return
-        const { product, quantity, buyNow } = requestedAdd
+        const { product, quantity, buyNow, variantInfo } = requestedAdd
         if (buyNow) {
-            // Buy Now is fully detached from the cart: hand the item straight
-            // to the checkout page via query params (it resolves the product
-            // from the catalogue). Nothing is added to the cart.
             const params = new URLSearchParams({
                 buyNow: '1',
                 division: product.divisionId,
                 sku: product.sku,
                 qty: String(quantity),
             })
+            if (variantInfo?.variantId) {
+                params.set('variantId', variantInfo.variantId)
+            }
             cancelAdd()
             router.push(`${CHECKOUT_PATH}?${params.toString()}`)
             return
         }
-        addItem(product, quantity)
+        addItem(product, quantity, variantInfo)
         cancelAdd()
-        notify('success', 'Added to cart', `${quantity} × ${product.name}`)
+        const displayName = variantInfo?.variantName
+            ? `${product.name} — ${variantInfo.variantName}`
+            : product.name
+        notify('success', 'Added to cart', `${quantity} × ${displayName}`)
     }
 
     const increaseItem = useCallback(

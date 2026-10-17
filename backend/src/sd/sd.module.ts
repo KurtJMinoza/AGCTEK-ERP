@@ -38,6 +38,7 @@ import { DeliveryController } from './delivery.controller'
 import { DeliveryMonitorService } from './delivery-monitor.service'
 import { SalesInvoiceController } from './sales-invoice.controller'
 import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
+import { ProductFamilyService } from './product-family.service'
 import { PricingConditionController } from './pricing-condition.controller'
 import { PricingConditionService } from './pricing-condition.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
@@ -90,6 +91,7 @@ import { SalesAnalyticsService } from './sales-analytics.service'
         SalesInvoicePdfService,
         OrderTrackingService,
         OrderTrackingNotifierListener,
+        ProductFamilyService,
         PricingConditionService,
         SalesAnalyticsService,
     ],

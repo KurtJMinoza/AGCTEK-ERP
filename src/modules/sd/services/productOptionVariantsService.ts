@@ -131,18 +131,20 @@ export const effectiveVariantPrice = (
  * Compare-at price: inherits the parent original price only while the variant
  * also inherits the parent price; a custom variant price drops the parent
  * discount unless the variant sets its own compare-at (inheritance rule 3).
+ * A variant price equal to the parent price counts as inheriting.
  */
 export const effectiveVariantCompareAt = (
-    product: { originalPrice: number | null },
+    product: { price: number; originalPrice: number | null },
     variant:
         | { price: number | null; compareAtPrice: number | null }
         | null
         | undefined,
 ): number | null => {
     if (!variant) return product.originalPrice
-    return variant.price === null
+    if (variant.compareAtPrice != null) return variant.compareAtPrice
+    return variant.price === null || variant.price === product.price
         ? product.originalPrice
-        : variant.compareAtPrice
+        : null
 }
 
 /** Variant plus its parent product (POS barcode lookup). */

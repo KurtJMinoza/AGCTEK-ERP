@@ -5,6 +5,8 @@ import { HiChevronRight } from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import IconText from '@/components/shared/IconText'
 import ErpIcon from '@/components/erp/ErpIcon'
+import NewDataBadge from '@/components/erp/NewDataBadge'
+import { usePageBadgeCount } from '@/utils/hooks/useModuleActivity'
 import type { ErpSubmodule } from '@/types/erp-modules'
 import classNames from '@/utils/classNames'
 
@@ -17,6 +19,7 @@ export default function SubmoduleCard({
     submodule,
     className,
 }: SubmoduleCardProps) {
+    const newCount = usePageBadgeCount(submodule.path)
     const linkClassName = classNames('group block', className)
     const card = (
         <AdaptiveCard clickable className="h-full">
@@ -30,8 +33,9 @@ export default function SubmoduleCard({
                     }
                 >
                     <div>
-                        <h4 className="font-semibold heading-text">
+                        <h4 className="flex items-center gap-2 font-semibold heading-text">
                             {submodule.title}
+                            <NewDataBadge count={newCount} />
                         </h4>
                         <p className="mt-2 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">
                             {submodule.description}
