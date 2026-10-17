@@ -1,6 +1,8 @@
 # SCM Couriers (3PL) sub-module
 
-**Status:** Phase 0 locked (2026-10-17). Phases 1–3 done (schema, carrier master, booking, status flow with goods issue / delivery, courier UI, customer tracking, SD projection, shopper notices). Phase 4 (carrier API adapter) waits for a courier contract.
+**Status:** Phase 0 locked (2026-10-17). Phases 1–3 done (schema, carrier master, booking, status flow with goods issue / delivery, courier UI, customer tracking, SD projection, shopper notices). **Phases 4–5 parked (2026-10-17)** — couriers run MANUAL until resumed.
+
+**When resuming Phase 4** (shortlist SPX / Flash / J&T): Flash Express is the first candidate — public Open API docs (open-docs.flashexpress.com) with create / cancel / track / labels / rate / pickup / signed webhooks and a training server; confirm the PH merchant account uses the same API and address tree. J&T PH needs sales onboarding (Customer ID, key, eCompany ID) before specs. SPX has no standalone merchant API found (Shopee Open Platform / Shopify app only); add `SPX` on the Couriers page to use it manually.
 **Scope:** After pack, a customer shipment goes out by **own fleet** (existing trip / driver / POD) or by a **third-party courier** (parcel 3PL). Couriers owns partner last-mile — carrier master, consignment, tracking number, courier status, and later the carrier API. It does **not** own vehicles, trips, drivers, routing, or GPS.
 
 Related: [`SCM_PROCESS_FLOW.md`](./SCM_PROCESS_FLOW.md) (MM → SCM handoff), [`SCM_TMS_CARGO_FIRST.md`](./SCM_TMS_CARGO_FIRST.md) (own-fleet load / trip), [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md) (own-fleet COD).

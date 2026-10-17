@@ -50,8 +50,14 @@ export default function ShipWithCourierDialog({ shipment, onClose, onBooked }: P
 
     const submit = async () => {
         if (!shipment) return
-        if (!carrierId || !trackingNumber.trim()) {
-            setError('Choose a courier and enter the tracking number.')
+        if (!carrierId) {
+            setError('Choose a courier.')
+            return
+        }
+        if (!trackingNumber.trim()) {
+            setError(
+                'Enter the tracking number from the courier waybill — book the parcel with the courier first.',
+            )
             return
         }
         setSaving(true)
