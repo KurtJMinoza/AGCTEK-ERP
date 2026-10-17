@@ -90,6 +90,8 @@ export type SalesOrderRecord = {
         requestNumber: string
         status: string
         refundStatus: string
+        /** REFUND (red) | REPLACEMENT (orange) | STORE_CREDIT */
+        preferredResolution: string | null
         reason: string | null
         lines: Array<{ salesOrderLineId: string; quantity: number }>
     }>
@@ -199,6 +201,7 @@ type ApiSalesOrder = {
         requestNumber: string
         status: string
         refundStatus: string
+        preferredResolution: string | null
         reason: string | null
         lines: Array<{ salesOrderLineId: string; quantity: DecimalString }>
     }>

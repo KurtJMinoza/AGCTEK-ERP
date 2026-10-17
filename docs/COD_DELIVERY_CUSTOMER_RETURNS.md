@@ -1,6 +1,6 @@
 # COD delivery + optional damage + Customer Returns
 
-**Status:** Phase 0 locked (2026-10-16). Phases 1–5 complete (programme closed for this scope).  
+**Status:** Phase 0 locked (2026-10-16). Phases 1–5 complete. COD CR flags: Replace (orange) / Refund (red).  
 **Scope:** On-spot COD authority (accept qty + collect), Customer Returns as the single commercial follow-up, SI/payment tied to what was paid. Replacement and MM intake run on approve.
 
 Related: [`SCM_DAMAGE_REPORT_DESIGN.md`](./SCM_DAMAGE_REPORT_DESIGN.md) (evidence + prior Sales Returns handoff — commercial spine moves to Customer Returns per Phase 2).
@@ -16,11 +16,24 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 | # | Scenario | Stop | COD | Commercial follow-up |
 |---|----------|------|-----|----------------------|
 | 1 | Happy path — accept all, no damage | `COMPLETED` | Collect full | None; SI = full |
-| 2 | Partial accept — reject damaged qty | `COMPLETED` (not FAILED) | Collect for **accepted** qty only | DamageReport evidence + **Customer Return** for rejected qty |
+| 2 | Partial accept — reject damaged qty | `COMPLETED` (not FAILED) | Collect for **accepted** qty only | DamageReport + CR with `NOT_REQUIRED` (ops; **no** Refund/Replace CTAs) |
 | 3 | Refuse all | `FAILED` | No collect | No SI for this delivery; stock return-to-WH is ops |
 | 4 | Accept all including damaged (pay full) | `COMPLETED` | Collect full | Optional note only — **no** credit return |
-| 5 | Hidden damage after driver leaves | Already delivered | Already collected | Customer Return later → refund/credit |
+| 5 | Hidden damage after driver leaves | Already delivered | Already collected | Customer Return later → **Refund (red)** or **Replace (orange)** |
 | 6 | Replacement (after approve) | — | — | New pick/pack/SCM outbound; optional pickup stop for damaged |
+
+### Customer Return flags (COD)
+
+When a COD order has a Customer Return for damaged goods (typically after cash was collected), the commercial choice on Customer Returns is narrowed to two:
+
+| Choice | Flag | `preferredResolution` | Outcome |
+|--------|------|----------------------|---------|
+| **Replace request** | **Orange** (`warning` badge) | `REPLACEMENT` | Approve → MM intake + `$0` child SO → Pick → Pack → SCM → POD |
+| **Refund request** | **Red** (`danger` badge) | `REFUND` | Existing refund / credit memo flow |
+
+Happy path (no damage) has no Customer Return and no flag.
+
+**COD on-spot refuse** (partial accept, cash never collected for rejected qty): `refundStatus = NOT_REQUIRED` — neither Refund nor Replace is offered (avoids free-ship / fake-refund loops). DamageReport remains evidence; stock return-to-WH is ops.
 
 ### Locked rules
 
@@ -103,9 +116,24 @@ Confirmed: `1A 2A 3A 4A 5C 6A` + locked rules below.
 - Admin UI: Approve (refund) / Approve (replacement); detail shows replacement SO id.
 - Migration: `20261016160000_return_replacement_so`.
 
+## Demo seed (happy + damaged)
+
+Idempotent prerequisites for a live driver happy path and a pre-completed partial-damage Customer Return:
+
+```bash
+cd backend && npm run prisma:seed-cod-delivery-demo
+```
+
+| Key | Order / trip | State | Next step |
+|-----|--------------|-------|-----------|
+| **HAPPY** | `SO-COD-DEMO-HAPPY` / `TRP-COD-DEMO-HAPPY` | Drop-off `ARRIVED`, COD Pending Collection | Driver: accept all → collect full |
+| **DAMAGED** | `SO-COD-DEMO-DMG` / `TRP-COD-DEMO-DMG` | Accepted 8/10, COD Paid ₱800, `RET-COD-DEMO-DMG` REQUESTED | Admin: Customer Returns → Approve |
+
+Requires `AGCTEK` / `MAIN` / `driver01`. Uses `MAT-STEEL-001` / `MAT-OIL-001` when present; otherwise any existing MM materials.
+
 ## Phase 5 — shipped (QA scenarios 1–6)
 
-Scripted acceptance locks the Phase 0 commercial table. No live API seed required.
+Scripted acceptance locks the Phase 0 commercial table. No live API seed required for CI.
 
 ### How to run
 

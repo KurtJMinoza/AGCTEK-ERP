@@ -18,6 +18,10 @@ import { orgService } from '@/modules/mm/material-master/services/referenceServi
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     customerReturnRequestService,
+    displayStatuses,
+    isCommercialResolutionBlocked,
+    RESOLUTION_LABEL,
+    RESOLUTION_TONE,
     type CustomerReturnRequestRow,
 } from '../services/customerReturnRequestService'
 
@@ -39,6 +43,7 @@ const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' |
 }
 
 const REFUND_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
+    REQUESTED: 'warning',
     NONE: 'default',
     NOT_REQUIRED: 'default',
     PENDING_REFUND: 'warning',
@@ -209,22 +214,57 @@ const CustomerReturnsPage = () => {
                     (row.original.reason ?? '—').replace(/_/g, ' '),
             },
             {
+                header: 'Request',
+                id: 'preferredResolution',
+                cell: ({ row }) => {
+                    const r = row.original
+                    if (isCommercialResolutionBlocked(r.refundStatus)) {
+                        return (
+                            <StatusBadge tone="default">
+                                On-spot (no refund)
+                            </StatusBadge>
+                        )
+                    }
+                    const res = r.preferredResolution
+                    if (!res || !(res in RESOLUTION_LABEL)) {
+                        return <span className="text-gray-400">—</span>
+                    }
+                    return (
+                        <StatusBadge tone={RESOLUTION_TONE[res] ?? 'default'}>
+                            {RESOLUTION_LABEL[res]}
+                        </StatusBadge>
+                    )
+                },
+            },
+            {
                 header: 'Return Status',
                 accessorKey: 'status',
-                cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                        {row.original.status.replace(/_/g, ' ')}
-                    </StatusBadge>
-                ),
+                cell: ({ row }) => {
+                    const { returnStatus } = displayStatuses(row.original)
+                    if (!returnStatus) {
+                        return <span className="text-gray-400">—</span>
+                    }
+                    return (
+                        <StatusBadge tone={STATUS_TONE[returnStatus] ?? 'default'}>
+                            {returnStatus.replace(/_/g, ' ')}
+                        </StatusBadge>
+                    )
+                },
             },
             {
                 header: 'Refund Status',
                 accessorKey: 'refundStatus',
-                cell: ({ row }) => (
-                    <StatusBadge tone={REFUND_TONE[row.original.refundStatus] ?? 'default'}>
-                        {row.original.refundStatus}
-                    </StatusBadge>
-                ),
+                cell: ({ row }) => {
+                    const { refundStatus } = displayStatuses(row.original)
+                    if (!refundStatus) {
+                        return <span className="text-gray-400">—</span>
+                    }
+                    return (
+                        <StatusBadge tone={REFUND_TONE[refundStatus] ?? 'default'}>
+                            {refundStatus.replace(/_/g, ' ')}
+                        </StatusBadge>
+                    )
+                },
             },
             {
                 header: 'Created',
@@ -253,39 +293,53 @@ const CustomerReturnsPage = () => {
                         })
                     }
                     if (r.status === 'REQUESTED') {
-                        items.push({
-                            label: 'Approve (refund)',
-                            run: () =>
-                                void confirmRun(
-                                    'Approve return — refund',
-                                    'Approve and open MM intake. Resolution: refund after goods are received.',
-                                    () =>
-                                        customerReturnRequestService.approve(r.id, {
-                                            companyId: company,
-                                            preferredResolution: 'REFUND',
-                                        }),
-                                ),
-                        })
-                        items.push({
-                            label: 'Approve (replacement)',
-                            run: () =>
-                                void confirmRun(
-                                    'Approve return — replacement',
-                                    'Approve, open MM intake, and start a $0 replacement sales order (pick/pack outbound)?',
-                                    () =>
-                                        customerReturnRequestService.approve(r.id, {
-                                            companyId: company,
-                                            preferredResolution: 'REPLACEMENT',
-                                        }),
-                                ),
-                        })
+                        const blocked = isCommercialResolutionBlocked(
+                            r.refundStatus,
+                        )
+                        if (!blocked) {
+                            items.push({
+                                label: 'Refund request',
+                                run: () =>
+                                    void confirmRun(
+                                        'Refund request',
+                                        'Approve as Refund (red). Opens MM intake; refund after goods are received.',
+                                        () =>
+                                            customerReturnRequestService.approve(
+                                                r.id,
+                                                {
+                                                    companyId: company,
+                                                    preferredResolution: 'REFUND',
+                                                },
+                                            ),
+                                    ),
+                            })
+                            items.push({
+                                label: 'Replace request',
+                                run: () =>
+                                    void confirmRun(
+                                        'Replace request',
+                                        'Approve as Replace (orange). Opens MM intake and a $0 replacement sales order (pick/pack outbound).',
+                                        () =>
+                                            customerReturnRequestService.approve(
+                                                r.id,
+                                                {
+                                                    companyId: company,
+                                                    preferredResolution:
+                                                        'REPLACEMENT',
+                                                },
+                                            ),
+                                    ),
+                            })
+                        }
                         items.push({
                             label: 'Reject',
                             danger: true,
                             run: () =>
                                 void confirmRun(
                                     'Reject return',
-                                    'Reject this return request? The customer will not be refunded.',
+                                    blocked
+                                        ? 'Close this on-spot refuse record? No refund or replacement applies.'
+                                        : 'Reject this return request? The customer will not be refunded.',
                                     () =>
                                         customerReturnRequestService.reject(r.id, {
                                             companyId: company,
@@ -668,12 +722,65 @@ const CustomerReturnsPage = () => {
                                 </p>
                             </div>
                             <div className="flex flex-col items-end gap-1">
-                                <StatusBadge tone={STATUS_TONE[detail.status] ?? 'default'}>
-                                    {detail.status.replace(/_/g, ' ')}
-                                </StatusBadge>
-                                <StatusBadge tone={REFUND_TONE[detail.refundStatus] ?? 'default'}>
-                                    Refund: {detail.refundStatus.replace(/_/g, ' ')}
-                                </StatusBadge>
+                                {isCommercialResolutionBlocked(
+                                    detail.refundStatus,
+                                ) ? (
+                                    <StatusBadge tone="default">
+                                        On-spot (no refund)
+                                    </StatusBadge>
+                                ) : detail.preferredResolution &&
+                                  detail.preferredResolution in
+                                      RESOLUTION_LABEL ? (
+                                    <StatusBadge
+                                        tone={
+                                            RESOLUTION_TONE[
+                                                detail.preferredResolution
+                                            ] ?? 'default'
+                                        }
+                                    >
+                                        {
+                                            RESOLUTION_LABEL[
+                                                detail.preferredResolution
+                                            ]
+                                        }
+                                    </StatusBadge>
+                                ) : null}
+                                {(() => {
+                                    const shown = displayStatuses(detail)
+                                    return (
+                                        <>
+                                            {shown.returnStatus ? (
+                                                <StatusBadge
+                                                    tone={
+                                                        STATUS_TONE[
+                                                            shown.returnStatus
+                                                        ] ?? 'default'
+                                                    }
+                                                >
+                                                    {shown.returnStatus.replace(
+                                                        /_/g,
+                                                        ' ',
+                                                    )}
+                                                </StatusBadge>
+                                            ) : null}
+                                            {shown.refundStatus ? (
+                                                <StatusBadge
+                                                    tone={
+                                                        REFUND_TONE[
+                                                            shown.refundStatus
+                                                        ] ?? 'default'
+                                                    }
+                                                >
+                                                    Refund:{' '}
+                                                    {shown.refundStatus.replace(
+                                                        /_/g,
+                                                        ' ',
+                                                    )}
+                                                </StatusBadge>
+                                            ) : null}
+                                        </>
+                                    )
+                                })()}
                             </div>
                         </div>
 
@@ -685,9 +792,17 @@ const CustomerReturnsPage = () => {
                                 </dd>
                             </div>
                             <div>
-                                <dt className="text-xs text-gray-500">Preferred resolution</dt>
+                                <dt className="text-xs text-gray-500">Request</dt>
                                 <dd className="font-medium">
-                                    {detail.preferredResolution ?? '—'}
+                                    {isCommercialResolutionBlocked(
+                                        detail.refundStatus,
+                                    )
+                                        ? 'On-spot (no refund)'
+                                        : detail.preferredResolution
+                                          ? (RESOLUTION_LABEL[
+                                                detail.preferredResolution
+                                            ] ?? detail.preferredResolution)
+                                          : '—'}
                                 </dd>
                             </div>
                             <div>

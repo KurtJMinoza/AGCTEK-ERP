@@ -26,6 +26,15 @@ export const RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
     'COMPLETED',
 ])
 
+/** Storefront self-service: only after delivery is done (no SHIPPED / in-transit). */
+export const CUSTOMER_RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'DELIVERED',
+    'COMPLETED',
+])
+
+/** Storefront choices: Replace request (orange) or Refund request (red). */
+export const CUSTOMER_RESOLUTIONS = ['REPLACEMENT', 'REFUND'] as const
+
 /** Sales Return statuses — module list order (Phase 4). */
 export const SALES_RETURN_REQUEST_STATUSES = [
     'REQUESTED',
@@ -196,7 +205,20 @@ export class ReturnRequestService {
                 'Order has no company scope — contact support to request a return',
             )
         }
-        assertReturnableOrder(order)
+        if (!CUSTOMER_RETURNABLE_ORDER_STATUSES.has(order.status ?? '')) {
+            throw new BadRequestException(
+                `Returns can be requested once the order is delivered (current status: ${order.status ?? 'UNKNOWN'})`,
+            )
+        }
+        const resolution = validateResolution(input.preferredResolution)
+        if (
+            !resolution ||
+            !(CUSTOMER_RESOLUTIONS as readonly string[]).includes(resolution)
+        ) {
+            throw new BadRequestException(
+                `Choose a resolution: ${CUSTOMER_RESOLUTIONS.join(' or ')}`,
+            )
+        }
         const existing = await this.prisma.sdReturnRequest.findFirst({
             where: { salesOrderId: order.id, status: 'REQUESTED' },
             select: { id: true },
@@ -213,7 +235,7 @@ export class ReturnRequestService {
             reason: input.reason,
             conditionNote: input.conditionNote,
             photos: input.photos,
-            preferredResolution: input.preferredResolution,
+            preferredResolution: resolution,
             lines: input.lines,
         })
     }
@@ -303,7 +325,11 @@ export class ReturnRequestService {
                 conditionNote: input.conditionNote,
                 photos: input.photos,
                 requestedBy: input.requestedBy,
-                preferredResolution: 'REFUND',
+                // On-spot COD refuse: no commercial Refund/Replace request —
+                // cash was never taken for rejected qty (refundStatus NOT_REQUIRED).
+                preferredResolution: input.onSpotCodPartial
+                    ? undefined
+                    : 'REFUND',
                 refundStatus: input.onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE',
                 lines: [
                     {
@@ -541,6 +567,17 @@ export class ReturnRequestService {
             validateResolution(opts.preferredResolution) ??
             request.preferredResolution
 
+        // COD on-spot refuse: cash never collected for those units — neither
+        // Refund nor Replace (free-ship loop) is allowed.
+        if (
+            request.refundStatus === 'NOT_REQUIRED' &&
+            (resolution === 'REFUND' || resolution === 'REPLACEMENT')
+        ) {
+            throw new BadRequestException(
+                'This return has no cash collected (COD on-spot refuse) — Refund and Replace are not available',
+            )
+        }
+
         const order = await this.prisma.sdSalesOrder.findUnique({
             where: { id: request.salesOrderId },
             select: { warehouseId: true },
@@ -771,6 +808,11 @@ export class ReturnRequestService {
     ) {
         const { request, payment, refundAmount, returnQuantity } =
             await this.loadRefundContext(id, companyId)
+        if (request.refundStatus === 'NOT_REQUIRED') {
+            throw new BadRequestException(
+                'Refund is not required — COD was never collected for these units',
+            )
+        }
         if (!payment || payment.status !== 'Paid') {
             throw new BadRequestException(
                 'Only a Paid/collected payment can be refunded — an unpaid Cash on Delivery has no refund payable',
@@ -1278,6 +1320,7 @@ export class ReturnRequestService {
                 orderNumber: true,
                 customerName: true,
                 status: true,
+                paymentMethod: true,
                 company: { select: { id: true, code: true, name: true } },
             },
         },

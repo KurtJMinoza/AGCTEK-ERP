@@ -34,6 +34,51 @@ export const REFUND_METHOD_LABEL: Record<string, string> = {
     STORE_CREDIT: 'Store credit',
 }
 
+/** COD Customer Return commercial choices (Replace = orange, Refund = red). */
+export const RESOLUTION_LABEL: Record<string, string> = {
+    REPLACEMENT: 'Replace request',
+    REFUND: 'Refund request',
+    STORE_CREDIT: 'Store credit',
+}
+
+/** StatusBadge tones: REPLACEMENT → warning (amber/orange), REFUND → danger (red). */
+export const RESOLUTION_TONE: Record<
+    string,
+    'success' | 'default' | 'warning' | 'danger' | 'info'
+> = {
+    REPLACEMENT: 'warning',
+    REFUND: 'danger',
+    STORE_CREDIT: 'info',
+}
+
+/** True when cash was never collected — Refund/Replace CTAs must stay off. */
+export function isCommercialResolutionBlocked(refundStatus: string): boolean {
+    return refundStatus === 'NOT_REQUIRED'
+}
+
+/**
+ * Which column carries the request's state. A Refund request lives under
+ * Refund Status (REQUESTED until the refund record exists); a Replace request
+ * lives under Return Status and has no refund. `null` = not applicable.
+ */
+export function displayStatuses(
+    row: Pick<
+        CustomerReturnRequestRow,
+        'status' | 'refundStatus' | 'preferredResolution'
+    >,
+): { returnStatus: string | null; refundStatus: string | null } {
+    if (row.preferredResolution === 'REFUND' && row.refundStatus === 'NONE') {
+        return {
+            returnStatus: row.status === 'REQUESTED' ? null : row.status,
+            refundStatus: 'REQUESTED',
+        }
+    }
+    if (row.preferredResolution === 'REPLACEMENT') {
+        return { returnStatus: row.status, refundStatus: null }
+    }
+    return { returnStatus: row.status, refundStatus: row.refundStatus }
+}
+
 export type CustomerReturnRequestRow = {
     id: string
     requestNumber: string
@@ -81,6 +126,7 @@ export type CustomerReturnRequestRow = {
         orderNumber: string
         customerName: string | null
         status: string
+        paymentMethod?: string | null
         company?: { id: string; code: string; name: string } | null
     } | null
 }

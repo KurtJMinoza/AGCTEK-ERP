@@ -29,9 +29,8 @@ type ReturnReason = (typeof RETURN_REASONS)[number]['value']
 type ReturnReasonOption = { value: ReturnReason; label: string }
 
 const RESOLUTIONS = [
+    { value: 'REPLACEMENT', label: 'Replace' },
     { value: 'REFUND', label: 'Refund' },
-    { value: 'REPLACEMENT', label: 'Replacement' },
-    { value: 'STORE_CREDIT', label: 'Store credit' },
 ] as const
 
 type ResolutionOption = { value: string; label: string }

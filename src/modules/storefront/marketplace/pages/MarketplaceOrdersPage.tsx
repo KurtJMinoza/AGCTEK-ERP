@@ -958,11 +958,16 @@ const MarketplaceOrdersPage = () => {
                             const bucket =
                                 bucketById.get(order.id) ?? 'Pending Delivery'
                             const isPending = bucket === 'Pending Delivery'
-                            const isCompleted = order.status === 'Completed'
-                            const canReview =
-                                Boolean(sessionToken) &&
-                                (order.status === 'Delivered' ||
-                                    order.status === 'Completed')
+                            const isDelivered =
+                                order.status === 'Delivered' ||
+                                order.status === 'Completed'
+                            const canReview = Boolean(sessionToken) && isDelivered
+                            // Backend allows one pending (REQUESTED) return per order.
+                            const canRequestReturn =
+                                canReview &&
+                                !order.customerReturns?.some(
+                                    (r) => r.status === 'REQUESTED',
+                                )
                             const expanded = expandedId === order.id
                             const currentCheckpoint = tracking?.checkpoints.find(
                                 (c) => c.current,
@@ -1358,7 +1363,7 @@ const MarketplaceOrdersPage = () => {
                                                     </Button>
                                                 )}
 
-                                                {isCompleted && sessionToken && (
+                                                {canRequestReturn && (
                                                     <Button
                                                         size="xs"
                                                         variant="default"

@@ -445,6 +445,7 @@ export class SalesOrderService {
                 requestNumber: true,
                 status: true,
                 refundStatus: true,
+                preferredResolution: true,
                 reason: true,
                 lines: { select: { salesOrderLineId: true, quantity: true } },
             },

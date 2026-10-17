@@ -175,12 +175,23 @@ describe('COD + Customer Returns — Phase 5 scenarios 1–6', () => {
     })
 
     describe('Scenario 5 — Hidden damage after driver leaves', () => {
-        it('post-delivery Customer Return uses REFUND path; refundStatus NONE until settled (not on-spot)', () => {
+        it('post-delivery Customer Return offers Refund (red) or Replace (orange); refundStatus NONE until settled', () => {
             // create / createForCustomer after DELIVERED — not onSpotCodPartial.
             const onSpotCodPartial = false
             const refundStatus = onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE'
             expect(refundStatus).toBe('NONE')
-            expect(['REFUND', 'REPLACEMENT', 'STORE_CREDIT']).toContain('REFUND')
+            // COD commercial UI: only these two (STORE_CREDIT dropped from COD CTAs).
+            const codChoices = ['REFUND', 'REPLACEMENT'] as const
+            expect(codChoices).toContain('REFUND')
+            expect(codChoices).toContain('REPLACEMENT')
+            const flagTone = (resolution: string) =>
+                resolution === 'REPLACEMENT'
+                    ? 'warning'
+                    : resolution === 'REFUND'
+                      ? 'danger'
+                      : 'default'
+            expect(flagTone('REFUND')).toBe('danger')
+            expect(flagTone('REPLACEMENT')).toBe('warning')
         })
 
         it('prior full POD → no partial SI flag; later credit memo via refund flow', () => {
@@ -200,8 +211,8 @@ describe('COD + Customer Returns — Phase 5 scenarios 1–6', () => {
     })
 
     describe('Scenario 6 — Replacement after approve', () => {
-        it('REPLACEMENT is a distinct resolution from REFUND / STORE_CREDIT', () => {
-            const allowed = ['REFUND', 'REPLACEMENT', 'STORE_CREDIT'] as const
+        it('REPLACEMENT is a distinct resolution from REFUND (orange vs red)', () => {
+            const allowed = ['REFUND', 'REPLACEMENT'] as const
             expect(allowed).toContain('REPLACEMENT')
             expect('REPLACEMENT').not.toBe('REFUND')
         })
@@ -218,6 +229,13 @@ describe('COD + Customer Returns — Phase 5 scenarios 1–6', () => {
             })
             // Damaged pickup multi-stop is deferred (policy 6A outbound only).
             expect(plan('REPLACEMENT').replacementSo).toBe(true)
+        })
+
+        it('NOT_REQUIRED blocks Refund and Replace (on-spot COD refuse)', () => {
+            const canOffer = (refundStatus: string) =>
+                refundStatus !== 'NOT_REQUIRED'
+            expect(canOffer('NONE')).toBe(true)
+            expect(canOffer('NOT_REQUIRED')).toBe(false)
         })
     })
 
