@@ -56,6 +56,7 @@ import MarketplaceReviewDialog, {
 } from '../components/MarketplaceReviewDialog'
 import OrderTrackingTimeline from '../components/OrderTrackingTimeline'
 import {
+    CourierTrackingPanel,
     DeliveryMapPanel,
     OrderProgressStepper,
     TrackingStatusPill,
@@ -1090,6 +1091,11 @@ const MarketplaceOrdersPage = () => {
                                             tracking.map && (
                                             <div className="mt-4">
                                                 <DeliveryMapPanel tracking={tracking} />
+                                            </div>
+                                        )}
+                                        {expanded && tracking?.courier && (
+                                            <div className="mt-4">
+                                                <CourierTrackingPanel tracking={tracking} />
                                             </div>
                                         )}
                                         {expanded && tracking && (

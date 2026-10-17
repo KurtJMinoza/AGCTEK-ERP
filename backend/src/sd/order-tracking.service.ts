@@ -13,10 +13,12 @@ import {
     publicTrackingPolicy,
     toPublicMap,
 } from '../scm/tracking/public-position.rules'
+import { trackingUrl } from '../scm/couriers/couriers.rules'
 import {
     computeOrderTracking,
     isLastMile,
     type OrderTrackingDto,
+    type TrackingCourierFacts,
     type TrackingPackageFacts,
 } from './order-tracking.rules'
 
@@ -47,6 +49,17 @@ const packageSelect = {
                             },
                         },
                     },
+                },
+            },
+            // Courier (3PL) hand-off; dispatcher notes are deliberately not selected.
+            courierConsignment: {
+                select: {
+                    status: true,
+                    trackingNumber: true,
+                    pickedUpAt: true,
+                    deliveredAt: true,
+                    carrier: { select: { name: true, trackingUrlTemplate: true } },
+                    events: { select: { status: true, occurredAt: true } },
                 },
             },
         },
@@ -314,7 +327,23 @@ function toPackageFacts(p: PackageRow): TrackingPackageFacts {
                       tripCreatedAt: l.tripStop.trip.createdAt,
                       stopName: l.tripStop.name,
                   })),
+                  courier: toCourierFacts(p.shipment.courierConsignment),
               }
             : null,
+    }
+}
+
+function toCourierFacts(
+    c: NonNullable<PackageRow['shipment']>['courierConsignment'],
+): TrackingCourierFacts | null {
+    if (!c) return null
+    return {
+        status: c.status,
+        carrierName: c.carrier.name,
+        trackingNumber: c.trackingNumber,
+        trackingUrl: trackingUrl(c.carrier.trackingUrlTemplate, c.trackingNumber),
+        pickedUpAt: c.pickedUpAt,
+        deliveredAt: c.deliveredAt,
+        events: c.events,
     }
 }

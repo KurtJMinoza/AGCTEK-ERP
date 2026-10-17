@@ -164,6 +164,13 @@ export class ShipmentsService {
                 exceptionCode: true,
                 exceptionNote: true,
                 createdAt: true,
+                courierConsignment: {
+                    select: {
+                        status: true,
+                        trackingNumber: true,
+                        carrier: { select: { name: true } },
+                    },
+                },
                 package: {
                     select: {
                         trackingNumber: true,
@@ -183,19 +190,34 @@ export class ShipmentsService {
             take,
         })
         return rows.map(
-            ({ package: pkg, podSignatureUrl, podPhotoUrl, ...shipment }) => ({
-                ...shipment,
-                salesOrderId:
-                    pkg?.pickingTask?.reservationHeader?.sourceDocumentId ??
-                    pkg?.pickingTask?.sourceDocument?.replace(
-                        /^SALES_ORDER:/,
-                        '',
-                    ) ??
-                    null,
-                trackingNumber: pkg?.trackingNumber ?? null,
-                carrier: pkg?.carrier ?? null,
-                hasProofOfDelivery: Boolean(podSignatureUrl || podPhotoUrl),
-            }),
+            ({
+                package: pkg,
+                courierConsignment,
+                podSignatureUrl,
+                podPhotoUrl,
+                ...shipment
+            }) => {
+                // Courier consignment is authoritative; package fields are pack-time free text.
+                const courier =
+                    courierConsignment && courierConsignment.status !== 'CANCELLED'
+                        ? courierConsignment
+                        : null
+                return {
+                    ...shipment,
+                    salesOrderId:
+                        pkg?.pickingTask?.reservationHeader?.sourceDocumentId ??
+                        pkg?.pickingTask?.sourceDocument?.replace(
+                            /^SALES_ORDER:/,
+                            '',
+                        ) ??
+                        null,
+                    trackingNumber: courier
+                        ? courier.trackingNumber
+                        : (pkg?.trackingNumber ?? null),
+                    carrier: courier ? courier.carrier.name : (pkg?.carrier ?? null),
+                    hasProofOfDelivery: Boolean(podSignatureUrl || podPhotoUrl),
+                }
+            },
         )
     }
 

@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { OnEvent } from '@nestjs/event-emitter'
 import { PrismaService } from '../prisma/prisma.service'
 import { SalesInvoiceService } from './sales-invoice.service'
+import {
+    COURIER_EVENTS,
+    type CourierConsignmentChangedEvent,
+} from '../scm/couriers/courier-events'
 
 /**
  * SD reaction to fulfillment lifecycle events emitted by MM / SCM in the same
@@ -11,6 +15,8 @@ import { SalesInvoiceService } from './sales-invoice.service'
  *    DRAFT sales invoice.
  *  - `shipment.delivered` (driver POD per stop, or trip completion) → sales
  *    order DELIVERED + invoice POSTED (ISSUED, or PAID when already collected).
+ *  - `courier.consignment.changed` (3PL booked / cancelled) → order
+ *    `courierName` / `trackingNumber` projection (SCM consignment is the source).
  *
  * Every handler is idempotent (unique salesOrderId invoice, guarded updates).
  */
@@ -151,5 +157,48 @@ export class SdFulfillmentEventsListener {
             })
             await this.invoices.issueForSalesOrder(salesOrderId)
         }
+    }
+
+    @OnEvent(COURIER_EVENTS.CONSIGNMENT_CHANGED)
+    async onCourierChanged(payload: CourierConsignmentChangedEvent) {
+        try {
+            await this.projectCourier(payload)
+        } catch (err) {
+            this.logger.warn(
+                `SD courier projection failed for shipment ${payload?.shipmentId}: ${
+                    err instanceof Error ? err.message : 'unknown'
+                }`,
+            )
+        }
+    }
+
+    private async projectCourier({
+        shipmentId,
+        carrierName,
+        trackingNumber,
+    }: CourierConsignmentChangedEvent) {
+        if (!shipmentId) return
+        const shipment = await this.prisma.shipment.findUnique({
+            where: { id: shipmentId },
+            select: {
+                package: {
+                    select: {
+                        salesOrderId: true,
+                        pickingTask: { select: { salesOrderId: true } },
+                    },
+                },
+            },
+        })
+        const orderId =
+            shipment?.package?.salesOrderId ??
+            shipment?.package?.pickingTask?.salesOrderId
+        if (!orderId) return
+        await this.prisma.sdSalesOrder.update({
+            where: { id: orderId },
+            data: {
+                courierName: carrierName ?? null,
+                trackingNumber: trackingNumber ?? null,
+            },
+        })
     }
 }

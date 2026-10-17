@@ -1,6 +1,8 @@
 import {
     computeOrderTracking,
+    courierShopperEvent,
     type OrderTrackingFacts,
+    type TrackingCourierFacts,
     type TrackingPackageFacts,
     type TrackingStopLink,
 } from './order-tracking.rules'
@@ -225,5 +227,120 @@ describe('computeOrderTracking — customer status', () => {
         const r = computeOrderTracking(order({ approvedAt: null }))
         expect(r.checkpoints.find((c) => c.code === 'CONFIRMED')?.at).toBeNull()
         expect(r.checkpoints.find((c) => c.code === 'DELIVERED')).toMatchObject({ done: false, at: null })
+    })
+})
+
+describe('computeOrderTracking — courier (3PL) shipments', () => {
+    const courier = (over: Partial<TrackingCourierFacts> = {}): TrackingCourierFacts => ({
+        status: 'BOOKED',
+        carrierName: 'J&T Express',
+        trackingNumber: 'JT123',
+        trackingUrl: 'https://jt.example/track/JT123',
+        pickedUpAt: null,
+        deliveredAt: null,
+        events: [{ status: 'BOOKED', occurredAt: t(5) }],
+        ...over,
+    })
+    const withCourier = (c: TrackingCourierFacts, shipmentStatus = 'READY') =>
+        order({ packages: [pkg('READY_FOR_DISPATCH', { status: shipmentStatus, courier: c })] })
+
+    it('booked with a courier → still Ready for delivery, courier block shown', () => {
+        const r = computeOrderTracking(withCourier(courier()))
+        expect(r.customerStatus).toBe('READY_FOR_DELIVERY')
+        expect(r.courier).toMatchObject({
+            carrierName: 'J&T Express',
+            trackingNumber: 'JT123',
+            trackingUrl: 'https://jt.example/track/JT123',
+            statusLabel: 'Booked with courier',
+        })
+    })
+
+    it('courier picked up → In transit at the pickup time, with the carrier named', () => {
+        const f = withCourier(
+            courier({
+                status: 'PICKED_UP',
+                pickedUpAt: t(6),
+                events: [
+                    { status: 'BOOKED', occurredAt: t(5) },
+                    { status: 'PICKED_UP', occurredAt: t(6) },
+                ],
+            }),
+            'DISPATCHED',
+        )
+        const r = computeOrderTracking(f)
+        expect(r.customerStatus).toBe('IN_TRANSIT')
+        expect(checkpoint(f, 'IN_TRANSIT')).toMatchObject({
+            at: t(6).toISOString(),
+            note: 'With J&T Express',
+        })
+        // Newest courier event first
+        expect(r.courier?.events.map((e) => e.status)).toEqual(['PICKED_UP', 'BOOKED'])
+    })
+
+    it('out for delivery is called out on the In transit step', () => {
+        const f = withCourier(
+            courier({ status: 'OUT_FOR_DELIVERY', pickedUpAt: t(6) }),
+            'IN_TRANSIT',
+        )
+        expect(checkpoint(f, 'IN_TRANSIT')?.note).toBe('Out for delivery with J&T Express')
+    })
+
+    it('courier delivered → Delivered at the courier delivery time', () => {
+        const f = withCourier(
+            courier({ status: 'DELIVERED', pickedUpAt: t(6), deliveredAt: t(9) }),
+            'DELIVERED',
+        )
+        expect(statusOf(f)).toBe('DELIVERED')
+        expect(checkpoint(f, 'DELIVERED')?.at).toBe(t(9).toISOString())
+    })
+
+    it('exception after pickup or a return → Delivery failed with a courier-safe note', () => {
+        const exception = withCourier(
+            courier({
+                status: 'EXCEPTION',
+                pickedUpAt: t(6),
+                events: [{ status: 'EXCEPTION', occurredAt: t(8) }],
+            }),
+            'EXCEPTION_HOLD',
+        )
+        expect(statusOf(exception)).toBe('DELIVERY_FAILED')
+        expect(checkpoint(exception, 'DELIVERY_FAILED')).toMatchObject({
+            at: t(8).toISOString(),
+            note: 'The courier reported a delivery issue',
+        })
+        const returned = withCourier(
+            courier({ status: 'RETURNED', pickedUpAt: t(6) }),
+            'RETURNED',
+        )
+        expect(checkpoint(returned, 'DELIVERY_FAILED')?.note).toBe(
+            'The parcel is being returned to the seller',
+        )
+    })
+
+    it('exception before pickup is not a failed delivery', () => {
+        const f = withCourier(courier({ status: 'EXCEPTION' }), 'EXCEPTION_HOLD')
+        expect(statusOf(f)).toBe('READY_FOR_DELIVERY')
+    })
+
+    it('a cancelled booking hides the courier block', () => {
+        const r = computeOrderTracking(withCourier(courier({ status: 'CANCELLED' })))
+        expect(r.courier).toBeNull()
+        expect(r.customerStatus).toBe('READY_FOR_DELIVERY')
+    })
+})
+
+describe('courierShopperEvent', () => {
+    it('maps courier moves onto the shopper notices', () => {
+        expect(courierShopperEvent('PICKED_UP', true)).toBe('IN_TRANSIT')
+        expect(courierShopperEvent('OUT_FOR_DELIVERY', true)).toBe('NEXT_STOP')
+        expect(courierShopperEvent('DELIVERED', true)).toBe('DELIVERED')
+        expect(courierShopperEvent('RETURNED', true)).toBe('DELIVERY_FAILED')
+        expect(courierShopperEvent('EXCEPTION', true)).toBe('DELIVERY_FAILED')
+    })
+
+    it('stays quiet for booking-side moves', () => {
+        expect(courierShopperEvent('EXCEPTION', false)).toBeNull()
+        expect(courierShopperEvent('CANCELLED', false)).toBeNull()
+        expect(courierShopperEvent('IN_TRANSIT', true)).toBeNull()
     })
 })

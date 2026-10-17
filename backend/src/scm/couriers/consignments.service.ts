@@ -30,6 +30,11 @@ import {
     type PaginatedResult,
 } from '../scm.utils'
 import {
+    COURIER_EVENTS,
+    type CourierConsignmentChangedEvent,
+    type CourierStatusChangedEvent,
+} from './courier-events'
+import {
     assertCourierTransition,
     nextCourierStatuses,
     normalizeTrackingNumber,
@@ -287,6 +292,19 @@ export class ConsignmentsService {
                 shipmentIds: [current.shipment.id],
             })
         }
+        if (to === CourierConsignmentStatus.CANCELLED) {
+            this.events?.emit(COURIER_EVENTS.CONSIGNMENT_CHANGED, {
+                shipmentId: current.shipment.id,
+                carrierName: null,
+                trackingNumber: null,
+            } satisfies CourierConsignmentChangedEvent)
+        }
+        this.events?.emit(COURIER_EVENTS.STATUS_CHANGED, {
+            consignmentId: id,
+            shipmentId: current.shipment.id,
+            status: to,
+            pickedUp: pickedUp || to === CourierConsignmentStatus.PICKED_UP,
+        } satisfies CourierStatusChangedEvent)
         return this.findOne(id)
     }
 
@@ -425,6 +443,11 @@ export class ConsignmentsService {
                 })
                 return id
             })
+            this.events?.emit(COURIER_EVENTS.CONSIGNMENT_CHANGED, {
+                shipmentId: shipment.id,
+                carrierName: carrier.name,
+                trackingNumber,
+            } satisfies CourierConsignmentChangedEvent)
             return this.findOne(consignmentId)
         } catch (err) {
             if (isUniqueViolation(err)) {

@@ -9,6 +9,11 @@ import {
     type TripStopSettledEvent,
 } from '../scm/trips/trip-events'
 import {
+    COURIER_EVENTS,
+    type CourierStatusChangedEvent,
+} from '../scm/couriers/courier-events'
+import {
+    courierShopperEvent,
     isLastMile,
     shopperTrackingNotice,
     type ShopperTrackingEvent,
@@ -46,6 +51,16 @@ export class OrderTrackingNotifierListener {
         await this.safely('trip.stop.completed', async () => {
             await this.notifyOrders(payload.shipmentIds, 'DELIVERED', payload.stopId)
             await this.notifyNextStop(payload.tripId)
+        })
+    }
+
+    /** Courier (3PL) moves map onto the same shopper notices as own-fleet trips. */
+    @OnEvent(COURIER_EVENTS.STATUS_CHANGED)
+    async onCourierStatusChanged(payload: CourierStatusChangedEvent) {
+        await this.safely('courier.status', async () => {
+            const event = courierShopperEvent(payload.status, payload.pickedUp)
+            if (!event) return
+            await this.notifyOrders([payload.shipmentId], event, payload.consignmentId)
         })
     }
 

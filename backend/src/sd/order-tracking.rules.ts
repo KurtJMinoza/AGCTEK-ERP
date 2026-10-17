@@ -3,8 +3,9 @@
  * customer-facing status + timeline. No Prisma here so it is unit-testable.
  *
  * Hard rule: IN_TRANSIT comes only from trip.status === 'IN_TRANSIT' (driver
- * Start Route). Goods issue / SO status SHIPPED / package DISPATCHED never
- * imply "in transit".
+ * Start Route) or, for courier (3PL) shipments, from the courier having the
+ * parcel (PICKED_UP / IN_TRANSIT / OUT_FOR_DELIVERY). Goods issue / SO status
+ * SHIPPED / package DISPATCHED never imply "in transit".
  */
 
 import type { PublicMapDto } from '../scm/tracking/public-position.rules'
@@ -91,6 +92,31 @@ export function shopperTrackingNotice(input: {
     }
 }
 
+/**
+ * Shopper notice for a courier status move; null = no notice (booking-side
+ * changes, or a repeat of "in transit"). Scope is the consignment, so each
+ * notice is sent once per hand-off.
+ */
+export function courierShopperEvent(
+    status: string,
+    pickedUp: boolean,
+): ShopperTrackingEvent | null {
+    switch (status) {
+        case 'PICKED_UP':
+            return 'IN_TRANSIT'
+        case 'OUT_FOR_DELIVERY':
+            return 'NEXT_STOP'
+        case 'DELIVERED':
+            return 'DELIVERED'
+        case 'RETURNED':
+            return 'DELIVERY_FAILED'
+        case 'EXCEPTION':
+            return pickedUp ? 'DELIVERY_FAILED' : null
+        default:
+            return null
+    }
+}
+
 export type TrackingStopLink = {
     /** DROPOFF links decide delivery; PICKUP / RETURN are ignored */
     action: string
@@ -106,12 +132,25 @@ export type TrackingStopLink = {
     stopName?: string | null
 }
 
+/** Third-party courier hand-off (SCM CourierConsignment) — docs/SCM_COURIERS.md. */
+export type TrackingCourierFacts = {
+    status: string
+    carrierName: string
+    trackingNumber: string | null
+    trackingUrl: string | null
+    pickedUpAt: Date | null
+    deliveredAt: Date | null
+    /** Status history; dispatcher notes are internal and never passed here. */
+    events: Array<{ status: string; occurredAt: Date }>
+}
+
 export type TrackingShipmentFacts = {
     id: string
     status: string
     createdAt: Date
     deliveredAt: Date | null
     links: TrackingStopLink[]
+    courier?: TrackingCourierFacts | null
 }
 
 export type TrackingPackageFacts = {
@@ -151,12 +190,25 @@ export type TrackingCheckpoint = {
     note?: string | null
 }
 
+export type CourierTrackingDto = {
+    carrierName: string
+    trackingNumber: string | null
+    /** Courier's public tracking page, when the carrier has a link template */
+    trackingUrl: string | null
+    status: string
+    statusLabel: string
+    /** Newest first */
+    events: Array<{ status: string; label: string; at: string }>
+}
+
 export type OrderTrackingDto = {
     orderId: string
     orderNumber: string
     customerStatus: CustomerOrderStatus
     customerStatusLabel: string
     checkpoints: TrackingCheckpoint[]
+    /** Set when the order ships with a third-party courier (no live map for these). */
+    courier: CourierTrackingDto | null
     /** Customer drop-off pin (single-order endpoint only; null in list batch). */
     destination: TrackingDestination | null
     /** Delayed vehicle position (single-order endpoint only; null in list batch). */
@@ -188,10 +240,62 @@ function latestDropoff(shipment: TrackingShipmentFacts): TrackingStopLink | null
     return links[0] ?? null
 }
 
+export const COURIER_STATUS_LABEL: Record<string, string> = {
+    BOOKED: 'Booked with courier',
+    PICKED_UP: 'Picked up by courier',
+    IN_TRANSIT: 'In transit',
+    OUT_FOR_DELIVERY: 'Out for delivery',
+    DELIVERED: 'Delivered',
+    EXCEPTION: 'Delivery issue',
+    RETURNED: 'Returning to seller',
+}
+
+const COURIER_HAS_PARCEL = new Set(['PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'])
+
+/** Active courier hand-off; a cancelled booking means the courier is no longer involved. */
+function activeCourier(s: TrackingShipmentFacts): TrackingCourierFacts | null {
+    return s.courier && s.courier.status !== 'CANCELLED' ? s.courier : null
+}
+
+/** EXCEPTION before pickup is a booking problem, not a failed delivery. */
+function courierFailed(c: TrackingCourierFacts | null): boolean {
+    if (!c) return false
+    return c.status === 'RETURNED' || (c.status === 'EXCEPTION' && c.pickedUpAt != null)
+}
+
+function courierFailureNote(c: TrackingCourierFacts): string {
+    return c.status === 'RETURNED'
+        ? 'The parcel is being returned to the seller'
+        : 'The courier reported a delivery issue'
+}
+
+function lastCourierEventAt(c: TrackingCourierFacts, status: string): Date | null {
+    return maxDate(c.events.filter((e) => e.status === status).map((e) => e.occurredAt))
+}
+
 function shipmentDelivered(s: TrackingShipmentFacts): boolean {
     if (s.status === 'DELIVERED') return true
+    if (activeCourier(s)?.status === 'DELIVERED') return true
     const link = latestDropoff(s)
     return link?.stopStatus === 'COMPLETED'
+}
+
+function toCourierDto(c: TrackingCourierFacts): CourierTrackingDto {
+    return {
+        carrierName: c.carrierName,
+        trackingNumber: c.trackingNumber,
+        trackingUrl: c.trackingUrl,
+        status: c.status,
+        statusLabel: COURIER_STATUS_LABEL[c.status] ?? c.status,
+        events: [...c.events]
+            .filter((e) => e.status !== 'CANCELLED')
+            .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+            .map((e) => ({
+                status: e.status,
+                label: COURIER_STATUS_LABEL[e.status] ?? e.status,
+                at: e.occurredAt.toISOString(),
+            })),
+    }
 }
 
 /** Named origin stop (warehouse / hub) of the started trip carrying a shipment. */
@@ -215,16 +319,23 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
         .map((p) => p.shipment)
         .filter((s): s is TrackingShipmentFacts => s != null && s.status !== 'CANCELLED')
     const latest = shipments.map((s) => ({ s, link: latestDropoff(s) }))
+    const couriers = shipments
+        .map(activeCourier)
+        .filter((c): c is TrackingCourierFacts => c != null)
 
     const allDelivered = shipments.length > 0 && shipments.every(shipmentDelivered)
     const failed = latest.filter(
         ({ s, link }) => !shipmentDelivered(s) && link?.stopStatus === 'FAILED',
     )
+    const courierFailures = shipments
+        .filter((s) => !shipmentDelivered(s))
+        .map(activeCourier)
+        .filter((c): c is TrackingCourierFacts => courierFailed(c))
     const inTransit = latest.filter(
         ({ s, link }) =>
             !shipmentDelivered(s) &&
-            link?.tripStatus === 'IN_TRANSIT' &&
-            link.stopStatus !== 'FAILED',
+            ((link?.tripStatus === 'IN_TRANSIT' && link.stopStatus !== 'FAILED') ||
+                COURIER_HAS_PARCEL.has(activeCourier(s)?.status ?? '')),
     )
     const readyForDelivery =
         shipments.length > 0 ||
@@ -238,7 +349,7 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
     let status: CustomerOrderStatus
     if (facts.status === 'CANCELLED') status = 'CANCELLED'
     else if (allDelivered || DELIVERED_SO.has(facts.status)) status = 'DELIVERED'
-    else if (failed.length > 0) status = 'DELIVERY_FAILED'
+    else if (failed.length > 0 || courierFailures.length > 0) status = 'DELIVERY_FAILED'
     else if (inTransit.length > 0) status = 'IN_TRANSIT'
     else if (readyForDelivery) status = 'READY_FOR_DELIVERY'
     else if (preparing) status = 'PREPARING'
@@ -267,11 +378,21 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
         READY_FOR_DELIVERY:
             minDate(shipments.map((s) => s.createdAt)) ??
             minDate(facts.packages.filter((p) => SEALED_PACKAGE.has(p.status)).map((p) => p.updatedAt)),
-        IN_TRANSIT: minDate(startedTrips.map((l) => l.tripStartedAt)),
+        IN_TRANSIT: minDate([
+            ...startedTrips.map((l) => l.tripStartedAt),
+            ...couriers.map((c) => c.pickedUpAt),
+        ]),
         DELIVERED: maxDate(
-            shipments.flatMap((s) => [s.deliveredAt, latestDropoff(s)?.stopCompletedAt]),
+            shipments.flatMap((s) => [
+                s.deliveredAt,
+                latestDropoff(s)?.stopCompletedAt,
+                activeCourier(s)?.deliveredAt,
+            ]),
         ),
-        DELIVERY_FAILED: maxDate(failed.map(({ link }) => link?.stopFailedAt)),
+        DELIVERY_FAILED: maxDate([
+            ...failed.map(({ link }) => link?.stopFailedAt),
+            ...courierFailures.map((c) => lastCourierEventAt(c, c.status)),
+        ]),
         CANCELLED: facts.status === 'CANCELLED' ? facts.updatedAt : null,
     }
 
@@ -306,12 +427,20 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
             current: index === currentIndex,
         }))
         if (status === 'DELIVERY_FAILED') {
-            const code = failed[0]?.link?.failureCode
-            checkpoints[checkpoints.length - 1].note = publicFailureReason(code)
+            checkpoints[checkpoints.length - 1].note =
+                failed.length > 0
+                    ? publicFailureReason(failed[0]?.link?.failureCode)
+                    : courierFailureNote(courierFailures[0])
         }
         const hub = departureHub(latest)
         const inTransitStep = checkpoints.find((c) => c.code === 'IN_TRANSIT')
         if (hub && inTransitStep?.done) inTransitStep.note = `Departed ${hub}`
+        else if (couriers[0] && inTransitStep?.done) {
+            inTransitStep.note =
+                couriers[0].status === 'OUT_FOR_DELIVERY'
+                    ? `Out for delivery with ${couriers[0].carrierName}`
+                    : `With ${couriers[0].carrierName}`
+        }
     }
 
     return {
@@ -320,6 +449,7 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
         customerStatus: status,
         customerStatusLabel: CUSTOMER_STATUS_LABEL[status],
         checkpoints,
+        courier: couriers[0] ? toCourierDto(couriers[0]) : null,
         destination: null,
         map: null,
     }

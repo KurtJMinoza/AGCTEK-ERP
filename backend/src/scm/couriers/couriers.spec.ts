@@ -159,17 +159,32 @@ describe('ConsignmentsService.updateStatus', () => {
         })
         await service.updateStatus('cc-1', { status: 'DELIVERED' })
         expect(shipmentUpdates[0].data).toMatchObject({ status: 'DELIVERED' })
-        expect(emitted).toEqual([['shipment.delivered', { shipmentIds: ['sh-1'] }]])
+        expect(emitted).toEqual([
+            ['shipment.delivered', { shipmentIds: ['sh-1'] }],
+            [
+                'courier.consignment.status-changed',
+                { consignmentId: 'cc-1', shipmentId: 'sh-1', status: 'DELIVERED', pickedUp: true },
+            ],
+        ])
     })
 
-    it('CANCELLED before pickup returns the shipment to the own fleet', async () => {
+    it('CANCELLED before pickup returns the shipment to the own fleet and clears the SD projection', async () => {
         const { service, shipmentUpdates, emitted } = setup({})
         await service.updateStatus('cc-1', { status: 'CANCELLED' })
         expect(shipmentUpdates[0].data).toMatchObject({
             status: 'READY',
             executionMode: 'OWN_FLEET',
         })
-        expect(emitted).toEqual([])
+        expect(emitted.map(([name]) => name)).toEqual([
+            'courier.consignment.changed',
+            'courier.consignment.status-changed',
+        ])
+        expect(emitted[0][1]).toEqual({
+            shipmentId: 'sh-1',
+            carrierName: null,
+            trackingNumber: null,
+        })
+        expect(emitted.some(([name]) => name === 'shipment.delivered')).toBe(false)
     })
 
     it('rejects a future event time and a lost race', async () => {

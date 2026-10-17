@@ -1,6 +1,6 @@
 # SCM Couriers (3PL) sub-module
 
-**Status:** Phase 0 locked (2026-10-17). Phase 1 done (schema, carrier master, book API). Phase 2 done (UI + manual status with goods issue / delivery side effects). Phase 3 remaining: customer tracking branch + SD courier projection.
+**Status:** Phase 0 locked (2026-10-17). Phases 1–3 done (schema, carrier master, booking, status flow with goods issue / delivery, courier UI, customer tracking, SD projection, shopper notices). Phase 4 (carrier API adapter) waits for a courier contract.
 **Scope:** After pack, a customer shipment goes out by **own fleet** (existing trip / driver / POD) or by a **third-party courier** (parcel 3PL). Couriers owns partner last-mile — carrier master, consignment, tracking number, courier status, and later the carrier API. It does **not** own vehicles, trips, drivers, routing, or GPS.
 
 Related: [`SCM_PROCESS_FLOW.md`](./SCM_PROCESS_FLOW.md) (MM → SCM handoff), [`SCM_TMS_CARGO_FIRST.md`](./SCM_TMS_CARGO_FIRST.md) (own-fleet load / trip), [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md) (own-fleet COD).
@@ -93,7 +93,7 @@ Three places hold carrier / tracking today:
 
 - **Done (P1):** load building `availableLines` filters to `OWN_FLEET`; adding a line, planning a trip and assigning shipments reject `THIRD_PARTY`.
 - **Done (P1):** generic `PATCH /scm/shipments/:id` rejects status / POD edits on `THIRD_PARTY` shipments; delete is blocked while a consignment exists.
-- Open (P3): `order-tracking.rules.ts` derives IN_TRANSIT only from a started trip. Add a courier branch for `THIRD_PARTY` shipments.
+- **Done (P3):** `order-tracking.rules.ts` courier branch — see Phase 3 below.
 
 ### Phase 1 API
 
@@ -119,6 +119,19 @@ Booking rules: shipment must be a `READY` customer delivery, not on a load plan 
 | → CANCELLED (before pickup only) | Shipment back to `READY` and `OWN_FLEET`; can be re-booked. |
 
 Every move appends a `MANUAL` event; the claim is optimistic on the current status (concurrent edit → 409); `occurredAt` cannot be in the future.
+
+### Phase 3 — customer tracking + SD projection
+
+| Piece | Behavior |
+|-------|----------|
+| Customer tracking (`order-tracking.rules.ts`) | Courier has the parcel (PICKED_UP / IN_TRANSIT / OUT_FOR_DELIVERY) → **In transit** at `pickedUpAt`, step note "With {carrier}" / "Out for delivery with {carrier}". DELIVERED → **Delivered** at courier `deliveredAt`. EXCEPTION after pickup or RETURNED → **Delivery failed** with a courier-safe note. EXCEPTION before pickup stays Ready for delivery. Cancelled bookings are ignored. |
+| Tracking DTO | New `courier` block: carrier, tracking number, courier tracking link, status label, events newest first. Dispatcher notes are never selected. No live map for courier orders. |
+| Storefront | `CourierTrackingPanel` on the shared tracking page and My Orders; the map panel is hidden for courier orders. |
+| SD projection | `courier.consignment.changed` (booked / cancelled) → SD listener sets `SdSalesOrder.courierName` / `trackingNumber` (cleared on cancel). SCM never writes SD tables. |
+| Shopper notices | `courier.consignment.status-changed` → PICKED_UP = "on the way", OUT_FOR_DELIVERY = "you're next", DELIVERED, EXCEPTION after pickup / RETURNED = "unsuccessful". Deduped per consignment. |
+| `findBySalesOrderIds` | Carrier / tracking number from the consignment when present; package free text is the fallback. |
+
+Events are defined in `backend/src/scm/couriers/courier-events.ts`.
 
 UI (`src/modules/scm`): **Couriers** (`/scm/couriers`, carrier master with active toggle), **Consignments** (`/scm/consignments`, list + detail dialog with status update and history), **Shipments** gains a "Carried by" column and **Ship with courier** on READY own-fleet deliveries. Nav badges count new consignments / couriers.
 
@@ -157,7 +170,7 @@ Permissions: new resource codes `scm.couriers` (carrier master) and `scm.consign
 | P0 | This document | Rules written (done) |
 | P1 | Schema + migration + carrier seed; Carrier CRUD API | Carriers CRUD; shipment can be set `THIRD_PARTY` with a consignment (done) |
 | P2 | UI: Carriers, Consignments list / detail (timeline, manual status), "Ship with courier" from Shipment | Dispatcher runs the full 3PL path without a trip (done; GI on PICKED_UP and `shipment.delivered` pulled in from P3) |
-| P3 | SD + storefront tracking branch (carrier + AWB + courier events); SD `courierName` / `trackingNumber` projection | Customer sees carrier + AWB; SD order shows the courier |
+| P3 | SD + storefront tracking branch (carrier + AWB + courier events); SD `courierName` / `trackingNumber` projection | Customer sees carrier + AWB; SD order shows the courier (done) |
 | P4 | `CarrierAdapter` (`book`, `track`, `cancel`) + one live carrier + webhook → events | Book + auto status for one carrier; others stay MANUAL |
 | P5 | Labels, cancel booking, exception queue, more adapters, **COD remittance** (lifts COD block), optional rate shop | — |
 
