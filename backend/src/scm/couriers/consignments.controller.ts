@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { CurrentUser, type AuthRequestUser } from '../../auth/auth.decorator'
 import { RequirePermission } from '../../permissions/permission.guard'
 import {
@@ -30,5 +30,16 @@ export class ConsignmentsController {
         @CurrentUser() user?: AuthRequestUser,
     ) {
         return this.consignments.book(body as never, user?.id)
+    }
+
+    /** Manual courier status: PICKED_UP posts goods issue; DELIVERED delivers the SD order. */
+    @Patch(':id/status')
+    @RequirePermission('scm.consignments', 'update')
+    updateStatus(
+        @Param('id') id: string,
+        @Body() body: Record<string, unknown>,
+        @CurrentUser() user?: AuthRequestUser,
+    ) {
+        return this.consignments.updateStatus(id, body as never, user?.id)
     }
 }

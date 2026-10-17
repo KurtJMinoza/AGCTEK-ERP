@@ -109,6 +109,16 @@ export class ShipmentsService {
                 orderBy: { createdAt: 'desc' },
                 skip,
                 take: pageSize,
+                include: {
+                    courierConsignment: {
+                        select: {
+                            id: true,
+                            status: true,
+                            trackingNumber: true,
+                            carrier: { select: { id: true, code: true, name: true } },
+                        },
+                    },
+                },
             }),
             this.prisma.shipment.count({ where }),
         ])

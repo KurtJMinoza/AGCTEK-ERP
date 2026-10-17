@@ -1,6 +1,9 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
+    Carrier,
     ComplianceSummary,
+    CourierConsignment,
+    CourierConsignmentStatus,
     CreateDamageReportInput,
     DamageReport,
     InitiateSalesReturnResult,
@@ -176,6 +179,95 @@ export async function apiGetShipment(id: string) {
 export async function apiDeleteShipment(id: string) {
     const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
         `/scm/shipments/${id}`,
+    )
+    return data
+}
+
+// ─── Couriers (3PL) — docs/SCM_COURIERS.md ──────────────────────────────────
+
+export type CarrierListParams = ListParams & { isActive?: boolean }
+
+export type CarrierBody = {
+    code?: string
+    name?: string
+    isActive?: boolean
+    supportsCod?: boolean
+    trackingUrlTemplate?: string | null
+    notes?: string | null
+}
+
+export async function apiGetCarriers(params?: CarrierListParams) {
+    const query = { ...toQuery(params), ...(params?.isActive != null ? { isActive: String(params.isActive) } : {}) }
+    const { data } = await ErpAxiosBase.get<Paginated<Carrier>>('/scm/carriers', {
+        params: query,
+    })
+    return data
+}
+
+export async function apiCreateCarrier(body: CarrierBody) {
+    const { data } = await ErpAxiosBase.post<Carrier>('/scm/carriers', body)
+    return data
+}
+
+export async function apiUpdateCarrier(id: string, body: CarrierBody) {
+    const { data } = await ErpAxiosBase.patch<Carrier>(
+        `/scm/carriers/${encodeURIComponent(id)}`,
+        body,
+    )
+    return data
+}
+
+export async function apiDeleteCarrier(id: string) {
+    const { data } = await ErpAxiosBase.delete<{ ok: boolean }>(
+        `/scm/carriers/${encodeURIComponent(id)}`,
+    )
+    return data
+}
+
+export type ConsignmentListParams = ListParams & { carrierId?: string }
+
+export async function apiGetConsignments(params?: ConsignmentListParams) {
+    const query = { ...toQuery(params), ...(params?.carrierId ? { carrierId: params.carrierId } : {}) }
+    const { data } = await ErpAxiosBase.get<Paginated<CourierConsignment>>(
+        '/scm/consignments',
+        { params: query },
+    )
+    return data
+}
+
+export async function apiGetConsignment(id: string) {
+    const { data } = await ErpAxiosBase.get<CourierConsignment>(
+        `/scm/consignments/${encodeURIComponent(id)}`,
+    )
+    return data
+}
+
+export async function apiBookConsignment(body: {
+    shipmentId: string
+    carrierId: string
+    trackingNumber: string
+    externalBookingId?: string
+    notes?: string
+}) {
+    const { data } = await ErpAxiosBase.post<CourierConsignment>(
+        '/scm/consignments',
+        body,
+    )
+    return data
+}
+
+export async function apiUpdateConsignmentStatus(
+    id: string,
+    body: {
+        status: CourierConsignmentStatus
+        occurredAt?: string
+        note?: string
+        podUrl?: string
+    },
+) {
+    const { data } = await ErpAxiosBase.patch<CourierConsignment>(
+        `/scm/consignments/${encodeURIComponent(id)}/status`,
+        body,
     )
     return data
 }

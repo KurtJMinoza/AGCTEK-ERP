@@ -1,8 +1,13 @@
 import {
     BadRequestException,
     ConflictException,
+    Inject,
     Injectable,
+    Logger,
+    Optional,
+    forwardRef,
 } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import {
     CourierConsignmentStatus,
     CourierEventSource,
@@ -13,16 +18,34 @@ import {
     TripStatus,
 } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { GoodsIssueService } from '../../mm/stock-ops/goods-issue.service'
 import { ShipmentsService } from '../shipments/shipments.service'
 import {
     assertFound,
+    optionalDate,
     optionalString,
     parsePagination,
     requireString,
     type ListQuery,
     type PaginatedResult,
 } from '../scm.utils'
-import { normalizeTrackingNumber, trackingUrl } from './couriers.rules'
+import {
+    assertCourierTransition,
+    nextCourierStatuses,
+    normalizeTrackingNumber,
+    shipmentStatusForCourier,
+    trackingUrl,
+} from './couriers.rules'
+
+type UpdateStatusBody = {
+    status?: string
+    occurredAt?: string
+    note?: string | null
+    podUrl?: string | null
+}
+
+/** Clock skew allowed on a manually entered event time. */
+const FUTURE_TOLERANCE_MS = 5 * 60 * 1000
 
 type BookConsignmentBody = {
     shipmentId?: string
@@ -101,15 +124,20 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * SCM Couriers — third-party (3PL) hand-off for a READY shipment.
- * Phase 1: book (carrier + tracking number). Status changes, goods issue on
- * PICKED_UP and SD delivery on DELIVERED follow in later phases (docs/SCM_COURIERS.md).
+ * SCM Couriers — third-party (3PL) hand-off for a READY shipment (docs/SCM_COURIERS.md).
+ * Courier status drives the shipment: PICKED_UP posts the MM goods issue, DELIVERED
+ * emits `shipment.delivered` (SD delivers the order and posts the invoice).
  */
 @Injectable()
 export class ConsignmentsService {
+    private readonly logger = new Logger(ConsignmentsService.name)
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly shipments: ShipmentsService,
+        @Inject(forwardRef(() => GoodsIssueService))
+        private readonly goodsIssues: GoodsIssueService,
+        @Optional() private readonly events?: EventEmitter2,
     ) {}
 
     async findAll(query: ConsignmentListQuery): Promise<PaginatedResult<unknown>> {
@@ -154,7 +182,145 @@ export class ConsignmentsService {
             }),
             'Consignment not found',
         )
-        return withTrackingUrl(row)
+        return {
+            ...withTrackingUrl(row),
+            nextStatuses: nextCourierStatuses(row.status, row.pickedUpAt != null),
+        }
+    }
+
+    /**
+     * Manual courier status update (webhook / poll use the same path in Phase 4).
+     * Goods issue is posted before the status moves, so a failed GI leaves the
+     * consignment BOOKED and the dispatcher can retry.
+     */
+    async updateStatus(id: string, body: UpdateStatusBody, performedBy?: string) {
+        const raw = requireString(body.status, 'status').toUpperCase()
+        if (!CONSIGNMENT_STATUSES.has(raw as CourierConsignmentStatus)) {
+            throw new BadRequestException('Invalid consignment status')
+        }
+        const to = raw as CourierConsignmentStatus
+        const occurredAt = optionalDate(body.occurredAt) ?? new Date()
+        if (occurredAt.getTime() > Date.now() + FUTURE_TOLERANCE_MS) {
+            throw new BadRequestException('occurredAt cannot be in the future')
+        }
+        const note = optionalString(body.note) ?? null
+        const podUrl = optionalString(body.podUrl) ?? null
+
+        const current = assertFound(
+            await this.prisma.courierConsignment.findUnique({
+                where: { id },
+                include: {
+                    carrier: { select: { name: true } },
+                    shipment: {
+                        select: {
+                            id: true,
+                            reference: true,
+                            packageId: true,
+                            goodsIssueId: true,
+                        },
+                    },
+                },
+            }),
+            'Consignment not found',
+        )
+        const pickedUp = current.pickedUpAt != null
+        assertCourierTransition(current.status, to, pickedUp)
+
+        if (to === CourierConsignmentStatus.PICKED_UP) {
+            await this.postGoodsIssue(current.shipment, performedBy)
+        }
+
+        const shipmentStatus = shipmentStatusForCourier(to)
+        await this.prisma.$transaction(async (tx) => {
+            const claim = await tx.courierConsignment.updateMany({
+                where: { id, status: current.status },
+                data: {
+                    status: to,
+                    ...(to === CourierConsignmentStatus.PICKED_UP
+                        ? { pickedUpAt: occurredAt }
+                        : {}),
+                    ...(to === CourierConsignmentStatus.DELIVERED
+                        ? { deliveredAt: occurredAt, ...(podUrl ? { podUrl } : {}) }
+                        : {}),
+                },
+            })
+            if (claim.count === 0) {
+                throw new ConflictException(
+                    'Consignment status changed meanwhile — reload and try again',
+                )
+            }
+            await tx.courierConsignmentEvent.create({
+                data: {
+                    consignmentId: id,
+                    status: to,
+                    occurredAt,
+                    source: CourierEventSource.MANUAL,
+                    note,
+                    createdBy: performedBy ?? null,
+                },
+            })
+            await tx.shipment.update({
+                where: { id: current.shipment.id },
+                data: {
+                    status: shipmentStatus,
+                    ...(to === CourierConsignmentStatus.DELIVERED
+                        ? { deliveredAt: occurredAt }
+                        : {}),
+                    ...(to === CourierConsignmentStatus.EXCEPTION
+                        ? {
+                              exceptionNote:
+                                  note ?? `${current.carrier.name} reported an exception`,
+                              exceptionAt: occurredAt,
+                          }
+                        : {}),
+                    // Cancelled before pickup: the shipment is free for the own fleet again.
+                    ...(to === CourierConsignmentStatus.CANCELLED
+                        ? { executionMode: ShipmentExecutionMode.OWN_FLEET }
+                        : {}),
+                },
+            })
+        })
+
+        if (to === CourierConsignmentStatus.DELIVERED) {
+            // Same contract as trip completion: SD delivers the order and posts the invoice.
+            this.events?.emit('shipment.delivered', {
+                shipmentIds: [current.shipment.id],
+            })
+        }
+        return this.findOne(id)
+    }
+
+    /** Courier took the parcel: post the MM goods issue once (same path as trip start). */
+    private async postGoodsIssue(
+        shipment: { id: string; reference: string; packageId: string | null; goodsIssueId: string | null },
+        performedBy?: string,
+    ) {
+        if (!shipment.packageId || shipment.goodsIssueId) return
+        try {
+            const gi = await this.goodsIssues.issueAndPostFromPackage(
+                shipment.packageId,
+                { createdBy: performedBy },
+            )
+            await this.prisma.shipment.update({
+                where: { id: shipment.id },
+                data: { goodsIssueId: gi.id },
+            })
+            await this.prisma.wmPackage.updateMany({
+                where: {
+                    id: shipment.packageId,
+                    status: { in: ['READY_FOR_DISPATCH', 'SEALED'] },
+                },
+                data: { status: 'DISPATCHED' },
+            })
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Goods issue failed'
+            this.logger.warn(
+                `Courier pickup GI failed for ${shipment.reference}: ${message}`,
+            )
+            throw new BadRequestException(
+                `Cannot mark picked up: goods issue failed for ${shipment.reference}: ${message}`,
+            )
+        }
     }
 
     /**

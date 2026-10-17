@@ -2,11 +2,15 @@ import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { PrismaService } from '../../prisma/prisma.service'
 import type { ShipmentsService } from '../shipments/shipments.service'
+import type { GoodsIssueService } from '../../mm/stock-ops/goods-issue.service'
 import { CarriersService } from './carriers.service'
 import { ConsignmentsService } from './consignments.service'
 import {
+    assertCourierTransition,
+    nextCourierStatuses,
     normalizeCarrierCode,
     normalizeTrackingNumber,
+    shipmentStatusForCourier,
     trackingUrl,
     validateTrackingUrlTemplate,
 } from './couriers.rules'
@@ -38,6 +42,148 @@ describe('couriers.rules', () => {
         expect(trackingUrl(null, 'AB12')).toBeNull()
         expect(normalizeTrackingNumber(' 7701 2345 ')).toBe('77012345')
         expect(() => normalizeTrackingNumber('  ')).toThrow(BadRequestException)
+    })
+
+    it('allows the normal courier path and blocks skips / reopening', () => {
+        expect(() => assertCourierTransition('BOOKED', 'PICKED_UP', false)).not.toThrow()
+        expect(() => assertCourierTransition('PICKED_UP', 'DELIVERED', true)).not.toThrow()
+        expect(() => assertCourierTransition('BOOKED', 'DELIVERED', false)).toThrow(
+            BadRequestException,
+        )
+        expect(() => assertCourierTransition('DELIVERED', 'IN_TRANSIT', true)).toThrow(
+            BadRequestException,
+        )
+        expect(() => assertCourierTransition('PICKED_UP', 'CANCELLED', true)).toThrow(
+            BadRequestException,
+        )
+    })
+
+    it('limits EXCEPTION exits by whether the courier already has the parcel', () => {
+        expect(nextCourierStatuses('EXCEPTION', false)).toEqual(['PICKED_UP', 'CANCELLED'])
+        expect(nextCourierStatuses('EXCEPTION', true)).toEqual([
+            'IN_TRANSIT',
+            'OUT_FOR_DELIVERY',
+            'DELIVERED',
+            'RETURNED',
+        ])
+    })
+
+    it('mirrors courier status onto the shipment', () => {
+        expect(shipmentStatusForCourier('PICKED_UP')).toBe('DISPATCHED')
+        expect(shipmentStatusForCourier('OUT_FOR_DELIVERY')).toBe('IN_TRANSIT')
+        expect(shipmentStatusForCourier('EXCEPTION')).toBe('EXCEPTION_HOLD')
+        expect(shipmentStatusForCourier('CANCELLED')).toBe('READY')
+    })
+})
+
+describe('ConsignmentsService.updateStatus', () => {
+    const setup = (consignment: Record<string, unknown>, opts: { giError?: Error } = {}) => {
+        const row = {
+            id: 'cc-1',
+            status: 'BOOKED',
+            pickedUpAt: null,
+            trackingNumber: 'JT1',
+            carrier: { name: 'J&T Express', trackingUrlTemplate: null },
+            shipment: { id: 'sh-1', reference: 'SHP-1', packageId: 'pkg-1', goodsIssueId: null },
+            events: [],
+            ...consignment,
+        }
+        const shipmentUpdates: Array<{ data: Record<string, unknown> }> = []
+        const emitted: Array<[string, unknown]> = []
+        const txClient: { current?: unknown } = {}
+        const prisma = {
+            courierConsignment: {
+                findUnique: jest.fn(async () => row),
+                updateMany: jest.fn(async () => ({ count: 1 })),
+            },
+            courierConsignmentEvent: { create: jest.fn(async () => ({})) },
+            shipment: {
+                update: jest.fn(async (args: { data: Record<string, unknown> }) => {
+                    shipmentUpdates.push(args)
+                    return {}
+                }),
+            },
+            wmPackage: { updateMany: jest.fn(async () => ({ count: 1 })) },
+            $transaction: jest.fn(
+                async (fn: (tx: unknown) => unknown): Promise<unknown> =>
+                    fn(txClient.current),
+            ),
+        }
+        txClient.current = prisma
+        const goodsIssues = {
+            issueAndPostFromPackage: jest.fn(async () => {
+                if (opts.giError) throw opts.giError
+                return { id: 'gi-1' }
+            }),
+        }
+        const service = new ConsignmentsService(
+            prisma as unknown as PrismaService,
+            {} as unknown as ShipmentsService,
+            goodsIssues as unknown as GoodsIssueService,
+            { emit: (name: string, payload: unknown) => emitted.push([name, payload]) } as never,
+        )
+        return { service, prisma, goodsIssues, shipmentUpdates, emitted }
+    }
+
+    it('PICKED_UP posts the goods issue once and dispatches the shipment', async () => {
+        const { service, goodsIssues, shipmentUpdates, prisma } = setup({})
+        await service.updateStatus('cc-1', { status: 'picked_up' }, 'u-1')
+        expect(goodsIssues.issueAndPostFromPackage).toHaveBeenCalledWith('pkg-1', {
+            createdBy: 'u-1',
+        })
+        expect(shipmentUpdates[0].data).toEqual({ goodsIssueId: 'gi-1' })
+        expect(prisma.wmPackage.updateMany).toHaveBeenCalled()
+        expect(shipmentUpdates[1].data).toMatchObject({ status: 'DISPATCHED' })
+    })
+
+    it('skips goods issue when the shipment already has one', async () => {
+        const { service, goodsIssues } = setup({
+            shipment: { id: 'sh-1', reference: 'SHP-1', packageId: 'pkg-1', goodsIssueId: 'gi-0' },
+        })
+        await service.updateStatus('cc-1', { status: 'PICKED_UP' })
+        expect(goodsIssues.issueAndPostFromPackage).not.toHaveBeenCalled()
+    })
+
+    it('a failed goods issue leaves the consignment unchanged', async () => {
+        const { service, prisma } = setup({}, { giError: new Error('no stock') })
+        await expect(service.updateStatus('cc-1', { status: 'PICKED_UP' })).rejects.toThrow(
+            /goods issue failed/,
+        )
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('DELIVERED marks the shipment delivered and emits shipment.delivered', async () => {
+        const { service, shipmentUpdates, emitted } = setup({
+            status: 'OUT_FOR_DELIVERY',
+            pickedUpAt: new Date(),
+        })
+        await service.updateStatus('cc-1', { status: 'DELIVERED' })
+        expect(shipmentUpdates[0].data).toMatchObject({ status: 'DELIVERED' })
+        expect(emitted).toEqual([['shipment.delivered', { shipmentIds: ['sh-1'] }]])
+    })
+
+    it('CANCELLED before pickup returns the shipment to the own fleet', async () => {
+        const { service, shipmentUpdates, emitted } = setup({})
+        await service.updateStatus('cc-1', { status: 'CANCELLED' })
+        expect(shipmentUpdates[0].data).toMatchObject({
+            status: 'READY',
+            executionMode: 'OWN_FLEET',
+        })
+        expect(emitted).toEqual([])
+    })
+
+    it('rejects a future event time and a lost race', async () => {
+        const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        const { service } = setup({})
+        await expect(
+            service.updateStatus('cc-1', { status: 'CANCELLED', occurredAt: future }),
+        ).rejects.toThrow(BadRequestException)
+
+        const raced = setup({})
+        raced.prisma.courierConsignment.updateMany.mockResolvedValueOnce({ count: 0 })
+        await expect(
+            raced.service.updateStatus('cc-1', { status: 'CANCELLED' }),
+        ).rejects.toThrow(ConflictException)
     })
 })
 
@@ -150,6 +296,8 @@ describe('ConsignmentsService.book', () => {
                 updateMany: jest.fn(async () => ({ count: 1 })),
                 findUnique: jest.fn(async () => ({
                     id: 'cc-1',
+                    status: 'BOOKED',
+                    pickedUpAt: null,
                     trackingNumber: 'JT123',
                     carrier: { trackingUrlTemplate: null },
                     events,
@@ -168,6 +316,7 @@ describe('ConsignmentsService.book', () => {
         const service = new ConsignmentsService(
             prisma as unknown as PrismaService,
             shipments as unknown as ShipmentsService,
+            {} as unknown as GoodsIssueService,
         )
         return { service, prisma, events, shipmentUpdates }
     }

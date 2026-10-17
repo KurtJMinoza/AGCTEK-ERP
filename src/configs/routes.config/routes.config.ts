@@ -171,6 +171,22 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/scm/consignments': {
+        key: 'scmConsignments',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/scm/couriers': {
+        key: 'scmCouriers',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/modules/sd/pos': {
         key: 'sdPosBranchGateway',
         authority: [],
