@@ -3843,10 +3843,44 @@ model SdProduct {
   options             SdProductOption[]             @relation("ProductOptions")
   variants            SdProductVariant[]            @relation("ProductVariants")
   reviews             ProductReview[]
+  pricingConditions   SdPricingCondition[]
 
   @@unique([divisionId, sku])
   @@index([divisionId, isActive, sortOrder])
   @@map("sd_products")
+}
+
+/// SD pricing conditions on top of the catalog base price (PR00 = `SdProduct.price`).
+/// Records only: checkout, POS and quotations still charge the catalog price.
+model SdPricingCondition {
+  id            String     @id @default(cuid())
+  /// e.g. DISC01, PROMO01
+  conditionCode String     @unique
+  name          String
+  /// TIER_DISCOUNT | PROMO
+  conditionType String
+  /// Target catalog product; null applies to every product.
+  productId     String?
+  product       SdProduct? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Minimum quantity for a tier discount; null for promos.
+  minQuantity   Decimal?   @db.Decimal(18, 3)
+  /// ALL | RETAIL | B2B
+  customerType  String     @default("ALL")
+  /// PERCENT_OFF | FIXED_PRICE
+  valueType     String
+  value         Decimal    @db.Decimal(18, 2)
+  /// Code a shopper enters (promos only), stored upper-case.
+  promoCode     String?
+  validFrom     DateTime
+  validTo       DateTime?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([conditionType, validFrom])
+  @@index([productId])
+  @@map("sd_pricing_conditions")
 }
 
 /// Customer review and star rating on an SD storefront product.

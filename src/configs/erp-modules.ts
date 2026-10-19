@@ -59,14 +59,6 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'tag',
                     },
                     {
-                        code: 'material-sales-view',
-                        title: 'Material Sales View',
-                        description:
-                            'Configure sales-relevant material data and pricing views.',
-                        path: '/modules/sd/material-sales-view',
-                        icon: 'package',
-                    },
-                    {
                         code: 'pricing-conditions',
                         title: 'Pricing Conditions',
                         description:
