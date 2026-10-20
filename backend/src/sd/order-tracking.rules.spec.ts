@@ -1,6 +1,8 @@
 import {
     computeOrderTracking,
     courierShopperEvent,
+    isLastMile,
+    stopsBefore,
     type OrderTrackingFacts,
     type TrackingCourierFacts,
     type TrackingPackageFacts,
@@ -326,6 +328,32 @@ describe('computeOrderTracking — courier (3PL) shipments', () => {
         const r = computeOrderTracking(withCourier(courier({ status: 'CANCELLED' })))
         expect(r.courier).toBeNull()
         expect(r.customerStatus).toBe('READY_FOR_DELIVERY')
+    })
+})
+
+describe('stopsBefore / isLastMile', () => {
+    const stops = [
+        { sequence: 1, status: 'COMPLETED' },
+        { sequence: 2, status: 'ARRIVED' },
+        { sequence: 3, status: 'PENDING' },
+        { sequence: 4, status: 'PENDING' },
+    ]
+
+    it('counts the open stops ahead of the customer', () => {
+        expect(stopsBefore(stops, 4)).toBe(2)
+        expect(stopsBefore(stops, 2)).toBe(0)
+        expect(isLastMile(stops, 4)).toBe(false)
+        expect(isLastMile(stops, 2)).toBe(true)
+    })
+
+    it('treats failed and skipped stops as done (the truck will not go there)', () => {
+        const settled = [
+            { sequence: 1, status: 'FAILED' },
+            { sequence: 2, status: 'SKIPPED' },
+            { sequence: 3, status: 'PENDING' },
+        ]
+        expect(stopsBefore(settled, 3)).toBe(0)
+        expect(isLastMile(settled, 3)).toBe(true)
     })
 })
 

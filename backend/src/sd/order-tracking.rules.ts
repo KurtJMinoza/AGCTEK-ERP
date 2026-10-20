@@ -209,6 +209,11 @@ export type OrderTrackingDto = {
     checkpoints: TrackingCheckpoint[]
     /** Set when the order ships with a third-party courier (no live map for these). */
     courier: CourierTrackingDto | null
+    /**
+     * Own-fleet stops still ahead of the customer's stop; only while the trip is
+     * in transit (single-order endpoint). 0 = the customer is next.
+     */
+    stopsAway: number | null
     /** Customer drop-off pin (single-order endpoint only; null in list batch). */
     destination: TrackingDestination | null
     /** Delayed vehicle position (single-order endpoint only; null in list batch). */
@@ -450,19 +455,29 @@ export function computeOrderTracking(facts: OrderTrackingFacts): OrderTrackingDt
         customerStatusLabel: CUSTOMER_STATUS_LABEL[status],
         checkpoints,
         courier: couriers[0] ? toCourierDto(couriers[0]) : null,
+        stopsAway: null,
         destination: null,
         map: null,
     }
 }
 
-const SETTLED_STOP = new Set(['COMPLETED', 'FAILED'])
+/** Stops the vehicle will not visit again (skipped stops are not driven to). */
+const SETTLED_STOP = new Set(['COMPLETED', 'FAILED', 'SKIPPED'])
+
+/** Stops the vehicle still has to make before the customer's stop. */
+export function stopsBefore(
+    stops: Array<{ sequence: number; status: string }>,
+    customerSequence: number,
+): number {
+    return stops.filter(
+        (s) => s.sequence < customerSequence && !SETTLED_STOP.has(s.status),
+    ).length
+}
 
 /** Out for delivery: every stop sequenced before the customer's stop is settled. */
 export function isLastMile(
     stops: Array<{ sequence: number; status: string }>,
     customerSequence: number,
 ): boolean {
-    return stops
-        .filter((s) => s.sequence < customerSequence)
-        .every((s) => SETTLED_STOP.has(s.status))
+    return stopsBefore(stops, customerSequence) === 0
 }

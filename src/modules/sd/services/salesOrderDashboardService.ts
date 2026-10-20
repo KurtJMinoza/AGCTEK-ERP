@@ -479,6 +479,8 @@ export type OrderTracking = {
     customerStatusLabel: string
     checkpoints: OrderTrackingCheckpoint[]
     courier: OrderTrackingCourier | null
+    /** Own-fleet stops still ahead of yours while in transit (0 = you're next); null otherwise. */
+    stopsAway: number | null
     /** Single-order endpoint only (null in the list batch). */
     destination: { lat: number; lng: number; label: string } | null
     map: OrderTrackingMap | null

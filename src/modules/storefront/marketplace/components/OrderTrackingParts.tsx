@@ -123,6 +123,20 @@ export function CourierTrackingPanel({ tracking }: { tracking: OrderTracking }) 
     )
 }
 
+/** Where the customer is in the driver's route: next, or N stops before theirs. */
+function StopsAwayBadge({ tracking }: { tracking: OrderTracking }) {
+    const away = tracking.stopsAway
+    if (away == null) return null
+    return (
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+            <HiOutlineLocationMarker className="text-sm" />
+            {away === 0
+                ? 'Out for delivery — next stop'
+                : `${away} ${away === 1 ? 'stop' : 'stops'} before yours`}
+        </div>
+    )
+}
+
 /** Delayed courier map; only for in-transit orders, timeline stays the source of truth. */
 export function DeliveryMapPanel({ tracking }: { tracking: OrderTracking }) {
     const map = tracking.map
@@ -132,13 +146,16 @@ export function DeliveryMapPanel({ tracking }: { tracking: OrderTracking }) {
 
     if (!map.available || map.latitude == null || map.longitude == null) {
         return (
-            <div className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-blue-800">
-                <HiOutlineTruck className="mt-0.5 shrink-0 text-base" />
-                <span>
-                    {map.reason === 'WAITING_FOR_UPDATE'
-                        ? 'Waiting for a location update from your courier.'
-                        : 'Your courier is on the way. Their location will appear here once available.'}
-                </span>
+            <div className="space-y-2">
+                <StopsAwayBadge tracking={tracking} />
+                <div className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-blue-800">
+                    <HiOutlineTruck className="mt-0.5 shrink-0 text-base" />
+                    <span>
+                        {map.reason === 'WAITING_FOR_UPDATE'
+                            ? 'Waiting for a location update from your courier.'
+                            : 'Your courier is on the way. Their location will appear here once available.'}
+                    </span>
+                </div>
             </div>
         )
     }
@@ -146,12 +163,7 @@ export function DeliveryMapPanel({ tracking }: { tracking: OrderTracking }) {
     return (
         <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-                {map.lastMile && (
-                    <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                        <HiOutlineLocationMarker className="text-sm" />
-                        Out for delivery — next stop
-                    </div>
-                )}
+                <StopsAwayBadge tracking={tracking} />
                 {map.eta && (
                     <div className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-3 py-1 text-xs font-bold text-gray-700 ring-1 ring-inset ring-gray-500/20">
                         <HiOutlineClock className="text-sm" />

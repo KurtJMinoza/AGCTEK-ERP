@@ -16,7 +16,7 @@ import {
 import { trackingUrl } from '../scm/couriers/couriers.rules'
 import {
     computeOrderTracking,
-    isLastMile,
+    stopsBefore,
     type OrderTrackingDto,
     type TrackingCourierFacts,
     type TrackingPackageFacts,
@@ -159,7 +159,8 @@ export class OrderTrackingService {
 
         const trip = link.tripStop.trip
         const inTransit = dto.customerStatus === 'IN_TRANSIT' && trip.status === 'IN_TRANSIT'
-        const lastMile = inTransit && isLastMile(trip.stops, link.tripStop.sequence)
+        const stopsAway = inTransit ? stopsBefore(trip.stops, link.tripStop.sequence) : null
+        const lastMile = stopsAway === 0
         const delaySeconds = lastMile ? policy.lastMileDelaySeconds : policy.delaySeconds
         const point = inTransit
             ? await this.tracking.publicPositionForTrip(trip.id, { delaySeconds, now })
@@ -178,7 +179,7 @@ export class OrderTrackingService {
                 .publicEtaForStop(trip.id, link.tripStop.sequence, point, now)
                 .catch(() => null)
         }
-        return { ...dto, destination, map }
+        return { ...dto, destination, map, stopsAway }
     }
 
     /** Batch for the My Orders list; ids not owned by the client are silently dropped. */
