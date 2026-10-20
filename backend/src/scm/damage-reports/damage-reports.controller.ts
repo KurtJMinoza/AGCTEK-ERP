@@ -22,9 +22,9 @@ const READ_CODES = [
 ] as const
 
 /**
- * Damage reports nested under a shipment — the delivery history stays intact and the report is
- * the SCM-side record that the SD Sales Return (Phase 3) and MM customer-return intake (Phase 4)
- * will link to. Reuses the `scm.shipments` permission surface (there is no dedicated code yet).
+ * Damage reports nested under a shipment — evidence only; the delivery history stays intact.
+ * Customer Returns are requested by the customer (storefront), never opened from a report.
+ * Reuses the `scm.shipments` permission surface (there is no dedicated code yet).
  */
 @Controller('scm/shipments/:shipmentId/damage-reports')
 export class DamageReportsController {
@@ -66,21 +66,5 @@ export class DamageReportsController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.damageReports.cancel(id, body, user)
-    }
-
-    /**
-     * SCM → SD handoff: creates a REQUESTED Customer Return (`SdReturnRequest`) from a
-     * submitted, resolvable report. Idempotent on `damageReportId`. Legacy Sales Returns
-     * already linked to the report are returned unchanged.
-     */
-    @Post(':id/initiate-return')
-    @HttpCode(200)
-    @RequirePermission('scm.shipments', 'update')
-    initiateReturn(
-        @Param('shipmentId') shipmentId: string,
-        @Param('id') id: string,
-        @CurrentUser() user: AuthRequestUser,
-    ) {
-        return this.damageReports.initiateSalesReturn(id, user)
     }
 }

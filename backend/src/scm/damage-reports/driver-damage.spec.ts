@@ -141,12 +141,7 @@ function setup(
         },
         damageReport: { findMany: jest.fn(async () => []) },
     }
-    const service = new DamageReportsService(
-        prisma as never,
-        {} as never,
-        {} as never,
-        {} as never,
-    )
+    const service = new DamageReportsService(prisma as never, {} as never)
     const createForShipment = jest
         .spyOn(service, 'createForShipment')
         .mockResolvedValue({ id: 'dr-1' } as never)

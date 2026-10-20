@@ -128,8 +128,8 @@ export type CreateReturnRequestInput = {
     /** SCM damage evidence — unique; handoff retries return the same request. */
     damageReportId?: string
     /**
-     * On-spot COD partial: cash was never collected for rejected qty → NOT_REQUIRED.
-     * Defaults to NONE for storefront / later claims.
+     * Defaults to NONE. NOT_REQUIRED exists only on legacy on-spot COD refuses
+     * (partial accept is retired — the customer always pays in full).
      */
     refundStatus?: (typeof REFUND_STATUSES)[number]
     lines: Array<{
@@ -277,71 +277,6 @@ export class ReturnRequestService {
     ) {
         if (opts.tx) return this.createIn(opts.tx, input)
         return this.prisma.$transaction((tx) => this.createIn(tx, input))
-    }
-
-    /**
-     * SCM damage handoff → Customer Return. Resolves the shopper/customer id from the
-     * sales order (storefront orders store the shop account on `customerId`).
-     */
-    async createFromDamageReport(
-        input: {
-            companyId: string
-            salesOrderId: string
-            damageReportId: string
-            salesOrderLineId: string
-            quantity: number
-            reason?: string
-            conditionNote?: string
-            photos?: unknown
-            requestedBy?: string
-            /** True when COD was already reduced for these units at POD. */
-            onSpotCodPartial?: boolean
-        },
-        opts: { tx?: Prisma.TransactionClient } = {},
-    ) {
-        const client = opts.tx ?? this.prisma
-        const existing = await client.sdReturnRequest.findUnique({
-            where: { damageReportId: input.damageReportId },
-            select: { id: true },
-        })
-        if (existing) return this.findOneInclude(existing.id)
-
-        const order = await client.sdSalesOrder.findUnique({
-            where: { id: input.salesOrderId },
-            select: { customerId: true, companyId: true },
-        })
-        if (!order) throw new NotFoundException('Sales order not found')
-        if (order.companyId !== input.companyId) {
-            throw new NotFoundException('Sales order not found in company scope')
-        }
-
-        return this.create(
-            {
-                companyId: input.companyId,
-                salesOrderId: input.salesOrderId,
-                customerId: order.customerId,
-                damageReportId: input.damageReportId,
-                reason: input.reason ?? 'DAMAGED_ITEM',
-                conditionNote: input.conditionNote,
-                photos: input.photos,
-                requestedBy: input.requestedBy,
-                // On-spot COD refuse: no commercial Refund/Replace request —
-                // cash was never taken for rejected qty (refundStatus NOT_REQUIRED).
-                preferredResolution: input.onSpotCodPartial
-                    ? undefined
-                    : 'REFUND',
-                refundStatus: input.onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE',
-                lines: [
-                    {
-                        salesOrderLineId: input.salesOrderLineId,
-                        quantity: input.quantity,
-                        reason: input.reason ?? 'DAMAGED_ITEM',
-                        conditionNote: input.conditionNote,
-                    },
-                ],
-            },
-            opts,
-        )
     }
 
     private async createIn(

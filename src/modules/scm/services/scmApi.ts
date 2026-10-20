@@ -6,7 +6,6 @@ import type {
     CourierConsignmentStatus,
     CreateDamageReportInput,
     DamageReport,
-    InitiateSalesReturnResult,
     DemandCellAdjustment,
     DemandHorizonKind,
     DemandHorizonPreset,
@@ -308,18 +307,6 @@ export async function apiCancelDamageReport(
     const { data } = await ErpAxiosBase.post<DamageReport>(
         `${damageReportsPath(shipmentId)}/${encodeURIComponent(reportId)}/cancel`,
         reason ? { reason } : {},
-    )
-    return data
-}
-
-/** SCM → SD handoff: creates one REQUESTED Sales Return per report (idempotent). */
-export async function apiInitiateSalesReturn(
-    shipmentId: string,
-    reportId: string,
-) {
-    const { data } = await ErpAxiosBase.post<InitiateSalesReturnResult>(
-        `${damageReportsPath(shipmentId)}/${encodeURIComponent(reportId)}/initiate-return`,
-        {},
     )
     return data
 }

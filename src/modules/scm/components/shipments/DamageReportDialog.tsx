@@ -13,13 +13,11 @@ import {
     apiCreateShipmentDamageReport,
     apiGetShipment,
     apiGetShipmentDamageReports,
-    apiInitiateSalesReturn,
 } from '../../services/scmApi'
 import { formatStatusLabel, statusTone } from '../../utils/status'
 import type {
     CreateDamageReportInput,
     DamageReport,
-    InitiateSalesReturnResult,
     Shipment,
     ShipmentLine,
 } from '../../types'
@@ -37,9 +35,8 @@ type DamageReportDialogProps = {
 
 /**
  * Report damage against a delivered shipment. The report is appended to the delivery history —
- * the shipment itself is never rewritten. Sale-order resolution happens server-side through the
- * verified package → picking task → reservation chain; UNRESOLVED reports are stored but excluded
- * from the automated SD handoff (Phase 3).
+ * the shipment itself is never rewritten. Evidence only: Customer Returns are requested by the
+ * customer. Returns linked by earlier hand-offs are still shown.
  */
 export default function DamageReportDialog({
     shipment,
@@ -61,9 +58,6 @@ export default function DamageReportDialog({
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
     const [busyId, setBusyId] = useState<string | null>(null)
-    const [initiatingId, setInitiatingId] = useState<string | null>(null)
-    const [handoffInfo, setHandoffInfo] =
-        useState<InitiateSalesReturnResult | null>(null)
 
     const reload = useCallback(async () => {
         if (!shipmentId) return
@@ -96,7 +90,6 @@ export default function DamageReportDialog({
         setDescription('')
         setPhotoUrls('')
         setFormError(null)
-        setHandoffInfo(null)
         void reload()
     }, [reload])
 
@@ -159,27 +152,6 @@ export default function DamageReportDialog({
             setFormError(getApiErrorMessage(err, 'Failed to cancel the report'))
         } finally {
             setBusyId(null)
-        }
-    }
-
-    const startReturn = async (report: DamageReport) => {
-        if (!shipmentId) return
-        setInitiatingId(report.id)
-        setFormError(null)
-        setHandoffInfo(null)
-        try {
-            const result = await apiInitiateSalesReturn(shipmentId, report.id)
-            setHandoffInfo(result)
-            await reload()
-        } catch (err) {
-            setFormError(
-                getApiErrorMessage(
-                    err,
-                    'Failed to initiate the customer return',
-                ),
-            )
-        } finally {
-            setInitiatingId(null)
         }
     }
 
@@ -347,32 +319,7 @@ export default function DamageReportDialog({
                                     </Link>
                                 ) : null}
                             </div>
-                            {report.status === 'SUBMITTED' &&
-                            report.salesOrderStatus === 'RESOLVED' &&
-                            canCreate ? (
-                                <div className="flex shrink-0 flex-col gap-2">
-                                    <Button
-                                        size="xs"
-                                        variant="solid"
-                                        loading={initiatingId === report.id}
-                                        disabled={
-                                            Boolean(initiatingId) ||
-                                            Boolean(busyId)
-                                        }
-                                        onClick={() => void startReturn(report)}
-                                    >
-                                        Start return
-                                    </Button>
-                                    <Button
-                                        size="xs"
-                                        loading={busyId === report.id}
-                                        disabled={Boolean(initiatingId)}
-                                        onClick={() => void cancel(report.id)}
-                                    >
-                                        Cancel
-                                    </Button>
-                                </div>
-                            ) : report.status === 'SUBMITTED' && canCreate ? (
+                            {report.status === 'SUBMITTED' && canCreate ? (
                                 <Button
                                     size="xs"
                                     loading={busyId === report.id}
@@ -387,19 +334,10 @@ export default function DamageReportDialog({
                 </ul>
             )}
 
-            {handoffInfo ? (
-                <Alert showIcon type="success" className="mt-4">
-                    {(() => {
-                        const ref =
-                            handoffInfo.customerReturn?.requestNumber ??
-                            handoffInfo.salesReturn?.returnNumber
-                        if (!ref) return 'Return already linked to this report.'
-                        return handoffInfo.created
-                            ? `Customer return ${ref} created — open Customer Returns to approve.`
-                            : `Already linked as ${ref}.`
-                    })()}
-                </Alert>
-            ) : null}
+            <p className="mt-4 text-xs text-gray-500">
+                Damage reports are evidence only. A refund or replacement is
+                requested by the customer from their order (Customer Returns).
+            </p>
         </FormDialog>
     )
 }

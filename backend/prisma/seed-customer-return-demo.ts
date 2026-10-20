@@ -4,9 +4,9 @@
  *   SD Sales Order (CONFIRMED) → MM reservation/package → SCM DELIVERED shipment
  *   → (SCM damage report) → (SD sales return) → (MM customer return intake)
  *
- * This seeds the *prerequisites* for three scenarios. The integration steps themselves are driven
- * through the real HTTP API by `scripts/run-customer-return-scenarios.mjs` (or asserted by
- * `scripts/test-customer-return-api.mjs`) so the API — and its audits — are what get exercised.
+ * This seeds delivered shipments as *prerequisites* only. The SCM → SD damage hand-off it was
+ * built for is retired (2026-10-20): damage reports are evidence, and Customer Returns are
+ * requested by the customer — see docs/COD_DELIVERY_CUSTOMER_RETURNS.md.
  *
  *   cd backend && npx ts-node --project prisma/tsconfig.seed.json prisma/seed-customer-return-demo.ts
  *

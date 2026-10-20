@@ -1023,20 +1023,6 @@ export type DamageReport = {
     }[]
 }
 
-export type InitiateSalesReturnResult = {
-    created: boolean
-    /** Customer Return spine (Phase 2). Prefer this over legacy salesReturn. */
-    customerReturn?: {
-        id: string
-        requestNumber: string
-        status: string
-        refundStatus?: string
-    } | null
-    /** Legacy Sales Return — only when a pre–Phase-2 handoff already exists. */
-    salesReturn?: { id: string; returnNumber: string; status: string } | null
-    damageReport: DamageReport
-}
-
 export type CreateDamageReportInput = {
     /** Omit to report the whole shipment. */
     shipmentLineId?: string | null

@@ -1,5 +1,12 @@
 # SCM Delivery Damage Report → SD Sales Return → MM Intake — Design Notes
 
+> **2026-10-20 — hand-off retired.** `POST …/damage-reports/:id/initiate-return` and the ERP
+> "Start return" action are removed. Damage reports (staff or driver) are **evidence only**;
+> refunds and replacements go through a Customer Return the **customer** requests from their
+> order (storefront). Reports linked to returns before this date still show their link.
+> Current policy: [`COD_DELIVERY_CUSTOMER_RETURNS.md`](./COD_DELIVERY_CUSTOMER_RETURNS.md).
+> The handoff sections below are history.
+
 Status: **Phase 2 (SCM Delivery Damage Report), Phase 3 (SD Sales Return + SCM→SD handoff), Phase 4 (SD → MM customer return intake), Phase 5 (cross-module UI) and Phase 6 (driver damage report + SD settlement) implemented**.
 
 ## Two recorded decisions
