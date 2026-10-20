@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
     ActivityIndicator,
+    Alert,
     Image,
+    Linking,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -9,7 +11,12 @@ import {
     TextInput,
     View,
 } from 'react-native'
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import {
+    useFocusEffect,
+    useLocalSearchParams,
+    useNavigation,
+    useRouter,
+} from 'expo-router'
 import { CashReceivedSheet } from '@/src/components/CashReceivedSheet'
 import { DamageReportSection } from '@/src/components/DamageReportSection'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
@@ -23,6 +30,13 @@ import {
 } from '@/src/api/client'
 import { capturePhotoDataUrl } from '@/src/utils/camera'
 import { formatMoney } from '@/src/utils/money'
+import {
+    LINK_ACTION_LABEL,
+    LOAD_FAILURE_CODES,
+    STOP_KIND_LABEL,
+    stopKind,
+    type StopKind,
+} from '@/src/utils/stopKind'
 import { captureStopMeta } from '@/src/api/stopMeta'
 import { stopQty } from '@/src/hooks/useActiveTrip'
 import type { DeliveryFailureReason, Trip, TripStop } from '@/src/types'
@@ -36,6 +50,47 @@ const FAILURE_REASONS: Array<{ code: DeliveryFailureReason; label: string }> = [
     { code: 'PAYMENT_ISSUE', label: 'Payment issue' },
     { code: 'OTHER', label: 'Other' },
 ]
+
+/** Same rules as the API: load stops fail only for operational reasons, returns never fail. */
+const REASONS_BY_KIND: Record<StopKind, typeof FAILURE_REASONS> = {
+    DELIVER: FAILURE_REASONS,
+    LOAD: FAILURE_REASONS.filter((r) => LOAD_FAILURE_CODES.includes(r.code)),
+    RETURN: [],
+}
+
+const COPY: Record<
+    StopKind,
+    {
+        notes: string
+        confirm: string
+        failHeading: string
+        completed: string
+        failed: string
+    }
+> = {
+    DELIVER: {
+        notes: 'POD notes',
+        confirm: 'Confirm delivered',
+        failHeading: 'Could not deliver?',
+        completed:
+            'Delivered. Collect cash if due and report any damage, then go back to continue the route.',
+        failed: 'Delivery failed',
+    },
+    LOAD: {
+        notes: 'Load notes',
+        confirm: 'Confirm loaded',
+        failHeading: 'Could not load?',
+        completed: 'Loaded. Go back to continue the route.',
+        failed: 'Load failed',
+    },
+    RETURN: {
+        notes: 'Notes',
+        confirm: 'Confirm returned to hub',
+        failHeading: '',
+        completed: 'Returned to hub.',
+        failed: 'Return failed',
+    },
+}
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'SKIPPED']
 
@@ -60,8 +115,6 @@ export default function StopDetailScreen() {
     /** One id per collection attempt — a retry after a dropped response replays, never double-collects. */
     const [cashActionId, setCashActionId] = useState<string | null>(null)
     const [cashReceipt, setCashReceipt] = useState<string | null>(null)
-    /** shipmentLineId → qty the customer keeps (defaults to full line qty). */
-    const [acceptedByLine, setAcceptedByLine] = useState<Record<string, number>>({})
 
     const reload = useCallback(async () => {
         if (!tripId) return
@@ -75,18 +128,6 @@ export default function StopDetailScreen() {
                 setNotes(stop.podNotes ?? stop.notes ?? '')
                 setPhotoUri(stop.podPhotoUrl)
                 setSignatureUrl(stop.podSignatureUrl)
-                const next: Record<string, number> = {}
-                for (const link of stop.shipments ?? []) {
-                    if (link.action !== 'DROPOFF') continue
-                    for (const line of link.shipment?.lines ?? []) {
-                        const recorded = stop.lines?.find(
-                            (l) => l.shipmentLineId === line.id,
-                        )?.acceptedQuantity
-                        next[line.id] =
-                            recorded != null ? recorded : line.quantity
-                    }
-                }
-                setAcceptedByLine(next)
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load stop')
@@ -162,63 +203,49 @@ export default function StopDetailScreen() {
         }
     }
 
-    const dropoffLines = useMemo(() => {
-        const rows: Array<{
-            shipmentLineId: string
-            label: string
-            quantity: number
-        }> = []
-        for (const link of stop?.shipments ?? []) {
-            if (link.action !== 'DROPOFF') continue
-            for (const line of link.shipment?.lines ?? []) {
-                rows.push({
-                    shipmentLineId: line.id,
-                    label:
-                        line.description ??
-                        line.materialCode ??
-                        link.shipment?.reference ??
-                        'Item',
-                    quantity: line.quantity,
-                })
-            }
-        }
-        return rows
-    }, [stop])
+    const kind = stopKind(stop?.stopType)
 
-    const acceptedLinesPayload = useMemo(() => {
-        if (!dropoffLines.length) return undefined
-        const lines = dropoffLines.map((l) => ({
-            shipmentLineId: l.shipmentLineId,
-            acceptedQuantity: acceptedByLine[l.shipmentLineId] ?? l.quantity,
-        }))
-        const anyReject = lines.some(
-            (l) =>
-                l.acceptedQuantity <
-                (dropoffLines.find((d) => d.shipmentLineId === l.shipmentLineId)
-                    ?.quantity ?? 0),
+    // Delivered but the COD not recorded yet: confirm before the driver leaves the stop.
+    const navigation = useNavigation()
+    const cashStillDue =
+        kind === 'DELIVER' &&
+        stop?.status === 'COMPLETED' &&
+        stop.collection?.status === 'PENDING' &&
+        stop.collection.amountDue != null
+    useEffect(() => {
+        if (!cashStillDue) return
+        return navigation.addListener('beforeRemove', (event) => {
+            event.preventDefault()
+            Alert.alert(
+                'Cash not recorded',
+                'This delivery is Cash on Delivery and the cash is not recorded yet.',
+                [
+                    { text: 'Stay', style: 'cancel' },
+                    {
+                        text: 'Leave anyway',
+                        style: 'destructive',
+                        onPress: () => navigation.dispatch(event.data.action),
+                    },
+                ],
+            )
+        })
+    }, [navigation, cashStillDue])
+
+    const openPhone = (scheme: 'tel' | 'sms', phone: string) => {
+        Linking.openURL(`${scheme}:${phone.replace(/[^\d+]/g, '')}`).catch(() =>
+            setError(scheme === 'tel' ? 'Could not start a call' : 'Could not open messages'),
         )
-        return anyReject ? lines : undefined
-    }, [dropoffLines, acceptedByLine])
+    }
 
-    const onDeliver = async (outcome: 'DELIVERED' | 'FAILED') => {
+    const onComplete = async (outcome: 'DELIVERED' | 'FAILED') => {
         if (!tripId || !stopId) return
         if (outcome === 'FAILED' && !failureCode) {
-            setError('Choose why the delivery failed')
+            setError('Choose why the stop failed')
             return
         }
         if (outcome === 'FAILED' && failureCode === 'OTHER' && !failureReason.trim()) {
             setError('Describe what happened')
             return
-        }
-        if (outcome === 'DELIVERED' && dropoffLines.length) {
-            const totalAccepted = dropoffLines.reduce(
-                (n, l) => n + (acceptedByLine[l.shipmentLineId] ?? l.quantity),
-                0,
-            )
-            if (totalAccepted === 0) {
-                setError('Refuse all units with Mark failed — or accept at least one unit')
-                return
-            }
         }
         setBusy(true)
         setError(null)
@@ -228,19 +255,18 @@ export default function StopDetailScreen() {
                 outcome,
                 podNotes: notes || null,
                 podPhotoUrl: photoUri,
-                podSignatureUrl: outcome === 'DELIVERED' ? signatureUrl : null,
+                // A customer signature only applies to deliveries (the API rejects it elsewhere).
+                podSignatureUrl:
+                    outcome === 'DELIVERED' && kind === 'DELIVER' ? signatureUrl : null,
                 ...(outcome === 'FAILED'
                     ? { reasonCode: failureCode!, failureReason: failureReason.trim() || null }
                     : {}),
-                ...(outcome === 'DELIVERED' && acceptedLinesPayload
-                    ? { acceptedLines: acceptedLinesPayload }
-                    : {}),
             })
             setTrip(updated)
-            // Stay after a delivery so the driver can collect COD / report more damage.
-            if (outcome === 'FAILED') router.back()
+            // Stay after a delivery so the driver can collect COD / report damage.
+            if (outcome === 'FAILED' || kind !== 'DELIVER') router.back()
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Deliver failed')
+            setError(err instanceof Error ? err.message : 'Could not complete the stop')
         } finally {
             setBusy(false)
         }
@@ -262,6 +288,8 @@ export default function StopDetailScreen() {
         )
     }
 
+    const copy = COPY[kind]
+    const reasons = REASONS_BY_KIND[kind]
     // Mirrors backend rules — the API stays authoritative and its errors are shown as-is.
     const tripInTransit = trip?.status === 'IN_TRANSIT'
     const blockingStop = trip?.allowOutOfOrder
@@ -270,12 +298,18 @@ export default function StopDetailScreen() {
               .filter((s) => s.sequence < stop.sequence && !TERMINAL.includes(s.status))
               .sort((a, b) => a.sequence - b.sequence)[0]
     const canArrive = tripInTransit && stop.status === 'PENDING' && !blockingStop
-    const canDeliverOrFail = tripInTransit && stop.status === 'ARRIVED'
+    const canComplete = tripInTransit && stop.status === 'ARRIVED'
     const failureLabel = FAILURE_REASONS.find((r) => r.code === stop.failureCode)?.label
-    const cod = stop.collection ?? null
+    // COD is only ever on deliver stops (the API attaches it from drop-off shipments).
+    const cod = kind === 'DELIVER' ? (stop.collection ?? null) : null
     // Same window as Confirm delivered, plus right after POD (server allows ARRIVED / COMPLETED).
     const canCollectCash =
-        cod?.status === 'PENDING' && (canDeliverOrFail || stop.status === 'COMPLETED')
+        cod?.status === 'PENDING' && (canComplete || stop.status === 'COMPLETED')
+    // The API only sends contacts for open deliver stops; show them once the route is running.
+    const contacts =
+        kind === 'DELIVER' && tripInTransit && !TERMINAL.includes(stop.status)
+            ? (stop.contacts ?? [])
+            : []
 
     return (
         <ScrollView contentContainerStyle={styles.content}>
@@ -285,6 +319,7 @@ export default function StopDetailScreen() {
                 </Text>
                 <StatusBadge status={stop.status} />
             </View>
+            <Text style={styles.kind}>{STOP_KIND_LABEL[kind]}</Text>
             <Text style={styles.address}>{stop.address}</Text>
             <Text style={styles.qty}>{stopQty(stop)} items on manifest</Text>
 
@@ -310,6 +345,34 @@ export default function StopDetailScreen() {
                 />
             ) : null}
 
+            {contacts.length > 0 ? (
+                <>
+                    <Text style={styles.section}>Customer</Text>
+                    {contacts.map((contact) => (
+                        <View key={contact.phone} style={styles.manifestRow}>
+                            <Text style={styles.ref}>{contact.name ?? 'Customer'}</Text>
+                            <Text style={styles.manifestMeta}>
+                                {contact.phone} · {contact.orderNumber}
+                            </Text>
+                            <View style={styles.contactActions}>
+                                <PrimaryButton
+                                    title="Call"
+                                    variant="secondary"
+                                    onPress={() => openPhone('tel', contact.phone)}
+                                    style={{ flex: 1 }}
+                                />
+                                <PrimaryButton
+                                    title="SMS"
+                                    variant="secondary"
+                                    onPress={() => openPhone('sms', contact.phone)}
+                                    style={{ flex: 1 }}
+                                />
+                            </View>
+                        </View>
+                    ))}
+                </>
+            ) : null}
+
             <Text style={styles.section}>Manifest</Text>
             {(stop.shipments ?? []).map((link) => (
                 <View key={link.id} style={styles.manifestRow}>
@@ -317,7 +380,7 @@ export default function StopDetailScreen() {
                         {link.shipment?.reference ?? link.shipmentId}
                     </Text>
                     <Text style={styles.manifestMeta}>
-                        {link.action} ·{' '}
+                        {LINK_ACTION_LABEL[link.action] ?? link.action} ·{' '}
                         {(link.shipment?.quantity ?? 0).toLocaleString()} items
                         {link.shipment?.customerName
                             ? ` · ${link.shipment.customerName}`
@@ -372,82 +435,20 @@ export default function StopDetailScreen() {
                 </>
             ) : null}
 
-            {canDeliverOrFail ? (
+            {canComplete ? (
                 <>
-                    {dropoffLines.length > 0 ? (
-                        <>
-                            <Text style={styles.section}>Accepted qty</Text>
-                            <Text style={styles.acceptHint}>
-                                Customer keeps these units and pays COD for them. Reduce
-                                qty for damaged/rejected units (or Mark failed to refuse
-                                all).
-                            </Text>
-                            {dropoffLines.map((line) => {
-                                const accepted =
-                                    acceptedByLine[line.shipmentLineId] ?? line.quantity
-                                const rejected = line.quantity - accepted
-                                return (
-                                    <View key={line.shipmentLineId} style={styles.manifestRow}>
-                                        <Text style={styles.ref} numberOfLines={2}>
-                                            {line.label}
-                                        </Text>
-                                        <Text style={styles.manifestMeta}>
-                                            Shipped {line.quantity}
-                                            {rejected > 0
-                                                ? ` · reject ${rejected}`
-                                                : ''}
-                                        </Text>
-                                        <View style={styles.qtyRow}>
-                                            <Pressable
-                                                accessibilityLabel="Decrease accepted"
-                                                disabled={accepted <= 0 || busy}
-                                                onPress={() =>
-                                                    setAcceptedByLine((prev) => ({
-                                                        ...prev,
-                                                        [line.shipmentLineId]: Math.max(
-                                                            0,
-                                                            accepted - 1,
-                                                        ),
-                                                    }))
-                                                }
-                                                style={styles.qtyBtn}
-                                            >
-                                                <Text style={styles.qtyBtnLabel}>−</Text>
-                                            </Pressable>
-                                            <Text style={styles.qtyValue}>{accepted}</Text>
-                                            <Pressable
-                                                accessibilityLabel="Increase accepted"
-                                                disabled={accepted >= line.quantity || busy}
-                                                onPress={() =>
-                                                    setAcceptedByLine((prev) => ({
-                                                        ...prev,
-                                                        [line.shipmentLineId]: Math.min(
-                                                            line.quantity,
-                                                            accepted + 1,
-                                                        ),
-                                                    }))
-                                                }
-                                                style={styles.qtyBtn}
-                                            >
-                                                <Text style={styles.qtyBtnLabel}>+</Text>
-                                            </Pressable>
-                                        </View>
-                                    </View>
-                                )
-                            })}
-                        </>
-                    ) : null}
-
-                    <Text style={styles.section}>POD notes</Text>
+                    <Text style={styles.section}>{copy.notes}</Text>
                     <TextInput
                         value={notes}
                         onChangeText={setNotes}
-                        placeholder="Delivery notes…"
+                        placeholder="Notes…"
                         multiline
                         style={styles.notes}
                     />
 
-                    <Text style={styles.section}>Photo</Text>
+                    <Text style={styles.section}>
+                        {kind === 'DELIVER' ? 'Photo' : 'Photo (optional)'}
+                    </Text>
                     <PrimaryButton
                         title={photoUri ? 'Retake photo' : 'Take photo'}
                         variant="secondary"
@@ -457,80 +458,98 @@ export default function StopDetailScreen() {
                         <Image source={{ uri: photoUri }} style={styles.photo} />
                     ) : null}
 
-                    <Text style={styles.section}>Signature</Text>
-                    <SignaturePad
-                        onOK={(data) => setSignatureUrl(data)}
-                        onEmpty={() => setSignatureUrl(null)}
-                    />
-                    {signatureUrl ? (
-                        <Text style={styles.savedSig}>Signature saved</Text>
+                    {kind === 'DELIVER' ? (
+                        <>
+                            <Text style={styles.section}>Signature</Text>
+                            <SignaturePad
+                                onOK={(data) => setSignatureUrl(data)}
+                                onEmpty={() => setSignatureUrl(null)}
+                            />
+                            {signatureUrl ? (
+                                <Text style={styles.savedSig}>Signature saved</Text>
+                            ) : null}
+                            <Text style={styles.acceptHint}>
+                                The customer receives all items. If something is
+                                damaged, deliver it and use Report damage — the
+                                customer can request a refund or replacement.
+                            </Text>
+                        </>
                     ) : null}
 
                     <PrimaryButton
-                        title="Confirm delivered"
+                        title={copy.confirm}
                         loading={busy}
-                        onPress={() => void onDeliver('DELIVERED')}
+                        onPress={() => void onComplete('DELIVERED')}
                         style={{ marginTop: 16 }}
                     />
 
-                    <Text style={styles.section}>Could not deliver?</Text>
-                    <View style={styles.chips}>
-                        {FAILURE_REASONS.map((reason) => {
-                            const selected = failureCode === reason.code
-                            return (
-                                <Pressable
-                                    key={reason.code}
-                                    accessibilityRole="radio"
-                                    accessibilityState={{ selected }}
-                                    onPress={() => setFailureCode(reason.code)}
-                                    style={[styles.chip, selected && styles.chipSelected]}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.chipLabel,
-                                            selected && styles.chipLabelSelected,
-                                        ]}
-                                    >
-                                        {reason.label}
-                                    </Text>
-                                </Pressable>
-                            )
-                        })}
-                    </View>
-                    <TextInput
-                        value={failureReason}
-                        onChangeText={setFailureReason}
-                        placeholder={
-                            failureCode === 'OTHER'
-                                ? 'Describe what happened (required)'
-                                : 'Notes (optional)'
-                        }
-                        style={[styles.input, { marginTop: 10 }]}
-                    />
-                    <PrimaryButton
-                        title="Mark failed"
-                        variant="danger"
-                        loading={busy}
-                        disabled={!failureCode}
-                        onPress={() => void onDeliver('FAILED')}
-                        style={{ marginTop: 10 }}
-                    />
+                    {reasons.length > 0 ? (
+                        <>
+                            <Text style={styles.section}>{copy.failHeading}</Text>
+                            <View style={styles.chips}>
+                                {reasons.map((reason) => {
+                                    const selected = failureCode === reason.code
+                                    return (
+                                        <Pressable
+                                            key={reason.code}
+                                            accessibilityRole="radio"
+                                            accessibilityState={{ selected }}
+                                            onPress={() => setFailureCode(reason.code)}
+                                            style={[styles.chip, selected && styles.chipSelected]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.chipLabel,
+                                                    selected && styles.chipLabelSelected,
+                                                ]}
+                                            >
+                                                {reason.label}
+                                            </Text>
+                                        </Pressable>
+                                    )
+                                })}
+                            </View>
+                            <TextInput
+                                value={failureReason}
+                                onChangeText={setFailureReason}
+                                placeholder={
+                                    failureCode === 'OTHER'
+                                        ? 'Describe what happened (required)'
+                                        : 'Notes (optional)'
+                                }
+                                style={[styles.input, { marginTop: 10 }]}
+                            />
+                            <PrimaryButton
+                                title="Mark failed"
+                                variant="danger"
+                                loading={busy}
+                                disabled={!failureCode}
+                                onPress={() => void onComplete('FAILED')}
+                                style={{ marginTop: 10 }}
+                            />
+                        </>
+                    ) : (
+                        <Text style={styles.acceptHint}>
+                            Something wrong at the hub? Contact dispatch.
+                        </Text>
+                    )}
                 </>
             ) : null}
 
             {stop.status === 'FAILED' ? (
                 <Text style={styles.done}>
-                    Delivery failed{failureLabel ? `: ${failureLabel}` : ''}
+                    {copy.failed}
+                    {failureLabel ? `: ${failureLabel}` : ''}
                     {stop.failureReason ? ` — ${stop.failureReason}` : ''}. The
                     dispatcher will follow up; continue with the next stop.
                 </Text>
             ) : null}
             {stop.status === 'COMPLETED' ? (
                 <>
-                    <Text style={styles.done}>
-                        Stop completed. Use back to continue the route.
-                    </Text>
-                    <DamageReportSection tripId={tripId!} stopId={stopId!} />
+                    <Text style={styles.done}>{copy.completed}</Text>
+                    {kind === 'DELIVER' ? (
+                        <DamageReportSection tripId={tripId!} stopId={stopId!} />
+                    ) : null}
                 </>
             ) : null}
         </ScrollView>
@@ -547,6 +566,18 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     title: { flex: 1, fontSize: 20, fontWeight: '800', color: '#111827' },
+    kind: {
+        marginTop: 6,
+        alignSelf: 'flex-start',
+        paddingHorizontal: 10,
+        paddingVertical: 3,
+        borderRadius: 999,
+        backgroundColor: '#fff7ed',
+        color: '#c2410c',
+        fontWeight: '700',
+        fontSize: 13,
+        overflow: 'hidden',
+    },
     address: { marginTop: 8, color: '#4b5563', lineHeight: 22, fontSize: 15 },
     qty: { marginTop: 6, fontWeight: '600', color: '#111827' },
     error: { color: '#b91c1c', marginTop: 12 },
@@ -568,6 +599,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     ref: { fontWeight: '700', color: '#111827' },
+    contactActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
     manifestMeta: { marginTop: 4, color: '#6b7280', fontSize: 13 },
     notes: {
         minHeight: 88,
@@ -599,25 +631,7 @@ const styles = StyleSheet.create({
     codDue: { fontSize: 18, fontWeight: '800', color: '#b45309' },
     codCollected: { fontSize: 18, fontWeight: '800', color: '#047857' },
     hint: { marginTop: 16, color: '#92400e', lineHeight: 22, fontSize: 15 },
-    acceptHint: { marginBottom: 10, color: '#6b7280', lineHeight: 20, fontSize: 14 },
-    qtyRow: {
-        marginTop: 10,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 16,
-    },
-    qtyBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#d1d5db',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#f9fafb',
-    },
-    qtyBtnLabel: { fontSize: 22, fontWeight: '700', color: '#111827', lineHeight: 24 },
-    qtyValue: { minWidth: 36, textAlign: 'center', fontSize: 20, fontWeight: '800' },
+    acceptHint: { marginTop: 10, color: '#6b7280', lineHeight: 20, fontSize: 14 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {
         borderWidth: 1,

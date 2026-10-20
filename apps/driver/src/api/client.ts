@@ -182,8 +182,6 @@ export async function apiDeliverStop(
         reasonCode?: DeliveryFailureReason
         failureReason?: string | null
         notes?: string | null
-        /** Per line qty kept; omit = accept all. Rejected qty becomes a damage report. */
-        acceptedLines?: Array<{ shipmentLineId: string; acceptedQuantity: number }>
     },
 ): Promise<Trip> {
     return request<Trip>(

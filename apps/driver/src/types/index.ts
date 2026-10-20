@@ -72,10 +72,14 @@ export type TripStopShipment = {
     shipment?: Shipment
 }
 
+/** SHIP = load at warehouse · TO = deliver to customer · RETURN = back to hub. Null on legacy stops. */
+export type TripStopType = 'SHIP' | 'TO' | 'RETURN'
+
 export type TripStop = {
     id: string
     tripId: string
     sequence: number
+    stopType: TripStopType | null
     name: string | null
     address: string
     lat: number | null
@@ -92,10 +96,16 @@ export type TripStop = {
     failureCode: DeliveryFailureReason | null
     failedAt: string | null
     shipments?: TripStopShipment[]
-    /** POD acceptance on cargo-first stop lines (null acceptedQuantity = full). */
-    lines?: Array<{ shipmentLineId: string; acceptedQuantity: number | null }>
     /** Cash on Delivery for the orders dropped here; null when nothing is COD. */
     collection?: CodCollection | null
+    /** Ship-to contacts — only on open deliver stops (empty once the stop is done). */
+    contacts?: StopContact[]
+}
+
+export type StopContact = {
+    orderNumber: string
+    name: string | null
+    phone: string
 }
 
 /** PENDING = cash still to collect · COLLECTED = all Paid · NOT_COLLECTIBLE = cancelled/refunded etc. */

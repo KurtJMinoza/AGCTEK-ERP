@@ -1,259 +1,98 @@
 /**
- * Phase 5 — COD delivery + Customer Returns QA (scenarios 1–6).
+ * COD delivery + Customer Returns QA — full payment, no partial accept.
  *
  * Locks the commercial outcomes from docs/COD_DELIVERY_CUSTOMER_RETURNS.md.
  * Run: `npm run test:cod-delivery-qa` (from backend) or
  * `npx jest src/sd/cod-delivery-customer-returns.scenarios.spec.ts --runInBand`
  *
- * Related deeper suites: pod-acceptance.rules.spec, sales-invoice-pod-acceptance.spec,
- * damage-reports.spec (initiate → Customer Return), return-request.spec (approve /
- * REPLACEMENT / refund NOT_REQUIRED).
+ * Related deeper suites: trips.service.execution.spec (deliver / fail / cash,
+ * partial accept rejected), damage-reports.spec, return-request.spec (approve /
+ * REPLACEMENT / refund guards).
  */
-import {
-    hasAnyAccept,
-    hasPartialReject,
-    parseAcceptedLines,
-    proportionalCodDue,
-} from '../scm/trips/pod-acceptance.rules'
-import {
-    isPartialPodAcceptance,
-    money,
-} from './sales-invoice-pod-acceptance'
+import { BadRequestException } from '@nestjs/common'
+import { assertStopTypeAllows } from '../scm/trips/trip-execution.rules'
 
-/** Demo: 10 units @ ₱100, shipping folded into COD due of ₱1,050. */
-const SHIPPED = [{ id: 'sl-1', shipmentId: 'sh-1', quantity: 10 }]
-const FULL_COD = 1050
+const deliver = (over: Partial<Parameters<typeof assertStopTypeAllows>[0]> = {}) =>
+    assertStopTypeAllows({
+        stopType: 'TO',
+        sequence: 2,
+        outcome: 'COMPLETE',
+        reasonCode: null,
+        hasSignature: true,
+        ...over,
+    })
 
-describe('COD + Customer Returns — Phase 5 scenarios 1–6', () => {
-    describe('Scenario 1 — Happy path: accept all, no damage', () => {
-        it('omitted acceptedLines means full deliver (no partial)', () => {
-            expect(parseAcceptedLines(undefined, SHIPPED)).toBeNull()
-            expect(parseAcceptedLines([], SHIPPED)).toBeNull()
-        })
-
-        it('full accept → stop COMPLETED, COD = full, no SI rewrite signal', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 10 }],
-                SHIPPED,
-            )!
-            expect(hasPartialReject(lines)).toBe(false)
-            expect(hasAnyAccept(lines)).toBe(true)
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(FULL_COD)
-            expect(
-                isPartialPodAcceptance({
-                    codAmountDue: null,
-                    lines: [
-                        {
-                            salesOrderLineId: 'ol-1',
-                            acceptedQuantity: 10,
-                            shippedQuantity: 10,
-                        },
-                    ],
-                }),
-            ).toBe(false)
-        })
-
-        it('commercial follow-up: none (no damage reject qty)', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 10 }],
-                SHIPPED,
-            )!
-            expect(lines.every((l) => l.rejectedQuantity === 0)).toBe(true)
+describe('COD + Customer Returns — full payment scenarios', () => {
+    describe('Scenario 1 — Happy path: deliver all, collect full COD', () => {
+        it('a deliver stop completes with POD and signature', () => {
+            expect(() => deliver()).not.toThrow()
         })
     })
 
-    describe('Scenario 2 — Partial accept: reject damaged qty', () => {
-        const accepted = 8
-        const rejected = 2
-
-        it('stop stays COMPLETED (not FAILED) with partial reject', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: accepted }],
-                SHIPPED,
-            )!
-            expect(hasPartialReject(lines)).toBe(true)
-            expect(hasAnyAccept(lines)).toBe(true)
-            expect(lines[0].rejectedQuantity).toBe(rejected)
-        })
-
-        it('COD due scales to accepted / shipped', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: accepted }],
-                SHIPPED,
-            )!
-            // 8/10 of 1050 = 840
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(840)
-        })
-
-        it('SI rewrite uses accepted qty × unit price and reduced COD due', () => {
-            expect(money.mul(accepted, 100).toString()).toBe('800')
-            expect(
-                isPartialPodAcceptance({
-                    codAmountDue: 840,
-                    lines: [
-                        {
-                            salesOrderLineId: 'ol-1',
-                            acceptedQuantity: accepted,
-                            shippedQuantity: 10,
-                        },
-                    ],
-                }),
-            ).toBe(true)
-        })
-
-        it('commercial follow-up: DamageReport evidence + Customer Return for rejected qty; on-spot COD → refund NOT_REQUIRED', () => {
-            // Policy contract (wired in DamageReportsService + createFromDamageReport):
-            // DRIVER / POD reject → onSpotCodPartial → refundStatus NOT_REQUIRED.
-            const onSpotCodPartial = true
-            const refundStatus = onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE'
-            expect(refundStatus).toBe('NOT_REQUIRED')
-            expect(rejected).toBe(2)
+    describe('Scenario 2 — Damaged at the door', () => {
+        it('the customer keeps the parcel and pays in full; damage is a later customer return', () => {
+            // Partial accept is retired: deliverStop rejects acceptedLines
+            // (trips.service.execution.spec). Evidence = driver Report damage.
+            const customerChoices = ['REFUND', 'REPLACEMENT'] as const
+            expect(customerChoices).toEqual(['REFUND', 'REPLACEMENT'])
         })
     })
 
     describe('Scenario 3 — Refuse all', () => {
-        it('accept-all-zero is refuse-all (must use outcome FAILED, not COMPLETE)', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 0 }],
-                SHIPPED,
-            )!
-            expect(hasAnyAccept(lines)).toBe(false)
-            expect(hasPartialReject(lines)).toBe(true)
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(0)
-        })
-
-        it('TripsService gates refuse-all on COMPLETE with a clear error', () => {
-            // Mirror of trips.service deliverStop: COMPLETE + !hasAnyAccept → BadRequest.
-            const refuseAll = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 0 }],
-                SHIPPED,
-            )!
-            const wouldBlockComplete = refuseAll && !hasAnyAccept(refuseAll)
-            expect(wouldBlockComplete).toBe(true)
-            expect(
-                'Refuse all units with outcome FAILED — partial accept needs at least one accepted unit',
-            ).toMatch(/FAILED/)
-        })
-
-        it('commercial follow-up: no COD due and no partial-accept SI rewrite', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 0 }],
-                SHIPPED,
-            )!
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(0)
-            // Partial SI rewrite only when some units accepted.
-            expect(hasAnyAccept(lines)).toBe(false)
+        it('the deliver stop fails with any customer reason; no COD is collected', () => {
+            expect(() =>
+                deliver({ outcome: 'FAIL', reasonCode: 'CUSTOMER_REFUSED', hasSignature: false }),
+            ).not.toThrow()
         })
     })
 
-    describe('Scenario 4 — Accept all including damaged (pay full)', () => {
-        it('full COD collect with no rejected qty → no credit return', () => {
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 10 }],
-                SHIPPED,
-            )!
-            expect(hasPartialReject(lines)).toBe(false)
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(FULL_COD)
-            // Keep-damaged-and-pay-less is not expressible via acceptedLines.
-            expect(lines[0].rejectedQuantity).toBe(0)
-        })
-
-        it('POD auto-return only fires when rejectedQuantity > 0', () => {
-            const full = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 10 }],
-                SHIPPED,
-            )!
-            const partial = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 8 }],
-                SHIPPED,
-            )!
-            const podCreatesCustomerReturn = (lines: typeof full) =>
-                hasPartialReject(lines) && hasAnyAccept(lines)
-            expect(podCreatesCustomerReturn(full)).toBe(false)
-            expect(podCreatesCustomerReturn(partial)).toBe(true)
-        })
-    })
-
-    describe('Scenario 5 — Hidden damage after driver leaves', () => {
-        it('post-delivery Customer Return offers Refund (red) or Replace (orange); refundStatus NONE until settled', () => {
-            // create / createForCustomer after DELIVERED — not onSpotCodPartial.
-            const onSpotCodPartial = false
-            const refundStatus = onSpotCodPartial ? 'NOT_REQUIRED' : 'NONE'
-            expect(refundStatus).toBe('NONE')
-            // COD commercial UI: only these two (STORE_CREDIT dropped from COD CTAs).
-            const codChoices = ['REFUND', 'REPLACEMENT'] as const
-            expect(codChoices).toContain('REFUND')
-            expect(codChoices).toContain('REPLACEMENT')
+    describe('Scenario 4 — Hidden damage after the driver leaves', () => {
+        it('the customer files a Refund (red) or Replace (orange) return on a paid order', () => {
             const flagTone = (resolution: string) =>
-                resolution === 'REPLACEMENT'
-                    ? 'warning'
-                    : resolution === 'REFUND'
-                      ? 'danger'
-                      : 'default'
+                resolution === 'REPLACEMENT' ? 'warning' : resolution === 'REFUND' ? 'danger' : 'default'
             expect(flagTone('REFUND')).toBe('danger')
             expect(flagTone('REPLACEMENT')).toBe('warning')
         })
-
-        it('prior full POD → no partial SI flag; later credit memo via refund flow', () => {
-            expect(
-                isPartialPodAcceptance({
-                    codAmountDue: null,
-                    lines: [
-                        {
-                            salesOrderLineId: 'ol-1',
-                            acceptedQuantity: 10,
-                            shippedQuantity: 10,
-                        },
-                    ],
-                }),
-            ).toBe(false)
-        })
     })
 
-    describe('Scenario 6 — Replacement after approve', () => {
-        it('REPLACEMENT is a distinct resolution from REFUND (orange vs red)', () => {
-            const allowed = ['REFUND', 'REPLACEMENT'] as const
-            expect(allowed).toContain('REPLACEMENT')
-            expect('REPLACEMENT').not.toBe('REFUND')
-        })
-
-        it('approve contract: MM intake always; child SO only when resolution is REPLACEMENT', () => {
+    describe('Scenario 5 — Replacement after approve', () => {
+        it('MM intake always; a child SO only when the resolution is REPLACEMENT', () => {
             const plan = (resolution: string) => ({
                 mmIntake: true,
                 replacementSo: resolution === 'REPLACEMENT',
             })
             expect(plan('REFUND')).toEqual({ mmIntake: true, replacementSo: false })
-            expect(plan('REPLACEMENT')).toEqual({
-                mmIntake: true,
-                replacementSo: true,
-            })
-            // Damaged pickup multi-stop is deferred (policy 6A outbound only).
-            expect(plan('REPLACEMENT').replacementSo).toBe(true)
-        })
-
-        it('NOT_REQUIRED blocks Refund and Replace (on-spot COD refuse)', () => {
-            const canOffer = (refundStatus: string) =>
-                refundStatus !== 'NOT_REQUIRED'
-            expect(canOffer('NONE')).toBe(true)
-            expect(canOffer('NOT_REQUIRED')).toBe(false)
+            expect(plan('REPLACEMENT')).toEqual({ mmIntake: true, replacementSo: true })
         })
     })
 
-    describe('Locked policy cross-checks', () => {
-        it('keep-damaged-and-pay-less cannot be expressed (acceptedLines only reduces keep qty)', () => {
-            // Paying less while keeping all units would require accepted=10 and
-            // a lower COD — disallowed; COD is derived from accepted/shipped only.
-            const lines = parseAcceptedLines(
-                [{ shipmentLineId: 'sl-1', acceptedQuantity: 10 }],
-                SHIPPED,
-            )!
-            expect(proportionalCodDue(FULL_COD, lines)).toBe(FULL_COD)
-            expect(proportionalCodDue(FULL_COD, lines)).not.toBe(840)
+    describe('Stop types — no customer at load / return stops', () => {
+        it('load stop: completes without signature; fails only for vehicle issue or other', () => {
+            expect(() => deliver({ stopType: 'SHIP', hasSignature: false })).not.toThrow()
+            expect(() =>
+                deliver({ stopType: 'SHIP', outcome: 'FAIL', reasonCode: 'VEHICLE_ISSUE', hasSignature: false }),
+            ).not.toThrow()
+            expect(() =>
+                deliver({ stopType: 'SHIP', outcome: 'FAIL', reasonCode: 'CUSTOMER_REFUSED', hasSignature: false }),
+            ).toThrow(BadRequestException)
         })
 
-        it('driver never changes unit price — invoice line math is qty × original price', () => {
-            expect(money.mul(8, 129.9).toString()).toBe('1039.2')
-            expect(money.mul(10, 129.9).toString()).toBe('1299')
+        it('load and return stops reject a customer signature', () => {
+            expect(() => deliver({ stopType: 'SHIP' })).toThrow(/signature/)
+            expect(() => deliver({ stopType: 'RETURN' })).toThrow(/signature/)
+        })
+
+        it('return stop: completes as returned to hub and cannot fail', () => {
+            expect(() => deliver({ stopType: 'RETURN', hasSignature: false })).not.toThrow()
+            expect(() =>
+                deliver({ stopType: 'RETURN', outcome: 'FAIL', reasonCode: 'OTHER', hasSignature: false }),
+            ).toThrow(/cannot be marked failed/)
+        })
+
+        it('legacy stops without a type keep the delivery rules', () => {
+            expect(() =>
+                deliver({ stopType: null, outcome: 'FAIL', reasonCode: 'CUSTOMER_UNAVAILABLE' }),
+            ).not.toThrow()
         })
     })
 })

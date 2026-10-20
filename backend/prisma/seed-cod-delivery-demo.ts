@@ -213,7 +213,6 @@ async function main() {
             const total = sc.orderQty * UNIT_PRICE
             const accepted = sc.acceptedQty
             const isLive = accepted == null
-            const rejected = isLive ? 0 : sc.orderQty - accepted!
             const codDue = isLive ? total : accepted! * UNIT_PRICE
 
             const customer = await prisma.sdCustomer.create({
@@ -492,20 +491,13 @@ async function main() {
                                     ? {}
                                     : {
                                           completedAt: now,
-                                          // null = full payment; set only on partial accept.
-                                          ...(rejected > 0
-                                              ? { codAmountDue: new Decimal(codDue) }
-                                              : {}),
-                                          podNotes: `Seeded accept ${accepted}/${sc.orderQty}`,
+                                          podNotes: 'Seeded full delivery',
                                       }),
                                 locationSnapshotAt: now,
                                 lines: {
                                     create: {
                                         loadPlanLineId: loadPlanLine.id,
                                         shipmentLineId: shipmentLine.id,
-                                        ...(isLive
-                                            ? {}
-                                            : { acceptedQuantity: accepted! }),
                                     },
                                 },
                                 shipments: {

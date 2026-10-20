@@ -1,5 +1,5 @@
 /**
- * Phase 5 — COD delivery + Customer Returns QA runner (scenarios 1–6).
+ * COD delivery + Customer Returns QA runner (full payment, no partial accept).
  *
  * Runs the scripted acceptance suite plus the deeper units that back each scenario.
  * Does not need a live API or seed data.
@@ -17,13 +17,12 @@ const backend = path.join(root, 'backend')
 
 const suites = [
     'src/sd/cod-delivery-customer-returns.scenarios.spec.ts',
-    'src/scm/trips/pod-acceptance.rules.spec.ts',
-    'src/sd/sales-invoice-pod-acceptance.spec.ts',
+    'src/scm/trips/trips.service.execution.spec.ts',
     'src/scm/damage-reports/damage-reports.spec.ts',
     'src/sd/return-request.spec.ts',
 ]
 
-console.log('COD delivery + Customer Returns — Phase 5 QA\n')
+console.log('COD delivery + Customer Returns — QA\n')
 console.log('Suites:')
 for (const s of suites) console.log(`  · ${s}`)
 console.log('')
@@ -40,8 +39,8 @@ const result = spawnSync(
 )
 
 if (result.status !== 0) {
-    console.error('\nPhase 5 QA failed.')
+    console.error('\nCOD delivery QA failed.')
     process.exit(result.status ?? 1)
 }
 
-console.log('\n✅ Phase 5 QA passed — scenarios 1–6 covered.')
+console.log('\n✅ COD delivery QA passed.')

@@ -99,8 +99,8 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
     const salesOrders = {
         getCodCollection: jest.fn().mockResolvedValue(null),
         collectCashOnDelivery: jest.fn(),
+        getShipToContacts: jest.fn().mockResolvedValue(new Map()),
     }
-    const damageReports = { createFromDriver: jest.fn() }
     const events = { emit: jest.fn() }
     const service = new TripsService(
         prisma as never,
@@ -108,7 +108,6 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
         {} as never,
         {} as never,
         salesOrders as never,
-        damageReports as never,
         events as never,
     )
     const completeTrip = jest.spyOn(service, 'updateStatus').mockResolvedValue({} as never)
@@ -199,6 +198,43 @@ describe('TripsService stop execution', () => {
         await expect(service.deliverStop('t1', 's1', { outcome: 'FAILED', reasonCode: 'OTHER' }, 'drv-1')).rejects.toThrow(/OTHER/)
         expect(stop('s1').status).toBe(StopStatus.ARRIVED)
         expect(state.events).toHaveLength(1)
+    })
+
+    it('partial accept is rejected — deliver all units or fail the stop', async () => {
+        const { service, state, stop } = setup(TWO_STOPS)
+        await service.arriveStop('t1', 's1', 'drv-1')
+        await expect(
+            service.deliverStop(
+                't1',
+                's1',
+                { outcome: 'DELIVERED', acceptedLines: [{ shipmentLineId: 'l1', acceptedQuantity: 8 }] },
+                'drv-1',
+            ),
+        ).rejects.toThrow(/Partial accept is not supported/)
+        expect(stop('s1').status).toBe(StopStatus.ARRIVED)
+        expect(state.events).toHaveLength(1)
+    })
+
+    it('load stop: no customer reasons or signature; return stop cannot fail', async () => {
+        const { service, stop } = setup([
+            ['s1', 1, StopStatus.ARRIVED, [{ action: 'PICKUP', shipmentId: 'shA' }]],
+            ['s2', 2, StopStatus.PENDING, [{ action: 'DROPOFF', shipmentId: 'shA' }]],
+        ])
+        stop('s1').stopType = 'SHIP'
+        await expect(
+            service.deliverStop('t1', 's1', { outcome: 'FAILED', reasonCode: 'CUSTOMER_REFUSED' }, 'drv-1'),
+        ).rejects.toThrow(/load stop can only fail/)
+        await expect(
+            service.deliverStop('t1', 's1', { outcome: 'DELIVERED', podSignatureUrl: 'data:sig' }, 'drv-1'),
+        ).rejects.toThrow(/signature/)
+        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED' }, 'drv-1')
+        expect(stop('s1').status).toBe(StopStatus.COMPLETED)
+
+        const ret = setup([['r1', 1, StopStatus.ARRIVED, []]])
+        ret.stop('r1').stopType = 'RETURN'
+        await expect(
+            ret.service.deliverStop('t1', 'r1', { outcome: 'FAILED', reasonCode: 'OTHER', failureReason: 'x' }, 'drv-1'),
+        ).rejects.toThrow(/cannot be marked failed/)
     })
 
     it('terminal stops cannot be changed again', async () => {
@@ -328,6 +364,33 @@ describe('TripsService stop execution', () => {
             )
             const trip = await service.withCodCollections(await service.findOne('t1'))
             expect(trip.stops.map((s) => s.collection)).toEqual([{ status: 'PENDING', amountDue: 250 }, null])
+        })
+    })
+
+    describe('ship-to contact', () => {
+        const contact = { orderNumber: 'SO-A', name: 'Ana Cruz', phone: '09171234567' }
+
+        it('is shown on an open deliver stop and hidden once the stop is done', async () => {
+            const { service, salesOrders, stop } = setup(TWO_STOPS)
+            salesOrders.getShipToContacts.mockImplementation(
+                async (ids: string[]) =>
+                    new Map(ids.includes('so-shA') ? [['so-shA', contact]] : []),
+            )
+            let trip = await service.withCodCollections(await service.findOne('t1'))
+            expect(trip.stops[0].contacts).toEqual([contact])
+
+            stop('s1').status = StopStatus.COMPLETED
+            trip = await service.withCodCollections(await service.findOne('t1'))
+            expect(trip.stops[0].contacts).toEqual([])
+            expect(salesOrders.getShipToContacts).toHaveBeenLastCalledWith(['so-shB'])
+        })
+
+        it('is never shown on load or return stops', async () => {
+            const { service, salesOrders, stop } = setup(TWO_STOPS)
+            stop('s1').stopType = 'SHIP'
+            stop('s2').stopType = 'RETURN'
+            await service.withCodCollections(await service.findOne('t1'))
+            expect(salesOrders.getShipToContacts).toHaveBeenCalledWith([])
         })
     })
 

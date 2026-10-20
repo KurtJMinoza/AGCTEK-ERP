@@ -1233,6 +1233,37 @@ export class SalesOrderService {
     }
 
     /**
+     * Ship-to contact per order for the delivering driver (orders without a
+     * phone are omitted). Callers decide when a driver may see it.
+     */
+    async getShipToContacts(
+        salesOrderIds: string[],
+    ): Promise<Map<string, { orderNumber: string; name: string | null; phone: string }>> {
+        const result = new Map<string, { orderNumber: string; name: string | null; phone: string }>()
+        if (!salesOrderIds.length) return result
+        const orders = await this.prisma.sdSalesOrder.findMany({
+            where: { id: { in: salesOrderIds } },
+            select: {
+                id: true,
+                orderNumber: true,
+                shipToName: true,
+                customerName: true,
+                shipToPhone: true,
+            },
+        })
+        for (const order of orders) {
+            const phone = order.shipToPhone?.trim()
+            if (!phone) continue
+            result.set(order.id, {
+                orderNumber: order.orderNumber,
+                name: order.shipToName ?? order.customerName ?? null,
+                phone,
+            })
+        }
+        return result
+    }
+
+    /**
      * Driver "Cash Received": collect every Pending Collection COD order in the
      * set (payment Paid → posted invoice PAID). By default the received cash
      * must cover the full payment amount. Pass `amountDue` after a POD partial
