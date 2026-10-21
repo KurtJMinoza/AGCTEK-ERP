@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -11,6 +12,7 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ProductFormDialog from '../components/ProductFormDialog'
+import AddVariantDialog from '../components/AddVariantDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import { productSellerLabel } from '../utils/productSellerLabel'
@@ -18,15 +20,133 @@ import { productOptionVariantsService } from '../services/productOptionVariantsS
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import {
     createProduct,
+    createProductFamily,
     deleteProduct,
     listProducts,
     setProductStatus,
     updateProduct,
+    type CreateProductFamilyInput,
     type ProductInput,
     type ProductLifecycleStatus,
     type SdProductRecord,
 } from '../services/productCatalogService'
 import { useProductCatalogStore } from '../store/useProductCatalogStore'
+
+/**
+ * Converts the generic ProductInput (form output) into the typed
+ * CreateProductFamilyInput for the unified family endpoint. Returns null
+ * if the required material-defaults information is unavailable.
+ *
+ * The family endpoint creates the parent product, its options, its variants
+ * and one Material Master per variant in a single transaction — the parent
+ * product itself never holds stock.
+ */
+function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null {
+    const ov = values.optionsVariants
+    if (!values.companyId) return null
+    const defaults = values.materialDefaults
+    const productConfig = values.productConfig ?? 'SIMPLE'
+    if (
+        productConfig === 'VARIABLE' &&
+        (!ov || !ov.options.length || !ov.variants.length)
+    ) {
+        return null
+    }
+    // AUTO_CREATE requires the material defaults collected in the wizard.
+    // LINK_EXISTING resolves the defaults server-side from the linked material.
+    const linkExisting =
+        values.materialMode === 'LINK_EXISTING'
+            ? values.materialIds?.[0]
+            : undefined
+    if (
+        values.materialMode === 'AUTO_CREATE' &&
+        (!defaults?.materialTypeId ||
+            !defaults.materialCategoryId ||
+            !defaults.baseUomId)
+    ) {
+        return null
+    }
+    if (values.materialMode === 'LINK_EXISTING' && !linkExisting) {
+        return null
+    }
+    const materialTypeId =
+        defaults?.materialTypeId ||
+        (linkExisting ? '__FROM_MATERIAL__' : '')
+    const materialCategoryId =
+        defaults?.materialCategoryId ||
+        (linkExisting ? '__FROM_MATERIAL__' : '')
+    const baseUomId =
+        defaults?.baseUomId || (linkExisting ? '__FROM_MATERIAL__' : '')
+    return {
+        divisionId: values.divisionId,
+        name: values.name,
+        description: values.description,
+        price: values.price,
+        originalPrice: values.originalPrice ?? undefined,
+        imageUrl: values.imageUrl,
+        badge: values.badge ?? undefined,
+        productConfig,
+        sku: values.sku || undefined,
+        ...(linkExisting ? { existingMaterialId: linkExisting } : {}),
+        materialDefaults: {
+            companyId: values.companyId,
+            materialTypeId,
+            materialCategoryId,
+            baseUomId,
+            ...(defaults?.salesUomId ? { salesUomId: defaults.salesUomId } : {}),
+            ...(defaults?.defaultWarehouseId
+                ? { defaultWarehouseId: defaults.defaultWarehouseId }
+                : {}),
+            ...(defaults?.storageBinId
+                ? { storageBinId: defaults.storageBinId }
+                : {}),
+            ...(defaults?.standardCost !== undefined
+                ? { standardCost: defaults.standardCost }
+                : {}),
+            ...(defaults?.safetyStock !== undefined
+                ? { safetyStock: defaults.safetyStock }
+                : {}),
+            ...(defaults?.maximumStock !== undefined
+                ? { maximumStock: defaults.maximumStock }
+                : {}),
+            ...(defaults?.reorderPoint !== undefined
+                ? { reorderPoint: defaults.reorderPoint }
+                : {}),
+            ...(defaults?.batchManaged !== undefined
+                ? { batchManaged: defaults.batchManaged }
+                : {}),
+            ...(defaults?.serialManaged !== undefined
+                ? { serialManaged: defaults.serialManaged }
+                : {}),
+            ...(defaults?.expiryManaged !== undefined
+                ? { expiryManaged: defaults.expiryManaged }
+                : {}),
+        },
+        options: (ov?.options ?? []).map((opt, i) => ({
+            name: opt.name,
+            displayStyle: opt.displayStyle ?? 'BUTTON',
+            isRequired: opt.isRequired,
+            sortOrder: i,
+            values: opt.values.map((v, vi) => ({
+                value: v.value,
+                swatchColor: v.swatchColor ?? undefined,
+                imageUrl: v.imageUrl ?? undefined,
+                sortOrder: vi,
+            })),
+        })),
+        variants: (ov?.variants ?? []).map((v) => ({
+            enabled: v.isActive !== false,
+            sku: v.sku || undefined,
+            barcode: v.barcode ?? undefined,
+            price: v.price ?? undefined,
+            compareAtPrice: v.compareAtPrice ?? undefined,
+            imageUrl: v.imageUrl ?? undefined,
+            weight: v.weight ?? undefined,
+            optionValues: v.optionValues,
+            existingMaterialId: v.materialId ?? undefined,
+        })),
+    }
+}
 
 const ROUTE_PATH = '/modules/sd/product-catalog'
 const SEARCH_DEBOUNCE_MS = 350
@@ -47,6 +167,7 @@ type DialogState =
 const ProductCatalogDashboard = () => {
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
     const invalidateStorefront = useProductCatalogStore((s) => s.invalidate)
+    const searchParams = useSearchParams()
 
     const [products, setProducts] = useState<SdProductRecord[]>([])
     const [loading, setLoading] = useState(true)
@@ -66,6 +187,7 @@ const ProductCatalogDashboard = () => {
     const [deleting, setDeleting] = useState(false)
     const [deleteBlocked, setDeleteBlocked] = useState(false)
     const [togglingId, setTogglingId] = useState<string | null>(null)
+    const [addVariantProduct, setAddVariantProduct] = useState<SdProductRecord | null>(null)
 
     const fetchProducts = useCallback(async () => {
         setLoading(true)
@@ -120,6 +242,17 @@ const ProductCatalogDashboard = () => {
         return () => window.clearTimeout(timer)
     }, [searchInput, search])
 
+    /**
+     * Deep link from Materials Management: /product-catalog?sku=RET-PRD-000001
+     * seeds the search so the linked parent product is on screen.
+     */
+    useEffect(() => {
+        const sku = searchParams.get('sku')?.trim()
+        if (!sku) return
+        setSearchInput(sku)
+        setSearch(sku)
+    }, [searchParams])
+
     const afterChange = (...divisionIds: string[]) => {
         divisionIds.forEach(invalidateStorefront)
         void fetchProducts()
@@ -130,6 +263,39 @@ const ProductCatalogDashboard = () => {
         setSaving(true)
         try {
             if (dialog.mode === 'create') {
+                // The unified family endpoint creates the parent product, its
+                // options, its variants and one Material Master per variant in
+                // a single transaction. Simple products get one hidden default
+                // variant through the same endpoint.
+                if (values.companyId) {
+                    const familyInput = buildFamilyInput(values)
+                    if (familyInput) {
+                        const created = await createProductFamily(familyInput)
+                        const enabledVariants =
+                            familyInput.variants?.filter((v) => v.enabled) ??
+                            []
+                        const variantCount =
+                            familyInput.productConfig === 'SIMPLE'
+                                ? 1
+                                : enabledVariants.length
+                        const materialCount =
+                            familyInput.productConfig === 'SIMPLE'
+                                ? 1
+                                : enabledVariants.filter(
+                                      (v) => !v.existingMaterialId,
+                                  ).length
+                        notify(
+                            'success',
+                            'Product added',
+                            `${created.name} with ${variantCount} variant(s) and ${materialCount} material(s) is now listed.`,
+                        )
+                        afterChange(created.divisionId ?? values.divisionId)
+                        setDialog(null)
+                        setSaving(false)
+                        return
+                    }
+                }
+                // Fallback: simple products or when family input can't be built
                 const created = await createProduct(values)
                 if (values.optionsVariants) {
                     try {
@@ -138,8 +304,6 @@ const ProductCatalogDashboard = () => {
                             values.optionsVariants,
                         )
                     } catch (optionErr) {
-                        // The product exists — report separately so the user
-                        // doesn't retry the create and end up with a duplicate.
                         afterChange(created.divisionId)
                         setDialog(null)
                         notify(
@@ -288,6 +452,7 @@ const ProductCatalogDashboard = () => {
                     setPendingDelete(product)
                 }}
                 onAddProduct={() => setDialog({ mode: 'create' })}
+                onAddVariant={(product) => setAddVariantProduct(product)}
                 onRefresh={() => void fetchProducts()}
             />
 
@@ -300,6 +465,17 @@ const ProductCatalogDashboard = () => {
                 onClose={() => setDialog(null)}
                 onSubmit={handleSubmit}
             />
+
+            {addVariantProduct ? (
+                <AddVariantDialog
+                    isOpen={addVariantProduct !== null}
+                    product={addVariantProduct}
+                    onClose={() => setAddVariantProduct(null)}
+                    onSuccess={() => {
+                        afterChange(addVariantProduct.divisionId)
+                    }}
+                />
+            ) : null}
 
             <ConfirmDialog
                 isOpen={pendingDelete !== null}

@@ -75,9 +75,19 @@ const config: Config = {
 					from: { transform: 'translateX(0)' },
 					to: { transform: 'translateX(-50%)' },
 				},
+				float: {
+					'0%, 100%': { transform: 'translateY(0)' },
+					'50%': { transform: 'translateY(-15px)' },
+				},
+				'slow-spin': {
+					from: { transform: 'rotate(0deg)' },
+					to: { transform: 'rotate(360deg)' },
+				},
 			},
 			animation: {
 				'retail-marquee': 'retail-marquee 32s linear infinite',
+				float: 'float 6s ease-in-out infinite',
+				'slow-spin': 'slow-spin 60s linear infinite',
 			},
 			colors: {
 				// World-class retail system: deep emerald + champagne gold on cool canvas
@@ -89,6 +99,33 @@ const config: Config = {
 				'brand-gold': '#C9A84C',
 				'brand-gold-soft': '#E2D09A',
 				'brand-line': '#D7E3DC',
+				// Amalgated Shop (storefront) palette, taken from the ACI logo
+				shop: {
+					50: '#EEF4FC',
+					100: '#D9E6F7',
+					200: '#B6CEEF',
+					300: '#84ADE2',
+					400: '#4A84D0',
+					500: '#1E63BA',
+					600: '#0B4DA3',
+					700: '#0A3F86',
+					800: '#0B346C',
+					900: '#0C2C58',
+					950: '#071B38',
+				},
+				leaf: {
+					50: '#F5FAEB',
+					100: '#E8F3D2',
+					200: '#D3E8A9',
+					300: '#BCDB7E',
+					400: '#A9CE5A',
+					500: '#8DB93E',
+					600: '#6E9A2C',
+					700: '#557625',
+					800: '#445E22',
+					900: '#3A5020',
+					950: '#1E2C0D',
+				},
 				'primary': 'var(--primary)',
 				'primary-deep': 'var(--primary-deep)',
 				'primary-mild': 'var(--primary-mild)',

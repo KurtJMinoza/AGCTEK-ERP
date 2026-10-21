@@ -5,20 +5,24 @@ const BASE = '/sd/deliveries'
 
 export type DeliveryStage = 'PENDING_PICK' | 'PICKING' | 'PACKED' | 'SHIPPED'
 
-/** Next step for the team; every step is executed in MM. */
-export type DeliveryNextAction =
-    | 'RELEASE_TO_WAREHOUSE'
-    | 'PICK'
-    | 'PACK'
-    | 'POST_GOODS_ISSUE'
-    | null
+/**
+ * Next step for the team. Pick / pack / release run in MM.
+ * Goods Issue is automated (Auto-GI) — never triggered from SD.
+ */
+export type DeliveryNextAction = 'RELEASE_TO_WAREHOUSE' | 'PICK' | 'PACK' | null
 
 export type Delivery = {
     salesOrderId: string
     deliveryNumber: string
     salesOrderReference: string
     customerName: string | null
+    customerCode: string | null
     channel: string
+    currency: string
+    totalAmount: number
+    primaryProductName: string | null
+    primarySku: string | null
+    extraItemCount: number
     orderStatus: string
     createdAt: string
     shippedAt: string | null
@@ -36,6 +40,8 @@ export type DeliveryLine = {
     variantName: string | null
     divisionId: string | null
     quantity: number
+    unitPrice: number | null
+    totalAmount: number | null
     uom: string | null
     pickRequiredQty: number
     pickedQty: number
@@ -96,7 +102,9 @@ export async function listDeliveries(
     }
 }
 
-export async function getDelivery(salesOrderId: string): Promise<DeliveryDetail> {
+export async function getDelivery(
+    salesOrderId: string,
+): Promise<DeliveryDetail> {
     try {
         const { data } = await ErpAxiosBase.get<DeliveryDetail>(
             `${BASE}/${encodeURIComponent(salesOrderId)}`,

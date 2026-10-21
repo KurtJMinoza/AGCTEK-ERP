@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import MarketplaceTrackPage from '@/modules/storefront/marketplace/pages/MarketplaceTrackPage'
 
 export const metadata: Metadata = {
-    title: 'Track your order | Amalgated Marketplace',
+    title: 'Track your order | Amalgated Shop',
     robots: { index: false, follow: false },
     referrer: 'no-referrer',
 }

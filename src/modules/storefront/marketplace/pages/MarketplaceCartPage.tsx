@@ -6,7 +6,10 @@ import { useRouter } from 'next/navigation'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import { CHECKOUT_PATH, MARKETPLACE_PATH } from '../host'
 import { useMarketplace } from '../MarketplaceProvider'
-import { useMarketplaceCartStore } from '../store/useMarketplaceCartStore'
+import {
+    marketplaceCartItemKey,
+    useMarketplaceCartStore,
+} from '../store/useMarketplaceCartStore'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import MarketplaceCartDrawer from '../components/MarketplaceCartDrawer'
 import { LPG_DIVISION_ID, isLpgAddon } from '@/modules/sd/catalogs/lpgCatalog'
@@ -17,7 +20,6 @@ import {
 } from '@/modules/sd/services/ecommerceService'
 import type { SalesDivisionId } from '@/modules/sd/services/pricingEngine'
 import { notify } from '../MarketplaceProvider'
-import { productKey } from '../marketplaceUi'
 
 const MarketplaceCartPageContent = () => {
     const router = useRouter()
@@ -43,11 +45,18 @@ const MarketplaceCartPageContent = () => {
     // Selective pricing for checked items
     const pricingItems = useMemo<PricingItem[]>(() => {
         return items
-            .filter((item) => selectedKeys.includes(productKey(item.product)))
+            .filter((item) =>
+                selectedKeys.includes(marketplaceCartItemKey(item)),
+            )
             .map((item) => ({
                 divisionId: item.product.divisionId as SalesDivisionId,
                 sku: item.product.sku,
                 quantity: item.quantity,
+                // The selected variant is the stock item — it must travel with
+                // the line so the order reserves the right material.
+                variantId: item.variant?.variantId,
+                variantName: item.variant?.variantName,
+                unitPrice: item.variant?.unitPrice,
             }))
     }, [items, selectedKeys])
 
@@ -70,7 +79,7 @@ const MarketplaceCartPageContent = () => {
 
     const handleCheckout = () => {
         const selected = items.filter((item) =>
-            selectedKeys.includes(productKey(item.product)),
+            selectedKeys.includes(marketplaceCartItemKey(item)),
         )
         if (selected.length === 0) return
 
@@ -102,7 +111,7 @@ const MarketplaceCartPageContent = () => {
                     <nav className="flex items-center gap-2">
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="text-gray-500 hover:text-emerald-700 hover:underline"
+                            className="text-gray-500 hover:text-shop-700 hover:underline"
                         >
                             Home
                         </Link>
@@ -191,7 +200,7 @@ const MarketplaceCartPage = () => (
     <Suspense
         fallback={
             <div className="flex min-h-screen items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-shop-600 border-t-transparent" />
             </div>
         }
     >

@@ -78,7 +78,7 @@ const SECONDARY_BUTTON_CLASS =
     '!h-auto !rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium'
 
 const CRUMB_BUTTON =
-    'cursor-pointer truncate font-medium text-emerald-700 hover:underline focus:outline-none focus-visible:underline'
+    'cursor-pointer truncate font-medium text-shop-700 hover:underline focus:outline-none focus-visible:underline'
 
 const Section = ({
     id,
@@ -101,7 +101,7 @@ const Section = ({
                     className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-gray-900"
                 >
                     {icon ? (
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-shop-50 text-shop-600">
                             {icon}
                         </span>
                     ) : null}
@@ -116,7 +116,7 @@ const Section = ({
 
 const Perk = ({ icon, children }: { icon: ReactNode; children: ReactNode }) => (
     <li className="flex items-center gap-3 text-sm text-gray-600">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-lg text-emerald-600">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-shop-50 text-lg text-shop-600">
             {icon}
         </span>
         <span className="min-w-0">{children}</span>
@@ -145,7 +145,7 @@ const ProductNotFound = ({ onContinue }: { onContinue: () => void }) => (
         className={classNames('mx-auto max-w-lg rounded-2xl', SURFACE)}
         bodyClass="flex flex-col items-center gap-3 px-6 py-14 text-center"
     >
-        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-3xl text-emerald-600">
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-shop-50 text-3xl text-shop-600">
             <HiOutlineEmojiSad aria-hidden />
         </span>
         <h1 className="text-xl font-semibold tracking-tight text-gray-900">
@@ -283,6 +283,18 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
               ),
           }
         : undefined
+    const buildVariantInfo = () => {
+        if (!selectedVariant) return undefined
+        return {
+            variantId: selectedVariant.id,
+            variantName: selectedVariant.variantName,
+            variantSku: selectedVariant.sku,
+            materialId: selectedVariant.materialId ?? undefined,
+            unitPrice: selectedVariant.price ?? product.price,
+            companyId: selectedVariant.companyId ?? product.company?.id ?? undefined,
+            optionValues: selectedVariant.optionValues.map((link) => link.value),
+        }
+    }
     const addToCart = () => {
         if (hasVariants && !selectedVariant) {
             notify(
@@ -292,7 +304,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(product, quantity, false)
+        requestAdd(product, quantity, false, buildVariantInfo())
     }
     const buyNow = () => {
         if (hasVariants && !selectedVariant) {
@@ -303,7 +315,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
             )
             return
         }
-        requestAdd(product, quantity, true)
+        requestAdd(product, quantity, true, buildVariantInfo())
     }
 
     /** Variant prices/images override the parent display once one is selected. */
@@ -349,7 +361,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     <Button
                         size="xs"
                         variant="plain"
-                        className="!px-1 font-medium !text-gray-600 hover:!text-emerald-700"
+                        className="!px-1 font-medium !text-gray-600 hover:!text-shop-700"
                         icon={<HiOutlineArrowLeft />}
                         onClick={() => router.back()}
                     >
@@ -423,7 +435,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     {/* Seller / status chips */}
                     <div className="flex flex-wrap items-center gap-2">
                         <SellerTag product={product} />
-                        <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                        <span className="flex items-center gap-1 rounded-full bg-shop-50 px-2.5 py-1 text-xs font-medium text-shop-700">
                             <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
                             Official store
                         </span>
@@ -448,7 +460,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                             {averageRating !== null ? (
                                 <a
                                     href="#reviews-heading"
-                                    className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-emerald-700"
+                                    className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-shop-700"
                                 >
                                     <StarRating rating={averageRating} />
                                     <span className="font-medium text-gray-700">
@@ -460,9 +472,6 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                     </span>
                                 </a>
                             ) : null}
-                            <span className="text-sm text-gray-400">
-                                {product.sku}
-                            </span>
                         </div>
                     </div>
 
@@ -482,7 +491,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         <div className="flex items-end justify-between gap-4">
                             {priceBlock}
                             {displayDiscount ? (
-                                <span className="shrink-0 text-sm font-medium text-emerald-700">
+                                <span className="shrink-0 text-sm font-medium text-shop-700">
                                     You save{' '}
                                     {formatPrice(
                                         displayOriginalPrice! - displayPrice,
@@ -520,7 +529,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                 {inCart > 0 ? (
                                     <button
                                         type="button"
-                                        className="cursor-pointer text-sm font-medium text-emerald-700 hover:underline"
+                                        className="cursor-pointer text-sm font-medium text-shop-700 hover:underline"
                                         onClick={openCart}
                                     >
                                         {inCart} in your cart · View cart
@@ -586,11 +595,11 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                             {highlights.slice(0, 4).map((point) => (
                                 <li
                                     key={point}
-                                    className="flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50/60 px-3 py-1.5 text-xs font-medium text-emerald-800"
+                                    className="flex items-center gap-1.5 rounded-full border border-shop-100 bg-shop-50/60 px-3 py-1.5 text-xs font-medium text-shop-800"
                                 >
                                     <HiOutlineCheck
                                         aria-hidden
-                                        className="h-3.5 w-3.5 shrink-0 text-emerald-600"
+                                        className="h-3.5 w-3.5 shrink-0 text-shop-600"
                                     />
                                     {point}
                                 </li>
@@ -652,7 +661,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                                 key={point}
                                                 className="flex gap-2"
                                             >
-                                                <HiOutlineCheck className="mt-0.5 shrink-0 text-emerald-600" />
+                                                <HiOutlineCheck className="mt-0.5 shrink-0 text-shop-600" />
                                                 <span>{point}</span>
                                             </li>
                                         ))}
@@ -712,7 +721,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         reviewHint={
                             <Link
                                 href={MARKETPLACE_ORDERS_PATH}
-                                className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:underline"
+                                className="inline-flex items-center gap-1 text-sm font-semibold text-shop-700 hover:underline"
                             >
                                 Bought this? Rate it from My Orders
                                 <ChevronRight aria-hidden className="h-4 w-4" />
@@ -764,7 +773,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                         </span>
                                         <BadgeCheck
                                             aria-hidden
-                                            className="h-4 w-4 shrink-0 text-emerald-500"
+                                            className="h-4 w-4 shrink-0 text-shop-500"
                                         />
                                     </p>
                                     {store ? (
@@ -804,7 +813,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         <Button
                             block
                             variant="plain"
-                            className="!text-gray-500 hover:!text-emerald-700"
+                            className="!text-gray-500 hover:!text-shop-700"
                             icon={<HiOutlineLink />}
                             onClick={shareLink}
                         >

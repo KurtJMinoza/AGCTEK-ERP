@@ -21,9 +21,9 @@ function Marker({ checkpoint }: { checkpoint: OrderTrackingCheckpoint }) {
         checkpoint.current && isNegative(checkpoint.code)
             ? 'bg-rose-600 text-white ring-4 ring-rose-100'
             : checkpoint.current
-              ? 'bg-emerald-600 text-white ring-4 ring-emerald-100'
+              ? 'bg-shop-600 text-white ring-4 ring-shop-100'
               : checkpoint.done
-                ? 'bg-emerald-100 text-emerald-700'
+                ? 'bg-shop-100 text-shop-700'
                 : 'border-2 border-gray-200 bg-white text-gray-400'
     return (
         <span
@@ -52,7 +52,7 @@ export default function OrderTrackingTimeline({
                                 aria-hidden
                                 className={`absolute left-[13px] top-7 h-[calc(100%-1.75rem)] w-0.5 ${
                                     checkpoints[index + 1]?.done
-                                        ? 'bg-emerald-300'
+                                        ? 'bg-shop-300'
                                         : 'bg-gray-200'
                                 }`}
                             />
@@ -64,7 +64,7 @@ export default function OrderTrackingTimeline({
                                     negative
                                         ? 'font-bold text-rose-700'
                                         : checkpoint.current
-                                          ? 'font-bold text-emerald-800'
+                                          ? 'font-bold text-shop-800'
                                           : checkpoint.done
                                             ? 'font-semibold text-gray-900'
                                             : 'font-medium text-gray-400'

@@ -202,6 +202,17 @@ When a product has variants, the stock item is the **variant's linked material**
 the parent product's material is never used. `/sd/products/storefront/availability`
 accepts `variantId` and falls back to the default active variant.
 
+A VARIABLE product has **no** `SdProductMaterialAssignment` — the variant owns
+its material and therefore its stock. A variant without a linked material
+reports `NOT_MAPPED` (storefront ATP, checkout ATP, and the admin variant
+table); it is never backed by the parent product's assignment. A SIMPLE product
+keeps exactly one parent assignment because it has exactly one hidden default
+variant, so the link stays unambiguous.
+
+Migration `20261107120000_variant_owns_material` links a legacy VARIABLE
+product's sole parent assignment to its variants and then deactivates the
+parent assignment (rows are kept so the change is reversible).
+
 ---
 
 ## Tests

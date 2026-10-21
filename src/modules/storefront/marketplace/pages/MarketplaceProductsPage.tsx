@@ -70,7 +70,7 @@ const SEARCH_URL_DELAY_MS = 300
 const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 lg:gap-7 xl:grid-cols-3'
 
 const CRUMB_BUTTON =
-    'cursor-pointer truncate font-medium text-emerald-700 hover:underline focus:outline-none focus-visible:underline'
+    'cursor-pointer truncate font-medium text-shop-700 hover:underline focus:outline-none focus-visible:underline'
 
 /** "Load more" progress, kept across product-page visits so Back lands on the same card. */
 let savedPaging: { key: string; limit: number } | null = null
@@ -90,11 +90,11 @@ const FilterChip = ({
     <button
         type="button"
         aria-label={`Remove filter ${label}`}
-        className="group flex cursor-pointer items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 py-1 pl-3 pr-2 text-xs font-medium text-emerald-800 transition-colors hover:border-emerald-200 hover:bg-emerald-100"
+        className="group flex cursor-pointer items-center gap-1.5 rounded-full border border-shop-100 bg-shop-50 py-1 pl-3 pr-2 text-xs font-medium text-shop-800 transition-colors hover:border-shop-200 hover:bg-shop-100"
         onClick={onRemove}
     >
         {label}
-        <HiX className="text-emerald-500 group-hover:text-emerald-800" />
+        <HiX className="text-shop-500 group-hover:text-shop-800" />
     </button>
 )
 
@@ -486,7 +486,7 @@ const MarketplaceProductsPage = () => {
                                 {!singleCategory ? (
                                     <BadgeCheck
                                         aria-hidden
-                                        className="h-6 w-6 shrink-0 text-emerald-500"
+                                        className="h-6 w-6 shrink-0 text-shop-500"
                                     />
                                 ) : null}
                             </h1>
@@ -518,7 +518,7 @@ const MarketplaceProductsPage = () => {
                     </section>
                 ) : (
                     <section className="mb-8 flex items-center gap-4">
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-shop-50 text-shop-600">
                             {searching ? (
                                 <HiOutlineSearch
                                     aria-hidden
@@ -665,7 +665,7 @@ const MarketplaceProductsPage = () => {
                                     <Button
                                         size="xs"
                                         variant="plain"
-                                        className="!px-1 text-xs font-medium !text-gray-500 hover:!text-emerald-700"
+                                        className="!px-1 text-xs font-medium !text-gray-500 hover:!text-shop-700"
                                         onClick={clearAll}
                                     >
                                         Clear all
@@ -693,7 +693,7 @@ const MarketplaceProductsPage = () => {
                                     aria-hidden
                                 >
                                     <div
-                                        className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                                        className="h-full rounded-full bg-shop-500 transition-all duration-300"
                                         style={{
                                             width: `${(shownProducts.length / visibleProducts.length) * 100}%`,
                                         }}
@@ -723,7 +723,7 @@ const MarketplaceProductsPage = () => {
                                 className={classNames('rounded-2xl', SURFACE)}
                                 bodyClass="flex flex-col items-center gap-3 px-6 py-14 text-center"
                             >
-                                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-2xl text-emerald-600">
+                                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-shop-50 text-2xl text-shop-600">
                                     <HiOutlineSearch aria-hidden />
                                 </span>
                                 <h2 className="text-lg font-semibold tracking-tight text-gray-900">

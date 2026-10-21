@@ -4,7 +4,9 @@ import {
     type DeliverySignals,
 } from './delivery-monitor.service'
 
-const signals = (overrides: Partial<DeliverySignals> = {}): DeliverySignals => ({
+const signals = (
+    overrides: Partial<DeliverySignals> = {},
+): DeliverySignals => ({
     orderStatus: 'CONFIRMED',
     shippedAt: null,
     pickingTasks: [],
@@ -30,16 +32,26 @@ describe('deriveDeliveryStage', () => {
 
     it('is pending pick while tasks exist but nothing is picked', () => {
         expect(
-            deriveDeliveryStage(signals({ pickingTasks: [task(5, 0, 'ASSIGNED')] })),
-        ).toMatchObject({ stage: 'PENDING_PICK', nextAction: 'PICK', requiredQty: 5 })
+            deriveDeliveryStage(
+                signals({ pickingTasks: [task(5, 0, 'ASSIGNED')] }),
+            ),
+        ).toMatchObject({
+            stage: 'PENDING_PICK',
+            nextAction: 'PICK',
+            requiredQty: 5,
+        })
     })
 
     it('is picking once quantity is picked, and points to packing when complete', () => {
         expect(
-            deriveDeliveryStage(signals({ pickingTasks: [task(5, 2), task(3, 0)] })),
+            deriveDeliveryStage(
+                signals({ pickingTasks: [task(5, 2), task(3, 0)] }),
+            ),
         ).toMatchObject({ stage: 'PICKING', nextAction: 'PICK', pickedQty: 2 })
         expect(
-            deriveDeliveryStage(signals({ pickingTasks: [task(5, 5, 'COMPLETED')] })),
+            deriveDeliveryStage(
+                signals({ pickingTasks: [task(5, 5, 'COMPLETED')] }),
+            ),
         ).toMatchObject({ stage: 'PICKING', nextAction: 'PACK' })
     })
 
@@ -47,12 +59,18 @@ describe('deriveDeliveryStage', () => {
         const picked = [task(1, 1, 'COMPLETED')]
         expect(
             deriveDeliveryStage(
-                signals({ pickingTasks: picked, packingSessions: [{ status: 'COMPLETED' }] }),
+                signals({
+                    pickingTasks: picked,
+                    packingSessions: [{ status: 'COMPLETED' }],
+                }),
             ),
-        ).toMatchObject({ stage: 'PACKED', nextAction: 'POST_GOODS_ISSUE' })
+        ).toMatchObject({ stage: 'PACKED', nextAction: null })
         expect(
             deriveDeliveryStage(
-                signals({ pickingTasks: picked, packages: [{ status: 'READY_FOR_DISPATCH' }] }),
+                signals({
+                    pickingTasks: picked,
+                    packages: [{ status: 'READY_FOR_DISPATCH' }],
+                }),
             ).stage,
         ).toBe('PACKED')
     })
@@ -81,15 +99,15 @@ describe('deriveDeliveryStage', () => {
         })
     })
 
-    it('ignores a draft goods issue', () => {
+    it('treats a draft goods issue as Auto-GI processing (packed, no SD action)', () => {
         expect(
             deriveDeliveryStage(
                 signals({
-                    packages: [{ status: 'SEALED' }],
+                    pickingTasks: [task(1, 1, 'COMPLETED')],
                     goodsIssues: [{ status: 'DRAFT' }],
                 }),
-            ).stage,
-        ).toBe('PACKED')
+            ),
+        ).toMatchObject({ stage: 'PACKED', nextAction: null })
     })
 })
 

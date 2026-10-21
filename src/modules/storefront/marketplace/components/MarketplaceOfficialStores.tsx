@@ -215,7 +215,7 @@ const MarketplaceOfficialStores = ({
                     aria-pressed={active}
                     aria-label={`Visit ${store.name} official store, ${store.tagline ?? ''}, ${count} products`}
                     className={classNames(
-                        'group flex min-w-0 cursor-pointer items-center gap-4 rounded-xl bg-gradient-to-br p-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+                        'group flex min-w-0 cursor-pointer items-center gap-4 rounded-xl bg-gradient-to-br p-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
                         SURFACE,
                         SURFACE_HOVER,
                         theme.wash,
@@ -237,7 +237,7 @@ const MarketplaceOfficialStores = ({
                             </span>
                             <BadgeCheck
                                 aria-hidden
-                                className="h-4 w-4 shrink-0 text-emerald-500"
+                                className="h-4 w-4 shrink-0 text-shop-500"
                             />
                         </span>
                         {store.tagline ? (

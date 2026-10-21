@@ -44,8 +44,9 @@ import {
     formatPrice,
     productKey,
 } from '../marketplaceUi'
-import { useMarketplaceCartStore } from '../store/useMarketplaceCartStore'
+import { useMarketplaceCartStore, marketplaceCartItemKey } from '../store/useMarketplaceCartStore'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
+import { productOptionVariantsService } from '@/modules/sd/services/productOptionVariantsService'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import MarketplacePaymentMethodSelector from '../components/MarketplacePaymentMethodSelector'
 
@@ -121,6 +122,8 @@ const MarketplaceCheckoutPageContent = () => {
         1,
         Math.floor(Number(searchParams.get('qty') ?? '1')) || 1,
     )
+    /** The variant the shopper chose on the product page (Buy Now). */
+    const buyNowVariantId = searchParams.get('variantId')
 
     const buyNowProduct = useMemo(
         () =>
@@ -133,21 +136,89 @@ const MarketplaceCheckoutPageContent = () => {
                 : null,
         [isBuyNow, buyNowSku, buyNowDivision, catalog.records],
     )
+
+    /**
+     * Buy Now resolves the selected variant from the catalog so the order
+     * line keeps the variant (and therefore the variant's material).
+     */
+    const [buyNowVariant, setBuyNowVariant] = useState<{
+        variantId: string
+        variantName: string
+        variantSku: string
+        materialId?: string
+        unitPrice?: number
+        companyId?: string
+        optionValues?: string[]
+    } | null>(null)
+
+    useEffect(() => {
+        if (!buyNowProduct || !buyNowVariantId) {
+            setBuyNowVariant(null)
+            return
+        }
+        let cancelled = false
+        void productOptionVariantsService
+            .getForProduct(buyNowProduct.id)
+            .then((payload) => {
+                if (cancelled) return
+                const variant = payload.variants?.find(
+                    (candidate) => candidate.id === buyNowVariantId,
+                )
+                if (!variant) {
+                    setBuyNowVariant(null)
+                    return
+                }
+                setBuyNowVariant({
+                    variantId: variant.id,
+                    variantName: variant.variantName,
+                    variantSku: variant.sku,
+                    materialId: variant.materialId ?? undefined,
+                    unitPrice: variant.price ?? buyNowProduct.price,
+                    companyId: variant.companyId ?? undefined,
+                    optionValues: variant.optionValues?.map(
+                        (link) => link.value,
+                    ),
+                })
+            })
+            .catch(() => {
+                if (!cancelled) setBuyNowVariant(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [buyNowProduct, buyNowVariantId])
+
     // Buy Now renders only that one item; otherwise the selected cart items.
     const sourceItems = useMemo(
         () =>
             isBuyNow && buyNowProduct
-                ? [{ product: buyNowProduct, quantity: buyNowQty }]
+                ? [
+                      {
+                          product: buyNowProduct,
+                          quantity: buyNowQty,
+                          variant: buyNowVariant ?? undefined,
+                      },
+                  ]
                 : items.filter((item) =>
-                      selectedKeys.includes(productKey(item.product)),
+                      selectedKeys.includes(marketplaceCartItemKey(item)),
                   ),
-        [isBuyNow, buyNowProduct, buyNowQty, items, selectedKeys],
+        [
+            isBuyNow,
+            buyNowProduct,
+            buyNowQty,
+            buyNowVariant,
+            items,
+            selectedKeys,
+        ],
     )
     const selectedProducts = useMemo(
         () =>
             new Map(
                 sourceItems.map((item) => [
-                    productKey(item.product),
+                    productKey(item.product) +
+                        (item.variant?.variantId
+                            ? `#${item.variant.variantId}`
+                            : ''),
                     item.product,
                 ]),
             ),
@@ -159,6 +230,9 @@ const MarketplaceCheckoutPageContent = () => {
                 divisionId: item.product.divisionId as SalesDivisionId,
                 sku: item.product.sku,
                 quantity: item.quantity,
+                variantId: item.variant?.variantId,
+                variantName: item.variant?.variantName,
+                unitPrice: item.variant?.unitPrice,
             })),
         [sourceItems],
     )
@@ -249,10 +323,12 @@ const MarketplaceCheckoutPageContent = () => {
     const summaryRows =
         pricing?.divisions.flatMap((division) =>
             division.lines.map((line) => ({
+                // Variant-aware key: two variants of the same product are two
+                // separate order lines.
                 key: productKey({
                     divisionId: division.divisionId,
                     sku: line.sku,
-                }),
+                }) + (line.variantId ? `#${line.variantId}` : ''),
                 divisionId: division.divisionId,
                 name: line.name,
                 quantity: line.quantity,
@@ -269,7 +345,7 @@ const MarketplaceCheckoutPageContent = () => {
                 {!hydrated ? null : placed ? (
                     <section className="mx-auto mt-6 max-w-md rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
                         <HiOutlineCheckCircle
-                            className="mx-auto text-5xl text-emerald-500"
+                            className="mx-auto text-5xl text-shop-500"
                             aria-hidden
                         />
                         <h1 className="mt-3 text-2xl font-bold tracking-tight text-gray-900">
@@ -450,7 +526,7 @@ const MarketplaceCheckoutPageContent = () => {
                                             {shipping.postalCode}
                                         </p>
                                         {shippingIsDefault && shipping ? (
-                                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                                            <p className="mt-1 text-xs font-medium text-shop-700">
                                                 Default address
                                             </p>
                                         ) : null}
@@ -475,7 +551,7 @@ const MarketplaceCheckoutPageContent = () => {
                                                 <li key={address.id}>
                                                     <button
                                                         type="button"
-                                                        className="flex w-full items-start justify-between gap-2 rounded-xl border border-gray-100 bg-white p-3 text-left hover:border-emerald-200"
+                                                        className="flex w-full items-start justify-between gap-2 rounded-xl border border-gray-100 bg-white p-3 text-left hover:border-shop-200"
                                                         onClick={() => {
                                                             setShipping(
                                                                 addressToShipping(
@@ -507,7 +583,7 @@ const MarketplaceCheckoutPageContent = () => {
                                                             </span>
                                                         </span>
                                                         {address.isDefault ? (
-                                                            <span className="shrink-0 text-xs font-semibold text-emerald-700">
+                                                            <span className="shrink-0 text-xs font-semibold text-shop-700">
                                                                 Default
                                                             </span>
                                                         ) : null}
@@ -519,7 +595,7 @@ const MarketplaceCheckoutPageContent = () => {
                                 ) : null}
                                 <button
                                     type="button"
-                                    className="mt-3 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+                                    className="mt-3 text-sm font-medium text-shop-700 hover:text-shop-800"
                                     onClick={openAccount}
                                 >
                                     Manage addresses

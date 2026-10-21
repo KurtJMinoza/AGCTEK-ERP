@@ -77,10 +77,10 @@ const buildStorePromos = (records: SdProductRecord[]): StorePromo[] => {
             photos: [1, 2, 3].map(
                 (n) => `${PROMO_PHOTOS}/awic-family-cooking-${n}.jpg`,
             ),
-            shadeClass: 'from-emerald-950/90 via-emerald-900/55',
+            shadeClass: 'from-shop-950/90 via-shop-900/55',
             eyebrowClass: 'text-amber-200',
             buttonClass:
-                'bg-white text-emerald-700 hover:bg-amber-50 transition-colors',
+                'bg-white text-shop-700 hover:bg-amber-50 transition-colors',
         },
         {
             divisionId: LPG_DIVISION_ID,
@@ -233,7 +233,7 @@ const MarketplacePage = () => {
 
             <main className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-5">
-                    <section className="relative flex min-h-[18rem] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-orange-50/60 p-8 shadow-sm sm:p-12 md:min-h-[26rem] lg:col-span-3">
+                    <section className="relative flex min-h-[18rem] overflow-hidden rounded-2xl border border-shop-100 bg-gradient-to-br from-shop-50 via-white to-orange-50/60 p-8 shadow-sm sm:p-12 md:min-h-[26rem] lg:col-span-3">
                         <div
                             aria-hidden
                             className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-amber-200/40 blur-3xl"
@@ -241,15 +241,15 @@ const MarketplacePage = () => {
                         <ShoppingBag
                             aria-hidden
                             strokeWidth={1}
-                            className="pointer-events-none absolute -bottom-10 -right-10 h-64 w-64 text-emerald-100"
+                            className="pointer-events-none absolute -bottom-10 -right-10 h-64 w-64 text-shop-100"
                         />
                         <div className="relative z-10 flex max-w-lg flex-col justify-center lg:w-2/3">
-                            <span className="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-700">
+                            <span className="w-fit rounded-full bg-shop-100 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-shop-700">
                                 Three official stores · One cart
                             </span>
                             <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight text-gray-900 sm:text-5xl md:text-4xl lg:text-5xl">
                                 One Platform,{' '}
-                                <span className="text-emerald-600">
+                                <span className="text-shop-600">
                                     Everything You Need
                                 </span>
                             </h1>
@@ -356,7 +356,7 @@ const MarketplacePage = () => {
                     />
 
                     {catalog.ready && catalog.records.length > 0 ? (
-                        <section className="flex flex-col items-center gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 px-6 py-12 text-center shadow-sm">
+                        <section className="flex flex-col items-center gap-4 rounded-2xl border border-shop-100 bg-gradient-to-br from-shop-50 via-white to-leaf-50/60 px-6 py-12 text-center shadow-sm">
                             <h2 className={SECTION_TITLE}>
                                 Looking for something else?
                             </h2>

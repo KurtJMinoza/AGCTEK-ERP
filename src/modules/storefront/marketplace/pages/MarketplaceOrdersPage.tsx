@@ -180,7 +180,7 @@ const ReturnsFeed = ({
                 </p>
                 <Link
                     href={MARKETPLACE_PATH}
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-105"
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-shop-600 to-leaf-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-shop-700 hover:to-leaf-700 transition-all hover:scale-105"
                 >
                     <HiOutlineShoppingBag className="text-sm" />
                     Start shopping now
@@ -251,23 +251,23 @@ const ReturnsFeed = ({
                     </div>
 
                     {request.refunds[0] ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs">
-                            <span className="font-semibold text-emerald-800">
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-shop-100 bg-shop-50 px-3 py-2 text-xs">
+                            <span className="font-semibold text-shop-800">
                                 {formatPrice(Number(request.refunds[0].amount))}
                             </span>
-                            <span className="text-emerald-700">
+                            <span className="text-shop-700">
                                 {request.refunds[0].refundMethod?.replace(
                                     /_/g,
                                     ' ',
                                 ) ?? 'Refund'}
                             </span>
                             {request.refunds[0].isDemo ? (
-                                <span className="rounded bg-emerald-200/60 px-1.5 py-0.5 font-semibold text-emerald-700">
+                                <span className="rounded bg-shop-200/60 px-1.5 py-0.5 font-semibold text-shop-700">
                                     DEMO
                                 </span>
                             ) : null}
                             {request.refunds[0].creditMemo ? (
-                                <span className="text-emerald-700">
+                                <span className="text-shop-700">
                                     Credit memo{' '}
                                     {request.refunds[0].creditMemo.creditMemoNumber}
                                 </span>
@@ -638,7 +638,7 @@ const MarketplaceOrdersPage = () => {
             <div className="min-h-screen bg-gray-50 flex flex-col">
                 <MarketplaceHeader />
                 <div className="mx-auto flex flex-1 w-full max-w-md flex-col items-center justify-center gap-5 px-4 py-16 text-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 shadow-inner">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-shop-50 text-shop-600 shadow-inner">
                         <HiOutlineClipboardList className="text-3xl" />
                     </div>
                     <div>
@@ -655,7 +655,7 @@ const MarketplaceOrdersPage = () => {
                             MARKETPLACE_SIGN_IN_PATH,
                             MARKETPLACE_ORDERS_PATH,
                         )}
-                        className="w-full inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-[1.02]"
+                        className="w-full inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-shop-600 to-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-shop-500/20 hover:from-shop-700 hover:to-leaf-700 transition-all hover:scale-[1.02]"
                     >
                         Sign in to view orders &rarr;
                     </Link>
@@ -675,9 +675,9 @@ const MarketplaceOrdersPage = () => {
                         <nav className="flex items-center gap-2 text-xs font-medium text-gray-400 mb-1.5">
                             <Link
                                 href={MARKETPLACE_PATH}
-                                className="hover:text-emerald-600 transition-colors"
+                                className="hover:text-shop-600 transition-colors"
                             >
-                                Marketplace
+                                Shop
                             </Link>
                             <span>/</span>
                             <span className="text-gray-700 font-semibold">
@@ -688,7 +688,7 @@ const MarketplaceOrdersPage = () => {
                             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900">
                                 My Orders
                             </h1>
-                            <span className="rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                            <span className="rounded-full bg-shop-100/80 px-2.5 py-0.5 text-xs font-bold text-shop-800">
                                 {summary.total} {summary.total === 1 ? 'Order' : 'Orders'}
                             </span>
                         </div>
@@ -712,7 +712,7 @@ const MarketplaceOrdersPage = () => {
                         </Button>
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-shop-600 to-leaf-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-shop-700 hover:to-leaf-700 transition-all"
                         >
                             <HiOutlineShoppingBag className="text-sm" />
                             Browse Shop
@@ -759,19 +759,19 @@ const MarketplaceOrdersPage = () => {
                     </div>
 
                     {/* Delivered & Completed */}
-                    <div className="relative overflow-hidden rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white via-white to-emerald-50/30 p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="relative overflow-hidden rounded-2xl border border-shop-100/80 bg-gradient-to-br from-white via-white to-shop-50/30 p-4 sm:p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
                         <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                            <span className="text-xs font-bold uppercase tracking-wider text-shop-700">
                                 Completed
                             </span>
-                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100/70 text-emerald-600">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-shop-100/70 text-shop-600">
                                 <HiOutlineCheckCircle className="text-lg" />
                             </div>
                         </div>
-                        <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-emerald-900">
+                        <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-shop-900">
                             {summary.completed + summary.delivered}
                         </div>
-                        <span className="mt-1 inline-block text-[11px] font-semibold text-emerald-600">
+                        <span className="mt-1 inline-block text-[11px] font-semibold text-shop-600">
                             Delivered packages
                         </span>
                     </div>
@@ -782,7 +782,7 @@ const MarketplaceOrdersPage = () => {
                             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
                                 Total Spent
                             </span>
-                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-leaf-50 text-leaf-600">
                                 <HiOutlineCurrencyDollar className="text-lg" />
                             </div>
                         </div>
@@ -823,7 +823,7 @@ const MarketplaceOrdersPage = () => {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search by Order # or item name..."
-                            className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-9 text-xs sm:text-sm text-gray-800 placeholder-gray-400 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                            className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-9 text-xs sm:text-sm text-gray-800 placeholder-gray-400 shadow-sm focus:border-shop-500 focus:outline-none focus:ring-2 focus:ring-shop-500/20 transition-all"
                         />
                         {searchQuery && (
                             <button
@@ -854,14 +854,14 @@ const MarketplaceOrdersPage = () => {
                                     }}
                                     className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
                                         isActive
-                                            ? 'bg-white text-emerald-800 shadow-sm'
+                                            ? 'bg-white text-shop-800 shadow-sm'
                                             : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'
                                     }`}
                                 >
                                     <TabIcon
                                         className={`text-sm ${
                                             isActive
-                                                ? 'text-emerald-600'
+                                                ? 'text-shop-600'
                                                 : 'text-gray-400'
                                         }`}
                                     />
@@ -869,7 +869,7 @@ const MarketplaceOrdersPage = () => {
                                     <span
                                         className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                             isActive
-                                                ? 'bg-emerald-50 text-emerald-700'
+                                                ? 'bg-shop-50 text-shop-700'
                                                 : 'bg-gray-200/70 text-gray-600'
                                         }`}
                                     >
@@ -888,14 +888,14 @@ const MarketplaceOrdersPage = () => {
                             }
                             className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 ${
                                 view === 'returns'
-                                    ? 'bg-white text-emerald-800 shadow-sm'
+                                    ? 'bg-white text-shop-800 shadow-sm'
                                     : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'
                             }`}
                         >
                             <HiOutlineReply
                                 className={`text-sm ${
                                     view === 'returns'
-                                        ? 'text-emerald-600'
+                                        ? 'text-shop-600'
                                         : 'text-gray-400'
                                 }`}
                             />
@@ -903,7 +903,7 @@ const MarketplaceOrdersPage = () => {
                             <span
                                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                     view === 'returns'
-                                        ? 'bg-emerald-50 text-emerald-700'
+                                        ? 'bg-shop-50 text-shop-700'
                                         : 'bg-gray-200/70 text-gray-600'
                                 }`}
                             >
@@ -944,7 +944,7 @@ const MarketplaceOrdersPage = () => {
                         </p>
                         <Link
                             href={MARKETPLACE_PATH}
-                            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 transition-all hover:scale-105"
+                            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-shop-600 to-leaf-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:from-shop-700 hover:to-leaf-700 transition-all hover:scale-105"
                         >
                             <HiOutlineShoppingBag className="text-sm" />
                             Start shopping now
@@ -993,7 +993,7 @@ const MarketplaceOrdersPage = () => {
                                                     title="Copy order number"
                                                 >
                                                     {copiedOrderId === order.orderId ? (
-                                                        <HiOutlineCheck className="text-emerald-600 text-sm" />
+                                                        <HiOutlineCheck className="text-shop-600 text-sm" />
                                                     ) : (
                                                         <HiOutlineDuplicate className="text-sm" />
                                                     )}
@@ -1012,7 +1012,7 @@ const MarketplaceOrdersPage = () => {
                                             <span className="text-gray-500">
                                                 Sold by{' '}
                                                 <span className="font-semibold text-gray-800">
-                                                    {order.company?.name || 'Amalgated Marketplace'}
+                                                    {order.company?.name || 'Amalgated Shop'}
                                                 </span>
                                             </span>
                                         </div>
@@ -1079,7 +1079,7 @@ const MarketplaceOrdersPage = () => {
                                                         loading={trackingLoadingId === order.id}
                                                         icon={<HiOutlineTruck />}
                                                         onClick={() => void toggleTracking(order.id)}
-                                                        className="!rounded-lg font-semibold !text-emerald-700 hover:!bg-emerald-50"
+                                                        className="!rounded-lg font-semibold !text-shop-700 hover:!bg-shop-50"
                                                     >
                                                         {expanded ? 'Hide tracking' : 'Track order'}
                                                     </Button>
@@ -1238,7 +1238,7 @@ const MarketplaceOrdersPage = () => {
                                             {/* Delivery Address */}
                                             <div className="space-y-1">
                                                 <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
-                                                    <HiOutlineLocationMarker className="text-emerald-600 text-xs" />
+                                                    <HiOutlineLocationMarker className="text-shop-600 text-xs" />
                                                     Delivery Address
                                                 </span>
                                                 {ship ? (
@@ -1272,7 +1272,7 @@ const MarketplaceOrdersPage = () => {
                                             {/* Payment Information */}
                                             <div className="space-y-1">
                                                 <span className="font-bold text-gray-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
-                                                    <HiOutlineCreditCard className="text-emerald-600 text-xs" />
+                                                    <HiOutlineCreditCard className="text-shop-600 text-xs" />
                                                     Payment Method
                                                 </span>
                                                 {payment ? (
@@ -1292,7 +1292,7 @@ const MarketplaceOrdersPage = () => {
                                                             <span
                                                                 className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                                                                     payment.status === 'Paid'
-                                                                        ? 'bg-emerald-100 text-emerald-800'
+                                                                        ? 'bg-shop-100 text-shop-800'
                                                                         : 'bg-amber-100 text-amber-800'
                                                                 }`}
                                                             >
@@ -1316,7 +1316,7 @@ const MarketplaceOrdersPage = () => {
                                                     </span>
                                                 </div>
                                                 {order.discountAmount > 0 && (
-                                                    <div className="flex justify-between md:justify-end gap-3 text-emerald-600">
+                                                    <div className="flex justify-between md:justify-end gap-3 text-shop-600">
                                                         <span>
                                                             Discount ({order.promoCode ?? 'promo'}):
                                                         </span>
@@ -1335,7 +1335,7 @@ const MarketplaceOrdersPage = () => {
                                                 </div>
                                                 <div className="flex justify-between md:justify-end gap-3 pt-1 border-t border-gray-200 text-sm font-extrabold text-gray-900">
                                                     <span>Total:</span>
-                                                    <span className="text-emerald-700 text-base">
+                                                    <span className="text-shop-700 text-base">
                                                         {formatPrice(order.totalAmount)}
                                                     </span>
                                                 </div>
@@ -1373,7 +1373,7 @@ const MarketplaceOrdersPage = () => {
                                                     <Button
                                                         size="xs"
                                                         variant="default"
-                                                        className="!rounded-lg !border-emerald-600 !text-emerald-700 hover:!bg-emerald-50 font-semibold"
+                                                        className="!rounded-lg !border-shop-600 !text-shop-700 hover:!bg-shop-50 font-semibold"
                                                         onClick={() => {
                                                             setReturnMessage(null)
                                                             setReturnOrder(order)

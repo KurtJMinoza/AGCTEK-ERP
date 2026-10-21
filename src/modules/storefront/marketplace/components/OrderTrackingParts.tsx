@@ -32,7 +32,7 @@ const PILL_TONE: Record<CustomerOrderStatus, { className: string; icon: IconType
     PREPARING: { className: 'bg-amber-50 text-amber-700 ring-amber-600/20', icon: HiOutlineClock },
     READY_FOR_DELIVERY: { className: 'bg-amber-50 text-amber-700 ring-amber-600/20', icon: HiOutlineClock },
     IN_TRANSIT: { className: 'bg-blue-50 text-blue-700 ring-blue-600/20', icon: HiOutlineTruck },
-    DELIVERED: { className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20', icon: HiOutlineCheckCircle },
+    DELIVERED: { className: 'bg-shop-50 text-shop-700 ring-shop-600/20', icon: HiOutlineCheckCircle },
     DELIVERY_FAILED: { className: 'bg-rose-50 text-rose-700 ring-rose-600/20', icon: HiOutlineExclamationCircle },
     CANCELLED: { className: 'bg-rose-50 text-rose-700 ring-rose-600/20', icon: HiOutlineXCircle },
 }
@@ -221,7 +221,7 @@ export function OrderProgressStepper({
             <div className="relative flex min-w-[480px] items-start justify-between">
                 <div className="absolute left-6 right-6 top-4 h-1 -translate-y-1/2 bg-gray-100">
                     <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                        className="h-full rounded-full bg-gradient-to-r from-shop-500 to-leaf-500 transition-all duration-500"
                         style={{
                             width: `${(activeIndex / Math.max(1, checkpoints.length - 1)) * 100}%`,
                         }}
@@ -241,7 +241,7 @@ export function OrderProgressStepper({
                                     failed
                                         ? 'bg-rose-600 text-white ring-4 ring-rose-100'
                                         : step.done
-                                          ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-4 ring-emerald-50'
+                                          ? 'bg-gradient-to-br from-shop-500 to-leaf-600 text-white ring-4 ring-shop-50'
                                           : 'border-2 border-gray-200 bg-white text-gray-400'
                                 }`}
                             >

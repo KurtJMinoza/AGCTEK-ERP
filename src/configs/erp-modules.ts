@@ -31,7 +31,7 @@ export const ERP_MODULES: ErpModule[] = [
                         code: 'ecommerce',
                         title: 'E-commerce',
                         description:
-                            'Open the Amalgated Marketplace — the customer-facing online store for AWIC, MCONPINCO and LPG.',
+                            'Open the Amalgated Shop — the customer-facing online store for AWIC, MCONPINCO and LPG.',
                         path: '/shop',
                         icon: 'storefront',
                         isExternalLink: true,
@@ -57,14 +57,6 @@ export const ERP_MODULES: ErpModule[] = [
                             'Add, edit and price the products sold on the AWIC, LPG and MCONPINCO storefronts and POS.',
                         path: '/modules/sd/product-catalog',
                         icon: 'tag',
-                    },
-                    {
-                        code: 'material-sales-view',
-                        title: 'Material Sales View',
-                        description:
-                            'Configure sales-relevant material data and pricing views.',
-                        path: '/modules/sd/material-sales-view',
-                        icon: 'package',
                     },
                     {
                         code: 'pricing-conditions',

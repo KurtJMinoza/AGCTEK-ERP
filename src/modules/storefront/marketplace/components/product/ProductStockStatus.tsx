@@ -44,8 +44,8 @@ const ProductStockStatus = ({
                 `Only ${available} left in stock`,
             ]
           : [
-                'bg-emerald-500',
-                'text-emerald-700',
+                'bg-shop-500',
+                'text-shop-700',
                 `In stock · ${available} available`,
             ]
 

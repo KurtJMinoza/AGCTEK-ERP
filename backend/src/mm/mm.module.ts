@@ -491,6 +491,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         UomConversionsService,
         ReorderRuleService,
         CustomerReturnService,
+        MaterialsService,
     ],
 })
 export class MmModule {}

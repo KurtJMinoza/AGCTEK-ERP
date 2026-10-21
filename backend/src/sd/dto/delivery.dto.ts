@@ -7,7 +7,7 @@ export class ListDeliveriesQueryDto {
     @IsIn(DELIVERY_STAGES)
     stage?: DeliveryStage
 
-    /** Delivery / sales order number, customer name or email. */
+    /** Delivery / sales order number, customer name/code, SKU or product name. */
     @IsOptional()
     @IsString()
     @MaxLength(100)

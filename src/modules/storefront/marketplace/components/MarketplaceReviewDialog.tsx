@@ -194,7 +194,7 @@ const MarketplaceReviewDialog = ({
                                             role="radio"
                                             aria-checked={rating === star}
                                             aria-label={`${star} star${star === 1 ? '' : 's'}`}
-                                            className="rounded p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                                            className="rounded p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500"
                                             onMouseEnter={() => setHoverRating(star)}
                                             onClick={() => setRating(star)}
                                         >
@@ -223,7 +223,7 @@ const MarketplaceReviewDialog = ({
                                 onChange={(e) => setComment(e.target.value)}
                                 rows={4}
                                 placeholder="How was the quality, packaging and delivery?"
-                                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-shop-500 focus:outline-none focus:ring-1 focus:ring-shop-500"
                             />
                             <p className="mt-1 text-right text-xs text-gray-400">
                                 {comment.length}/{COMMENT_MAX}
@@ -260,7 +260,7 @@ const MarketplaceReviewDialog = ({
                                         type="button"
                                         disabled={uploading}
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 transition-colors hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-60"
+                                        className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 transition-colors hover:border-shop-500 hover:text-shop-600 disabled:opacity-60"
                                     >
                                         {uploading ? (
                                             <Spinner size={18} />

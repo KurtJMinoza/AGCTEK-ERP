@@ -133,7 +133,7 @@ const MarketplaceCategoryGrid = ({
                         type="button"
                         aria-pressed={active}
                         aria-label={`${category.name}, ${count} products`}
-                        className="group flex w-full flex-col items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                        className="group flex w-full flex-col items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500"
                         onClick={() => onSelect(category)}
                     >
                         <span
@@ -142,7 +142,7 @@ const MarketplaceCategoryGrid = ({
                                 imageUrl
                                     ? [
                                           'bg-white ring-1 ring-gray-200',
-                                          active ? 'ring-2 ring-emerald-500' : '',
+                                          active ? 'ring-2 ring-shop-500' : '',
                                       ]
                                     : active
                                       ? [theme.solid, 'shadow-sm']

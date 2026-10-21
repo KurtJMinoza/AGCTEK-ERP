@@ -76,7 +76,13 @@ export default function ModuleLandingPage({ moduleCode, permissions }: ModuleLan
                             </span>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        <div
+                            className={
+                                category.submodules.length === 3
+                                    ? 'grid grid-cols-1 gap-4 md:grid-cols-3'
+                                    : 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'
+                            }
+                        >
                             {category.submodules.map((submodule) => (
                                 <SubmoduleCard
                                     key={submodule.code}

@@ -20,11 +20,16 @@ import { LPG_DIVISION_ID } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 
-export const MARKETPLACE_NAME = 'Amalgated Marketplace'
+export const MARKETPLACE_NAME = 'Amalgated Shop'
+export const MARKETPLACE_LOGO_SRC = '/storefront/aci.png'
+
+/** Deep navy with a faint architectural grid (sign-in branding panel, OTP screen). */
+export const BRAND_GRID_SURFACE =
+    'bg-shop-950 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:4rem_4rem]'
 
 /** Brand primary button colours, for ECME `customColorClass` props. */
 export const PRIMARY_BUTTON = () =>
-    'bg-emerald-600 hover:bg-emerald-700 text-white transition-colors'
+    'bg-shop-600 hover:bg-shop-700 text-white transition-colors'
 
 export type DivisionTheme = {
     /** Soft tinted icon tile. */
@@ -41,12 +46,12 @@ export type DivisionTheme = {
 
 const DIVISION_THEMES: Record<string, DivisionTheme> = {
     [RETAIL_DIVISION_ID]: {
-        tile: 'bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-amber-200',
-        solid: 'bg-emerald-600 text-amber-300',
-        hoverSolid: 'group-hover:bg-emerald-600 group-hover:text-amber-300',
+        tile: 'bg-shop-50 text-shop-600 ring-1 ring-inset ring-amber-200',
+        solid: 'bg-shop-600 text-amber-300',
+        hoverSolid: 'group-hover:bg-shop-600 group-hover:text-amber-300',
         activeBorder: '!border-amber-300',
-        wash: 'from-emerald-50/80 via-white to-amber-50/70',
-        text: 'text-emerald-700',
+        wash: 'from-shop-50/80 via-white to-amber-50/70',
+        text: 'text-shop-700',
     },
     [APPLIANCES_DIVISION_ID]: {
         tile: 'bg-red-50 text-red-600',
@@ -67,12 +72,12 @@ const DIVISION_THEMES: Record<string, DivisionTheme> = {
 }
 
 const DEFAULT_THEME: DivisionTheme = {
-    tile: 'bg-emerald-50 text-emerald-600',
-    solid: 'bg-emerald-600 text-white',
-    hoverSolid: 'group-hover:bg-emerald-600 group-hover:text-white',
-    activeBorder: '!border-emerald-300',
-    wash: 'from-emerald-50/80 to-white',
-    text: 'text-emerald-700',
+    tile: 'bg-shop-50 text-shop-600',
+    solid: 'bg-shop-600 text-white',
+    hoverSolid: 'group-hover:bg-shop-600 group-hover:text-white',
+    activeBorder: '!border-shop-300',
+    wash: 'from-shop-50/80 to-white',
+    text: 'text-shop-700',
 }
 
 export const divisionTheme = (divisionId: string | null) =>

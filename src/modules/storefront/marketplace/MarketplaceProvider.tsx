@@ -40,9 +40,6 @@ import {
     type RetailClientProfile,
 } from '@/services/storefront/retailClientService'
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
-import MarketplaceAuthDialog, {
-    type MarketplaceAuthMode,
-} from './components/MarketplaceAuthDialog'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
 import {
@@ -50,8 +47,10 @@ import {
     CHECKOUT_PATH,
     MARKETPLACE_ACCOUNT_PATH,
     MARKETPLACE_ORDERS_PATH,
+    MARKETPLACE_SIGN_IN_PATH,
+    MARKETPLACE_SIGN_UP_PATH,
+    marketplaceAuthHref,
     productHref,
-    safeReturnPath,
 } from './host'
 import {
     PRIMARY_BUTTON,
@@ -60,7 +59,7 @@ import {
     formatPrice,
     productKey,
 } from './marketplaceUi'
-import { useMarketplaceCartStore } from './store/useMarketplaceCartStore'
+import { useMarketplaceCartStore, marketplaceCartItemKey } from './store/useMarketplaceCartStore'
 import { useMarketplaceClientStore } from './store/useMarketplaceClientStore'
 import { useMarketplaceFavoritesStore } from './store/useMarketplaceFavoritesStore'
 
@@ -73,6 +72,8 @@ type PendingAdd = {
     quantity: number
     /** "Buy now": open the cart after adding. */
     buyNow: boolean
+    /** Selected variant info (when the product has customer-selectable options). */
+    variantInfo?: import('@/modules/storefront/shared/store/createStorefrontCartStore').CartVariantInfo
 }
 
 type MarketplaceContextValue = {
@@ -90,6 +91,7 @@ type MarketplaceContextValue = {
         product: SdProductRecord,
         quantity?: number,
         buyNow?: boolean,
+        variantInfo?: import('@/modules/storefront/shared/store/createStorefrontCartStore').CartVariantInfo,
     ) => void | Promise<void>
     openCart: () => void
     openOrders: () => void
@@ -174,11 +176,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         name: string
     } | null>(null)
     const [confirmClearOpen, setConfirmClearOpen] = useState(false)
-    const [authMode, setAuthMode] = useState<MarketplaceAuthMode | null>(null)
-    const [authReturnPath, setAuthReturnPath] = useState<string | null>(null)
-    const [afterSignIn, setAfterSignIn] = useState<
-        'checkout' | 'orders' | null
-    >(null)
     /** Add-to-cart awaiting confirmation. */
     const [requestedAdd, setRequestedAdd] = useState<PendingAdd | null>(null)
     const checkoutIdRef = useRef<string | null>(null)
@@ -192,81 +189,49 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         if (catalog.ready) syncCatalog(catalog.records)
     }, [catalog.ready, catalog.records, syncCatalog])
 
-    /** Open the one marketplace auth modal; it resumes the protected action after sign-in. */
+    /** Full-page sign-in; the shopper returns to the protected page (or this one) afterwards. */
     const openAuth = useCallback(
-        (
-            intent: 'checkout' | 'orders' | null,
-            mode: MarketplaceAuthMode = 'sign-in',
-        ) => {
-            setAfterSignIn(intent)
-            setAuthReturnPath(null)
-            setAuthMode(mode)
+        (intent: 'checkout' | 'orders' | null) => {
+            const query = searchParams.toString()
+            const next =
+                intent === 'checkout'
+                    ? CHECKOUT_PATH
+                    : intent === 'orders'
+                      ? MARKETPLACE_ORDERS_PATH
+                      : query
+                        ? `${pathname}?${query}`
+                        : pathname
+            router.push(marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, next))
         },
-        [],
+        [pathname, router, searchParams],
     )
 
-    const closeAuth = useCallback(() => {
-        setAuthMode(null)
-        setAfterSignIn(null)
-        setAuthReturnPath(null)
-    }, [])
-
-    /** Legacy auth links land on the storefront and open the same modal. */
+    /** Legacy `?auth=` links now go to the full-page sign-in / sign-up. */
     useEffect(() => {
         const requestedMode = searchParams.get('auth')
         if (requestedMode !== 'sign-in' && requestedMode !== 'sign-up') return
-
-        setAuthMode(requestedMode)
-        setAuthReturnPath(safeReturnPath(searchParams.get('next')))
-
-        const params = new URLSearchParams(searchParams.toString())
-        params.delete('auth')
-        params.delete('next')
-        const query = params.toString()
-        router.replace(query ? `${pathname}?${query}` : pathname, {
-            scroll: false,
-        })
-    }, [pathname, router, searchParams])
-
-    useEffect(() => {
-        if (!afterSignIn || !signedInClient) return
-        // Checkout is a full page now; the modal shown after sign-in was removed.
-        if (afterSignIn === 'checkout') router.push(CHECKOUT_PATH)
-        else router.push(MARKETPLACE_ORDERS_PATH)
-        setAfterSignIn(null)
-        setAuthReturnPath(null)
-    }, [afterSignIn, signedInClient, router])
-
-    const handleAuthenticated = useCallback(
-        (mode: MarketplaceAuthMode) => {
-            setAuthMode(null)
-            notify(
-                'success',
-                mode === 'sign-in' ? 'Welcome back' : 'Account created',
-                mode === 'sign-in'
-                    ? 'You are now signed in.'
-                    : 'Add your phone number and delivery addresses in My Account.',
-            )
-            if (afterSignIn) return
-
-            const returnPath = authReturnPath
-            setAuthReturnPath(null)
-            if (returnPath && returnPath !== pathname) {
-                router.replace(returnPath)
-            } else if (mode === 'sign-up') {
-                router.push(MARKETPLACE_ACCOUNT_PATH)
-            }
-        },
-        [afterSignIn, authReturnPath, pathname, router],
-    )
-
-    const quantityByKey = useMemo(
-        () =>
-            new Map(
-                items.map((item) => [productKey(item.product), item.quantity]),
+        router.replace(
+            marketplaceAuthHref(
+                requestedMode === 'sign-in'
+                    ? MARKETPLACE_SIGN_IN_PATH
+                    : MARKETPLACE_SIGN_UP_PATH,
+                searchParams.get('next'),
             ),
-        [items],
-    )
+        )
+    }, [router, searchParams])
+
+    /**
+     * Quantity in cart per parent product (all variants summed) — used for the
+     * "N in your cart" badge on product cards and the product page.
+     */
+    const quantityByKey = useMemo(() => {
+        const totals = new Map<string, number>()
+        for (const item of items) {
+            const key = productKey(item.product)
+            totals.set(key, (totals.get(key) ?? 0) + item.quantity)
+        }
+        return totals
+    }, [items])
     const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
     // Selective checkout: only checked items are priced and ordered.
@@ -274,12 +239,17 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         () =>
             items
                 .filter((item) =>
-                    selectedKeys.includes(productKey(item.product)),
+                    selectedKeys.includes(marketplaceCartItemKey(item)),
                 )
                 .map((item) => ({
                     divisionId: item.product.divisionId as SalesDivisionId,
                     sku: item.product.sku,
                     quantity: item.quantity,
+                    // The selected variant is the stock item — it must travel
+                    // with the line so the order reserves the right material.
+                    variantId: item.variant?.variantId,
+                    variantName: item.variant?.variantName,
+                    unitPrice: item.variant?.unitPrice,
                 })),
         [items, selectedKeys],
     )
@@ -330,7 +300,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const startCheckout = () => {
         const selected = items.filter((item) =>
-            selectedKeys.includes(productKey(item.product)),
+            selectedKeys.includes(marketplaceCartItemKey(item)),
         )
         if (selected.length === 0) return
         const lpgItems = selected.filter(
@@ -422,7 +392,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const requestAdd = useCallback(
-        async (product: SdProductRecord, quantity = 1, buyNow = false) => {
+        async (product: SdProductRecord, quantity = 1, buyNow = false, variantInfo?: PendingAdd['variantInfo']) => {
             // Product cards do not load ATP individually (to avoid an N+1
             // catalog request), so check just-in-time when a shopper adds an
             // item. Checkout repeats the check on the server before an SO can
@@ -448,7 +418,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 // The server checkout gate remains authoritative. Let shoppers
                 // keep browsing if this optional convenience check is offline.
             }
-            setRequestedAdd({ product, quantity, buyNow })
+            setRequestedAdd({ product, quantity, buyNow, variantInfo })
         },
         [],
     )
@@ -457,24 +427,27 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const confirmAdd = () => {
         if (!requestedAdd) return
-        const { product, quantity, buyNow } = requestedAdd
+        const { product, quantity, buyNow, variantInfo } = requestedAdd
         if (buyNow) {
-            // Buy Now is fully detached from the cart: hand the item straight
-            // to the checkout page via query params (it resolves the product
-            // from the catalogue). Nothing is added to the cart.
             const params = new URLSearchParams({
                 buyNow: '1',
                 division: product.divisionId,
                 sku: product.sku,
                 qty: String(quantity),
             })
+            if (variantInfo?.variantId) {
+                params.set('variantId', variantInfo.variantId)
+            }
             cancelAdd()
             router.push(`${CHECKOUT_PATH}?${params.toString()}`)
             return
         }
-        addItem(product, quantity)
+        addItem(product, quantity, variantInfo)
         cancelAdd()
-        notify('success', 'Added to cart', `${quantity} × ${product.name}`)
+        const displayName = variantInfo?.variantName
+            ? `${product.name} — ${variantInfo.variantName}`
+            : product.name
+        notify('success', 'Added to cart', `${quantity} × ${displayName}`)
     }
 
     const increaseItem = useCallback(
@@ -544,13 +517,6 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     return (
         <MarketplaceContext.Provider value={value}>
             {children}
-
-            <MarketplaceAuthDialog
-                isOpen={authMode !== null}
-                initialMode={authMode ?? 'sign-in'}
-                onClose={closeAuth}
-                onAuthenticated={handleAuthenticated}
-            />
 
             <ConfirmDialog
                 isOpen={requestedAdd !== null}
