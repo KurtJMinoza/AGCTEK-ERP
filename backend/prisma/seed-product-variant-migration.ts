@@ -4,6 +4,8 @@
  * - Sets productConfig on all products (VARIABLE when variants exist, else SIMPLE)
  * - Creates hidden default variants for simple products
  * - Links material from SdProductMaterialAssignment to the default variant
+ * - Links a VARIABLE product's sole parent assignment to variants that have
+ *   no material yet (the variant owns the material; the parent holds no stock)
  * - Backfills combinationKey on existing variants
  * - Sets defaultVariantId on products that have a default variant
  * - Reports ambiguous data (variants without materials, duplicate combos)
@@ -47,6 +49,7 @@ async function main() {
     let variableCount = 0
     let defaultVariantCreated = 0
     let combinationKeyFilled = 0
+    let variantsLinked = 0
     let warnings: string[] = []
 
     for (const product of products) {
@@ -180,14 +183,39 @@ async function main() {
                 }
             }
 
-            // 6. Check for variants without materials
+            // 6. Link a legacy VARIABLE product's sole parent assignment to
+            // the variants that have no material yet. The variant owns the
+            // material — a VARIABLE product's parent must not hold stock.
             const unmapped = product.variants.filter(
                 (v) => v.isActive && !v.materialId,
             )
             if (unmapped.length > 0) {
-                warnings.push(
-                    `Product ${product.sku} has ${unmapped.length} active variant(s) without a material: ${unmapped.map((v) => v.sku).join(', ')}`,
-                )
+                const assignments = product.materialAssignments
+                if (assignments.length === 1) {
+                    const assignment = assignments[0]
+                    for (const variant of unmapped) {
+                        await prisma.sdProductVariant.update({
+                            where: { id: variant.id },
+                            data: {
+                                materialId: assignment.materialId,
+                                companyId:
+                                    variant.companyId ?? assignment.companyId,
+                            },
+                        })
+                        await prisma.mmMaterial.update({
+                            where: { id: assignment.materialId },
+                            data: {
+                                catalogVariantId: variant.id,
+                                catalogSource: 'MANUALLY_LINKED',
+                            },
+                        })
+                        variantsLinked++
+                    }
+                } else {
+                    warnings.push(
+                        `Product ${product.sku} has ${unmapped.length} active variant(s) without a material and ${assignments.length} parent assignments — link each variant to its material manually: ${unmapped.map((v) => v.sku).join(', ')}`,
+                    )
+                }
             }
         }
     }
@@ -197,6 +225,7 @@ async function main() {
     console.log(`  Variable: ${variableCount}`)
     console.log(`  Default variants created: ${defaultVariantCreated}`)
     console.log(`  Combination keys backfilled: ${combinationKeyFilled}`)
+    console.log(`  Variants linked to a material: ${variantsLinked}`)
 
     if (warnings.length > 0) {
         console.log(`\n⚠ Warnings (${warnings.length}):`)

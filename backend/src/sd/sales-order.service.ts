@@ -445,6 +445,7 @@ export class SalesOrderService {
                 requestNumber: true,
                 status: true,
                 refundStatus: true,
+                preferredResolution: true,
                 reason: true,
                 lines: { select: { salesOrderLineId: true, quantity: true } },
             },
@@ -1232,14 +1233,47 @@ export class SalesOrderService {
     }
 
     /**
-     * Driver "Cash Received": full collection of every Pending Collection COD
-     * order in the set, through the same payment transition as the admin
-     * action (payment Paid → posted invoice PAID). Partial collection is not
-     * supported. Idempotent: already-collected orders return their state.
+     * Ship-to contact per order for the delivering driver (orders without a
+     * phone are omitted). Callers decide when a driver may see it.
+     */
+    async getShipToContacts(
+        salesOrderIds: string[],
+    ): Promise<Map<string, { orderNumber: string; name: string | null; phone: string }>> {
+        const result = new Map<string, { orderNumber: string; name: string | null; phone: string }>()
+        if (!salesOrderIds.length) return result
+        const orders = await this.prisma.sdSalesOrder.findMany({
+            where: { id: { in: salesOrderIds } },
+            select: {
+                id: true,
+                orderNumber: true,
+                shipToName: true,
+                customerName: true,
+                shipToPhone: true,
+            },
+        })
+        for (const order of orders) {
+            const phone = order.shipToPhone?.trim()
+            if (!phone) continue
+            result.set(order.id, {
+                orderNumber: order.orderNumber,
+                name: order.shipToName ?? order.customerName ?? null,
+                phone,
+            })
+        }
+        return result
+    }
+
+    /**
+     * Driver "Cash Received": collect every Pending Collection COD order in the
+     * set (payment Paid → posted invoice PAID). By default the received cash
+     * must cover the full payment amount. Pass `amountDue` after a POD partial
+     * accept so the due (and stored payment amount) matches accepted qty.
+     * Idempotent: already-collected orders return their state.
      */
     async collectCashOnDelivery(
         salesOrderIds: string[],
         amountReceived: number,
+        opts: { amountDue?: number | null } = {},
     ): Promise<CodCollectionResult> {
         const orders = await this.loadCodOrders(salesOrderIds)
         const before = summarizeCodCollection(orders)
@@ -1266,11 +1300,24 @@ export class SalesOrderService {
         if (!Number.isFinite(amountReceived) || amountReceived < 0) {
             throw new BadRequestException('amountReceived must be a non-negative number')
         }
-        const dueCents = toCents(before.amountDue)
+        const amountDue =
+            opts.amountDue != null && Number.isFinite(opts.amountDue)
+                ? opts.amountDue
+                : before.amountDue
+        if (amountDue < 0) {
+            throw new BadRequestException('amountDue must be non-negative')
+        }
+        if (toCents(amountDue) > toCents(before.amountDue)) {
+            throw new BadRequestException(
+                `COD due (${amountDue.toFixed(2)}) cannot exceed the order payment ` +
+                    `(${before.amountDue.toFixed(2)})`,
+            )
+        }
+        const dueCents = toCents(amountDue)
         if (toCents(amountReceived) < dueCents) {
             throw new BadRequestException(
                 `Cash received (${amountReceived.toFixed(2)}) is less than the amount due ` +
-                    `(${before.amountDue.toFixed(2)}) — partial collection is not supported`,
+                    `(${amountDue.toFixed(2)})`,
             )
         }
         const pending = orders.filter((o) => o.paymentStatus === COD_PENDING_STATUS)
@@ -1285,10 +1332,18 @@ export class SalesOrderService {
 
         const payments = await this.prisma.sdSalesOrderPayment.findMany({
             where: { salesOrderId: { in: pending.map((o) => o.salesOrderId) } },
-            select: { id: true, salesOrderId: true, status: true, paidAt: true },
+            select: { id: true, salesOrderId: true, status: true, paidAt: true, amount: true },
         })
         const collectedOrderIds: string[] = []
+        const reduced = toCents(amountDue) < toCents(before.amountDue)
         for (const payment of payments) {
+            if (reduced && pending.length === 1) {
+                // Single COD order at the stop: payment amount becomes the accepted due.
+                await this.prisma.sdSalesOrderPayment.update({
+                    where: { id: payment.id },
+                    data: { amount: amountDue },
+                })
+            }
             if (await this.transitionPayment(payment.salesOrderId, payment, 'Paid')) {
                 collectedOrderIds.push(payment.salesOrderId)
             }
@@ -1301,7 +1356,7 @@ export class SalesOrderService {
         }
         return {
             ...after,
-            amountDue: before.amountDue,
+            amountDue,
             amountReceived,
             change: fromCents(toCents(amountReceived) - dueCents),
             collectedOrderIds,
@@ -2056,6 +2111,163 @@ export class SalesOrderService {
     /** Alias for createReservationAndPickingForSalesOrder */
     async ensureReservationAndPickingForSalesOrder(salesOrderId: string) {
         return this.createReservationAndPickingForSalesOrder(salesOrderId)
+    }
+
+    /**
+     * Customer Return approve (REPLACEMENT): open a new $0 outbound sales order
+     * for the returned materials, confirm it, and start MM reservation/picking.
+     * Idempotent on `SdReturnRequest.replacementSalesOrderId` (caller stores the link).
+     */
+    async createReplacementForReturnRequest(input: {
+        returnRequestId: string
+        companyId: string
+        createdBy?: string
+    }) {
+        const request = await this.prisma.sdReturnRequest.findFirst({
+            where: { id: input.returnRequestId, companyId: input.companyId },
+            include: {
+                lines: true,
+                salesOrder: {
+                    select: {
+                        id: true,
+                        orderNumber: true,
+                        companyId: true,
+                        warehouseId: true,
+                        customerId: true,
+                        customerName: true,
+                        customerEmail: true,
+                        shipToName: true,
+                        shipToPhone: true,
+                        shipToAddressLine1: true,
+                        shipToCity: true,
+                        shipToRegion: true,
+                        shipToPostalCode: true,
+                        shipToCountry: true,
+                        branchId: true,
+                        divisionId: true,
+                        currency: true,
+                    },
+                },
+            },
+        })
+        if (!request) {
+            throw new NotFoundException('Return request not found in company scope')
+        }
+        if (request.replacementSalesOrderId) {
+            return this.findOne(request.replacementSalesOrderId)
+        }
+        const original = request.salesOrder
+        if (!original?.companyId || !original.warehouseId) {
+            throw new BadRequestException(
+                'Original order needs company and warehouse before a replacement can ship',
+            )
+        }
+        const lines = request.lines.filter(
+            (l) =>
+                l.materialId &&
+                l.disposition !== 'REFUND_ONLY' &&
+                new Decimal(l.quantity.toString()).gt(0),
+        )
+        if (!lines.length) {
+            throw new BadRequestException(
+                'No replaceable lines on this return (need materials that are not refund-only)',
+            )
+        }
+
+        const idempotencyKey = `replacement:${request.id}`
+        const existing = await this.prisma.sdSalesOrder.findUnique({
+            where: { idempotencyKey },
+            select: { id: true },
+        })
+        if (existing) return this.completeReplacement(existing.id)
+
+        const orderNumber = await this.nextOrderNumber()
+        let createdId: string
+        try {
+            const created = await this.prisma.sdSalesOrder.create({
+                data: {
+                    orderNumber,
+                    companyId: original.companyId,
+                    warehouseId: original.warehouseId,
+                    customerId: original.customerId,
+                    customerName: original.customerName,
+                    customerEmail: original.customerEmail,
+                    shipToName: original.shipToName,
+                    shipToPhone: original.shipToPhone,
+                    shipToAddressLine1: original.shipToAddressLine1,
+                    shipToCity: original.shipToCity,
+                    shipToRegion: original.shipToRegion,
+                    shipToPostalCode: original.shipToPostalCode,
+                    shipToCountry: original.shipToCountry,
+                    branchId: original.branchId,
+                    divisionId: original.divisionId,
+                    channel: 'STANDARD',
+                    source: 'ERP',
+                    correlationId: randomUUID(),
+                    idempotencyKey,
+                    createdBy: input.createdBy ?? null,
+                    status: 'DRAFT',
+                    currency: original.currency ?? SD_CATALOG_CURRENCY,
+                    paymentMethod: 'STORE_CREDIT',
+                    paymentStatus: 'Paid',
+                    subtotal: 0,
+                    discountAmount: 0,
+                    shippingAmount: 0,
+                    totalAmount: 0,
+                    notes: `Replacement for return ${request.requestNumber} (original ${original.orderNumber})`,
+                    lines: {
+                        create: lines.map((line, idx) => ({
+                            lineNumber: idx + 1,
+                            materialId: line.materialId!,
+                            quantity: line.quantity,
+                            unitPrice: 0,
+                            lineTotal: 0,
+                            description: `Replacement — ${request.requestNumber}`,
+                        })),
+                    },
+                    payments: {
+                        create: {
+                            companyId: original.companyId,
+                            customerId: original.customerId,
+                            paymentMethod: 'STORE_CREDIT',
+                            amount: 0,
+                            currency: original.currency ?? SD_CATALOG_CURRENCY,
+                            status: 'Paid',
+                            paidAt: new Date(),
+                            isDemo: true,
+                        },
+                    },
+                },
+                select: { id: true },
+            })
+            createdId = created.id
+        } catch (error) {
+            // A concurrent approval created it first; that caller confirms and starts picking.
+            if (!this.uniqueViolationTarget(error)?.includes('idempotencyKey')) throw error
+            const winner = await this.prisma.sdSalesOrder.findUniqueOrThrow({
+                where: { idempotencyKey },
+                select: { id: true },
+            })
+            return this.findOne(winner.id)
+        }
+        return this.completeReplacement(createdId)
+    }
+
+    /**
+     * Confirms a replacement order and starts MM reservation / picking. Both steps are idempotent,
+     * so an approval retried after a failed start (e.g. no pickable stock yet) finishes the order
+     * instead of reporting it as started.
+     */
+    private async completeReplacement(id: string) {
+        const order = await this.prisma.sdSalesOrder.findUniqueOrThrow({
+            where: { id },
+            select: { status: true },
+        })
+        if (order.status === 'DRAFT') await this.confirm(id)
+        await this.createReservationAndPickingForSalesOrder(id, {
+            throwOnIneligible: true,
+        })
+        return this.findOne(id)
     }
 
     /**

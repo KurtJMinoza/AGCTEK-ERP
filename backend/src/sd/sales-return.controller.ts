@@ -14,6 +14,7 @@ import {
     InitiateMmIntakeDto,
     ListSalesReturnsQueryDto,
     SalesReturnActionDto,
+    SettleSalesReturnDto,
 } from './dto/sales-return.dto'
 import { SalesReturnService } from './sales-return.service'
 
@@ -52,6 +53,18 @@ export class SalesReturnController {
     @RequirePermission('sd.sales-returns', 'update')
     authorize(@Param('id') id: string, @CurrentUser() user: AuthRequestUser) {
         return this.salesReturns.authorize(id, user)
+    }
+
+    /** Customer's choice: pay in full (→ REJECTED) or credit with/without return (→ AUTHORIZED). */
+    @Post(':id/settle')
+    @HttpCode(200)
+    @RequirePermission('sd.sales-returns', 'update')
+    settle(
+        @Param('id') id: string,
+        @Body() dto: SettleSalesReturnDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.salesReturns.settle(id, dto, user)
     }
 
     @Post(':id/reject')

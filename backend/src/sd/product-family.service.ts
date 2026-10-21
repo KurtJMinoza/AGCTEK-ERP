@@ -10,9 +10,9 @@ import { PrismaService } from '../prisma/prisma.service'
 import { MaterialsService } from '../mm/materials/materials.service'
 import {
     CreateProductFamilyDto,
-    OptionInput,
     VariantInput,
 } from './dto/create-product-family.dto'
+import { AddVariantInput } from './dto/add-product-variants.dto'
 
 const DIVISION_SKU_PREFIX: Record<string, string> = {
     DIV_RETAIL: 'RET',
@@ -52,7 +52,7 @@ export class ProductFamilyService {
 
         this.validateDto(dto)
 
-        return this.prisma.$transaction(
+        const createdProductId = await this.prisma.$transaction(
             async (tx) => {
                 // 2. Validate company
                 const company = await tx.company.findUnique({
@@ -62,6 +62,65 @@ export class ProductFamilyService {
                     throw new BadRequestException(
                         `Company ${dto.materialDefaults.companyId} not found`,
                     )
+                }
+
+                // 2b. Resolve material defaults from an existing linked material
+                // when the caller sends placeholder values.
+                if (dto.materialDefaults.materialTypeId === '__FROM_MATERIAL__') {
+                    const sourceMaterialId =
+                        dto.existingMaterialId ??
+                        dto.variants
+                            ?.find((v) => v.enabled && v.existingMaterialId)
+                            ?.existingMaterialId
+                    if (sourceMaterialId) {
+                        const sourceMat = await (tx as any).mmMaterial.findUnique({
+                            where: { id: sourceMaterialId },
+                            select: {
+                                materialTypeId: true,
+                                materialCategoryId: true,
+                                baseUomId: true,
+                                salesUomId: true,
+                                defaultWarehouseId: true,
+                                standardCost: true,
+                                safetyStock: true,
+                                maximumStock: true,
+                                reorderPoint: true,
+                                batchManaged: true,
+                                serialManaged: true,
+                                expiryManaged: true,
+                            },
+                        })
+                        if (sourceMat) {
+                            dto.materialDefaults.materialTypeId = sourceMat.materialTypeId
+                            dto.materialDefaults.materialCategoryId = sourceMat.materialCategoryId
+                            dto.materialDefaults.baseUomId = sourceMat.baseUomId
+                            if (sourceMat.salesUomId) dto.materialDefaults.salesUomId = sourceMat.salesUomId
+                            if (sourceMat.defaultWarehouseId) dto.materialDefaults.defaultWarehouseId = sourceMat.defaultWarehouseId
+                            dto.materialDefaults.standardCost = Number(sourceMat.standardCost ?? 0)
+                            dto.materialDefaults.safetyStock = Number(sourceMat.safetyStock ?? 0)
+                            dto.materialDefaults.maximumStock = Number(sourceMat.maximumStock ?? 0)
+                            dto.materialDefaults.reorderPoint = Number(sourceMat.reorderPoint ?? 0)
+                            dto.materialDefaults.batchManaged = sourceMat.batchManaged
+                            dto.materialDefaults.serialManaged = sourceMat.serialManaged
+                            dto.materialDefaults.expiryManaged = sourceMat.expiryManaged
+                        }
+                    }
+                    // If still placeholder, try to find any material for this company
+                    if (dto.materialDefaults.materialTypeId === '__FROM_MATERIAL__') {
+                        const anyMat = await (tx as any).mmMaterial.findFirst({
+                            where: { companyId: dto.materialDefaults.companyId },
+                            select: { materialTypeId: true, materialCategoryId: true, baseUomId: true },
+                        })
+                        if (anyMat) {
+                            dto.materialDefaults.materialTypeId = anyMat.materialTypeId
+                            dto.materialDefaults.materialCategoryId = anyMat.materialCategoryId
+                            dto.materialDefaults.baseUomId = anyMat.baseUomId
+                        } else {
+                            throw new BadRequestException(
+                                'Cannot resolve material defaults: no Materials Management material found for this company. Create at least one material first.',
+                            )
+                        }
+                    }
                 }
 
                 // 3. Create parent product
@@ -105,10 +164,12 @@ export class ProductFamilyService {
                     await this.createVariableVariants(tx, product, dto)
                 }
 
-                return this.loadFullProduct(product.id)
+                return product.id
             },
             { timeout: 60_000 },
         )
+
+        return this.loadFullProduct(createdProductId)
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -118,7 +179,7 @@ export class ProductFamilyService {
     async addVariants(
         productId: string,
         newOptionValues: { optionName: string; values: string[] }[],
-        newVariants: VariantInput[],
+        newVariants: AddVariantInput[],
     ) {
         const product = await this.prisma.sdProduct.findUnique({
             where: { id: productId },
@@ -131,8 +192,13 @@ export class ProductFamilyService {
         if (product.productConfig !== 'VARIABLE') {
             throw new BadRequestException('Cannot add variants to a simple product')
         }
+        if (!newVariants?.length) {
+            throw new BadRequestException(
+                'At least one variant combination is required',
+            )
+        }
 
-        return this.prisma.$transaction(
+        const resultId = await this.prisma.$transaction(
             async (tx) => {
                 // Add new option values to existing options
                 for (const { optionName, values } of newOptionValues) {
@@ -186,6 +252,13 @@ export class ProductFamilyService {
                     updatedProduct.variants.map((v) => v.combinationKey),
                 )
 
+                // Validate the requested combinations against the product's
+                // options (now including the newly added values).
+                this.assertValidOptionCombination(
+                    updatedProduct.options,
+                    newVariants,
+                )
+
                 // Get material defaults from existing material assignment
                 const matDefaults = await this.inferMaterialDefaults(
                     updatedProduct,
@@ -197,6 +270,17 @@ export class ProductFamilyService {
                     ...updatedProduct.variants.map((v) => v.sortOrder),
                 ) + 1
 
+                // Build a set of existing SKUs to avoid collisions
+                const existingSkus = new Set(
+                    updatedProduct.variants.map((v) => v.sku.toUpperCase()),
+                )
+                let skuCounter = updatedProduct.variants.length + 1
+
+                // Duplicate-combination prevention: the request itself must not
+                // repeat a combination (or SKU / barcode) — that is a client
+                // bug and is rejected instead of silently ignored.
+                this.assertNoDuplicatesInRequest(newVariants)
+
                 for (const variantInput of newVariants) {
                     if (!variantInput.enabled) continue
 
@@ -204,12 +288,21 @@ export class ProductFamilyService {
                         updatedProduct.options,
                         variantInput.optionValues,
                     )
-                    if (existingKeys.has(combinationKey)) continue
+                    if (existingKeys.has(combinationKey)) {
+                        // Already exists — idempotent skip. Only the MISSING
+                        // combinations are created; existing variants and their
+                        // stock are never touched.
+                        continue
+                    }
 
                     const variantName = variantInput.optionValues.join(' / ')
-                    const variantSku =
-                        variantInput.sku ||
-                        `${updatedProduct.sku}-V${String(sortOrder).padStart(2, '0')}`
+                    let variantSku = variantInput.sku || ''
+                    if (!variantSku) {
+                        do {
+                            variantSku = `${updatedProduct.sku}-V${String(skuCounter++).padStart(2, '0')}`
+                        } while (existingSkus.has(variantSku.toUpperCase()))
+                    }
+                    existingSkus.add(variantSku.toUpperCase())
 
                     await this.createOneVariantWithMaterial(tx, {
                         productId,
@@ -233,10 +326,12 @@ export class ProductFamilyService {
                     })
                 }
 
-                return this.loadFullProduct(productId)
+                return productId
             },
             { timeout: 60_000 },
         )
+
+        return this.loadFullProduct(resultId)
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -291,7 +386,7 @@ export class ProductFamilyService {
             product,
             materialDefaults: dto.materialDefaults,
             materialOverrides: undefined,
-            existingMaterialId: undefined,
+            existingMaterialId: dto.existingMaterialId,
         })
 
         // Link material to the variant
@@ -300,7 +395,10 @@ export class ProductFamilyService {
             data: { materialId: material.id },
         })
 
-        // Create parent-level material assignment
+        // Parent-level material assignment (SIMPLE only): the product has exactly
+        // one hidden default variant, so this stays unambiguous for the legacy
+        // `resolveMaterialForProduct` callers. VARIABLE products must not have
+        // one — the variant owns its material.
         await tx.sdProductMaterialAssignment.create({
             data: {
                 productId: product.id,
@@ -455,22 +553,11 @@ export class ProductFamilyService {
                 data: { materialId: material.id },
             })
 
-            // 10. Create parent-level material assignment
-            await tx.sdProductMaterialAssignment.create({
-                data: {
-                    productId: product.id,
-                    materialId: material.id,
-                    companyId: dto.materialDefaults.companyId,
-                    divisionId: dto.divisionId,
-                    salesUomId: dto.salesUomId ?? dto.materialDefaults.salesUomId ?? null,
-                    materialUomId: dto.materialDefaults.baseUomId,
-                    fulfillmentType: 'WAREHOUSE',
-                    inventoryRelevant: true,
-                    atpRelevant: true,
-                    reservationRelevant: true,
-                    status: 'ACTIVE',
-                },
-            })
+            // NOTE: no parent-level material assignment for VARIABLE products.
+            // The variant owns its material; the parent must never hold stock
+            // (one parent assignment per variant made `resolveMaterialForProduct`
+            // pick an arbitrary material, so a variant line could be reserved
+            // against another variant's stock).
 
             if (i === 0) defaultVariantId = variant.id
         }
@@ -659,19 +746,8 @@ export class ProductFamilyService {
             data: { materialId: material.id },
         })
 
-        // Material assignment
-        await tx.sdProductMaterialAssignment.create({
-            data: {
-                productId: args.productId,
-                materialId: material.id,
-                companyId: args.companyId,
-                fulfillmentType: 'WAREHOUSE',
-                inventoryRelevant: true,
-                atpRelevant: true,
-                reservationRelevant: true,
-                status: 'ACTIVE',
-            },
-        })
+        // No parent-level material assignment here either — the new variant
+        // owns its material (the parent is VARIABLE).
 
         return variant
     }
@@ -679,6 +755,87 @@ export class ProductFamilyService {
     // ──────────────────────────────────────────────────────────────────────
     //  Helpers
     // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Reject a request that repeats the same combination, SKU or barcode.
+     * Repeating an EXISTING combination is an idempotent skip; repeating one
+     * inside the request is a client bug and is surfaced as a conflict.
+     */
+    private assertNoDuplicatesInRequest(variants: AddVariantInput[]) {
+        const combinations = new Set<string>()
+        const skus = new Set<string>()
+        const barcodes = new Set<string>()
+
+        for (const variant of variants) {
+            if (!variant.enabled) continue
+
+            const combination = variant.optionValues
+                .map((value) => value.trim().toLowerCase())
+                .join('|')
+            if (combinations.has(combination)) {
+                throw new ConflictException(
+                    `Duplicate combination in request: ${variant.optionValues.join(' / ')}`,
+                )
+            }
+            combinations.add(combination)
+
+            if (variant.sku?.trim()) {
+                const sku = variant.sku.trim().toUpperCase()
+                if (skus.has(sku)) {
+                    throw new ConflictException(
+                        `Duplicate variant SKU in request: ${variant.sku}`,
+                    )
+                }
+                skus.add(sku)
+            }
+
+            if (variant.barcode?.trim()) {
+                const barcode = variant.barcode.trim().toLowerCase()
+                if (barcodes.has(barcode)) {
+                    throw new ConflictException(
+                        `Duplicate variant barcode in request: ${variant.barcode}`,
+                    )
+                }
+                barcodes.add(barcode)
+            }
+        }
+    }
+
+    /**
+     * Every requested variant must select exactly one existing value per
+     * product option — a variant without its option values would break the
+     * storefront's combination lookup.
+     */
+    private assertValidOptionCombination(
+        options: Array<{ name: string; values: Array<{ value: string }> }>,
+        variants: AddVariantInput[],
+    ) {
+        for (const variant of variants) {
+            if (!variant.enabled) continue
+            if (variant.optionValues.length !== options.length) {
+                throw new BadRequestException(
+                    `Combination "${variant.optionValues.join(' / ')}" must select one value for each of the ${options.length} option(s): ${options.map((o) => o.name).join(', ')}`,
+                )
+            }
+            options.forEach((option, index) => {
+                const value = variant.optionValues[index]?.trim()
+                if (!value) {
+                    throw new BadRequestException(
+                        `Combination "${variant.optionValues.join(' / ')}" is missing a value for option "${option.name}"`,
+                    )
+                }
+                const known = option.values.some(
+                    (optionValue) =>
+                        optionValue.value.toLowerCase() === value.toLowerCase(),
+                )
+                if (!known) {
+                    throw new BadRequestException(
+                        `Value "${value}" is not an available value for option "${option.name}"`,
+                    )
+                }
+            })
+        }
+    }
 
     private validateDto(dto: CreateProductFamilyDto) {
         if (dto.productConfig === 'VARIABLE') {
@@ -697,12 +854,13 @@ export class ProductFamilyService {
                     'At least one variant must be enabled',
                 )
             }
-            // Check for duplicate combination keys
+            // Check for duplicate combination keys — a conflict (the same
+            // combination was requested twice), not a malformed request.
             const keys = new Set<string>()
             for (const v of dto.variants.filter((x) => x.enabled)) {
                 const key = v.optionValues.map((s) => s.toLowerCase().trim()).join('|')
                 if (keys.has(key)) {
-                    throw new BadRequestException(
+                    throw new ConflictException(
                         `Duplicate combination: ${v.optionValues.join(' / ')}`,
                     )
                 }
@@ -713,7 +871,7 @@ export class ProductFamilyService {
             for (const v of dto.variants.filter((x) => x.enabled && x.sku)) {
                 const sku = v.sku!.toLowerCase().trim()
                 if (skus.has(sku)) {
-                    throw new BadRequestException(
+                    throw new ConflictException(
                         `Duplicate variant SKU: ${v.sku}`,
                     )
                 }
@@ -724,7 +882,7 @@ export class ProductFamilyService {
             for (const v of dto.variants.filter((x) => x.enabled && x.barcode)) {
                 const barcode = v.barcode!.toLowerCase().trim()
                 if (barcodes.has(barcode)) {
-                    throw new BadRequestException(
+                    throw new ConflictException(
                         `Duplicate variant barcode: ${v.barcode}`,
                     )
                 }
@@ -807,26 +965,76 @@ export class ProductFamilyService {
                 where: { id: assignment.materialId },
             })
             if (mat) {
-                return {
-                    companyId: assignment.companyId,
-                    materialTypeId: mat.materialTypeId,
-                    materialCategoryId: mat.materialCategoryId,
-                    baseUomId: mat.baseUomId,
-                    salesUomId: mat.salesUomId,
-                    defaultWarehouseId: mat.defaultWarehouseId,
-                    standardCost: Number(mat.standardCost ?? 0),
-                    safetyStock: Number(mat.safetyStock ?? 0),
-                    maximumStock: Number(mat.maximumStock ?? 0),
-                    reorderPoint: Number(mat.reorderPoint ?? 0),
-                    batchManaged: mat.batchManaged,
-                    serialManaged: mat.serialManaged,
-                    expiryManaged: mat.expiryManaged,
-                }
+                return this.materialDefaultsFromMaterial(
+                    mat,
+                    assignment.companyId,
+                )
             }
         }
-        throw new BadRequestException(
-            'Cannot infer material defaults from this product — no active material assignment found',
+
+        // VARIABLE products have no parent-level assignment (the variant owns
+        // its material) — infer the defaults from an existing sibling variant
+        // so newly added combinations get consistent material defaults.
+        const sibling = product.variants?.find(
+            (v: { materialId?: string | null }) => v.materialId,
         )
+        if (sibling) {
+            const mat = await (tx as any).mmMaterial.findUnique({
+                where: { id: sibling.materialId },
+            })
+            if (mat) {
+                const ownerCompanyId =
+                    sibling.companyId ??
+                    product.materialAssignments?.[0]?.companyId ??
+                    mat.companyId
+                if (!ownerCompanyId) {
+                    throw new BadRequestException(
+                        'Cannot infer the company for the new material — link an existing material or set the material defaults explicitly.',
+                    )
+                }
+                return this.materialDefaultsFromMaterial(mat, ownerCompanyId)
+            }
+        }
+
+        throw new BadRequestException(
+            'Cannot infer material defaults from this product — no linked material found on the product or its variants',
+        )
+    }
+
+    /** Normalise an MM material into the material-defaults shape. */
+    private materialDefaultsFromMaterial(
+        mat: {
+            companyId?: string | null
+            materialTypeId: string
+            materialCategoryId: string
+            baseUomId: string
+            salesUomId?: string | null
+            defaultWarehouseId?: string | null
+            standardCost?: unknown
+            safetyStock?: unknown
+            maximumStock?: unknown
+            reorderPoint?: unknown
+            batchManaged?: boolean | null
+            serialManaged?: boolean | null
+            expiryManaged?: boolean | null
+        },
+        companyId: string,
+    ) {
+        return {
+            companyId,
+            materialTypeId: mat.materialTypeId,
+            materialCategoryId: mat.materialCategoryId,
+            baseUomId: mat.baseUomId,
+            salesUomId: mat.salesUomId ?? undefined,
+            defaultWarehouseId: mat.defaultWarehouseId ?? undefined,
+            standardCost: Number(mat.standardCost ?? 0),
+            safetyStock: Number(mat.safetyStock ?? 0),
+            maximumStock: Number(mat.maximumStock ?? 0),
+            reorderPoint: Number(mat.reorderPoint ?? 0),
+            batchManaged: mat.batchManaged ?? false,
+            serialManaged: mat.serialManaged ?? false,
+            expiryManaged: mat.expiryManaged ?? false,
+        }
     }
 
     private async loadFullProduct(productId: string) {

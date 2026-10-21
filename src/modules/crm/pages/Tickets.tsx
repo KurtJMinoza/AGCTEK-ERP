@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
@@ -20,6 +20,8 @@ import TicketActivitiesDialog from '../components/TicketActivitiesDialog'
 import TicketCommentsDialog from '../components/TicketCommentsDialog'
 import TicketFormDialog, { isTerminalTicket } from '../components/TicketFormDialog'
 import { useTickets } from '../hooks/useTickets'
+import { apiGetTicket } from '../services/crmApi'
+import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { crmPageBreadcrumbs } from '../utils/breadcrumbs'
 import { filterLabels, ticketParamsFromUrl } from '../utils/deepLinks'
 import { crmTone, enumOptions, formatDate, formatEnumLabel } from '../utils/format'
@@ -42,12 +44,17 @@ const priorityFilterOptions = [
     { value: '', label: 'All priorities' },
     ...enumOptions(TICKET_PRIORITIES),
 ]
+const linkFilterOptions = [
+    { value: '', label: 'All tickets' },
+    { value: 'RETURN', label: 'Return cases' },
+]
 const sortOptions = [
     { value: 'priority', label: 'Priority (urgent first)' },
     { value: 'newest', label: 'Newest first' },
 ]
 
 export default function TicketsPage() {
+    const searchParams = useSearchParams()
     const {
         data,
         total,
@@ -60,7 +67,7 @@ export default function TicketsPage() {
         reload,
         create,
         update,
-    } = useTickets(ticketParamsFromUrl(useSearchParams()))
+    } = useTickets(ticketParamsFromUrl(searchParams))
     const { can } = usePermissions()
     const canCreate = can('crm.tickets', 'create')
     const canUpdate = can('crm.tickets', 'update')
@@ -68,6 +75,20 @@ export default function TicketsPage() {
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editing, setEditing] = useState<Ticket | null>(null)
     const [viewing, setViewing] = useState<Ticket | null>(null)
+    const [linkError, setLinkError] = useState<string | null>(null)
+
+    /** `?ticket=<id>` (e.g. SD Customer Returns "Open CRM case") opens that ticket's detail. */
+    const linkedTicketId = searchParams.get('ticket')
+    useEffect(() => {
+        if (!linkedTicketId) return
+        let active = true
+        apiGetTicket(linkedTicketId)
+            .then((row) => active && setViewing(row))
+            .catch((err) => active && setLinkError(getApiErrorMessage(err, 'Unable to open the linked ticket')))
+        return () => {
+            active = false
+        }
+    }, [linkedTicketId])
     const [activitiesFor, setActivitiesFor] = useState<Ticket | null>(null)
     /** Prefer the reloaded row so the dialog header badge stays current. */
     const activitiesTicket = activitiesFor
@@ -91,6 +112,11 @@ export default function TicketsPage() {
                     >
                         {row.original.subject}
                         <span className="block text-xs font-normal text-gray-500">
+                            {row.original.sdReturnRequestId ? (
+                                <StatusBadge tone="warning" className="mr-1">
+                                    Return linked
+                                </StatusBadge>
+                            ) : null}
                             {formatEnumLabel(row.original.category)} ·{' '}
                             {row.original._count.comments} comment
                             {row.original._count.comments === 1 ? '' : 's'}
@@ -174,7 +200,7 @@ export default function TicketsPage() {
         <PageContainer>
             <PageHeader
                 title="Tickets"
-                description="Customer service queue: Open and Waiting customer by default, most urgent first. RMA references are free text until the SD return flow is integrated."
+                description="Customer service queue: Open and Waiting customer by default, most urgent first. Storefront return requests open a case here; replacements are approved from the case through SD."
                 breadcrumbs={crmPageBreadcrumbs('Tickets')}
                 actions={
                     canCreate ? (
@@ -190,12 +216,17 @@ export default function TicketsPage() {
                     {error}
                 </Alert>
             ) : null}
+            {linkError ? (
+                <Alert showIcon closable type="warning" className="mb-4" onClose={() => setLinkError(null)}>
+                    {linkError}
+                </Alert>
+            ) : null}
 
             <AdaptiveCard className="mb-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
                     <Input
                         className="md:max-w-xs"
-                        placeholder="Search subject or RMA reference…"
+                        placeholder="Search subject, return # or RMA reference…"
                         value={params.search ?? ''}
                         onChange={(e) =>
                             setParams((current) => ({ ...current, page: 1, search: e.target.value }))
@@ -226,6 +257,18 @@ export default function TicketsPage() {
                                 ...current,
                                 page: 1,
                                 priority: (value || undefined) as TicketPriority | undefined,
+                            }))
+                        }
+                    />
+                    <CrmSelect
+                        className="md:w-48"
+                        options={linkFilterOptions}
+                        value={params.link ?? ''}
+                        onChange={(value) =>
+                            setParams((current) => ({
+                                ...current,
+                                page: 1,
+                                link: value === 'RETURN' ? 'RETURN' : undefined,
                             }))
                         }
                     />
@@ -280,6 +323,7 @@ export default function TicketsPage() {
             <TicketCommentsDialog
                 ticket={viewing}
                 canComment={canCreate}
+                canDecideReturn={canUpdate}
                 onClose={() => setViewing(null)}
                 onCommented={() => void reload()}
             />

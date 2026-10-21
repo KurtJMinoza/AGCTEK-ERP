@@ -118,6 +118,14 @@ describe('CrmTicketsService.list queue', () => {
         expect(prisma.crmTicket.groupBy.mock.calls[1][0].where).not.toHaveProperty('status')
     })
 
+    it('link=RETURN keeps return cases; search also matches the return number', async () => {
+        const prisma = mockPrisma()
+        await service(prisma).list({ link: 'RETURN', search: 'RET-2026' })
+        const where = prisma.crmTicket.groupBy.mock.calls[0][0].where
+        expect(where.sdReturnRequestId).toEqual({ not: null })
+        expect(where.OR).toContainEqual({ returnRequestNumber: { contains: 'RET-2026', mode: 'insensitive' } })
+    })
+
     it('sort=newest keeps created-desc paging', async () => {
         const prisma = mockPrisma()
         await service(prisma).list({ sort: 'newest', queue: 'ALL' })

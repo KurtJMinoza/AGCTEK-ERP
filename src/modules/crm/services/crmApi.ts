@@ -30,6 +30,7 @@ import type {
     Ticket,
     TicketComment,
     TicketListParams,
+    TicketReturnCase,
     UpdateLeadInput,
     UpdateOpportunityInput,
     UpdateTicketInput,
@@ -302,6 +303,39 @@ export async function apiUpdateTicket(id: string, body: UpdateTicketInput) {
     const { data } = await ErpAxiosBase.patch<Ticket>(
         `/crm/tickets/${encodeURIComponent(id)}`,
         body,
+    )
+    return data
+}
+
+export async function apiGetTicket(id: string) {
+    return get<Ticket>(`/crm/tickets/${encodeURIComponent(id)}`)
+}
+
+/** Opens (or returns) the CRM case for an SD customer return. */
+export async function apiOpenReturnCase(returnRequestId: string) {
+    const { data } = await ErpAxiosBase.post<{ ticket: Ticket; created: boolean }>(
+        `/crm/tickets/from-return/${encodeURIComponent(returnRequestId)}`,
+    )
+    return data
+}
+
+export async function apiGetTicketReturn(ticketId: string) {
+    return get<TicketReturnCase>(`/crm/tickets/${encodeURIComponent(ticketId)}/return`)
+}
+
+/** Agent approves the linked return with the customer's resolution; SD applies it. */
+export async function apiApproveTicketReturn(ticketId: string) {
+    const { data } = await ErpAxiosBase.post<TicketReturnCase>(
+        `/crm/tickets/${encodeURIComponent(ticketId)}/return/approve`,
+    )
+    return data
+}
+
+/** Agent rejects the linked return; SD records the reason. */
+export async function apiRejectTicketReturn(ticketId: string, reason: string) {
+    const { data } = await ErpAxiosBase.post<TicketReturnCase>(
+        `/crm/tickets/${encodeURIComponent(ticketId)}/return/reject`,
+        { reason },
     )
     return data
 }

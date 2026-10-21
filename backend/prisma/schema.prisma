@@ -4374,6 +4374,15 @@ model SdSalesReturn {
   cancelBy       String?
   cancelAt       DateTime?
   cancelReason   String?
+  /// Customer's commercial choice for the returned qty:
+  /// KEEP_AND_PAY_FULL (→ REJECTED, no credit) | CREDIT_AND_RETURN (→ AUTHORIZED, MM intake)
+  /// | CREDIT_NO_RETURN (→ AUTHORIZED, credit only, no MM intake). Null = legacy authorize/reject.
+  settlement     String?
+  settlementNote String?
+  settledBy      String?
+  settledAt      DateTime?
+  /// Credit intent at order-line price for the returned qty (no credit memo / FICO posting yet).
+  creditAmount   Decimal?
   createdBy      String?
   updatedBy      String?
   createdAt      DateTime             @default(now())
@@ -4511,6 +4520,11 @@ model SdReturnRequest {
   closedAt           DateTime?
   /// MM customer return created on approval (link to MM processing).
   mmCustomerReturnId String?
+  /// SCM damage evidence this return was created from (POD reject / driver report). Unique ⇒ one CR per report.
+  damageReportId     String?       @unique
+  damageReport       DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
+  /// Child sales order opened on approve when preferredResolution = REPLACEMENT (new outbound).
+  replacementSalesOrderId String?  @unique
   requestedBy        String?
   approvedBy         String?
   approvedAt         DateTime?
@@ -4520,6 +4534,8 @@ model SdReturnRequest {
 
   lines   SdReturnRequestLine[]
   refunds SdRefund[]
+  /// CRM case handling this return (storefront requests); CRM never changes the return directly.
+  crmTicket CrmTicket?
 
   @@index([companyId, status])
   @@index([salesOrderId])
@@ -6602,6 +6618,40 @@ enum ShipmentMovementType {
   PICKUP
 }
 
+/// Who carries the shipment last-mile. See docs/SCM_COURIERS.md.
+enum ShipmentExecutionMode {
+  /// Own fleet: load plan → trip → driver → POD
+  OWN_FLEET
+  /// Third-party courier (3PL): consignment + tracking number; no trip / driver
+  THIRD_PARTY
+}
+
+enum CarrierIntegrationType {
+  /// Dispatcher enters tracking number and status by hand
+  MANUAL
+  /// Booking / tracking through a carrier adapter (Phase 4)
+  API
+}
+
+/// Normalized courier status — UI and storefront never read vendor codes.
+enum CourierConsignmentStatus {
+  BOOKED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  EXCEPTION
+  RETURNED
+  /// Allowed only before PICKED_UP
+  CANCELLED
+}
+
+enum CourierEventSource {
+  MANUAL
+  WEBHOOK
+  POLL
+}
+
 enum MaintenanceType {
   PREVENTATIVE
   CORRECTIVE
@@ -6742,6 +6792,8 @@ model Shipment {
   requiresColdChain   Boolean                @default(false)
   /// DELIVERY = ship to customer; PICKUP = collect from customer/supplier
   movementType        ShipmentMovementType   @default(DELIVERY)
+  /// OWN_FLEET = trip / driver; THIRD_PARTY = courier consignment (no trip)
+  executionMode       ShipmentExecutionMode  @default(OWN_FLEET)
   status              ShipmentStatus         @default(DRAFT)
   requestedPickupAt   DateTime?
   requestedDeliveryAt DateTime?
@@ -6760,11 +6812,82 @@ model Shipment {
   tripStopShipments   TripStopShipment[]
   lines               ShipmentLine[]
   damageReports       DamageReport[]
+  /// Set when executionMode = THIRD_PARTY (authoritative carrier + tracking number)
+  courierConsignment  CourierConsignment?
 
   @@index([status])
   @@index([movementType])
   @@index([packageId])
   @@index([companyId, status])
+  @@index([executionMode, status])
+}
+
+/// Third-party courier (3PL) master — SCM Couriers. Not a vehicle or driver.
+model Carrier {
+  id                  String                 @id @default(cuid())
+  /// Short code, e.g. JNT, LBC, NINJAVAN
+  code                String                 @unique
+  name                String
+  isActive            Boolean                @default(true)
+  /// Courier may collect COD for us. Courier COD stays blocked until remittance (Phase 5).
+  supportsCod         Boolean                @default(false)
+  integrationType     CarrierIntegrationType @default(MANUAL)
+  /// Public tracking link; `{tracking}` is replaced with the tracking number
+  trackingUrlTemplate String?
+  notes               String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  consignments        CourierConsignment[]
+
+  @@index([isActive])
+}
+
+/// One courier hand-off per shipment (THIRD_PARTY). Status changes append CourierConsignmentEvent rows.
+model CourierConsignment {
+  id                String                    @id @default(cuid())
+  shipmentId        String                    @unique
+  shipment          Shipment                  @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  carrierId         String
+  carrier           Carrier                   @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  /// AWB / waybill number; unique per carrier when set
+  trackingNumber    String?
+  /// Carrier booking reference (API bookings)
+  externalBookingId String?
+  labelUrl          String?
+  status            CourierConsignmentStatus  @default(BOOKED)
+  bookedAt          DateTime                  @default(now())
+  pickedUpAt        DateTime?
+  deliveredAt       DateTime?
+  podUrl            String?
+  notes             String?
+  createdBy         String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  events            CourierConsignmentEvent[]
+
+  @@unique([carrierId, trackingNumber])
+  @@index([status])
+  @@index([carrierId, status])
+}
+
+/// Courier status history (manual entry now; webhook / poll in Phase 4).
+model CourierConsignmentEvent {
+  id             String                   @id @default(cuid())
+  consignmentId  String
+  consignment    CourierConsignment       @relation(fields: [consignmentId], references: [id], onDelete: Cascade)
+  status         CourierConsignmentStatus
+  occurredAt     DateTime                 @default(now())
+  source         CourierEventSource       @default(MANUAL)
+  /// Vendor status code as received (API sources)
+  rawStatus      String?
+  note           String?
+  payload        Json?
+  /// Webhook / poll de-duplication
+  idempotencyKey String?                  @unique
+  createdBy      String?
+  createdAt      DateTime                 @default(now())
+
+  @@index([consignmentId, occurredAt])
 }
 
 /// Cargo unit for load building. SHIP/RETURN prefer Warehouse master ids; TO is an address snapshot.
@@ -6834,11 +6957,15 @@ model DamageReport {
   /// Items reported damaged (ShipmentLine.quantity units).
   damagedQuantity  Int
   description      String
-  /// Evidence photo URLs (URL strings — no file-upload endpoint exists yet, like the POD fields).
+  /// Evidence photos: hosted URLs or image data URLs (driver camera, stored like the POD photo).
   photoUrls        Json?
-  /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED set once an SD Sales Return exists).
+  /// STAFF (back office) | DRIVER (driver app, right after delivering the stop)
+  source           String              @default("STAFF")
+  /// Trip stop the driver delivered when source = DRIVER (plain id; SCM-internal reference).
+  tripStopId       String?
+  /// SUBMITTED | CANCELLED | RETURN_CREATED (RETURN_CREATED once an SD Customer Return / legacy Sales Return exists).
   status           String              @default("SUBMITTED")
-  /// SD Sales Return created from this report (Phase 3 traceability back-reference).
+  /// Legacy SD Sales Return created from this report (pre–Customer Returns spine). Prefer sdReturnRequest via damageReportId.
   sdSalesReturnId  String?
   /// MM Customer Return Intake opened from this report (Phase 4 traceability back-reference).
   /// Plain id: the MM intake holds the authoritative FK (MmCustomerReturn.damageReportId).
@@ -6852,6 +6979,7 @@ model DamageReport {
   audits           DamageReportAudit[]
   customerReturns  MmCustomerReturn[]
   sdSalesReturn    SdSalesReturn?
+  sdReturnRequest  SdReturnRequest?
 
   @@index([shipmentId, createdAt])
   @@index([shipmentLineId])
@@ -6921,6 +7049,8 @@ model TripStopLine {
   loadPlanLine   LoadPlanLine @relation(fields: [loadPlanLineId], references: [id], onDelete: Cascade)
   shipmentLineId String
   shipmentLine   ShipmentLine @relation(fields: [shipmentLineId], references: [id], onDelete: Cascade)
+  /// Qty the customer accepted at POD (null = not recorded; treat as full line qty).
+  acceptedQuantity Int?
 
   @@unique([tripStopId, loadPlanLineId])
   @@index([loadPlanLineId])
@@ -6982,6 +7112,8 @@ model TripStop {
   podPhotoUrl        String?
   /// Driver POD notes
   podNotes           String?
+  /// COD cash due after POD acceptance (null = full payment amount). Set on partial accept.
+  codAmountDue       Decimal?               @db.Decimal(18, 2)
   /// Set when status = FAILED — free-text driver note
   failureReason      String?
   failureCode        DeliveryFailureReason?
@@ -7446,6 +7578,12 @@ model CrmTicket {
   assignedTo   String?
   /// External RMA reference only; RMA execution is owned by SD / MM.
   rmaReference String?
+  /// SD customer return this ticket handles (at most one ticket per return); SD owns the return.
+  sdReturnRequestId   String?          @unique
+  sdReturnRequest     SdReturnRequest? @relation(fields: [sdReturnRequestId], references: [id], onDelete: Restrict)
+  /// Snapshots of the return's order and number for lists and search; the return stays authoritative.
+  salesOrderId        String?
+  returnRequestNumber String?
   createdBy    String?
   updatedBy    String?
   createdAt    DateTime           @default(now())
@@ -7457,6 +7595,7 @@ model CrmTicket {
   @@index([status])
   @@index([priority])
   @@index([assignedTo])
+  @@index([salesOrderId])
   @@map("crm_tickets")
 }
 

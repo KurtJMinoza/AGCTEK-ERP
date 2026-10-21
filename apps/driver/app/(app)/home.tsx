@@ -13,6 +13,7 @@ import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { StatusBadge } from '@/src/components/StatusBadge'
 import { useAuth } from '@/src/hooks/useAuth'
 import { stopQty, useActiveTrip } from '@/src/hooks/useActiveTrip'
+import { stopKind } from '@/src/utils/stopKind'
 
 export default function HomeScreen() {
     const { session, signOut } = useAuth()
@@ -96,10 +97,10 @@ export default function HomeScreen() {
                             <Text style={styles.statLabel}>Total qty</Text>
                             <Text style={styles.statValue}>
                                 {(trip.totalQty ??
-                                    (trip.stops ?? []).reduce(
-                                        (s, stop) => s + stopQty(stop),
-                                        0,
-                                    )
+                                    // Cargo is on both its load and deliver stop — count deliveries only.
+                                    (trip.stops ?? [])
+                                        .filter((stop) => stopKind(stop.stopType) === 'DELIVER')
+                                        .reduce((s, stop) => s + stopQty(stop), 0)
                                 ).toLocaleString()}
                             </Text>
                         </View>

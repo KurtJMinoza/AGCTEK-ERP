@@ -106,6 +106,7 @@ import { BackorderReportService } from './backorder-report.service'
         CustomerService,
         QuotationService,
         SalesReturnService,
+        ReturnRequestService,
         ReviewModule,
     ],
 })

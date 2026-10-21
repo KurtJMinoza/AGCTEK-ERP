@@ -31,7 +31,7 @@ function parseAmount(text: string): number | null {
 
 const cents = (value: number) => Math.round(value * 100)
 
-/** Option B: confirm the cash handed over. Full collection only — received must cover the amount due. */
+/** Confirm the cash handed over. Received must cover the stop due (full or post–partial-accept). */
 export function CashReceivedSheet({
     visible,
     amountDue,

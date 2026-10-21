@@ -27,6 +27,7 @@ const ORDER = {
             sku: 'SKU-A',
             description: 'Thing',
             quantity: new Decimal('5'),
+            unitPrice: new Decimal('125.50'),
             salesUomId: 'uom-1',
         },
         {
@@ -36,6 +37,7 @@ const ORDER = {
             sku: 'SKU-B',
             description: 'Other',
             quantity: new Decimal('3'),
+            unitPrice: new Decimal('40'),
             salesUomId: 'uom-1',
         },
     ],
@@ -43,19 +45,57 @@ const ORDER = {
 
 const actor = { id: 'user-1', role: 'sales' }
 
-function setup(overrides: { orderStatus?: string | null } = {}) {
+function setup(
+    overrides: {
+        orderStatus?: string | null
+        unpriced?: boolean
+        orderCustomerId?: string
+        customers?: Array<{ id: string; retailClientId: string | null }>
+    } = {},
+) {
     const returns: Array<Record<string, any>> = []
     const audits: Array<Record<string, unknown>> = []
-    const order = { ...ORDER, status: overrides.orderStatus ?? 'CONFIRMED' }
+    const order = {
+        ...ORDER,
+        status: overrides.orderStatus ?? 'CONFIRMED',
+        customerId: overrides.orderCustomerId ?? ORDER.customerId,
+    }
+    const customers = overrides.customers ?? [
+        { id: 'cust-1', retailClientId: null },
+    ]
 
     const prisma = {
         sdSalesOrder: {
             findUnique: async () =>
                 overrides.orderStatus === null ? null : order,
         },
+        sdCustomer: {
+            findFirst: async ({
+                where,
+            }: {
+                where: { OR: Array<{ id?: string; retailClientId?: string }> }
+            }) =>
+                customers.find((c) =>
+                    where.OR.some(
+                        (cond) =>
+                            (cond.id !== undefined && c.id === cond.id) ||
+                            (cond.retailClientId !== undefined &&
+                                c.retailClientId === cond.retailClientId),
+                    ),
+                ) ?? null,
+        },
         sdSalesOrderLine: {
             findUnique: async ({ where }: { where: { id: string } }) =>
                 order.lines.find((l) => l.id === where.id) ?? null,
+            findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+                order.lines
+                    .filter((l) => where.id.in.includes(l.id))
+                    .map((l) => ({
+                        id: l.id,
+                        unitPrice: overrides.unpriced ? null : l.unitPrice,
+                        lineTotal: null,
+                        quantity: l.quantity,
+                    })),
         },
         sdSalesReturn: {
             count: async () => returns.length,
@@ -138,6 +178,17 @@ function setup(overrides: { orderStatus?: string | null } = {}) {
             },
         },
         sdSalesReturnLine: {
+            findMany: async ({
+                where,
+            }: {
+                where: { salesReturnId: string }
+            }) =>
+                (returns.find((r) => r.id === where.salesReturnId)?.lines ?? []).map(
+                    (l: { salesOrderLineId: string; quantity: Decimal }) => ({
+                        salesOrderLineId: l.salesOrderLineId,
+                        quantity: new Decimal(l.quantity),
+                    }),
+                ),
             aggregate: async ({
                 where,
             }: {
@@ -226,15 +277,43 @@ describe('SalesReturnService.create', () => {
         expect(returns).toHaveLength(1)
     })
 
-    it('rejects an order that was not confirmed or completed', async () => {
+    it('rejects a draft or cancelled order', async () => {
         const { service } = setup({ orderStatus: 'DRAFT' })
         await expect(service.create(dto, actor)).rejects.toBeInstanceOf(
             ConflictException,
         )
         await expect(
             setup({ orderStatus: 'CANCELLED' }).service.create(dto, actor),
-        ).rejects.toThrow(/only CONFIRMED or COMPLETED/)
+        ).rejects.toThrow(/only CONFIRMED, SHIPPED, DELIVERED or COMPLETED/)
     })
+
+    it('resolves a storefront order to the Customer Master record linked to the shop account', async () => {
+        const { service, returns } = setup({
+            orderCustomerId: 'shop-client-1',
+            customers: [{ id: 'cust-9', retailClientId: 'shop-client-1' }],
+        })
+        await service.create(dto, actor)
+        expect(returns[0].customerId).toBe('cust-9')
+    })
+
+    it('refuses a storefront order whose shop account has no Customer Master record', async () => {
+        const { service, returns } = setup({
+            orderCustomerId: 'shop-client-1',
+            customers: [],
+        })
+        await expect(service.create(dto, actor)).rejects.toThrow(
+            /no Customer Master record/,
+        )
+        expect(returns).toHaveLength(0)
+    })
+
+    it.each(['SHIPPED', 'DELIVERED'])(
+        'accepts a %s order (damage found in transit or at delivery)',
+        async (orderStatus) => {
+            const { service } = setup({ orderStatus })
+            await expect(service.create(dto, actor)).resolves.toBeTruthy()
+        },
+    )
 
     it('404s for a missing order', async () => {
         const { service } = setup({ orderStatus: null })
@@ -524,6 +603,103 @@ describe('SalesReturnService.initiateMmIntake', () => {
     })
 })
 
+describe('SalesReturnService.settle', () => {
+    it('KEEP_AND_PAY_FULL rejects the return with zero credit and no MM path', async () => {
+        const { service, audits } = setup()
+        const created = await service.create(dto, actor)
+
+        const settled = await service.settle(
+            created.id,
+            { settlement: 'KEEP_AND_PAY_FULL' },
+            actor,
+        )
+
+        expect(settled).toMatchObject({
+            status: SALES_RETURN_STATUS.REJECTED,
+            settlement: 'KEEP_AND_PAY_FULL',
+            settledBy: 'user-1',
+            rejectReason: 'Customer keeps the goods and pays in full',
+        })
+        expect(String(settled.creditAmount)).toBe('0')
+        expect(audits.at(-1)).toEqual(
+            expect.objectContaining({
+                action: 'REJECTED',
+                details: { from: 'REQUESTED', settlement: 'KEEP_AND_PAY_FULL' },
+            }),
+        )
+        await expect(
+            service.initiateMmIntake(settled.id, { warehouseId: 'wh-1' }, actor),
+        ).rejects.toThrow(/Only an AUTHORIZED/)
+    })
+
+    it('CREDIT_AND_RETURN authorizes with credit at order-line price and allows MM intake', async () => {
+        const { service, customerReturns } = setup()
+        const created = await service.create(dto, actor)
+
+        const settled = await service.settle(
+            created.id,
+            { settlement: 'CREDIT_AND_RETURN', note: '2 cracked' },
+            actor,
+        )
+
+        expect(settled).toMatchObject({
+            status: SALES_RETURN_STATUS.AUTHORIZED,
+            settlement: 'CREDIT_AND_RETURN',
+            settlementNote: '2 cracked',
+        })
+        expect(String(settled.creditAmount)).toBe('251')
+        customerReturns.createFromSalesReturn.mockResolvedValue({
+            created: true,
+            customerReturn: { id: 'cr-1' },
+        })
+        await expect(
+            service.initiateMmIntake(settled.id, { warehouseId: 'wh-1' }, actor),
+        ).resolves.toMatchObject({ created: true })
+    })
+
+    it('CREDIT_NO_RETURN authorizes the credit but blocks the MM intake', async () => {
+        const { service, customerReturns } = setup()
+        const created = await service.create(dto, actor)
+
+        const settled = await service.settle(
+            created.id,
+            { settlement: 'CREDIT_NO_RETURN' },
+            actor,
+        )
+
+        expect(settled.status).toBe(SALES_RETURN_STATUS.AUTHORIZED)
+        expect(String(settled.creditAmount)).toBe('251')
+        await expect(
+            service.initiateMmIntake(settled.id, { warehouseId: 'wh-1' }, actor),
+        ).rejects.toThrow(/credit without return/)
+        expect(customerReturns.createFromSalesReturn).not.toHaveBeenCalled()
+    })
+
+    it('leaves the credit amount empty when the order line has no price', async () => {
+        const { service } = setup({ unpriced: true })
+        const created = await service.create(dto, actor)
+        const settled = await service.settle(
+            created.id,
+            { settlement: 'CREDIT_AND_RETURN' },
+            actor,
+        )
+        expect(settled.creditAmount).toBeNull()
+    })
+
+    it('only settles a REQUESTED return and validates the choice', async () => {
+        const { service } = setup()
+        const created = await service.create(dto, actor)
+        await expect(
+            service.settle(created.id, { settlement: 'PAY_EIGHT' }, actor),
+        ).rejects.toBeInstanceOf(BadRequestException)
+
+        await service.settle(created.id, { settlement: 'CREDIT_AND_RETURN' }, actor)
+        await expect(
+            service.settle(created.id, { settlement: 'KEEP_AND_PAY_FULL' }, actor),
+        ).rejects.toThrow(/cannot move from AUTHORIZED to REJECTED/)
+    })
+})
+
 describe('SalesReturnService.list', () => {
     it('paginates and filters by company/status/order', async () => {
         const { service } = setup()
@@ -545,6 +721,8 @@ describe('SalesReturnService constants', () => {
         expect([...RETURNABLE_ORDER_STATUSES].sort()).toEqual([
             'COMPLETED',
             'CONFIRMED',
+            'DELIVERED',
+            'SHIPPED',
         ])
     })
 })
@@ -555,6 +733,7 @@ describe('SalesReturnController RBAC metadata', () => {
         ['findOne', 'read'],
         ['create', 'create'],
         ['authorize', 'update'],
+        ['settle', 'update'],
         ['reject', 'update'],
         ['cancel', 'update'],
         ['initiateIntake', 'update'],
@@ -566,6 +745,7 @@ describe('SalesReturnController RBAC metadata', () => {
                     | 'findOne'
                     | 'create'
                     | 'authorize'
+                    | 'settle'
                     | 'reject'
                     | 'cancel'
                     | 'initiateIntake'

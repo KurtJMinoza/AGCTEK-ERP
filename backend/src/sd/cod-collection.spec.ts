@@ -40,6 +40,15 @@ function setup(orders: FakeOrder[]) {
                     .filter((o): o is FakeOrder => !!o?.payment)
                     .map((o) => ({ ...o.payment!, salesOrderId: o.id })),
             ),
+            update: jest.fn(
+                async ({ where, data }: { where: { id: string }; data: { amount: number } }) => {
+                    const order = orders.find((o) => o.payment?.id === where.id)
+                    if (order?.payment && data.amount != null) {
+                        order.payment.amount = new Decimal(data.amount)
+                    }
+                    return order?.payment
+                },
+            ),
             updateMany: jest.fn(
                 async ({ where, data }: { where: { id: string; status: string }; data: { status: string; paidAt: Date | null } }) => {
                     const order = orders.find((o) => o.payment?.id === where.id)
@@ -51,7 +60,11 @@ function setup(orders: FakeOrder[]) {
             ),
         },
     }
-    const prisma = { ...tx, $transaction: jest.fn((fn: (client: unknown) => unknown) => fn(tx)) }
+    const prisma = {
+        ...tx,
+        sdSalesOrderPayment: tx.sdSalesOrderPayment,
+        $transaction: jest.fn((fn: (client: unknown) => unknown) => fn(tx)),
+    }
     const invoices = { markPaidForSalesOrder: jest.fn().mockResolvedValue({ count: 1 }) }
     const service = new SalesOrderService(
         prisma as unknown as PrismaService,
@@ -147,11 +160,31 @@ describe('SalesOrderService.collectCashOnDelivery', () => {
         expect(result).toMatchObject({ amountDue: 150, change: 0, collectedOrderIds: ['a', 'b'] })
     })
 
-    it('rejects less than the amount due (no partial collection) without changes', async () => {
+    it('rejects less than the amount due without changes', async () => {
         const { service, byId, invoices } = setup([codOrder('a', 500)])
-        await expect(service.collectCashOnDelivery(['a'], 499.99)).rejects.toThrow(/partial collection/)
+        await expect(service.collectCashOnDelivery(['a'], 499.99)).rejects.toThrow(/less than the amount due/)
         expect(byId.get('a')!.payment!.status).toBe('Pending Collection')
         expect(invoices.markPaidForSalesOrder).not.toHaveBeenCalled()
+    })
+
+    it('accepts a POD amountDue override and reduces the payment amount', async () => {
+        const { service, byId } = setup([codOrder('a', 1299)])
+        const result = await service.collectCashOnDelivery(['a'], 1039.2, { amountDue: 1039.2 })
+        expect(Number(byId.get('a')!.payment!.amount)).toBe(1039.2)
+        expect(result).toMatchObject({
+            status: 'COLLECTED',
+            amountDue: 1039.2,
+            amountReceived: 1039.2,
+            change: 0,
+            collectedOrderIds: ['a'],
+        })
+    })
+
+    it('rejects an amountDue override above the original payment', async () => {
+        const { service } = setup([codOrder('a', 100)])
+        await expect(
+            service.collectCashOnDelivery(['a'], 150, { amountDue: 150 }),
+        ).rejects.toThrow(/cannot exceed the order payment/)
     })
 
     it('rejects a non-COD stop with 400', async () => {

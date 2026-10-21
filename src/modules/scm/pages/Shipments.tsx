@@ -14,6 +14,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { useShipments } from '../hooks/useShipments'
 import DamageReportDialog from '../components/shipments/DamageReportDialog'
+import ShipWithCourierDialog from '../components/couriers/ShipWithCourierDialog'
 import { scmPageBreadcrumbs } from '../utils/breadcrumbs'
 import {
     formatMovementLabel,
@@ -29,8 +30,11 @@ const statusOptions: Option[] = [
     { value: 'DRAFT', label: 'Draft' },
     { value: 'READY', label: 'Ready' },
     { value: 'ASSIGNED', label: 'Assigned' },
+    { value: 'DISPATCHED', label: 'Dispatched' },
     { value: 'IN_TRANSIT', label: 'In Transit' },
     { value: 'DELIVERED', label: 'Delivered' },
+    { value: 'EXCEPTION_HOLD', label: 'Exception Hold' },
+    { value: 'RETURNED', label: 'Returned' },
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
@@ -41,10 +45,12 @@ const movementFilterOptions: Option[] = [
 ]
 
 export default function ShipmentsPage() {
-    const { data, total, page, pageSize, loading, error, params, setParams } =
+    const { data, total, page, pageSize, loading, error, params, setParams, reload } =
         useShipments()
     const { canCreate } = useResourceAccess('scm.shipments')
+    const { canCreate: canBookCourier } = useResourceAccess('scm.consignments')
     const [reportFor, setReportFor] = useState<Shipment | null>(null)
+    const [courierFor, setCourierFor] = useState<Shipment | null>(null)
 
     const columns = useMemo<ColumnDef<Shipment>[]>(
         () => [
@@ -69,6 +75,24 @@ export default function ShipmentsPage() {
                         {formatMovementLabel(row.original.movementType)}
                     </StatusBadge>
                 ),
+            },
+            {
+                header: 'Carried by',
+                cell: ({ row }) => {
+                    const consignment = row.original.courierConsignment
+                    if (row.original.executionMode !== 'THIRD_PARTY' || !consignment) {
+                        return <span className="text-sm text-gray-500">Own fleet</span>
+                    }
+                    return (
+                        <div>
+                            <p className="text-sm font-medium">{consignment.carrier.name}</p>
+                            <p className="text-xs text-gray-500">
+                                {consignment.trackingNumber ?? '—'} ·{' '}
+                                {formatStatusLabel(consignment.status)}
+                            </p>
+                        </div>
+                    )
+                },
             },
             {
                 header: 'Ship-to / return',
@@ -105,29 +129,44 @@ export default function ShipmentsPage() {
                     new Date(row.original.updatedAt).toLocaleString(),
             },
             {
-                id: 'damage',
+                id: 'actions',
                 header: '',
-                cell: ({ row }) =>
-                    canCreate &&
-                    (row.original.status === 'DELIVERED' ||
-                        row.original.status === 'EXCEPTION_HOLD') ? (
-                        <Button
-                            size="xs"
-                            onClick={() => setReportFor(row.original)}
-                        >
-                            Report damage
-                        </Button>
-                    ) : null,
+                cell: ({ row }) => {
+                    const s = row.original
+                    const canShipWithCourier =
+                        canBookCourier &&
+                        s.status === 'READY' &&
+                        s.movementType === 'DELIVERY' &&
+                        s.executionMode !== 'THIRD_PARTY'
+                    const canReportDamage =
+                        canCreate &&
+                        (s.status === 'DELIVERED' || s.status === 'EXCEPTION_HOLD')
+                    if (!canShipWithCourier && !canReportDamage) return null
+                    return (
+                        <div className="flex justify-end gap-1">
+                            {canShipWithCourier ? (
+                                <Button size="xs" onClick={() => setCourierFor(s)}>
+                                    Ship with courier
+                                </Button>
+                            ) : null}
+                            {canReportDamage ? (
+                                <Button size="xs" onClick={() => setReportFor(s)}>
+                                    Report damage
+                                </Button>
+                            ) : null}
+                        </div>
+                    )
+                },
             },
         ],
-        [canCreate],
+        [canCreate, canBookCourier],
     )
 
     return (
         <PageContainer>
             <PageHeader
                 title="Shipments"
-                description="Shipments released from MM packing. READY shipment lines are put on vehicles in Load Building."
+                description="Shipments released from MM packing. READY shipments go on our trucks in Load Building, or out with a third-party courier."
                 breadcrumbs={scmPageBreadcrumbs('Shipments')}
             />
 
@@ -225,6 +264,11 @@ export default function ShipmentsPage() {
                 shipment={reportFor}
                 canCreate={canCreate}
                 onClose={() => setReportFor(null)}
+            />
+            <ShipWithCourierDialog
+                shipment={courierFor}
+                onClose={() => setCourierFor(null)}
+                onBooked={() => void reload()}
             />
         </PageContainer>
     )

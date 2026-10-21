@@ -33,6 +33,8 @@ export type SdProductRecord = {
     sortOrder: number
     /** Division-specific storefront content (features, specs, reviews, …). */
     attributes: ProductAttributes | null
+    /** Number of child variants (0 when the product has no variants yet). */
+    variantCount?: number
     createdAt: string
     updatedAt: string
 }
@@ -79,6 +81,30 @@ export type ProductInput = {
     galleryImages?: string[]
     /** Options + variants draft; saved via the product options endpoint after the product row exists. */
     optionsVariants?: OptionsVariantsDraft | null
+    /**
+     * AUTO_CREATE = one Material Master is generated per variant from the
+     * material defaults. LINK_EXISTING = the legacy parent→material link.
+     */
+    materialMode?: 'AUTO_CREATE' | 'LINK_EXISTING'
+    /** Defaults applied to every generated Material Master. */
+    materialDefaults?: ProductMaterialDefaults
+}
+
+/** Defaults applied to the Material Master generated for each variant. */
+export type ProductMaterialDefaults = {
+    materialTypeId: string
+    materialCategoryId: string
+    baseUomId: string
+    salesUomId?: string
+    defaultWarehouseId?: string
+    storageBinId?: string
+    standardCost?: number
+    safetyStock?: number
+    maximumStock?: number
+    reorderPoint?: number
+    batchManaged?: boolean
+    serialManaged?: boolean
+    expiryManaged?: boolean
 }
 
 /** Matches the server's PRODUCT_GALLERY_MAX. */
@@ -333,6 +359,8 @@ export type CreateProductFamilyInput = {
     salesUomId?: string
     sku?: string
     idempotencyKey?: string
+    /** SIMPLE products only: link this material instead of creating one. */
+    existingMaterialId?: string
     materialDefaults: {
         companyId: string
         materialTypeId: string
@@ -375,6 +403,35 @@ export type CreateProductFamilyInput = {
     }>
 }
 
+/** Add new variant combinations to an existing variable product. */
+export async function addVariantsToProduct(
+    productId: string,
+    input: {
+        newOptionValues: { optionName: string; values: string[] }[]
+        newVariants: Array<{
+            enabled: boolean
+            sku?: string
+            barcode?: string
+            price?: number
+            compareAtPrice?: number
+            imageUrl?: string
+            weight?: number
+            optionValues: string[]
+            existingMaterialId?: string
+        }>
+    },
+): Promise<SdProductRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            `/sd/products/${encodeURIComponent(productId)}/variants`,
+            input,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Unable to add variants')
+    }
+}
+
 export async function updateProduct(
     id: string,
     input: Partial<ProductInput>,
@@ -413,6 +470,20 @@ export async function setProductStatus(
         return fromApi(data)
     } catch (error) {
         throw toError(error, 'Unable to change product status')
+    }
+}
+
+/**
+ * Archive a variant: it disappears from the shop and stops being sellable,
+ * while its material, stock and order history are preserved.
+ */
+export async function archiveVariant(variantId: string): Promise<void> {
+    try {
+        await ErpAxiosBase.patch(
+            `/sd/products/variants/${encodeURIComponent(variantId)}/archive`,
+        )
+    } catch (error) {
+        throw toError(error, 'Unable to archive variant')
     }
 }
 

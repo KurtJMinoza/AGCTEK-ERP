@@ -1,24 +1,41 @@
 import {
     BadRequestException,
     ConflictException,
+    Inject,
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
+    forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
+import { SalesOrderService } from './sales-order.service'
+import { SdEventEmitterService } from './sd-event-emitter.service'
+import { SD_EVENTS, type SdReturnRequestRequestedPayload } from './sd-event.types'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
  * pre-picking/packing window; from delivery onward the correct flow is a
  * Sales Return (Phase 2 eligibility).
  */
+/** Delivered / completed for storefront claims; SHIPPED allowed for on-spot POD rejects. */
 export const RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'SHIPPED',
     'DELIVERED',
     'COMPLETED',
 ])
+
+/** Storefront self-service: only after delivery is done (no SHIPPED / in-transit). */
+export const CUSTOMER_RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'DELIVERED',
+    'COMPLETED',
+])
+
+/** Storefront choices: Replace request (orange) or Refund request (red). */
+export const CUSTOMER_RESOLUTIONS = ['REPLACEMENT', 'REFUND'] as const
 
 /** Sales Return statuses — module list order (Phase 4). */
 export const SALES_RETURN_REQUEST_STATUSES = [
@@ -110,6 +127,13 @@ export type CreateReturnRequestInput = {
     photos?: unknown
     requestedBy?: string
     preferredResolution?: string
+    /** SCM damage evidence — unique; handoff retries return the same request. */
+    damageReportId?: string
+    /**
+     * Defaults to NONE. NOT_REQUIRED exists only on legacy on-spot COD refuses
+     * (partial accept is retired — the customer always pays in full).
+     */
+    refundStatus?: (typeof REFUND_STATUSES)[number]
     lines: Array<{
         salesOrderLineId: string
         quantity: number
@@ -157,6 +181,11 @@ export class ReturnRequestService {
     constructor(
         private prisma: PrismaService,
         private customerReturns: CustomerReturnService,
+        @Optional()
+        @Inject(forwardRef(() => SalesOrderService))
+        private readonly salesOrders?: SalesOrderService,
+        @Optional()
+        private readonly sdEvents?: SdEventEmitterService,
     ) {}
 
     /**
@@ -180,7 +209,20 @@ export class ReturnRequestService {
                 'Order has no company scope — contact support to request a return',
             )
         }
-        assertReturnableOrder(order)
+        if (!CUSTOMER_RETURNABLE_ORDER_STATUSES.has(order.status ?? '')) {
+            throw new BadRequestException(
+                `Returns can be requested once the order is delivered (current status: ${order.status ?? 'UNKNOWN'})`,
+            )
+        }
+        const resolution = validateResolution(input.preferredResolution)
+        if (
+            !resolution ||
+            !(CUSTOMER_RESOLUTIONS as readonly string[]).includes(resolution)
+        ) {
+            throw new BadRequestException(
+                `Choose a resolution: ${CUSTOMER_RESOLUTIONS.join(' or ')}`,
+            )
+        }
         const existing = await this.prisma.sdReturnRequest.findFirst({
             where: { salesOrderId: order.id, status: 'REQUESTED' },
             select: { id: true },
@@ -190,16 +232,72 @@ export class ReturnRequestService {
                 'A return request is already pending for this order',
             )
         }
-        return this.create({
+        const created = await this.create({
             companyId: order.companyId,
             salesOrderId: order.id,
             customerId: order.customerId,
             reason: input.reason,
             conditionNote: input.conditionNote,
             photos: input.photos,
-            preferredResolution: input.preferredResolution,
+            preferredResolution: resolution,
             lines: input.lines,
         })
+        if (created) await this.announceRequested(created, order.orderNumber)
+        return created
+    }
+
+    /**
+     * Hands the new storefront return to CRM (case queue). The return is already committed, so a
+     * failed hand-off is logged instead of failing the customer's request; CRM can open the case
+     * later (`POST /crm/tickets/from-return/:returnRequestId`).
+     */
+    private async announceRequested(
+        request: { id: string; requestNumber: string; salesOrderId: string; preferredResolution: string | null },
+        orderNumber: string,
+    ) {
+        if (!this.sdEvents) return
+        const payload: SdReturnRequestRequestedPayload = {
+            returnRequestId: request.id,
+            requestNumber: request.requestNumber,
+            salesOrderId: request.salesOrderId,
+            orderNumber,
+            preferredResolution: request.preferredResolution,
+            idempotencyKey: request.id,
+        }
+        try {
+            await this.sdEvents.emit(SD_EVENTS.RETURN_REQUEST_REQUESTED, payload)
+        } catch (err) {
+            this.logger.error(
+                `Return ${request.requestNumber}: CRM case hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+            )
+        }
+    }
+
+    /**
+     * Read model for the CRM case panel: the return with its lines, refund, original order, and the
+     * MM customer return / replacement order created on approval.
+     */
+    async findForCase(id: string) {
+        const request = await this.prisma.sdReturnRequest.findUnique({
+            where: { id },
+            include: this.listInclude,
+        })
+        if (!request) throw new NotFoundException('Return request not found')
+        const [replacementOrder, mmCustomerReturn] = await Promise.all([
+            request.replacementSalesOrderId
+                ? this.prisma.sdSalesOrder.findUnique({
+                      where: { id: request.replacementSalesOrderId },
+                      select: { id: true, orderNumber: true, status: true },
+                  })
+                : null,
+            request.mmCustomerReturnId
+                ? this.prisma.mmCustomerReturn.findUnique({
+                      where: { id: request.mmCustomerReturnId },
+                      select: { id: true, returnNumber: true, status: true },
+                  })
+                : null,
+        ])
+        return { ...request, replacementOrder, mmCustomerReturn }
     }
 
     /** Company-scoped list with module columns (filters: status, refundStatus). */
@@ -233,7 +331,11 @@ export class ReturnRequestService {
     }
 
     /** Idempotent: an open (REQUESTED) request for the same order + lines is returned. */
-    async create(input: CreateReturnRequestInput) {
+    async create(
+        input: CreateReturnRequestInput,
+        opts: { tx?: Prisma.TransactionClient } = {},
+    ) {
+        if (opts.tx) return this.createIn(opts.tx, input)
         return this.prisma.$transaction((tx) => this.createIn(tx, input))
     }
 
@@ -241,6 +343,14 @@ export class ReturnRequestService {
         client: PrismaClientLike,
         input: CreateReturnRequestInput,
     ) {
+        if (input.damageReportId) {
+            const byDamage = await client.sdReturnRequest.findUnique({
+                where: { damageReportId: input.damageReportId },
+                select: { id: true },
+            })
+            if (byDamage) return this.findOneInclude(byDamage.id)
+        }
+
         const order = await client.sdSalesOrder.findUnique({
             where: { id: input.salesOrderId },
             include: {
@@ -256,18 +366,20 @@ export class ReturnRequestService {
         assertReturnableOrder(order)
 
         const lineIds = input.lines.map((l) => l.salesOrderLineId)
-        const existing = await client.sdReturnRequest.findFirst({
-            where: { salesOrderId: order.id, status: 'REQUESTED' },
-            include: { lines: { select: { salesOrderLineId: true } } },
-        })
-        if (
-            existing &&
-            existing.lines.length === lineIds.length &&
-            lineIds.every((id) =>
-                existing.lines.some((l) => l.salesOrderLineId === id),
-            )
-        ) {
-            return this.findOneInclude(existing.id)
+        if (!input.damageReportId) {
+            const existing = await client.sdReturnRequest.findFirst({
+                where: { salesOrderId: order.id, status: 'REQUESTED' },
+                include: { lines: { select: { salesOrderLineId: true } } },
+            })
+            if (
+                existing &&
+                existing.lines.length === lineIds.length &&
+                lineIds.every((id) =>
+                    existing.lines.some((l) => l.salesOrderLineId === id),
+                )
+            ) {
+                return this.findOneInclude(existing.id)
+            }
         }
 
         // Delivered quantities per material from dispatched packages (base UOM).
@@ -369,7 +481,10 @@ export class ReturnRequestService {
                 warehouseId: order.warehouseId ?? null,
                 invoiceNumber: order.invoices[0]?.invoiceNumber ?? null,
                 preferredResolution,
-                refundStatus: 'NONE',
+                refundStatus: input.refundStatus ?? 'NONE',
+                ...(input.damageReportId
+                    ? { damageReportId: input.damageReportId }
+                    : {}),
                 requestedBy: input.requestedBy,
                 status: 'REQUESTED',
                 lines: {
@@ -417,18 +532,19 @@ export class ReturnRequestService {
 
     /**
      * Approval routes the request to MM customer returns for intake/inspection
-     * and final disposition (restock / quality hold / damaged / scrap / disposal
-     * / refund-only). Idempotent via a unique MM return link per request.
-     * Once approved the return awaits the physical goods (AWAITING_RETURN).
+     * and final disposition. When preferredResolution is REPLACEMENT, also opens
+     * a $0 child sales order and starts pick/pack (new outbound). Idempotent via
+     * unique MM return link and replacementSalesOrderId.
      */
     async approve(
         id: string,
         companyId: string,
         approvedBy?: string,
+        opts: { preferredResolution?: string; fromCase?: boolean } = {},
     ) {
         const request = await this.prisma.sdReturnRequest.findFirst({
             where: { id, companyId },
-            include: { lines: true },
+            include: { lines: true, crmTicket: { select: { id: true } } },
         })
         if (!request) {
             throw new NotFoundException('Return request not found in company scope')
@@ -439,6 +555,22 @@ export class ReturnRequestService {
         if (request.status !== 'REQUESTED') {
             throw new ConflictException(
                 `Only a REQUESTED return can be approved (current: ${request.status})`,
+            )
+        }
+        assertDecidedOnCase(request, opts.fromCase, 'approved')
+
+        const resolution =
+            validateResolution(opts.preferredResolution) ??
+            request.preferredResolution
+
+        // COD on-spot refuse: cash never collected for those units — neither
+        // Refund nor Replace (free-ship loop) is allowed.
+        if (
+            request.refundStatus === 'NOT_REQUIRED' &&
+            (resolution === 'REFUND' || resolution === 'REPLACEMENT')
+        ) {
+            throw new BadRequestException(
+                'This return has no cash collected (COD on-spot refuse) — Refund and Replace are not available',
             )
         }
 
@@ -469,15 +601,19 @@ export class ReturnRequestService {
                     )
                 }
             }
+            const returnNumber = `CR-${request.requestNumber}`
             const mmReturn = await this.prisma.mmCustomerReturn.create({
                 data: {
-                    returnNumber: `CR-${request.requestNumber}`,
+                    returnNumber,
                     companyId: request.companyId,
                     warehouseId: request.warehouseId ?? order.warehouseId,
                     sdReturnRequestRef: request.id,
                     customerRef: request.customerId,
                     reason: request.reason,
                     status: 'DRAFT',
+                    ...(request.damageReportId
+                        ? { damageReportId: request.damageReportId }
+                        : {}),
                     lines: {
                         create: request.lines.map((line, index) => ({
                             lineNumber: index + 1,
@@ -495,6 +631,14 @@ export class ReturnRequestService {
                         })),
                     },
                 },
+                select: { id: true },
+            }).catch(async (err: unknown) => {
+                // A concurrent approval opened the MM return first: use it.
+                if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
+                return this.prisma.mmCustomerReturn.findUniqueOrThrow({
+                    where: { returnNumber },
+                    select: { id: true },
+                })
             })
             mmCustomerReturnId = mmReturn.id
             await this.prisma.sdReturnRequest.update({
@@ -503,23 +647,48 @@ export class ReturnRequestService {
             })
         }
 
-        return this.prisma.sdReturnRequest.update({
+        let replacementSalesOrderId = request.replacementSalesOrderId
+        if (resolution === 'REPLACEMENT' && !replacementSalesOrderId) {
+            if (!this.salesOrders) {
+                throw new BadRequestException(
+                    'Replacement fulfillment is unavailable — SalesOrderService not wired',
+                )
+            }
+            const replacement =
+                await this.salesOrders.createReplacementForReturnRequest({
+                    returnRequestId: request.id,
+                    companyId,
+                    createdBy: approvedBy,
+                })
+            replacementSalesOrderId = replacement.id
+        }
+
+        await this.prisma.sdReturnRequest.update({
             where: { id: request.id },
             data: {
                 status: 'AWAITING_RETURN',
                 approvedBy,
                 approvedAt: new Date(),
+                ...(resolution ? { preferredResolution: resolution } : {}),
+                ...(replacementSalesOrderId
+                    ? { replacementSalesOrderId }
+                    : {}),
             },
-            include: { lines: true },
         })
+        return this.findOne(request.id)
     }
 
     /** REQUESTED → REJECTED (admin refuses the return). */
     async reject(
         id: string,
         companyId: string,
-        input: { reason?: string; performedBy?: string } = {},
+        input: { reason?: string; performedBy?: string; fromCase?: boolean } = {},
     ) {
+        const request = await this.prisma.sdReturnRequest.findFirst({
+            where: { id, companyId },
+            select: { requestNumber: true, crmTicket: { select: { id: true } } },
+        })
+        if (request) assertDecidedOnCase(request, input.fromCase, 'rejected')
         return this.transition(id, companyId, ['REQUESTED'], 'REJECTED', {
             rejectReason: input.reason?.trim() || null,
             rejectedAt: new Date(),
@@ -649,6 +818,11 @@ export class ReturnRequestService {
     ) {
         const { request, payment, refundAmount, returnQuantity } =
             await this.loadRefundContext(id, companyId)
+        if (request.refundStatus === 'NOT_REQUIRED') {
+            throw new BadRequestException(
+                'Refund is not required — COD was never collected for these units',
+            )
+        }
         if (!payment || payment.status !== 'Paid') {
             throw new BadRequestException(
                 'Only a Paid/collected payment can be refunded — an unpaid Cash on Delivery has no refund payable',
@@ -826,9 +1000,15 @@ export class ReturnRequestService {
     /**
      * APPROVED → PAID. DEMO ONLY: flips the paid payment to Refunded, marks
      * the original invoice REFUNDED (amounts unchanged), and closes the
-     * refund on the return (status REFUNDED).
+     * refund on the return (status REFUNDED). Disabled unless
+     * SD_DEMO_REFUND_PAYMENT=true: without FICO no refund may be reported as paid.
      */
     async payRefund(id: string, companyId: string, performedBy?: string) {
+        if (process.env.SD_DEMO_REFUND_PAYMENT !== 'true') {
+            throw new ConflictException(
+                'Refund payment is handled by finance (FICO); the refund stays approved until finance pays it',
+            )
+        }
         const { request, payment } = await this.loadRefundContext(id, companyId)
         const refund = await this.prisma.sdRefund.findUnique({
             where: { returnRequestId: id },
@@ -1156,9 +1336,11 @@ export class ReturnRequestService {
                 orderNumber: true,
                 customerName: true,
                 status: true,
+                paymentMethod: true,
                 company: { select: { id: true, code: true, name: true } },
             },
         },
+        crmTicket: { select: { id: true } },
     } satisfies Prisma.SdReturnRequestInclude
 
     /** Material base UoM (Phase 3 fix: never create intake lines with empty UoM). */
@@ -1184,6 +1366,22 @@ export class ReturnRequestService {
             where: { requestNumber: { startsWith: prefix } },
         })
         return `${prefix}-${String(count + 1).padStart(4, '0')}`
+    }
+}
+
+/**
+ * A return with a CRM case is approved or rejected by the agent on that case (CRM calls SD with
+ * `fromCase`); SD keeps the warehouse steps and the refund record.
+ */
+function assertDecidedOnCase(
+    request: { requestNumber: string; crmTicket: { id: string } | null },
+    fromCase: boolean | undefined,
+    decision: 'approved' | 'rejected',
+) {
+    if (request.crmTicket && !fromCase) {
+        throw new ConflictException(
+            `Return ${request.requestNumber} has a CRM case; it is ${decision} by the agent on that ticket`,
+        )
     }
 }
 

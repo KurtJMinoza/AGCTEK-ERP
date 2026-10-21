@@ -7,6 +7,7 @@ import { ShipmentsController } from './shipments/shipments.controller'
 import { ShipmentsService } from './shipments/shipments.service'
 import { DamageReportsController } from './damage-reports/damage-reports.controller'
 import { DamageReportsService } from './damage-reports/damage-reports.service'
+import { DriverDamageReportsController } from './damage-reports/driver-damage-reports.controller'
 import { TripsController } from './trips/trips.controller'
 import { TripsService } from './trips/trips.service'
 import { TrackingController } from './tracking/tracking.controller'
@@ -34,6 +35,10 @@ import { TmsTripsService } from './tms/tms-trips.service'
 import { TmsRoutePreviewService } from './tms/tms-route-preview.service'
 import { OsrmService } from './routing/osrm.service'
 import { GeocodeService } from './geocode/geocode.service'
+import { CarriersController } from './couriers/carriers.controller'
+import { CarriersService } from './couriers/carriers.service'
+import { ConsignmentsController } from './couriers/consignments.controller'
+import { ConsignmentsService } from './couriers/consignments.service'
 import { MmModule } from '../mm/mm.module'
 import { SdModule } from '../sd/sd.module'
 
@@ -44,6 +49,7 @@ import { SdModule } from '../sd/sd.module'
         DriversController,
         ShipmentsController,
         DamageReportsController,
+        DriverDamageReportsController,
         TripsController,
         TrackingController,
         MaintenanceController,
@@ -54,6 +60,8 @@ import { SdModule } from '../sd/sd.module'
         DashboardController,
         DemandPlanController,
         TmsController,
+        CarriersController,
+        ConsignmentsController,
     ],
     providers: [
         VehiclesService,
@@ -77,6 +85,8 @@ import { SdModule } from '../sd/sd.module'
         TmsRoutePreviewService,
         OsrmService,
         GeocodeService,
+        CarriersService,
+        ConsignmentsService,
     ],
     exports: [ShipmentsService, PlacesService, GeocodeService, TrackingService],
 })

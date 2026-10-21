@@ -505,6 +505,16 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ['vehicles', 'Vehicles', 'Company trucks.'],
         ['drivers', 'Drivers', 'Drivers and availability.'],
         ['maintenance', 'Maintenance', 'Truck repairs and servicing.'],
+        [
+            'couriers',
+            'Couriers',
+            'Third-party couriers (3PL) and how we work with them.',
+        ],
+        [
+            'consignments',
+            'Consignments',
+            'Parcels handed to third-party couriers and their tracking.',
+        ],
     ]),
     ...group('crm', [
         [

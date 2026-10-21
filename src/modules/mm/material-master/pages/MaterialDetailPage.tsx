@@ -196,12 +196,14 @@ const MaterialDetailPage = () => {
                         <Tag className="!text-[10px]">Manually linked</Tag>
                     ) : null}
                     {(material as any).catalogVariant?.product?.sku ? (
-                        <a
-                            href={`/modules/sd/product-catalog`}
+                        <Link
+                            href={`/modules/sd/product-catalog?sku=${encodeURIComponent(
+                                (material as any).catalogVariant.product.sku,
+                            )}`}
                             className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-300"
                         >
                             Open in Product Catalog
-                        </a>
+                        </Link>
                     ) : null}
                 </div>
             ) : null}

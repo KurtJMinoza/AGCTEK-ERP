@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { SalesReturnService } from '../../sd/sales-return.service'
 import {
     assertFound,
     optionalString,
@@ -17,6 +16,13 @@ import {
     type PaginatedResult,
 } from '../scm.utils'
 import { ShipmentsService } from '../shipments/shipments.service'
+import { assertAssignedDriver } from '../trips/trip-execution.rules'
+import {
+    DAMAGE_REPORT_SOURCE,
+    driverReportBlocker,
+    driverReportGraceMinutes,
+    parseDriverPhotos,
+} from './driver-damage.rules'
 
 export const DAMAGE_REPORT_STATUS = {
     SUBMITTED: 'SUBMITTED',
@@ -48,6 +54,17 @@ export type CreateDamageReportInput = {
     idempotencyKey?: string
 }
 
+export type DriverDamageReportInput = {
+    shipmentId?: string
+    shipmentLineId?: string
+    damagedQuantity?: number
+    description?: string
+    photoUrls?: unknown
+    idempotencyKey?: string
+}
+
+type ReportOrigin = { tripStopId: string; driverId: string }
+
 type CancelDamageReportInput = { reason?: string }
 
 const reportInclude = {
@@ -71,8 +88,24 @@ const reportInclude = {
             quantity: true,
         },
     },
+    sdReturnRequest: {
+        select: {
+            id: true,
+            requestNumber: true,
+            status: true,
+            refundStatus: true,
+        },
+    },
     audits: { orderBy: { performedAt: 'asc' as const } },
 } satisfies Prisma.DamageReportInclude
+
+function dropoffShipmentIds(stop: {
+    shipments: Array<{ action: string; shipmentId: string }>
+}): string[] {
+    return stop.shipments
+        .filter((link) => link.action === 'DROPOFF')
+        .map((link) => link.shipmentId)
+}
 
 function parsePhotoUrls(
     value: string[] | string | null | undefined,
@@ -102,13 +135,13 @@ export class DamageReportsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly shipments: ShipmentsService,
-        private readonly salesReturns: SalesReturnService,
     ) {}
 
     async createForShipment(
         shipmentId: string,
         input: CreateDamageReportInput,
         user: DamageReportActor,
+        driverOrigin?: ReportOrigin,
     ) {
         const idempotencyKey = input.idempotencyKey?.trim() || null
         if (idempotencyKey) {
@@ -140,7 +173,7 @@ export class DamageReportsService {
         }
         const description = requireString(input.description, 'description')
 
-        let shipmentLineId: string | null = input.shipmentLineId || null
+        const shipmentLineId: string | null = input.shipmentLineId || null
         if (shipmentLineId) {
             const line = shipment.lines.find((l) => l.id === shipmentLineId)
             if (!line) {
@@ -197,6 +230,10 @@ export class DamageReportsService {
                     damagedQuantity,
                     description,
                     photoUrls: photoUrls as Prisma.InputJsonValue | undefined,
+                    source: driverOrigin
+                        ? DAMAGE_REPORT_SOURCE.DRIVER
+                        : DAMAGE_REPORT_SOURCE.STAFF,
+                    tripStopId: driverOrigin?.tripStopId ?? null,
                     reportedBy: user.id,
                     createdBy: user.id,
                     ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -204,7 +241,17 @@ export class DamageReportsService {
                         create: {
                             action: 'CREATED',
                             performedBy: user.id,
-                            details: { companyId, salesOrderStatus },
+                            details: {
+                                companyId,
+                                salesOrderStatus,
+                                ...(driverOrigin
+                                    ? {
+                                          source: DAMAGE_REPORT_SOURCE.DRIVER,
+                                          driverId: driverOrigin.driverId,
+                                          tripStopId: driverOrigin.tripStopId,
+                                      }
+                                    : {}),
+                            },
                         },
                     },
                 },
@@ -241,6 +288,140 @@ export class DamageReportsService {
         return { data, total, page, pageSize }
     }
 
+    /** Driver app: what can be reported on a delivered stop, and what already was. */
+    async driverStopContext(
+        tripId: string,
+        stopId: string,
+        callerDriverId: string | null | undefined,
+    ) {
+        const { trip, stop } = await this.loadDriverStop(
+            tripId,
+            stopId,
+            callerDriverId,
+        )
+        const shipmentIds = dropoffShipmentIds(stop)
+        const [shipments, reports] = await Promise.all([
+            this.prisma.shipment.findMany({
+                where: { id: { in: shipmentIds } },
+                select: {
+                    id: true,
+                    reference: true,
+                    customerName: true,
+                    status: true,
+                    lines: {
+                        orderBy: { lineNo: 'asc' },
+                        select: {
+                            id: true,
+                            lineNo: true,
+                            materialCode: true,
+                            description: true,
+                            quantity: true,
+                        },
+                    },
+                },
+            }),
+            this.prisma.damageReport.findMany({
+                where: {
+                    shipmentId: { in: shipmentIds },
+                    status: { not: DAMAGE_REPORT_STATUS.CANCELLED },
+                },
+                include: reportInclude,
+                orderBy: { createdAt: 'desc' },
+            }),
+        ])
+        const blockedReason = driverReportBlocker(
+            trip,
+            stop,
+            new Date(),
+            driverReportGraceMinutes(),
+        )
+        return {
+            canReport: blockedReason === null,
+            blockedReason,
+            shipments,
+            reports,
+        }
+    }
+
+    /**
+     * Driver evidence after a successful delivery. The stop stays COMPLETED and the shipment
+     * DELIVERED — damage is never a failed delivery. Line-level only, so staff can hand it to SD.
+     */
+    async createFromDriver(
+        tripId: string,
+        stopId: string,
+        input: DriverDamageReportInput,
+        callerDriverId: string | null | undefined,
+        user: DamageReportActor,
+    ) {
+        const { trip, stop } = await this.loadDriverStop(
+            tripId,
+            stopId,
+            callerDriverId,
+        )
+        const blockedReason = driverReportBlocker(
+            trip,
+            stop,
+            new Date(),
+            driverReportGraceMinutes(),
+        )
+        if (blockedReason) throw new ConflictException(blockedReason)
+
+        const shipmentId = requireString(input.shipmentId, 'shipmentId')
+        if (!dropoffShipmentIds(stop).includes(shipmentId)) {
+            throw new BadRequestException(
+                'This shipment was not delivered at this stop',
+            )
+        }
+        const shipmentLineId = requireString(
+            input.shipmentLineId,
+            'shipmentLineId',
+        )
+        return this.createForShipment(
+            shipmentId,
+            {
+                shipmentLineId,
+                damagedQuantity: input.damagedQuantity,
+                description: input.description,
+                photoUrls: parseDriverPhotos(input.photoUrls) ?? undefined,
+                idempotencyKey: input.idempotencyKey,
+            },
+            user,
+            { tripStopId: stopId, driverId: trip.driverId! },
+        )
+    }
+
+    private async loadDriverStop(
+        tripId: string,
+        stopId: string,
+        callerDriverId: string | null | undefined,
+    ) {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+            select: {
+                id: true,
+                driverId: true,
+                status: true,
+                completedAt: true,
+                stops: {
+                    where: { id: stopId },
+                    select: {
+                        id: true,
+                        status: true,
+                        shipments: {
+                            select: { action: true, shipmentId: true },
+                        },
+                    },
+                },
+            },
+        })
+        if (!trip) throw new NotFoundException('Trip not found')
+        assertAssignedDriver(trip, callerDriverId)
+        const stop = trip.stops[0]
+        if (!stop) throw new NotFoundException('Stop not found on this trip')
+        return { trip, stop }
+    }
+
     async findOne(reportId: string) {
         return assertFound(
             await this.prisma.damageReport.findUnique({
@@ -268,7 +449,7 @@ export class DamageReportsService {
             report.status === DAMAGE_REPORT_STATUS.RETURN_CREATED
         ) {
             throw new ConflictException(
-                'Cannot cancel a damage report that already created its SD sales return',
+                'Cannot cancel a damage report that already created its customer return',
             )
         }
         await this.prisma.$transaction(async (tx) => {
@@ -296,171 +477,6 @@ export class DamageReportsService {
             })
         })
         return this.findOne(reportId)
-    }
-
-    /**
-     * SCM → SD handoff (Phase 3). Creating a Sales Return from this report is a command, not a
-     * fact: it runs inside one transaction with the SD create (SD writes its own tables, SCM
-     * writes the link), is idempotent on `damageReportId`, and only ever produces a REQUESTED
-     * return — authorization is a separate SD transition. UNRESOLVED or non-line-level reports
-     * stay SUBMITTED for manual handling and are never guessed.
-     */
-    async initiateSalesReturn(reportId: string, user: DamageReportActor) {
-        if (!user.role)
-            throw new BadRequestException(
-                'Missing role for cross-module handoff',
-            )
-        const actor = { id: user.id, userName: user.userName, role: user.role }
-        const report = await this.findOne(reportId)
-        if (report.salesOrderStatus !== 'RESOLVED' || !report.salesOrderId) {
-            throw new ConflictException(
-                'This report has no resolvable sales order; resolve the order before handing off',
-            )
-        }
-        if (report.status !== DAMAGE_REPORT_STATUS.SUBMITTED) {
-            throw new ConflictException(
-                report.status === DAMAGE_REPORT_STATUS.RETURN_CREATED
-                    ? 'This report already created its SD sales return'
-                    : 'This report is cancelled and cannot be handed off',
-            )
-        }
-        const salesOrderId = report.salesOrderId
-
-        const result = await this.prisma.$transaction(async (tx) => {
-            // Optimistic claim: only one handoff per report may proceed; the loser returns the
-            // winner's return (idempotent) instead of creating a duplicate.
-            const claim = await tx.damageReport.updateMany({
-                where: {
-                    id: reportId,
-                    status: DAMAGE_REPORT_STATUS.SUBMITTED,
-                    sdSalesReturnId: null,
-                },
-                data: {
-                    status: DAMAGE_REPORT_STATUS.RETURN_CREATED,
-                    updatedBy: user.id,
-                },
-            })
-            if (claim.count === 0) {
-                const existing = await tx.sdSalesReturn.findUnique({
-                    where: { damageReportId: reportId },
-                    select: { id: true },
-                })
-                if (existing) {
-                    return {
-                        created: false,
-                        salesReturn: await this.salesReturns.findOne(
-                            existing.id,
-                        ),
-                    }
-                }
-                throw new ConflictException(
-                    'A return is already being created for this report; reload and retry',
-                )
-            }
-
-            // Exact line resolution against the reservation chain; rejects ambiguity (guardrail 2).
-            const target = await this.resolveHandoffTarget(tx, report)
-            const created = await this.salesReturns.create(
-                {
-                    salesOrderId,
-                    companyId: report.companyId,
-                    damageReportId: reportId,
-                    reason: 'DAMAGED_IN_TRANSIT',
-                    notes: `Damage report ${report.reference}`,
-                    lines: [
-                        {
-                            salesOrderLineId: target.salesOrderLineId,
-                            materialId: target.materialId,
-                            quantity: report.damagedQuantity,
-                        },
-                    ],
-                },
-                actor,
-                { tx },
-            )
-            await tx.damageReport.update({
-                where: { id: reportId },
-                data: { sdSalesReturnId: created.id },
-            })
-            return { created: true, salesReturn: created }
-        })
-
-        return { ...result, damageReport: await this.findOne(reportId) }
-    }
-
-    /**
-     * Resolves the exact order line for the report's affected shipment line. Material matching
-     * alone is insufficient; the reservation chain (`MmInventoryReservationLine.demandReferenceLineId`)
-     * must resolve to exactly one distinct SdSalesOrderLine, otherwise the handoff is rejected.
-     */
-    private async resolveHandoffTarget(
-        tx: Prisma.TransactionClient,
-        report: { salesOrderId: string | null; shipmentLineId: string | null },
-    ) {
-        if (!report.salesOrderId) {
-            throw new ConflictException('No sales order to hand this report to')
-        }
-        if (!report.shipmentLineId) {
-            throw new ConflictException(
-                'The report is not line-level; resolve the affected item before handing off',
-            )
-        }
-        const line = await tx.shipmentLine.findUnique({
-            where: { id: report.shipmentLineId },
-            select: { packageItemId: true },
-        })
-        if (!line?.packageItemId) {
-            throw new ConflictException(
-                'The damaged line has no MM package item; auto-resolution is unavailable',
-            )
-        }
-        const item = await tx.wmPackageItem.findUnique({
-            where: { id: line.packageItemId },
-            select: { materialId: true },
-        })
-        if (!item) {
-            throw new ConflictException(
-                'The damaged line has no MM package item; auto-resolution is unavailable',
-            )
-        }
-        const header = await tx.mmInventoryReservationHeader.findFirst({
-            where: {
-                sourceModule: 'SD',
-                sourceDocumentType: 'SALES_ORDER',
-                sourceDocumentId: report.salesOrderId,
-            },
-            select: { id: true },
-        })
-        if (!header) {
-            throw new ConflictException(
-                'No MM reservation header links this shipment to the sales order',
-            )
-        }
-        const reservationLines = await tx.mmInventoryReservationLine.findMany({
-            where: { headerId: header.id, materialId: item.materialId },
-            select: { demandReferenceLineId: true },
-        })
-        const orderLineIds = [
-            ...new Set(
-                reservationLines
-                    .map((r) => r.demandReferenceLineId)
-                    .filter((id): id is string => Boolean(id)),
-            ),
-        ]
-        if (orderLineIds.length === 0) {
-            throw new ConflictException(
-                'The damaged item cannot be mapped to a sales order line',
-            )
-        }
-        if (orderLineIds.length > 1) {
-            throw new ConflictException(
-                'The damaged item matches multiple sales order lines; resolve the exact line before handing off',
-            )
-        }
-        return {
-            salesOrderLineId: orderLineIds[0],
-            materialId: item.materialId,
-        }
     }
 
     /**

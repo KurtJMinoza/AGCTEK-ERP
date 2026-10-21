@@ -34,6 +34,84 @@ export const REFUND_METHOD_LABEL: Record<string, string> = {
     STORE_CREDIT: 'Store credit',
 }
 
+/** COD Customer Return commercial choices (Replace = orange, Refund = red). */
+export const RESOLUTION_LABEL: Record<string, string> = {
+    REPLACEMENT: 'Replace request',
+    REFUND: 'Refund request',
+    STORE_CREDIT: 'Store credit',
+}
+
+/** StatusBadge tones: REPLACEMENT → warning (amber/orange), REFUND → danger (red). */
+export const RESOLUTION_TONE: Record<
+    string,
+    'success' | 'default' | 'warning' | 'danger' | 'info'
+> = {
+    REPLACEMENT: 'warning',
+    REFUND: 'danger',
+    STORE_CREDIT: 'info',
+}
+
+export const RETURN_STATUS_TONE: Record<
+    string,
+    'success' | 'default' | 'warning' | 'danger' | 'info'
+> = {
+    REQUESTED: 'warning',
+    APPROVED: 'info',
+    REJECTED: 'danger',
+    AWAITING_RETURN: 'warning',
+    RECEIVED: 'info',
+    UNDER_INSPECTION: 'warning',
+    RESTOCKED: 'success',
+    MARKED_DAMAGED: 'danger',
+    SCRAPPED: 'danger',
+    REFUNDED: 'success',
+    CLOSED: 'default',
+    CANCELLED: 'default',
+}
+
+/** Refund settlement waits on finance (FICO); the demo payment step is opt-in. */
+export const DEMO_REFUND_PAYMENT_ENABLED =
+    process.env.NEXT_PUBLIC_SD_DEMO_REFUND_PAYMENT === 'true'
+
+/** Refund states as shown to staff: approved refunds wait on finance until FICO pays them. */
+export const REFUND_STATUS_LABEL: Record<string, string> = {
+    REQUESTED: 'Requested',
+    NONE: 'Not started',
+    NOT_REQUIRED: 'Not required',
+    PENDING_REFUND: 'Pending finance',
+    APPROVED: 'Approved · awaiting finance',
+    PAID: 'Paid',
+    FAILED: 'Failed',
+}
+
+/** True when cash was never collected — Refund/Replace CTAs must stay off. */
+export function isCommercialResolutionBlocked(refundStatus: string): boolean {
+    return refundStatus === 'NOT_REQUIRED'
+}
+
+/**
+ * Which column carries the request's state. A Refund request lives under
+ * Refund Status (REQUESTED until the refund record exists); a Replace request
+ * lives under Return Status and has no refund. `null` = not applicable.
+ */
+export function displayStatuses(
+    row: Pick<
+        CustomerReturnRequestRow,
+        'status' | 'refundStatus' | 'preferredResolution'
+    >,
+): { returnStatus: string | null; refundStatus: string | null } {
+    if (row.preferredResolution === 'REFUND' && row.refundStatus === 'NONE') {
+        return {
+            returnStatus: row.status === 'REQUESTED' ? null : row.status,
+            refundStatus: 'REQUESTED',
+        }
+    }
+    if (row.preferredResolution === 'REPLACEMENT') {
+        return { returnStatus: row.status, refundStatus: null }
+    }
+    return { returnStatus: row.status, refundStatus: row.refundStatus }
+}
+
 export type CustomerReturnRequestRow = {
     id: string
     requestNumber: string
@@ -42,6 +120,10 @@ export type CustomerReturnRequestRow = {
     reason: string | null
     conditionNote: string | null
     preferredResolution: string | null
+    /** Child SO opened on approve when resolution is REPLACEMENT. */
+    replacementSalesOrderId: string | null
+    /** CRM case (storefront returns): approve / reject happen on the ticket, not here. */
+    crmTicket?: { id: string } | null
     refundAmount: string | null
     branchId: string | null
     warehouseId: string | null
@@ -79,6 +161,7 @@ export type CustomerReturnRequestRow = {
         orderNumber: string
         customerName: string | null
         status: string
+        paymentMethod?: string | null
         company?: { id: string; code: string; name: string } | null
     } | null
 }
@@ -91,6 +174,10 @@ export type ListCustomerReturnsParams = {
 
 /** Admin action payloads — company scope is required server-side. */
 export type ReturnActionPayload = { companyId: string; performedBy?: string }
+export type ApproveReturnPayload = ReturnActionPayload & {
+    approvedBy?: string
+    preferredResolution?: 'REFUND' | 'REPLACEMENT' | 'STORE_CREDIT'
+}
 export type RejectReturnPayload = ReturnActionPayload & { reason?: string }
 export type InspectReturnPayload = ReturnActionPayload & {
     result?: string
@@ -103,7 +190,7 @@ export const customerReturnRequestService = {
             (r) => r.data,
         ),
 
-    approve: (id: string, data: ReturnActionPayload) =>
+    approve: (id: string, data: ApproveReturnPayload) =>
         ErpAxiosBase.post<CustomerReturnRequestRow>(
             `${BASE}/${encodeURIComponent(id)}/approve`,
             data,

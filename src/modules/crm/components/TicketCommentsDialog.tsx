@@ -10,6 +10,7 @@ import { useTicketComments } from '../hooks/useTickets'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { crmTone, formatEnumLabel } from '../utils/format'
 import { isTerminalTicket } from './TicketFormDialog'
+import TicketReturnPanel from './TicketReturnPanel'
 import type { Ticket, TicketComment } from '../types'
 
 const authorName = (comment: TicketComment) => {
@@ -21,6 +22,8 @@ const authorName = (comment: TicketComment) => {
 type TicketCommentsDialogProps = {
     ticket: Ticket | null
     canComment: boolean
+    /** crm.tickets update: approve / reject the linked customer return. */
+    canDecideReturn?: boolean
     onClose: () => void
     /** Called after a comment is added so callers can refresh comment counts. */
     onCommented?: () => void
@@ -29,10 +32,11 @@ type TicketCommentsDialogProps = {
 export default function TicketCommentsDialog({
     ticket,
     canComment,
+    canDecideReturn = false,
     onClose,
     onCommented,
 }: TicketCommentsDialogProps) {
-    const { comments, loading, error, add } = useTicketComments(ticket?.id ?? null)
+    const { comments, loading, error, reload, add } = useTicketComments(ticket?.id ?? null)
     const [body, setBody] = useState('')
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
@@ -75,6 +79,18 @@ export default function TicketCommentsDialog({
             }
             footer={<Button onClick={onClose}>Close</Button>}
         >
+            {ticket?.sdReturnRequestId ? (
+                <TicketReturnPanel
+                    key={ticket.id}
+                    ticketId={ticket.id}
+                    canDecide={canDecideReturn}
+                    readOnly={closed}
+                    onDecided={() => {
+                        void reload()
+                        onCommented?.()
+                    }}
+                />
+            ) : null}
             {ticket?.description ? (
                 <p className="mb-4 whitespace-pre-wrap text-sm">{ticket.description}</p>
             ) : null}

@@ -12,6 +12,8 @@ import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
+import Radio from '@/components/ui/Radio'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -22,9 +24,47 @@ import {
     salesReturnService,
     type SdSalesReturn,
     type SdSalesReturnLine,
+    type SdSalesReturnSettlement,
 } from '../services/salesReturnService'
+import { toApiError } from '../services/apiError'
 
 const ROUTE = '/modules/sd/sales-returns'
+
+const SETTLEMENT_OPTIONS: Array<{
+    value: SdSalesReturnSettlement
+    label: string
+    help: string
+}> = [
+    {
+        value: 'CREDIT_AND_RETURN',
+        label: 'Credit and return the goods',
+        help: 'Customer pays only for the good qty; damaged goods come back through the MM intake.',
+    },
+    {
+        value: 'CREDIT_NO_RETURN',
+        label: 'Credit without return',
+        help: 'Customer pays only for the good qty; damaged goods stay with the customer (no MM intake).',
+    },
+    {
+        value: 'KEEP_AND_PAY_FULL',
+        label: 'Customer keeps the goods and pays in full',
+        help: 'No credit and no return — the return is closed as rejected.',
+    },
+]
+
+const SETTLEMENT_LABEL: Record<SdSalesReturnSettlement, string> = {
+    CREDIT_AND_RETURN: 'Credit + return',
+    CREDIT_NO_RETURN: 'Credit, no return',
+    KEEP_AND_PAY_FULL: 'Keep, pay in full',
+}
+
+const formatCredit = (value: string | number | null) =>
+    value == null
+        ? 'No order price — billing decides'
+        : new Intl.NumberFormat('en-PH', {
+              style: 'currency',
+              currency: 'PHP',
+          }).format(Number(value))
 
 const STATUS_TONE: Record<
     string,
@@ -55,26 +95,35 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-type RefProps = { label: string; value?: string | null; href?: string | null }
+type RefProps = {
+    label: string
+    value?: string | null
+    href?: string | null
+    hint?: string | null
+}
 
-const Ref = ({ label, value, href }: RefProps) => (
-    <div className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-600">
+const Ref = ({ label, value, href, hint }: RefProps) => (
+    <div className="min-w-0 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-600">
         <p className="text-xs text-gray-500">{label}</p>
         {value ? (
             href ? (
                 <Link
                     href={href}
-                    className="inline-flex items-center gap-1 truncate text-sm font-medium text-primary hover:underline"
+                    title={value}
+                    className="flex max-w-full items-center gap-1 text-sm font-medium text-primary hover:underline"
                 >
-                    {value}
+                    <span className="truncate">{value}</span>
                     <HiOutlineExternalLink className="shrink-0" />
                 </Link>
             ) : (
-                <p className="truncate text-sm font-medium">{value}</p>
+                <p className="truncate text-sm font-medium" title={value}>
+                    {value}
+                </p>
             )
         ) : (
             <p className="truncate text-sm font-medium text-gray-400">—</p>
         )}
+        {hint ? <p className="truncate text-xs text-gray-500">{hint}</p> : null}
     </div>
 )
 
@@ -97,6 +146,11 @@ const SalesReturns = () => {
     const [intakeOpen, setIntakeOpen] = useState(false)
     const [intakeWarehouse, setIntakeWarehouse] = useState('')
     const [intakeBusy, setIntakeBusy] = useState(false)
+    const [settleOpen, setSettleOpen] = useState(false)
+    const [settlement, setSettlement] =
+        useState<SdSalesReturnSettlement>('CREDIT_AND_RETURN')
+    const [settleNote, setSettleNote] = useState('')
+    const [settleBusy, setSettleBusy] = useState(false)
 
     const fetchList = useCallback(async () => {
         setLoading(true)
@@ -108,8 +162,8 @@ const SalesReturns = () => {
             })
             setRows(res.data)
             setTotal(res.total)
-        } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message ?? 'Failed to load sales returns')
+        } catch (e) {
+            pushToast('danger', 'Error', toApiError(e, 'Failed to load sales returns').message)
         } finally {
             setLoading(false)
         }
@@ -134,8 +188,8 @@ const SalesReturns = () => {
     const openDetail = useCallback(async (id: string) => {
         try {
             setDetail(await salesReturnService.get(id))
-        } catch (e: any) {
-            pushToast('danger', 'Error', e?.response?.data?.message ?? 'Failed to load the return')
+        } catch (e) {
+            pushToast('danger', 'Error', toApiError(e, 'Failed to load the return').message)
         }
     }, [])
 
@@ -156,8 +210,33 @@ const SalesReturns = () => {
             pushToast('success', label, 'Done')
             await refreshDetail()
             await fetchList()
-        } catch (e: any) {
-            pushToast('danger', 'Failed', e?.response?.data?.message ?? e.message)
+        } catch (e) {
+            pushToast('danger', 'Failed', toApiError(e, 'Request failed').message)
+        }
+    }
+
+    const submitSettlement = async () => {
+        if (!detail) return
+        setSettleBusy(true)
+        try {
+            const updated = await salesReturnService.settle(
+                detail.id,
+                settlement,
+                settleNote.trim() || undefined,
+            )
+            pushToast(
+                'success',
+                'Settlement recorded',
+                `${SETTLEMENT_LABEL[settlement]} — return is ${updated.status}`,
+            )
+            setSettleOpen(false)
+            setSettleNote('')
+            await refreshDetail()
+            await fetchList()
+        } catch (e) {
+            pushToast('danger', 'Failed', toApiError(e, 'Request failed').message)
+        } finally {
+            setSettleBusy(false)
         }
     }
 
@@ -177,8 +256,8 @@ const SalesReturns = () => {
             setIntakeWarehouse('')
             await refreshDetail()
             await fetchList()
-        } catch (e: any) {
-            pushToast('danger', 'Failed', e?.response?.data?.message ?? e.message)
+        } catch (e) {
+            pushToast('danger', 'Failed', toApiError(e, 'Request failed').message)
         } finally {
             setIntakeBusy(false)
         }
@@ -226,6 +305,13 @@ const SalesReturns = () => {
                 cell: ({ row }) => row.original.damageReport?.reference ?? '—',
             },
             {
+                header: 'Settlement',
+                cell: ({ row }) =>
+                    row.original.settlement
+                        ? SETTLEMENT_LABEL[row.original.settlement]
+                        : '—',
+            },
+            {
                 header: 'Status',
                 cell: ({ row }) => (
                     <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
@@ -251,7 +337,7 @@ const SalesReturns = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Sales Returns"
-                description="Customer return requests from damaged deliveries — authorize, then open the MM intake."
+                description="Customer return requests from damaged deliveries — record the customer's settlement, then open the MM intake when goods come back."
                 icon={<HiOutlineReply />}
             />
 
@@ -302,28 +388,29 @@ const SalesReturns = () => {
                                         <Button
                                             size="sm"
                                             variant="solid"
-                                            onClick={() =>
-                                                run('Authorize', () =>
-                                                    salesReturnService.authorize(detail.id),
-                                                )
-                                            }
+                                            onClick={() => {
+                                                setSettlement('CREDIT_AND_RETURN')
+                                                setSettleNote('')
+                                                setSettleOpen(true)
+                                            }}
                                         >
-                                            Authorize
+                                            Record settlement
                                         </Button>
                                         <Button
                                             size="sm"
                                             onClick={() =>
-                                                run('Reject', async () => {
+                                                run('Reject claim', async () => {
                                                     const reason = window.prompt('Reason (optional)') ?? undefined
                                                     return salesReturnService.reject(detail.id, reason)
                                                 })
                                             }
                                         >
-                                            Reject
+                                            Reject claim
                                         </Button>
                                     </>
                                 )}
-                                {detail.status === 'AUTHORIZED' && (
+                                {detail.status === 'AUTHORIZED' &&
+                                    detail.settlement !== 'CREDIT_NO_RETURN' && (
                                     <Button
                                         size="sm"
                                         variant="solid"
@@ -379,6 +466,29 @@ const SalesReturns = () => {
                                 label="SCM damage report"
                                 value={detail.damageReport?.reference ?? 'Manual / none'}
                                 href={detail.damageReport ? '/scm/shipments' : null}
+                                hint={
+                                    detail.damageReport?.source === 'DRIVER'
+                                        ? 'Reported by driver'
+                                        : null
+                                }
+                            />
+                            <Ref
+                                label="Settlement"
+                                value={
+                                    detail.settlement
+                                        ? SETTLEMENT_LABEL[detail.settlement]
+                                        : detail.status === 'REQUESTED'
+                                          ? 'Not decided yet'
+                                          : null
+                                }
+                            />
+                            <Ref
+                                label="Credit (intent, not yet billed)"
+                                value={
+                                    detail.settlement
+                                        ? formatCredit(detail.creditAmount)
+                                        : null
+                                }
                             />
                             <Ref
                                 label="MM customer return intake"
@@ -445,6 +555,56 @@ const SalesReturns = () => {
                         onChange={(o: { value?: string } | null) =>
                             setIntakeWarehouse(o?.value ?? '')
                         }
+                    />
+                </FormItem>
+            </FormDialog>
+
+            <FormDialog
+                isOpen={settleOpen}
+                onClose={() => setSettleOpen(false)}
+                title="Record settlement"
+                description="What did the customer agree to for the damaged quantity? Credit is recorded as intent at the order price; no credit memo is posted yet."
+                size="md"
+                icon={<HiOutlineReply />}
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setSettleOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={settleBusy}
+                            onClick={submitSettlement}
+                        >
+                            Record settlement
+                        </Button>
+                    </>
+                }
+            >
+                <FormItem label="Settlement">
+                    <Radio.Group
+                        vertical
+                        value={settlement}
+                        onChange={(value: SdSalesReturnSettlement) => setSettlement(value)}
+                    >
+                        {SETTLEMENT_OPTIONS.map((option) => (
+                            <Radio key={option.value} value={option.value}>
+                                <span className="font-medium">{option.label}</span>
+                                <span className="block text-xs text-gray-500">
+                                    {option.help}
+                                </span>
+                            </Radio>
+                        ))}
+                    </Radio.Group>
+                </FormItem>
+                <FormItem label="Note (optional)">
+                    <Input
+                        textArea
+                        rows={3}
+                        value={settleNote}
+                        onChange={(e) => setSettleNote(e.target.value)}
+                        placeholder="e.g. Customer agreed by phone to pay for 8 of 10"
                     />
                 </FormItem>
             </FormDialog>

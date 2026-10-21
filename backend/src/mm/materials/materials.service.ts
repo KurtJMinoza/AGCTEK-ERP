@@ -505,6 +505,7 @@ export class MaterialsService {
                 deletedMaterial ? 'RESTORE' : 'CREATE',
                 deletedMaterial ? this.diffChanges(deletedMaterial, material) : null,
                 material,
+                db,
             )
             return serializeMaterial(material)
         } catch (error) {
@@ -965,8 +966,10 @@ export class MaterialsService {
         action: string,
         changes: any,
         fullPayload: any,
+        client?: any,
     ) {
-        await this.prisma.mmMaterialAudit.create({
+        const db = client ?? this.prisma
+        await db.mmMaterialAudit.create({
             data: {
                 materialId,
                 action,

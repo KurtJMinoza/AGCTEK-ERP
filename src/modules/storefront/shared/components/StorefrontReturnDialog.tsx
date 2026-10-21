@@ -29,9 +29,8 @@ type ReturnReason = (typeof RETURN_REASONS)[number]['value']
 type ReturnReasonOption = { value: ReturnReason; label: string }
 
 const RESOLUTIONS = [
-    { value: 'REFUND', label: 'Refund' },
-    { value: 'REPLACEMENT', label: 'Replacement' },
-    { value: 'STORE_CREDIT', label: 'Store credit' },
+    { value: 'REPLACEMENT', label: 'Replace' },
+    { value: 'REFUND', label: 'Refund (processed by our finance team)' },
 ] as const
 
 type ResolutionOption = { value: string; label: string }
@@ -55,7 +54,7 @@ const StorefrontReturnDialog = ({
 }: StorefrontReturnDialogProps) => {
     const [selected, setSelected] = useState<Record<string, number>>({})
     const [reason, setReason] = useState<ReturnReason>('DAMAGED_ITEM')
-    const [resolution, setResolution] = useState('REFUND')
+    const [resolution, setResolution] = useState('REPLACEMENT')
     const [conditionNote, setConditionNote] = useState('')
     const [photos, setPhotos] = useState<string[]>([])
     const [uploading, setUploading] = useState(false)
@@ -66,7 +65,7 @@ const StorefrontReturnDialog = ({
     const reset = () => {
         setSelected({})
         setReason('DAMAGED_ITEM')
-        setResolution('REFUND')
+        setResolution('REPLACEMENT')
         setConditionNote('')
         setPhotos([])
         setFormError(null)
@@ -248,7 +247,7 @@ const StorefrontReturnDialog = ({
                                 (option) => option.value === resolution,
                             )}
                             onChange={(option) =>
-                                setResolution(option?.value ?? 'REFUND')
+                                setResolution(option?.value ?? 'REPLACEMENT')
                             }
                         />
                     </FormItem>

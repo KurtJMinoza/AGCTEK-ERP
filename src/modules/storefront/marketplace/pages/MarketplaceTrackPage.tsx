@@ -8,6 +8,7 @@ import Spinner from '@/components/ui/Spinner'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import OrderTrackingTimeline from '../components/OrderTrackingTimeline'
 import {
+    CourierTrackingPanel,
     DeliveryMapPanel,
     OrderProgressStepper,
     TrackingStatusPill,
@@ -112,6 +113,7 @@ const MarketplaceTrackPage = ({ token }: { token: string }) => {
                         </header>
                         <div className="space-y-5 px-5 py-4">
                             <OrderProgressStepper checkpoints={tracking.checkpoints} />
+                            <CourierTrackingPanel tracking={tracking} />
                             <DeliveryMapPanel tracking={tracking} />
                             <OrderTrackingTimeline checkpoints={tracking.checkpoints} />
                         </div>

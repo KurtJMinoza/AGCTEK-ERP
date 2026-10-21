@@ -65,8 +65,8 @@ export class AuthService {
     }
 
     async signUp(input: SignUpInput) {
-        const email = input.email.trim().toLowerCase()
-        const userName = input.userName.trim()
+        const email = input.email?.trim().toLowerCase() ?? ''
+        const userName = input.userName?.trim() ?? ''
         const password = input.password
 
         if (!(await this.settings.getBoolean(SETTING_KEYS.ALLOW_USER_SIGNUP))) {
@@ -131,7 +131,7 @@ export class AuthService {
     }
 
     async signIn(input: SignInInput) {
-        const userName = input.userName.trim()
+        const userName = input.userName?.trim() ?? ''
         const password = input.password
 
         if (!userName || !password) {

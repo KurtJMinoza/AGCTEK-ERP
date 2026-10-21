@@ -39,6 +39,21 @@ export type StorefrontCartState<P> = {
 }
 
 /**
+ * Cart-line key of an item. The key is variant-aware: the same parent product
+ * with two different variants occupies two cart lines with two different keys.
+ *
+ * Consumers MUST use this key (not the bare product key) when filtering or
+ * selecting cart lines — otherwise a variant line can never be selected.
+ */
+export const storefrontCartItemKey = <P,>(
+    item: StorefrontCartItem<P>,
+    keyOf: (product: P) => string,
+): string =>
+    item.variant
+        ? `${keyOf(item.product)}#${item.variant.variantId}`
+        : keyOf(item.product)
+
+/**
  * Storefront cart. `keyOf` identifies a product line (e.g. division + SKU,
  * since SKUs are only unique per division). When a variant is present, the key
  * is extended with `#variantId` so the same parent product with different
@@ -57,9 +72,7 @@ export const createStorefrontCartStore = <P>(
         persist(
             (set) => {
                 const itemKey = (item: StorefrontCartItem<P>) =>
-                    item.variant
-                        ? `${keyOf(item.product)}#${item.variant.variantId}`
-                        : keyOf(item.product)
+                    storefrontCartItemKey(item, keyOf)
 
                 const prune = (
                     selectedKeys: string[],

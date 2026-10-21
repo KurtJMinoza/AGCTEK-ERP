@@ -146,6 +146,8 @@ export const ACTIVITY_SOURCES: readonly ActivitySource[] = [
     scm('vehicles', 'vehicle'),
     scm('drivers', 'driver'),
     scm('maintenance', 'maintenanceRecord'),
+    scm('consignments', 'courierConsignment'),
+    scm('couriers', 'carrier'),
 ]
 
 /** Keys a user may mark as seen: module codes, page paths and hub paths. */

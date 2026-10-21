@@ -38,6 +38,11 @@ import {
     type SalesOrderDateRange,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
+import {
+    isCommercialResolutionBlocked,
+    RESOLUTION_LABEL,
+    RESOLUTION_TONE,
+} from '../services/customerReturnRequestService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
@@ -841,6 +846,36 @@ const SalesOrdersDashboard = () => {
                                         {selected.payment.status ?? '—'}
                                     </StatusBadge>
                                 </div>
+                                {(() => {
+                                    const open =
+                                        selected.customerReturns?.find(
+                                            (r) =>
+                                                !isCommercialResolutionBlocked(
+                                                    r.refundStatus,
+                                                ) &&
+                                                (r.preferredResolution ===
+                                                    'REFUND' ||
+                                                    r.preferredResolution ===
+                                                        'REPLACEMENT'),
+                                        )
+                                    if (!open?.preferredResolution) return null
+                                    const res = open.preferredResolution
+                                    return (
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-gray-500">
+                                                Customer return
+                                            </span>
+                                            <StatusBadge
+                                                tone={
+                                                    RESOLUTION_TONE[res] ??
+                                                    'default'
+                                                }
+                                            >
+                                                {RESOLUTION_LABEL[res] ?? res}
+                                            </StatusBadge>
+                                        </div>
+                                    )
+                                })()}
                                 {selected.payment.reference ? (
                                     <div className="flex items-center justify-between gap-3">
                                         <span className="text-gray-500">

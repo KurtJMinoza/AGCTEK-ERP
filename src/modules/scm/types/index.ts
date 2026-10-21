@@ -49,14 +49,87 @@ export type ShipmentStatus =
     | 'DRAFT'
     | 'READY'
     | 'ASSIGNED'
+    | 'DISPATCHED'
     | 'IN_TRANSIT'
     | 'DELIVERED'
     | 'CANCELLED'
     /** Linked trip stop failed — awaiting dispatcher decision */
     | 'EXCEPTION_HOLD'
+    | 'RETURNED'
 
 /** Outbound shipping vs collect-from customer/supplier. */
 export type ShipmentMovementType = 'DELIVERY' | 'PICKUP'
+
+/** OWN_FLEET = trip / driver; THIRD_PARTY = courier consignment (docs/SCM_COURIERS.md). */
+export type ShipmentExecutionMode = 'OWN_FLEET' | 'THIRD_PARTY'
+
+export type CourierConsignmentStatus =
+    | 'BOOKED'
+    | 'PICKED_UP'
+    | 'IN_TRANSIT'
+    | 'OUT_FOR_DELIVERY'
+    | 'DELIVERED'
+    | 'EXCEPTION'
+    | 'RETURNED'
+    | 'CANCELLED'
+
+export type Carrier = {
+    id: string
+    code: string
+    name: string
+    isActive: boolean
+    supportsCod: boolean
+    integrationType: 'MANUAL' | 'API'
+    trackingUrlTemplate: string | null
+    notes: string | null
+    createdAt: string
+    updatedAt: string
+    _count?: { consignments: number }
+}
+
+export type CourierConsignmentEvent = {
+    id: string
+    status: CourierConsignmentStatus
+    occurredAt: string
+    source: 'MANUAL' | 'WEBHOOK' | 'POLL'
+    rawStatus: string | null
+    note: string | null
+    createdBy: string | null
+    createdAt: string
+}
+
+export type CourierConsignment = {
+    id: string
+    shipmentId: string
+    carrierId: string
+    trackingNumber: string | null
+    externalBookingId: string | null
+    labelUrl: string | null
+    status: CourierConsignmentStatus
+    bookedAt: string
+    pickedUpAt: string | null
+    deliveredAt: string | null
+    podUrl: string | null
+    notes: string | null
+    createdAt: string
+    updatedAt: string
+    trackingUrl?: string | null
+    carrier: Pick<Carrier, 'id' | 'code' | 'name'> & {
+        trackingUrlTemplate?: string | null
+    }
+    shipment?: {
+        id: string
+        reference: string
+        customerName: string | null
+        destAddress: string
+        status: ShipmentStatus
+        packageId: string | null
+    }
+    /** Detail only */
+    events?: CourierConsignmentEvent[]
+    /** Detail only — statuses the dispatcher may move to next */
+    nextStatuses?: CourierConsignmentStatus[]
+}
 
 export type MaintenanceType =
     | 'PREVENTATIVE'
@@ -178,6 +251,7 @@ export type Shipment = {
     isFragile: boolean
     requiresColdChain: boolean
     movementType: ShipmentMovementType
+    executionMode?: ShipmentExecutionMode
     status: ShipmentStatus
     requestedPickupAt: string | null
     requestedDeliveryAt: string | null
@@ -189,6 +263,8 @@ export type Shipment = {
     notes: string | null
     /** Present on the shipment detail payload (Report Damage line picker). */
     lines?: ShipmentLine[]
+    /** Present on the shipment detail payload when shipped with a courier. */
+    courierConsignment?: CourierConsignment | null
     createdAt: string
     updatedAt: string
 }
@@ -921,11 +997,20 @@ export type DamageReport = {
     reportedAt: string
     damagedQuantity: number
     description: string
-    /** Evidence photo URLs (URL strings; there is no file-upload endpoint yet). */
+    /** Evidence photos: hosted URLs or image data URLs (driver camera). */
     photoUrls: string[] | null
+    /** STAFF (back office) or DRIVER (driver app, right after delivering). */
+    source?: 'STAFF' | 'DRIVER'
     status: DamageReportStatus
-    /** SD Sales Return created from this report (Phase 3 traceability back-reference). */
+    /** Legacy SD Sales Return (pre–Customer Returns spine). */
     sdSalesReturnId: string | null
+    /** Customer Return created from this report (commercial spine). */
+    sdReturnRequest?: {
+        id: string
+        requestNumber: string
+        status: string
+        refundStatus?: string
+    } | null
     /** MM Customer Return Intake opened from this report (set from Phase 4). */
     customerReturnId: string | null
     createdAt: string
@@ -936,12 +1021,6 @@ export type DamageReport = {
         performedBy: string | null
         performedAt: string
     }[]
-}
-
-export type InitiateSalesReturnResult = {
-    created: boolean
-    salesReturn: { id: string; returnNumber: string; status: string }
-    damageReport: DamageReport
 }
 
 export type CreateDamageReportInput = {

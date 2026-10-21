@@ -289,7 +289,7 @@ describe('ProductOptionVariantsService', () => {
         })
     })
 
-    it('falls back to the parent material for unlinked variants', async () => {
+    it('never falls back to the parent material for unlinked variants', async () => {
         mockPrisma.sdProductVariant.findUnique.mockResolvedValueOnce({
             id: 'v-1',
             productId: 'p1',
@@ -298,23 +298,18 @@ describe('ProductOptionVariantsService', () => {
             isActive: true,
             product: { divisionId: 'DIV_RETAIL' },
         })
-        mockMaterialResolution.resolveMaterialForProduct.mockResolvedValueOnce({
-            materialId: 'mat-1',
-        })
-        mockAvailability.getForLinkedMaterial.mockResolvedValueOnce({
-            availableBaseQty: 7,
-            state: 'IN_STOCK',
-        })
-        mockAvailability.getCompanyMaterialLedger.mockResolvedValueOnce({
-            onHandQty: 9,
-            reservedQty: 2,
-            availableQty: 7,
-        })
         const result = await service.variantAvailability('v-1', 'c-1')
-        expect(result.materialId).toBe('mat-1')
-        expect(result.availableQuantity).toBe(7)
-        expect(result.physicalStock).toBe(9)
-        expect(result.reservedQuantity).toBe(2)
+        // The variant owns its material; the parent product holds no stock, so
+        // an unlinked variant reports NOT_MAPPED instead of the parent's stock.
+        expect(result.materialId).toBeNull()
+        expect(result.state).toBe('NOT_MAPPED')
+        expect(result.availableQuantity).toBe(0)
+        expect(result.physicalStock).toBe(0)
+        expect(result.reservedQuantity).toBe(0)
+        expect(
+            mockMaterialResolution.resolveMaterialForProduct,
+        ).not.toHaveBeenCalled()
+        expect(mockAvailability.getForLinkedMaterial).not.toHaveBeenCalled()
     })
 
     it('rejects duplicate variant combinations (Conflict)', async () => {
