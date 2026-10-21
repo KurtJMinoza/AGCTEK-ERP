@@ -4534,6 +4534,8 @@ model SdReturnRequest {
 
   lines   SdReturnRequestLine[]
   refunds SdRefund[]
+  /// CRM case handling this return (storefront requests); CRM never changes the return directly.
+  crmTicket CrmTicket?
 
   @@index([companyId, status])
   @@index([salesOrderId])
@@ -7576,6 +7578,12 @@ model CrmTicket {
   assignedTo   String?
   /// External RMA reference only; RMA execution is owned by SD / MM.
   rmaReference String?
+  /// SD customer return this ticket handles (at most one ticket per return); SD owns the return.
+  sdReturnRequestId   String?          @unique
+  sdReturnRequest     SdReturnRequest? @relation(fields: [sdReturnRequestId], references: [id], onDelete: Restrict)
+  /// Snapshots of the return's order and number for lists and search; the return stays authoritative.
+  salesOrderId        String?
+  returnRequestNumber String?
   createdBy    String?
   updatedBy    String?
   createdAt    DateTime           @default(now())
@@ -7587,6 +7595,7 @@ model CrmTicket {
   @@index([status])
   @@index([priority])
   @@index([assignedTo])
+  @@index([salesOrderId])
   @@map("crm_tickets")
 }
 

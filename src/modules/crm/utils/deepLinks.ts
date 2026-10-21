@@ -70,8 +70,12 @@ export function ticketParamsFromUrl(sp: SearchParamsLike): TicketListParams {
         sort: pick(sp.get('sort'), ['priority', 'newest'] as const),
         priority: pick(sp.get('priority'), TICKET_PRIORITIES),
         activity: activity(sp.get('activity')),
+        link: pick(sp.get('link'), ['RETURN'] as const),
     }
 }
+
+/** Tickets page with one ticket's detail open (e.g. from SD Customer Returns "Open CRM case"). */
+export const ticketHref = (id: string) => crmHref(CRM_PATHS.tickets, { ticket: id })
 
 /** Labels for deep-link filters that have no dedicated control on the list page. */
 export const filterLabels = {

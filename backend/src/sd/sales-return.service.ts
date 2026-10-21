@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { PermissionsService } from '../permissions/permissions.service'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
 import { CreateSalesReturnDto } from './dto/sales-return.dto'
+import { findCustomerMasterId } from './customer-master'
 
 export const SALES_RETURN_STATUS = {
     REQUESTED: 'REQUESTED',
@@ -628,29 +629,18 @@ export class SalesReturnService {
         )
     }
 
-    /**
-     * Storefront orders carry the shop account id in `customerId`; the return must point at the
-     * Customer Master record, either directly or through its linked shop account.
-     */
+    /** The return must point at the Customer Master record (see `findCustomerMasterId`). */
     private async resolveCustomerId(
         client: PrismaClientLike,
         order: { orderNumber: string; customerId: string },
     ) {
-        const customer = await client.sdCustomer.findFirst({
-            where: {
-                OR: [
-                    { id: order.customerId },
-                    { retailClientId: order.customerId },
-                ],
-            },
-            select: { id: true },
-        })
-        if (!customer) {
+        const customerId = await findCustomerMasterId(client, order.customerId)
+        if (!customerId) {
             throw new ConflictException(
                 `Sales order ${order.orderNumber} has no Customer Master record; link the shop account to a customer in Customer Master first`,
             )
         }
-        return customer.id
+        return customerId
     }
 
     private async lockOrderLine(client: PrismaClientLike, orderLineId: string) {

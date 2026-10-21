@@ -415,12 +415,45 @@ export type Ticket = {
     assignedTo: string | null
     /** Free-text reference to an SD/MM return; CRM does not execute RMAs. */
     rmaReference: string | null
+    /** SD customer return this ticket handles (storefront returns open one case each). */
+    sdReturnRequestId?: string | null
+    salesOrderId?: string | null
+    returnRequestNumber?: string | null
     createdAt: string
     updatedAt: string
     _count: { comments: number }
     /** Present on ticket list payloads; absent on Customer 360 rows. */
     nextActivityStatus?: NextActivityStatus
     nextActivityDueAt?: string | null
+}
+
+/** Read-only view of the SD customer return behind a ticket (SD owns the return). */
+export type TicketReturnCase = {
+    id: string
+    requestNumber: string
+    /** REQUESTED | AWAITING_RETURN | RECEIVED | UNDER_INSPECTION | RESTOCKED | … | CLOSED */
+    status: string
+    /** REPLACEMENT | REFUND | STORE_CREDIT */
+    preferredResolution: string | null
+    /** NONE | PENDING_REFUND | APPROVED | PAID | FAILED | NOT_REQUIRED */
+    refundStatus: string
+    reason: string | null
+    conditionNote: string | null
+    createdAt: string
+    approvedAt: string | null
+    rejectedAt: string | null
+    rejectReason: string | null
+    salesOrder: { id: string; orderNumber: string; status: string | null }
+    lines: {
+        id: string
+        sku: string | null
+        name: string | null
+        quantity: string
+        reason: string | null
+        disposition: string | null
+    }[]
+    mmCustomerReturn: { id: string; returnNumber: string; status: string } | null
+    replacementOrder: { id: string; orderNumber: string; status: string | null } | null
 }
 
 /** Ticket statuses where activities may still be scheduled (CLOSED / CANCELLED are read-only). */
@@ -445,6 +478,8 @@ export type TicketListParams = PageParams & {
     priority?: TicketPriority
     customerId?: string
     activity?: ActivityFilter
+    /** RETURN = only tickets handling an SD customer return. */
+    link?: 'RETURN'
 }
 
 export type CreateTicketInput = {

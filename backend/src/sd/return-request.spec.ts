@@ -3,6 +3,8 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
 import { ReturnRequestService } from './return-request.service'
+import { SdEventEmitterService } from './sd-event-emitter.service'
+import { SD_EVENTS } from './sd-event.types'
 
 const ORDER = {
     id: 'so-1',
@@ -52,6 +54,7 @@ function setup(overrides: {
         items: Array<{ materialId: string; expectedQty: Decimal }>
     }>
     orderFound?: boolean
+    sdEvents?: { emit: jest.Mock }
 } = {}) {
     const order = {
         ...ORDER,
@@ -85,6 +88,7 @@ function setup(overrides: {
         disposition?: string
     }
     type CreateRequestData = {
+        salesOrderId: string
         requestNumber: string
         status: string
         reason?: string
@@ -121,6 +125,7 @@ function setup(overrides: {
             }) => {
                 const row = {
                     id: 'rr-1',
+                    salesOrderId: data.salesOrderId,
                     requestNumber: data.requestNumber,
                     status: data.status,
                     reason: data.reason,
@@ -159,9 +164,52 @@ function setup(overrides: {
     const service = new ReturnRequestService(
         prisma as unknown as PrismaService,
         {} as unknown as CustomerReturnService,
+        undefined,
+        overrides.sdEvents as unknown as SdEventEmitterService,
     )
     return { service, created, requests }
 }
+
+describe('ReturnRequestService — CRM case hand-off', () => {
+    const request = { preferredResolution: 'REPLACEMENT', lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }] }
+
+    it('announces a new storefront return once, keyed by the return id', async () => {
+        const sdEvents = { emit: jest.fn().mockResolvedValue(undefined) }
+        const { service } = setup({ sdEvents })
+
+        const created = await service.createForCustomer('cust-1', 'so-1', request)
+
+        expect(sdEvents.emit).toHaveBeenCalledTimes(1)
+        expect(sdEvents.emit).toHaveBeenCalledWith(SD_EVENTS.RETURN_REQUEST_REQUESTED, {
+            returnRequestId: created!.id,
+            requestNumber: created!.requestNumber,
+            salesOrderId: 'so-1',
+            orderNumber: 'SO-100',
+            preferredResolution: 'REPLACEMENT',
+            idempotencyKey: created!.id,
+        })
+    })
+
+    it('keeps the customer request when the hand-off fails', async () => {
+        const sdEvents = { emit: jest.fn().mockRejectedValue(new Error('CRM down')) }
+        const { service, created } = setup({ sdEvents })
+
+        await expect(service.createForCustomer('cust-1', 'so-1', request)).resolves.toMatchObject({
+            status: 'REQUESTED',
+        })
+        expect(created).toHaveLength(1)
+    })
+
+    it('does not announce staff-entered returns or refused requests', async () => {
+        const sdEvents = { emit: jest.fn().mockResolvedValue(undefined) }
+        const { service } = setup({ sdEvents, orderStatus: 'SHIPPED' })
+
+        await service.create(baseInput)
+        await expect(service.createForCustomer('cust-1', 'so-1', request)).rejects.toThrow(BadRequestException)
+
+        expect(sdEvents.emit).not.toHaveBeenCalled()
+    })
+})
 
 describe('ReturnRequestService — return eligibility', () => {
     const customerLines = [{ salesOrderLineId: 'ol-1', quantity: 1 }]
@@ -368,6 +416,13 @@ describe('ReturnRequestService — return eligibility', () => {
 })
 
 describe('ReturnRequestService — Phase 4 admin actions', () => {
+    beforeEach(() => {
+        process.env.SD_DEMO_REFUND_PAYMENT = 'true'
+    })
+    afterEach(() => {
+        delete process.env.SD_DEMO_REFUND_PAYMENT
+    })
+
     type Phase4Row = {
         id: string
         companyId: string
@@ -379,6 +434,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         refundStatus: string
         mmCustomerReturnId: string | null
         replacementSalesOrderId?: string | null
+        crmTicket?: { id: string } | null
         rejectReason?: string | null
         approvedAt?: Date | null
         refundAmount?: Decimal | null
@@ -717,6 +773,53 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         })
         expect(updated.status).toBe('REJECTED')
         expect(row.rejectReason).toBe('Undocumented damage')
+    })
+
+    describe('returns with a CRM case', () => {
+        it('are approved and rejected only through the case', async () => {
+            const { service, row, replacementCalls } = phase4Setup({
+                mmCustomerReturnId: 'mm-1',
+                preferredResolution: 'REPLACEMENT',
+                crmTicket: { id: 't-1' },
+            })
+
+            await expect(service.approve('rr-1', 'comp-1', 'user-1')).rejects.toThrow(
+                /has a CRM case; it is approved by the agent on that ticket/,
+            )
+            await expect(service.reject('rr-1', 'comp-1', { reason: 'no' })).rejects.toThrow(
+                /has a CRM case; it is rejected by the agent on that ticket/,
+            )
+            expect(row.status).toBe('REQUESTED')
+            expect(replacementCalls).toEqual([])
+
+            const approved = await service.approve('rr-1', 'comp-1', 'agent-1', { fromCase: true })
+            expect(approved.status).toBe('AWAITING_RETURN')
+            expect(replacementCalls).toHaveLength(1)
+        })
+
+        it('can be rejected through the case', async () => {
+            const { service, row } = phase4Setup({ crmTicket: { id: 't-1' } })
+
+            await service.reject('rr-1', 'comp-1', { reason: 'Outside window', performedBy: 'agent-1', fromCase: true })
+
+            expect(row.status).toBe('REJECTED')
+            expect(row.rejectReason).toBe('Outside window')
+        })
+    })
+
+    describe('without the demo refund settlement flag', () => {
+        it('refuses to pay an approved refund and leaves payment and status unchanged', async () => {
+            delete process.env.SD_DEMO_REFUND_PAYMENT
+            const { service, row, paymentCas } = phase4Setup({ status: 'MARKED_DAMAGED' })
+            await service.createRefund('rr-1', 'comp-1', {})
+            await service.approveRefund('rr-1', 'comp-1', 'mgmt')
+
+            await expect(service.payRefund('rr-1', 'comp-1', 'cashier')).rejects.toThrow(
+                /handled by finance/,
+            )
+            expect(row.refundStatus).toBe('APPROVED')
+            expect(paymentCas).toEqual([])
+        })
     })
 
     it('receive stamps RECEIVED and opens the MM intake', async () => {

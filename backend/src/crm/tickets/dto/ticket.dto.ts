@@ -42,6 +42,7 @@ export const TICKET_DEFAULT_QUEUE_STATUSES = ['OPEN', 'WAITING_CUSTOMER'] as con
 export const TICKET_PRIORITY_ORDER = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const satisfies readonly TicketPriority[]
 export const TICKET_QUEUES = ['DEFAULT', 'ALL'] as const
 export const TICKET_SORTS = ['priority', 'newest'] as const
+export const TICKET_LINKS = ['RETURN'] as const
 
 const trim = ({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value
@@ -87,6 +88,11 @@ export class ListTicketsQueryDto {
     @IsOptional()
     @IsIn(ACTIVITY_FILTERS)
     activity?: ActivityFilter
+
+    /** RETURN = tickets handling an SD customer return. */
+    @IsOptional()
+    @IsIn(TICKET_LINKS)
+    link?: (typeof TICKET_LINKS)[number]
 
     @IsOptional()
     @IsInt()
@@ -183,4 +189,12 @@ export class CreateTicketCommentDto {
     @IsNotEmpty()
     @MaxLength(4000)
     body!: string
+}
+
+export class RejectReturnCaseDto {
+    @Transform(trim)
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(500)
+    reason!: string
 }

@@ -71,11 +71,13 @@ export class CrmTicketsService {
             ...(query.category ? { category: query.category } : {}),
             ...(query.customerId ? { customerId: query.customerId } : {}),
             ...(query.assignedTo ? { assignedTo: query.assignedTo } : {}),
+            ...(query.link === 'RETURN' ? { sdReturnRequestId: { not: null } } : {}),
             ...(search
                 ? {
                       OR: [
                           { subject: { contains: search, mode: 'insensitive' } },
                           { rmaReference: { contains: search, mode: 'insensitive' } },
+                          { returnRequestNumber: { contains: search, mode: 'insensitive' } },
                       ],
                   }
                 : {}),

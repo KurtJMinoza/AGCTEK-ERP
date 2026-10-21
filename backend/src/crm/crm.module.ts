@@ -9,6 +9,8 @@ import { CrmOpportunityHandoffService } from './opportunities/opportunity-handof
 import { CrmOpportunityQuotationsService } from './opportunities/opportunity-quotations.service'
 import { CrmTicketsController } from './tickets/tickets.controller'
 import { CrmTicketsService } from './tickets/tickets.service'
+import { CrmReturnCasesService } from './tickets/return-cases.service'
+import { CrmReturnCaseListener } from './tickets/return-case.listener'
 import { CrmLoyaltyController } from './loyalty/loyalty.controller'
 import { CrmLoyaltyService } from './loyalty/loyalty.service'
 import { CrmCustomer360Controller } from './customer-360/customer-360.controller'
@@ -27,8 +29,9 @@ import { CrmMessagesService } from './messages/crm-messages.service'
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
  * `@RequirePermission('crm.<resource>', action)`; PermissionsModule is global.
  * SdModule supplies CustomerService (lead conversion), SalesOrderService (Closed Won
- * handoff) and QuotationService (opportunity quotations) so CRM creates SD documents only
- * through SD. Customer 360 reads SD orders and
+ * handoff), QuotationService (opportunity quotations) and ReturnRequestService (return cases:
+ * storefront returns open a ticket; agents approve replacements through SD) so CRM creates and
+ * changes SD documents only through SD. Customer 360 reads SD orders and
  * SCM shipments live through those modules' services (ScmModule exports ShipmentsService).
  */
 @Module({
@@ -50,6 +53,8 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmOpportunityHandoffService,
         CrmOpportunityQuotationsService,
         CrmTicketsService,
+        CrmReturnCasesService,
+        CrmReturnCaseListener,
         CrmLoyaltyService,
         CrmCustomer360Service,
         CrmActivitiesService,

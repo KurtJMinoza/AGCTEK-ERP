@@ -21,6 +21,7 @@
     "prisma:seed-user-company": "ts-node --project prisma/tsconfig.seed.json prisma/seed-user-company-memberships.ts",
     "prisma:seed-warehouse-bins": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-warehouse-bin-per-company.ts",
     "prisma:repair-order-companies": "ts-node --project prisma/tsconfig.seed.json prisma/repair-order-companies.ts",
+    "prisma:repair-crm-return-cases": "ts-node --project prisma/tsconfig.seed.json prisma/repair-crm-return-cases.ts",
     "prisma:repair-default-packing-packages": "ts-node --project prisma/tsconfig.seed.json prisma/repair-default-packing-packages.ts",
     "prisma:repair-unassigned-warehouse-stock": "ts-node --project prisma/tsconfig.seed.json prisma/repair-unassigned-warehouse-stock.ts",
     "prisma:seed-mm-reference": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reference-essentials-run.ts",
@@ -45,7 +46,7 @@
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit",
     "test:driver-qa": "jest src/scm/trips src/scm/tracking/public-position.rules.spec.ts src/sd/order-tracking src/sd/cod-delivery-customer-returns.scenarios.spec.ts --runInBand --forceExit --no-coverage",
-    "test:cod-delivery-qa": "jest src/sd/cod-delivery-customer-returns.scenarios.spec.ts src/scm/trips/trips.service.execution.spec.ts src/scm/damage-reports/damage-reports.spec.ts src/sd/return-request.spec.ts --runInBand --forceExit --no-coverage",
+    "test:cod-delivery-qa": "jest src/sd/cod-delivery-customer-returns.scenarios.spec.ts src/scm/trips/trips.service.execution.spec.ts src/scm/damage-reports/damage-reports.spec.ts src/sd/return-request.spec.ts src/sd/sales-order.replacement.spec.ts src/crm/tickets/return-cases.spec.ts --runInBand --forceExit --no-coverage",
     "test:pg": "jest --runInBand --forceExit --testRegex \"\\.pg-spec\\.ts$\""
   },
   "jest": {

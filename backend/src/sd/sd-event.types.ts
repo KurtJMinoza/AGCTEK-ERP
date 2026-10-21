@@ -2,6 +2,8 @@ export const SD_EVENTS = {
     SALES_ORDER_CONFIRMED: 'SalesOrderConfirmed',
     SALES_ORDER_CANCELLED: 'SalesOrderCancelled',
     SALES_DEMAND_CHANGED: 'SalesDemandChanged',
+    /** A customer requested a return on the storefront (CRM opens the case). */
+    RETURN_REQUEST_REQUESTED: 'ReturnRequestRequested',
 } as const
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]
@@ -36,6 +38,16 @@ export type SdSalesOrderEventPayload = {
             fulfillmentId: string
         }
     >
+}
+
+export type SdReturnRequestRequestedPayload = {
+    returnRequestId: string
+    requestNumber: string
+    salesOrderId: string
+    orderNumber: string
+    preferredResolution: string | null
+    /** The return id: one outbox row per return. */
+    idempotencyKey: string
 }
 
 export type SdSalesDemandChangedPayload = SdSalesOrderEventPayload & {
