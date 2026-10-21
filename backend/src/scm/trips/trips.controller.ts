@@ -134,7 +134,8 @@ export class TripsController {
     }
 
     /**
-     * Driver COD "Cash Received" — full collection only; body `{ amountReceived, clientActionId? }`.
+     * Driver COD "Cash Received" — covers the stop's full COD due (legacy
+     * partially accepted stops use `TripStop.codAmountDue`). Body `{ amountReceived, clientActionId? }`.
      * Returns `{ trip, collection }`; replays return the same collected state.
      */
     @Post(':id/stops/:stopId/cash-received')

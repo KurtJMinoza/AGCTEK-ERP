@@ -438,6 +438,14 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'activity',
                     },
                     {
+                        code: 'consignments',
+                        title: 'Consignments',
+                        description:
+                            'Parcels sent with third-party couriers and their tracking.',
+                        path: '/scm/consignments',
+                        icon: 'package',
+                    },
+                    {
                         code: 'vehicles',
                         title: 'Vehicles',
                         description: 'Add and manage your company trucks.',
@@ -458,6 +466,14 @@ export const ERP_MODULES: ErpModule[] = [
                             'Schedule and record truck repairs and servicing.',
                         path: '/scm/maintenance',
                         icon: 'settings',
+                    },
+                    {
+                        code: 'couriers',
+                        title: 'Couriers',
+                        description:
+                            'Third-party couriers (3PL) we can ship with.',
+                        path: '/scm/couriers',
+                        icon: 'truck',
                     },
                 ],
             },

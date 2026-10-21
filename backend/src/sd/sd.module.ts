@@ -102,6 +102,7 @@ import { SalesAnalyticsService } from './sales-analytics.service'
         CustomerService,
         QuotationService,
         SalesReturnService,
+        ReturnRequestService,
         ReviewModule,
     ],
 })

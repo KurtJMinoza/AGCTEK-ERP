@@ -90,6 +90,8 @@ export type SalesOrderRecord = {
         requestNumber: string
         status: string
         refundStatus: string
+        /** REFUND (red) | REPLACEMENT (orange) | STORE_CREDIT */
+        preferredResolution: string | null
         reason: string | null
         lines: Array<{ salesOrderLineId: string; quantity: number }>
     }>
@@ -199,6 +201,7 @@ type ApiSalesOrder = {
         requestNumber: string
         status: string
         refundStatus: string
+        preferredResolution: string | null
         reason: string | null
         lines: Array<{ salesOrderLineId: string; quantity: DecimalString }>
     }>
@@ -460,12 +463,26 @@ export type OrderTrackingMap = {
     eta: { from: string; to: string; basis: 'road' | 'straight_line' } | null
 }
 
+/** Third-party courier hand-off (no live map for these orders). */
+export type OrderTrackingCourier = {
+    carrierName: string
+    trackingNumber: string | null
+    trackingUrl: string | null
+    status: string
+    statusLabel: string
+    /** Newest first */
+    events: Array<{ status: string; label: string; at: string }>
+}
+
 export type OrderTracking = {
     orderId: string
     orderNumber: string
     customerStatus: CustomerOrderStatus
     customerStatusLabel: string
     checkpoints: OrderTrackingCheckpoint[]
+    courier: OrderTrackingCourier | null
+    /** Own-fleet stops still ahead of yours while in transit (0 = you're next); null otherwise. */
+    stopsAway: number | null
     /** Single-order endpoint only (null in the list batch). */
     destination: { lat: number; lng: number; label: string } | null
     map: OrderTrackingMap | null

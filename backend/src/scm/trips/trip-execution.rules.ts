@@ -4,7 +4,12 @@ import {
     ForbiddenException,
     NotFoundException,
 } from '@nestjs/common'
-import { DeliveryFailureReason, StopStatus, TripStatus } from '@prisma/client'
+import {
+    DeliveryFailureReason,
+    StopStatus,
+    TripStatus,
+    type TripStopType,
+} from '@prisma/client'
 import { optionalDate, optionalNumber, optionalString } from '../scm.utils'
 
 /**
@@ -52,6 +57,7 @@ type ExecStop = {
     sequence: number
     status: StopStatus
     name?: string | null
+    stopType?: TripStopType | null
 }
 
 export function isTerminalStop(status: StopStatus) {
@@ -195,6 +201,45 @@ export function parseFailureReason(value: unknown): DeliveryFailureReason {
         )
     }
     return code as DeliveryFailureReason
+}
+
+/** A load stop can only fail for operational reasons — there is no customer at the warehouse. */
+export const LOAD_FAILURE_REASONS: readonly DeliveryFailureReason[] = [
+    DeliveryFailureReason.VEHICLE_ISSUE,
+    DeliveryFailureReason.OTHER,
+]
+
+/**
+ * What a stop type allows. SHIP (load) and RETURN (hub) have no customer:
+ * no signature, and RETURN cannot fail. Legacy stops (no type) keep the
+ * delivery rules.
+ */
+export function assertStopTypeAllows(input: {
+    stopType: TripStopType | null | undefined
+    sequence: number
+    outcome?: 'COMPLETE' | 'FAIL'
+    reasonCode?: DeliveryFailureReason | null
+    hasSignature: boolean
+}) {
+    const { stopType, sequence, outcome, reasonCode, hasSignature } = input
+    if (stopType !== 'SHIP' && stopType !== 'RETURN') return
+    const label = stopType === 'SHIP' ? 'load' : 'return'
+    if (hasSignature) {
+        throw new BadRequestException(
+            `Stop #${sequence} is a ${label} stop — a customer signature only applies to deliveries`,
+        )
+    }
+    if (outcome !== 'FAIL') return
+    if (stopType === 'RETURN') {
+        throw new BadRequestException(
+            `Stop #${sequence} is a return to hub and cannot be marked failed — contact dispatch`,
+        )
+    }
+    if (!reasonCode || !LOAD_FAILURE_REASONS.includes(reasonCode)) {
+        throw new BadRequestException(
+            `A load stop can only fail for ${LOAD_FAILURE_REASONS.join(' or ')}`,
+        )
+    }
 }
 
 /** Deliver payload `outcome`: DELIVERED (default) / COMPLETED → COMPLETE, FAILED → FAIL. */

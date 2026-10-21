@@ -124,6 +124,9 @@ function setup(
         sdSalesReturn: {
             findUnique: async () => null,
         },
+        sdReturnRequest: {
+            findUnique: async () => null as { id: string; requestNumber: string; status: string } | null,
+        },
         damageReport: {
             findUnique: async ({
                 where,
@@ -182,11 +185,7 @@ function setup(
                 data: Record<string, unknown>
             }) => {
                 const index = reports.findIndex(
-                    (r) =>
-                        r.id === where.id &&
-                        r.status === where.status &&
-                        (where.sdSalesReturnId === undefined ||
-                            r.sdSalesReturnId === null),
+                    (r) => r.id === where.id && r.status === where.status,
                 )
                 if (index === -1) return { count: 0 }
                 Object.assign(reports[index], data)
@@ -216,25 +215,14 @@ function setup(
             overrides.resolveSalesOrderId ?? (() => 'so-1'),
         ),
     }
-    const salesReturns = {
-        create: jest.fn((input: Record<string, unknown>) =>
-            Promise.resolve({
-                id: 'sr-1',
-                returnNumber: 'SR-000001',
-                ...input,
-            }),
-        ),
-        findOne: jest.fn(async (id: string) => ({
-            id,
-            returnNumber: 'SR-000001',
-        })),
+    const service = new DamageReportsService(prisma as never, shipments as never)
+    return {
+        service,
+        shipments,
+        reports,
+        audits,
+        prisma,
     }
-    const service = new DamageReportsService(
-        prisma as never,
-        shipments as never,
-        salesReturns as never,
-    )
-    return { service, shipments, reports, audits, salesReturns, prisma }
 }
 
 const input = {
@@ -468,138 +456,6 @@ describe('DamageReportsService read + lifecycle', () => {
     })
 })
 
-describe('DamageReportsService.initiateSalesReturn (SCM → SD handoff)', () => {
-    const handoffUser = { id: 'user-1', role: 'sales' }
-    const reportRow = (overrides: Record<string, unknown> = {}) => ({
-        id: 'dr-x',
-        reference: 'DR-X',
-        companyId: 'comp-1',
-        shipmentId: 'sh-1',
-        shipmentLineId: 'line-1',
-        salesOrderId: 'so-1',
-        salesOrderStatus: 'RESOLVED',
-        damagedQuantity: 2,
-        description: 'Crate crushed during drop-off',
-        status: 'SUBMITTED',
-        sdSalesReturnId: null as string | null,
-        customerReturnId: null as string | null,
-        ...overrides,
-    })
-
-    it('creates exactly one REQUESTED sales return and links the report back to it', async () => {
-        const { service, salesReturns, reports, prisma } = setup({
-            chain: true,
-        })
-        reports.push(reportRow())
-
-        const result = await service.initiateSalesReturn('dr-x', handoffUser)
-
-        expect(salesReturns.create).toHaveBeenCalledWith(
-            {
-                salesOrderId: 'so-1',
-                companyId: 'comp-1',
-                damageReportId: 'dr-x',
-                reason: 'DAMAGED_IN_TRANSIT',
-                notes: 'Damage report DR-X',
-                lines: [
-                    {
-                        salesOrderLineId: 'so-line-1',
-                        materialId: 'm-1',
-                        quantity: 2,
-                    },
-                ],
-            },
-            handoffUser,
-            { tx: prisma },
-        )
-        expect(reports[0]).toMatchObject({
-            status: 'RETURN_CREATED',
-            sdSalesReturnId: 'sr-1',
-        })
-        expect(result.created).toBe(true)
-        expect(result.salesReturn.returnNumber).toBe('SR-000001')
-        expect(result.damageReport.status).toBe('RETURN_CREATED')
-    })
-
-    it('refuses UNRESOLVED reports, which stay SUBMITTED for manual handling', async () => {
-        const { service, reports } = setup()
-        reports.push(
-            reportRow({ salesOrderStatus: 'UNRESOLVED', salesOrderId: null }),
-        )
-
-        await expect(
-            service.initiateSalesReturn('dr-x', handoffUser),
-        ).rejects.toThrow(/no resolvable sales order/)
-        expect(reports[0].status).toBe('SUBMITTED')
-    })
-
-    it('refuses non-line-level reports (would require guessing the affected order line)', async () => {
-        const { service, reports } = setup()
-        reports.push(reportRow({ shipmentLineId: null }))
-
-        await expect(
-            service.initiateSalesReturn('dr-x', handoffUser),
-        ).rejects.toThrow(/not line-level/)
-        expect(reports[0].status).toBe('SUBMITTED')
-    })
-
-    it('rejects ambiguous material→order-line mappings instead of picking a line', async () => {
-        const { service, reports } = setup({
-            chain: true,
-            demandReferenceLines: [
-                { demandReferenceLineId: 'so-line-1' },
-                { demandReferenceLineId: 'so-line-2' },
-            ],
-        })
-        reports.push(reportRow())
-
-        await expect(
-            service.initiateSalesReturn('dr-x', handoffUser),
-        ).rejects.toThrow(/multiple sales order lines/)
-        expect(reports[0].status).toBe('SUBMITTED')
-    })
-
-    it('leaves the report intact and retryable when SD creation fails (transaction rolls back)', async () => {
-        const { service, salesReturns, reports } = setup({ chain: true })
-        reports.push(reportRow())
-        salesReturns.create.mockRejectedValue(new Error('SD down'))
-
-        await expect(
-            service.initiateSalesReturn('dr-x', handoffUser),
-        ).rejects.toThrow('SD down')
-        expect(reports[0].status).toBe('SUBMITTED')
-        expect(reports[0].sdSalesReturnId).toBeNull()
-    })
-
-    it('is idempotent: a retry whose claim lost returns the existing return, never a duplicate', async () => {
-        const { service, salesReturns, reports, prisma } = setup({
-            chain: true,
-        })
-        reports.push(reportRow({ sdSalesReturnId: 'sr-1' }))
-        ;(
-            prisma as unknown as { sdSalesReturn: { findUnique: jest.Mock } }
-        ).sdSalesReturn.findUnique = jest.fn().mockResolvedValue({ id: 'sr-1' })
-
-        const result = await service.initiateSalesReturn('dr-x', handoffUser)
-
-        expect(salesReturns.create).not.toHaveBeenCalled()
-        expect(reports[0].status).toBe('SUBMITTED')
-        expect(result.created).toBe(false)
-        expect(salesReturns.findOne).toHaveBeenCalledWith('sr-1')
-    })
-
-    it('never authorizes automatically: the created return is REQUESTED and the report is not cancelled/reopened', async () => {
-        const { service, salesReturns, reports } = setup({ chain: true })
-        reports.push(reportRow())
-
-        await service.initiateSalesReturn('dr-x', handoffUser)
-
-        const dto = salesReturns.create.mock.calls[0][0] as { reason: string }
-        expect(dto.reason).toBe('DAMAGED_IN_TRANSIT')
-        expect(salesReturns.create).toHaveBeenCalledTimes(1)
-    })
-})
-
 describe('DamageReportsController RBAC metadata', () => {
     it.each([
         [
@@ -614,18 +470,12 @@ describe('DamageReportsController RBAC metadata', () => {
         ],
         ['create', 'create', 'scm.shipments'],
         ['cancel', 'update', 'scm.shipments'],
-        ['initiateReturn', 'update', 'scm.shipments'],
     ] as const)(
         '%s requires scm permissions (%)',
         (handler, action, resource) => {
             const fn =
                 DamageReportsController.prototype[
-                    handler as
-                        | 'list'
-                        | 'findOne'
-                        | 'create'
-                        | 'cancel'
-                        | 'initiateReturn'
+                    handler as 'list' | 'findOne' | 'create' | 'cancel'
                 ]
             expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({
                 resource,

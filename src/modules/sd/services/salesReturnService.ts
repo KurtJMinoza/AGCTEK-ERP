@@ -8,6 +8,12 @@ export type SdSalesReturnStatus =
     | 'REJECTED'
     | 'CANCELLED'
 
+/** Customer's choice for the returned qty (pay in full vs credit). */
+export type SdSalesReturnSettlement =
+    | 'KEEP_AND_PAY_FULL'
+    | 'CREDIT_AND_RETURN'
+    | 'CREDIT_NO_RETURN'
+
 export type SdSalesReturnLine = {
     id: string
     lineNumber: number
@@ -31,6 +37,12 @@ export type SdSalesReturn = {
     reason: string | null
     notes: string | null
     status: SdSalesReturnStatus
+    settlement: SdSalesReturnSettlement | null
+    settlementNote: string | null
+    settledAt: string | null
+    /** Credit intent at order-line price; no credit memo is posted yet. */
+    creditAmount: string | number | null
+    rejectReason?: string | null
     createdAt: string
     updatedAt: string
     lines: SdSalesReturnLine[]
@@ -54,6 +66,7 @@ export type SdSalesReturn = {
         reference: string
         shipmentId: string
         status: string
+        source?: 'STAFF' | 'DRIVER'
     } | null
     /** MM customer return intake opened from this return, once handed off. */
     customerReturn?: {
@@ -99,6 +112,13 @@ export const salesReturnService = {
         ErpAxiosBase.post<SdSalesReturn>(
             `${BASE}/${encodeURIComponent(id)}/authorize`,
             {},
+        ).then((r) => r.data),
+
+    /** Pay in full → REJECTED; credit (with or without return) → AUTHORIZED. */
+    settle: (id: string, settlement: SdSalesReturnSettlement, note?: string) =>
+        ErpAxiosBase.post<SdSalesReturn>(
+            `${BASE}/${encodeURIComponent(id)}/settle`,
+            { settlement, ...(note ? { note } : {}) },
         ).then((r) => r.data),
 
     reject: (id: string, reason?: string) =>

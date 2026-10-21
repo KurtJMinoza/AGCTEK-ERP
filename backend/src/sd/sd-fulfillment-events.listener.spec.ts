@@ -106,4 +106,56 @@ describe('SdFulfillmentEventsListener', () => {
         expect(invoices.createForSalesOrder).toHaveBeenCalledWith('so-1')
         expect(invoices.issueForSalesOrder).not.toHaveBeenCalled()
     })
+
+    it('projects the courier carrier and tracking number onto the sales order, and clears it on cancel', async () => {
+        const prisma = {
+            shipment: {
+                findUnique: jest.fn().mockResolvedValue({
+                    package: { salesOrderId: null, pickingTask: { salesOrderId: 'so-legacy' } },
+                }),
+            },
+            sdSalesOrder: { update: jest.fn().mockResolvedValue({}) },
+        }
+        const listener = new SdFulfillmentEventsListener(
+            prisma as unknown as PrismaService,
+            {} as unknown as SalesInvoiceService,
+        )
+
+        await listener.onCourierChanged({
+            shipmentId: 'shp-1',
+            carrierName: 'J&T Express',
+            trackingNumber: 'JT123',
+        })
+        expect(prisma.sdSalesOrder.update).toHaveBeenLastCalledWith({
+            where: { id: 'so-legacy' },
+            data: { courierName: 'J&T Express', trackingNumber: 'JT123' },
+        })
+
+        await listener.onCourierChanged({
+            shipmentId: 'shp-1',
+            carrierName: null,
+            trackingNumber: null,
+        })
+        expect(prisma.sdSalesOrder.update).toHaveBeenLastCalledWith({
+            where: { id: 'so-legacy' },
+            data: { courierName: null, trackingNumber: null },
+        })
+    })
+
+    it('skips the courier projection for shipments without a sales order', async () => {
+        const prisma = {
+            shipment: { findUnique: jest.fn().mockResolvedValue({ package: null }) },
+            sdSalesOrder: { update: jest.fn() },
+        }
+        const listener = new SdFulfillmentEventsListener(
+            prisma as unknown as PrismaService,
+            {} as unknown as SalesInvoiceService,
+        )
+        await listener.onCourierChanged({
+            shipmentId: 'manual-shp',
+            carrierName: 'LBC Express',
+            trackingNumber: 'LBC1',
+        })
+        expect(prisma.sdSalesOrder.update).not.toHaveBeenCalled()
+    })
 })

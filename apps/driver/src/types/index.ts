@@ -43,6 +43,14 @@ export type Vehicle = {
     telematicsDeviceId: string | null
 }
 
+export type ShipmentLine = {
+    id: string
+    lineNo: number
+    materialCode: string | null
+    description: string | null
+    quantity: number
+}
+
 export type Shipment = {
     id: string
     reference: string
@@ -54,6 +62,7 @@ export type Shipment = {
     movementType: string
     /** DRAFT | READY | ASSIGNED | IN_TRANSIT | DELIVERED | CANCELLED | EXCEPTION_HOLD */
     status: string
+    lines?: ShipmentLine[]
 }
 
 export type TripStopShipment = {
@@ -63,10 +72,14 @@ export type TripStopShipment = {
     shipment?: Shipment
 }
 
+/** SHIP = load at warehouse · TO = deliver to customer · RETURN = back to hub. Null on legacy stops. */
+export type TripStopType = 'SHIP' | 'TO' | 'RETURN'
+
 export type TripStop = {
     id: string
     tripId: string
     sequence: number
+    stopType: TripStopType | null
     name: string | null
     address: string
     lat: number | null
@@ -85,6 +98,14 @@ export type TripStop = {
     shipments?: TripStopShipment[]
     /** Cash on Delivery for the orders dropped here; null when nothing is COD. */
     collection?: CodCollection | null
+    /** Ship-to contacts — only on open deliver stops (empty once the stop is done). */
+    contacts?: StopContact[]
+}
+
+export type StopContact = {
+    orderNumber: string
+    name: string | null
+    phone: string
 }
 
 /** PENDING = cash still to collect · COLLECTED = all Paid · NOT_COLLECTIBLE = cancelled/refunded etc. */
@@ -124,6 +145,39 @@ export type DeliveryFailureReason =
     | 'VEHICLE_ISSUE'
     | 'PAYMENT_ISSUE'
     | 'OTHER'
+
+export type DamageShipmentLine = {
+    id: string
+    lineNo: number
+    materialCode: string | null
+    description: string | null
+    quantity: number
+}
+
+export type DamageReportSummary = {
+    id: string
+    reference: string
+    shipmentId: string
+    shipmentLineId: string | null
+    damagedQuantity: number
+    description: string
+    status: 'SUBMITTED' | 'CANCELLED' | 'RETURN_CREATED'
+    reportedAt: string
+    photoUrls: string[] | null
+}
+
+/** What the driver may report on a delivered stop, and what already was. */
+export type StopDamageContext = {
+    canReport: boolean
+    blockedReason: string | null
+    shipments: Array<{
+        id: string
+        reference: string
+        customerName: string | null
+        lines: DamageShipmentLine[]
+    }>
+    reports: DamageReportSummary[]
+}
 
 /** Optional best-effort metadata sent with arrive / deliver / fail. */
 export type StopExecutionMeta = {

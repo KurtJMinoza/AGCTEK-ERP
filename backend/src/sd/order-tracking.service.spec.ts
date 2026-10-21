@@ -131,6 +131,7 @@ describe('OrderTrackingService.buildForCustomer', () => {
         const dto = await service.buildForCustomer('so1', 'c1', NOW)
         expect(dto.customerStatus).toBe('READY_FOR_DELIVERY')
         expect(dto.map).toMatchObject({ available: false, reason: 'NOT_IN_TRANSIT' })
+        expect(dto.stopsAway).toBeNull()
         expect(dto.destination).toEqual({ lat: 14.55, lng: 121.02, label: 'Delivery address' })
         expect(tracking.publicPositionForTrip).not.toHaveBeenCalled()
     })
@@ -167,6 +168,8 @@ describe('OrderTrackingService.buildForCustomer', () => {
             lastUpdatedLabel: 'Updated about 3 minutes ago',
             eta: ETA,
         })
+        // Stop 2 is still ahead of the customer's stop 3.
+        expect(dto.stopsAway).toBe(1)
         expect(tracking.publicEtaForStop).toHaveBeenCalledWith('t1', 3, point, NOW)
         const json = JSON.stringify(dto)
         for (const leak of ['plateNumber', 'telematicsDeviceId', 'vehicleId', 'gpsLogId']) {
@@ -189,6 +192,7 @@ describe('OrderTrackingService.buildForCustomer', () => {
             now: NOW,
         })
         expect(dto.map).toMatchObject({ available: false, reason: 'NO_GPS_YET', lastMile: true })
+        expect(dto.stopsAway).toBe(0)
     })
 
     describe('signed tracking links', () => {

@@ -94,6 +94,11 @@ export class ApproveReturnRequestDto {
     @IsOptional()
     @IsString()
     approvedBy?: string
+
+    /** Override resolution at approve: REFUND | REPLACEMENT | STORE_CREDIT */
+    @IsOptional()
+    @IsIn(['REFUND', 'REPLACEMENT', 'STORE_CREDIT'])
+    preferredResolution?: string
 }
 
 export class RejectReturnRequestDto {
@@ -195,7 +200,9 @@ export class ReturnRequestController {
     @Post(':id/approve')
     @RequirePermission('sd.sales-orders', 'update')
     approve(@Param('id') id: string, @Body() dto: ApproveReturnRequestDto) {
-        return this.returns.approve(id, dto.companyId, dto.approvedBy)
+        return this.returns.approve(id, dto.companyId, dto.approvedBy, {
+            preferredResolution: dto.preferredResolution,
+        })
     }
 
     @Post(':id/reject')

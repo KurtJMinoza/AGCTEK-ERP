@@ -146,14 +146,16 @@ export class SalesInvoiceService {
 
     /**
      * DRAFT → ISSUED on delivery POD, then settled to PAID when the order
-     * payment is already Paid. Posting happens before the payment read so a
-     * collection racing with POD is never lost: either this read sees Paid,
-     * or the collection's `markPaidForSalesOrder` sees ISSUED. Idempotent.
+     * payment is already Paid. The invoice is always the full order — the
+     * customer pays in full at the door. Idempotent.
      */
     async issueForSalesOrder(salesOrderId: string) {
         const invoice =
-            (await this.prisma.sdSalesInvoice.findUnique({ where: { salesOrderId } })) ??
-            (await this.createForSalesOrder(salesOrderId))
+            (await this.prisma.sdSalesInvoice.findUnique({
+                where: { salesOrderId },
+                include: { lines: true },
+            })) ?? (await this.createForSalesOrder(salesOrderId))
+
         if (invoice.status === 'DRAFT') {
             await this.prisma.sdSalesInvoice.updateMany({
                 where: { id: invoice.id, status: 'DRAFT' },

@@ -13,16 +13,19 @@ import {
     DeliveryFailureReason,
     LoadPlanStatus,
     Prisma,
+    ShipmentExecutionMode,
     ShipmentMovementType,
     ShipmentStatus,
     StopStatus,
     TripStatus,
     TripStopEventType,
+    TripStopType,
     VehicleStatus,
     DriverStatus,
 } from '@prisma/client'
 import {
     assertAssignedDriver,
+    assertStopTypeAllows,
     isTerminalStop,
     parseDeliverOutcome,
     parseExecutionMeta,
@@ -124,13 +127,29 @@ type PodBody = {
 }
 
 type CashReceivedBody = StopExecutionBody & {
-    /** Cash handed over by the customer; must cover the amount due (no partial collection). */
+    /**
+     * Cash handed over by the customer. Must cover the stop's COD due: the full
+     * payment amount (`TripStop.codAmountDue` only on stops partially accepted
+     * before partial accept was retired).
+     */
     amountReceived?: number | string
 }
 
 type TripStopWithLinks = {
     id: string
+    status?: StopStatus
+    stopType?: TripStopType | null
     shipments?: Array<{ action: string; shipmentId: string }>
+}
+
+/** Ship-to contact shown to the driver while a deliver stop is still open. */
+export type StopContact = { orderNumber: string; name: string | null; phone: string }
+
+/** A customer phone is only exposed until the stop is done (privacy). */
+const CONTACT_STOP_STATUSES: StopStatus[] = [StopStatus.PENDING, StopStatus.ARRIVED]
+
+function isDeliverStop(stop: TripStopWithLinks) {
+    return stop.stopType !== TripStopType.SHIP && stop.stopType !== TripStopType.RETURN
 }
 
 /** Stops where the driver may record COD cash: at the door, or right after POD. */
@@ -144,6 +163,11 @@ type DeliverStopBody = StopExecutionBody &
         reasonCode?: string
         /** Free-text failure note (required when reasonCode = OTHER) */
         failureReason?: string | null
+        /**
+         * Retired: full payment, no partial accept. A request carrying it is
+         * rejected; damage goes through Report damage + a customer return.
+         */
+        acceptedLines?: unknown
     }
 
 /** Shipments that a stop outcome must not overwrite. */
@@ -152,6 +176,20 @@ const SHIPMENT_CLOSED_STATUSES: ShipmentStatus[] = [
     ShipmentStatus.CANCELLED,
     ShipmentStatus.EXCEPTION_HOLD,
 ]
+
+/** Courier (THIRD_PARTY) shipments never go on a trip — see docs/SCM_COURIERS.md. */
+function assertOwnFleet(
+    shipments: Array<{ reference: string; executionMode: ShipmentExecutionMode }>,
+) {
+    const courier = shipments.filter(
+        (s) => s.executionMode === ShipmentExecutionMode.THIRD_PARTY,
+    )
+    if (courier.length > 0) {
+        throw new BadRequestException(
+            `Courier shipments cannot be put on a trip (${courier.map((s) => s.reference).join(', ')})`,
+        )
+    }
+}
 
 function podFields(body: PodBody): Prisma.TripStopUpdateManyMutationInput {
     const field = (value: string | null | undefined) =>
@@ -174,7 +212,20 @@ const tripInclude = {
         orderBy: { sequence: 'asc' as const },
         include: {
             shipments: {
-                include: { shipment: true },
+                include: {
+                    shipment: {
+                        include: {
+                            lines: { orderBy: { lineNo: 'asc' as const } },
+                        },
+                    },
+                },
+            },
+            /** POD acceptance qty when recorded (cargo-first trips). */
+            lines: {
+                select: {
+                    shipmentLineId: true,
+                    acceptedQuantity: true,
+                },
             },
         },
     },
@@ -329,7 +380,12 @@ export class TripsService {
         callerDriverId?: string | null,
     ) {
         const trip = await this.findOne(tripId)
-        validateStopExecution({ trip, stopId, action: 'POD', callerDriverId })
+        const stop = validateStopExecution({ trip, stopId, action: 'POD', callerDriverId })
+        assertStopTypeAllows({
+            stopType: stop.stopType,
+            sequence: stop.sequence,
+            hasSignature: Boolean(optionalString(body.podSignatureUrl)),
+        })
 
         await this.transitionStop(this.prisma, stopId, StopStatus.ARRIVED, podFields(body))
         return this.findOne(tripId)
@@ -357,6 +413,11 @@ export class TripsService {
         if (failureCode === DeliveryFailureReason.OTHER && !failureNote) {
             throw new BadRequestException('Describe the failure (failureReason) when reasonCode is OTHER')
         }
+        if (body.acceptedLines !== undefined && body.acceptedLines !== null) {
+            throw new BadRequestException(
+                'Partial accept is not supported — deliver all units, or mark the stop failed if the customer refuses. Damage is recorded with Report damage after delivery.',
+            )
+        }
         if (await this.isReplay(meta.clientActionId, stopId, eventType)) return trip
 
         const stop = validateStopExecution({
@@ -364,6 +425,13 @@ export class TripsService {
             stopId,
             action: outcome === 'FAIL' ? 'FAIL' : 'COMPLETE',
             callerDriverId,
+        })
+        assertStopTypeAllows({
+            stopType: stop.stopType,
+            sequence: stop.sequence,
+            outcome,
+            reasonCode: failureCode,
+            hasSignature: Boolean(optionalString(body.podSignatureUrl)),
         })
         const now = new Date()
 
@@ -399,7 +467,7 @@ export class TripsService {
                 notes:
                     outcome === 'FAIL'
                         ? failureNote
-                        : optionalString(body.podNotes) ?? optionalString(body.notes) ?? null,
+                        : (optionalString(body.podNotes) ?? optionalString(body.notes) ?? null),
             })
         })
 
@@ -543,7 +611,16 @@ export class TripsService {
             throw new BadRequestException('No sales order is linked to this stop — nothing to collect')
         }
 
-        const collection = await this.salesOrders.collectCashOnDelivery(orderIds, amountReceived)
+        const stopRow = await this.prisma.tripStop.findUnique({
+            where: { id: stopId },
+            select: { codAmountDue: true },
+        })
+        const amountDueOverride =
+            stopRow?.codAmountDue != null ? Number(stopRow.codAmountDue) : null
+
+        const collection = await this.salesOrders.collectCashOnDelivery(orderIds, amountReceived, {
+            amountDue: amountDueOverride,
+        })
         if (collection.collectedOrderIds.length) {
             try {
                 await this.recordStopEvent(this.prisma, {
@@ -572,19 +649,64 @@ export class TripsService {
 
     /**
      * Driver/ERP read model: each stop gets its COD `collection` (null when the
-     * stop drops no Cash on Delivery order). Amounts come from SD payments.
+     * stop drops no Cash on Delivery order; amounts come from SD payments) and,
+     * on open deliver stops only, the ship-to `contacts` from SD.
      */
     async withCodCollections<S extends TripStopWithLinks, T extends { stops: S[] }>(
         trip: T,
-    ): Promise<Omit<T, 'stops'> & { stops: Array<S & { collection: CodCollectionSummary | null }> }> {
+    ): Promise<
+        Omit<T, 'stops'> & {
+            stops: Array<S & { collection: CodCollectionSummary | null; contacts: StopContact[] }>
+        }
+    > {
         const byStop = await this.salesOrderIdsByStop(trip.stops)
+        const contactOrderIds = [
+            ...new Set(
+                trip.stops
+                    .filter(
+                        (s) =>
+                            isDeliverStop(s) &&
+                            s.status != null &&
+                            CONTACT_STOP_STATUSES.includes(s.status),
+                    )
+                    .flatMap((s) => byStop.get(s.id) ?? []),
+            ),
+        ]
+        const contactByOrder = await this.salesOrders.getShipToContacts(contactOrderIds)
+        const stopIds = trip.stops.map((s) => s.id)
+        const dueRows = stopIds.length
+            ? await this.prisma.tripStop.findMany({
+                  where: { id: { in: stopIds } },
+                  select: { id: true, codAmountDue: true },
+              })
+            : []
+        const dueByStop = new Map(
+            dueRows.map((r) => [
+                r.id,
+                r.codAmountDue != null ? Number(r.codAmountDue) : null,
+            ]),
+        )
         const stops = await Promise.all(
             trip.stops.map(async (stop) => {
                 const ids = byStop.get(stop.id) ?? []
-                const collection: CodCollectionSummary | null = ids.length
+                let collection: CodCollectionSummary | null = ids.length
                     ? await this.salesOrders.getCodCollection(ids)
                     : null
-                return { ...stop, collection }
+                const override = dueByStop.get(stop.id)
+                if (
+                    collection &&
+                    collection.status === 'PENDING' &&
+                    override != null &&
+                    Number.isFinite(override)
+                ) {
+                    collection = { ...collection, amountDue: override }
+                }
+                const contacts = new Map<string, StopContact>()
+                for (const orderId of ids) {
+                    const contact = contactByOrder.get(orderId)
+                    if (contact && !contacts.has(contact.phone)) contacts.set(contact.phone, contact)
+                }
+                return { ...stop, collection, contacts: [...contacts.values()] }
             }),
         )
         return { ...trip, stops }
@@ -832,6 +954,7 @@ export class TripsService {
                     `Only READY shipments can be planned (${notReady.map((s) => s.reference).join(', ')})`,
                 )
             }
+            assertOwnFleet(shipments)
             await this.assertNotOnLoadPlan(shipmentIds)
 
             const alreadyLinked = await this.prisma.tripStopShipment.findFirst({
@@ -1359,6 +1482,7 @@ export class TripsService {
                 `Only READY shipments can be assigned (${notReady.map((s) => s.reference).join(', ')})`,
             )
         }
+        assertOwnFleet(shipments)
         await this.assertNotOnLoadPlan(shipmentIds)
 
         const alreadyLinked = await this.prisma.tripStopShipment.findFirst({

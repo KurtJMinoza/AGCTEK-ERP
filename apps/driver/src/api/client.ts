@@ -4,8 +4,10 @@ import { loadSession } from './storage'
 import type {
     AuthUser,
     CashReceivedResult,
+    DamageReportSummary,
     DeliveryFailureReason,
     Driver,
+    StopDamageContext,
     StopExecutionMeta,
     Trip,
 } from '../types'
@@ -193,7 +195,8 @@ export async function apiDeliverStop(
 }
 
 /**
- * COD "Cash Received" — full collection only (amountReceived ≥ amount due).
+ * COD "Cash Received" — amountReceived must cover the stop due
+ * (full payment, or reduced due after partial accept).
  * Reuse the same clientActionId on retry; the server returns the collected state.
  */
 export async function apiCashReceived(
@@ -209,6 +212,39 @@ export async function apiCashReceived(
             body: JSON.stringify(body),
         },
     )
+}
+
+function stopDamagePath(tripId: string, stopId: string) {
+    return `/scm/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/damage-reports`
+}
+
+export async function apiGetStopDamage(
+    tripId: string,
+    stopId: string,
+): Promise<StopDamageContext> {
+    return request<StopDamageContext>(stopDamagePath(tripId, stopId), {
+        headers: await driverHeaders(),
+    })
+}
+
+/** Optional damage evidence after delivery; reuse idempotencyKey on retry. */
+export async function apiReportStopDamage(
+    tripId: string,
+    stopId: string,
+    body: {
+        shipmentId: string
+        shipmentLineId: string
+        damagedQuantity: number
+        description: string
+        photoUrls: string[]
+        idempotencyKey: string
+    },
+): Promise<DamageReportSummary> {
+    return request<DamageReportSummary>(stopDamagePath(tripId, stopId), {
+        method: 'POST',
+        headers: await driverHeaders(),
+        body: JSON.stringify(body),
+    })
 }
 
 /** Optional in-trip GPS → existing tracking ping (dispatcher map). */

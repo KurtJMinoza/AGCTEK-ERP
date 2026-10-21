@@ -1,24 +1,39 @@
 import {
     BadRequestException,
     ConflictException,
+    Inject,
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
+    forwardRef,
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
+import { SalesOrderService } from './sales-order.service'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
  * pre-picking/packing window; from delivery onward the correct flow is a
  * Sales Return (Phase 2 eligibility).
  */
+/** Delivered / completed for storefront claims; SHIPPED allowed for on-spot POD rejects. */
 export const RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'SHIPPED',
     'DELIVERED',
     'COMPLETED',
 ])
+
+/** Storefront self-service: only after delivery is done (no SHIPPED / in-transit). */
+export const CUSTOMER_RETURNABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+    'DELIVERED',
+    'COMPLETED',
+])
+
+/** Storefront choices: Replace request (orange) or Refund request (red). */
+export const CUSTOMER_RESOLUTIONS = ['REPLACEMENT', 'REFUND'] as const
 
 /** Sales Return statuses — module list order (Phase 4). */
 export const SALES_RETURN_REQUEST_STATUSES = [
@@ -110,6 +125,13 @@ export type CreateReturnRequestInput = {
     photos?: unknown
     requestedBy?: string
     preferredResolution?: string
+    /** SCM damage evidence — unique; handoff retries return the same request. */
+    damageReportId?: string
+    /**
+     * Defaults to NONE. NOT_REQUIRED exists only on legacy on-spot COD refuses
+     * (partial accept is retired — the customer always pays in full).
+     */
+    refundStatus?: (typeof REFUND_STATUSES)[number]
     lines: Array<{
         salesOrderLineId: string
         quantity: number
@@ -157,6 +179,9 @@ export class ReturnRequestService {
     constructor(
         private prisma: PrismaService,
         private customerReturns: CustomerReturnService,
+        @Optional()
+        @Inject(forwardRef(() => SalesOrderService))
+        private readonly salesOrders?: SalesOrderService,
     ) {}
 
     /**
@@ -180,7 +205,20 @@ export class ReturnRequestService {
                 'Order has no company scope — contact support to request a return',
             )
         }
-        assertReturnableOrder(order)
+        if (!CUSTOMER_RETURNABLE_ORDER_STATUSES.has(order.status ?? '')) {
+            throw new BadRequestException(
+                `Returns can be requested once the order is delivered (current status: ${order.status ?? 'UNKNOWN'})`,
+            )
+        }
+        const resolution = validateResolution(input.preferredResolution)
+        if (
+            !resolution ||
+            !(CUSTOMER_RESOLUTIONS as readonly string[]).includes(resolution)
+        ) {
+            throw new BadRequestException(
+                `Choose a resolution: ${CUSTOMER_RESOLUTIONS.join(' or ')}`,
+            )
+        }
         const existing = await this.prisma.sdReturnRequest.findFirst({
             where: { salesOrderId: order.id, status: 'REQUESTED' },
             select: { id: true },
@@ -197,7 +235,7 @@ export class ReturnRequestService {
             reason: input.reason,
             conditionNote: input.conditionNote,
             photos: input.photos,
-            preferredResolution: input.preferredResolution,
+            preferredResolution: resolution,
             lines: input.lines,
         })
     }
@@ -233,7 +271,11 @@ export class ReturnRequestService {
     }
 
     /** Idempotent: an open (REQUESTED) request for the same order + lines is returned. */
-    async create(input: CreateReturnRequestInput) {
+    async create(
+        input: CreateReturnRequestInput,
+        opts: { tx?: Prisma.TransactionClient } = {},
+    ) {
+        if (opts.tx) return this.createIn(opts.tx, input)
         return this.prisma.$transaction((tx) => this.createIn(tx, input))
     }
 
@@ -241,6 +283,14 @@ export class ReturnRequestService {
         client: PrismaClientLike,
         input: CreateReturnRequestInput,
     ) {
+        if (input.damageReportId) {
+            const byDamage = await client.sdReturnRequest.findUnique({
+                where: { damageReportId: input.damageReportId },
+                select: { id: true },
+            })
+            if (byDamage) return this.findOneInclude(byDamage.id)
+        }
+
         const order = await client.sdSalesOrder.findUnique({
             where: { id: input.salesOrderId },
             include: {
@@ -256,18 +306,20 @@ export class ReturnRequestService {
         assertReturnableOrder(order)
 
         const lineIds = input.lines.map((l) => l.salesOrderLineId)
-        const existing = await client.sdReturnRequest.findFirst({
-            where: { salesOrderId: order.id, status: 'REQUESTED' },
-            include: { lines: { select: { salesOrderLineId: true } } },
-        })
-        if (
-            existing &&
-            existing.lines.length === lineIds.length &&
-            lineIds.every((id) =>
-                existing.lines.some((l) => l.salesOrderLineId === id),
-            )
-        ) {
-            return this.findOneInclude(existing.id)
+        if (!input.damageReportId) {
+            const existing = await client.sdReturnRequest.findFirst({
+                where: { salesOrderId: order.id, status: 'REQUESTED' },
+                include: { lines: { select: { salesOrderLineId: true } } },
+            })
+            if (
+                existing &&
+                existing.lines.length === lineIds.length &&
+                lineIds.every((id) =>
+                    existing.lines.some((l) => l.salesOrderLineId === id),
+                )
+            ) {
+                return this.findOneInclude(existing.id)
+            }
         }
 
         // Delivered quantities per material from dispatched packages (base UOM).
@@ -369,7 +421,10 @@ export class ReturnRequestService {
                 warehouseId: order.warehouseId ?? null,
                 invoiceNumber: order.invoices[0]?.invoiceNumber ?? null,
                 preferredResolution,
-                refundStatus: 'NONE',
+                refundStatus: input.refundStatus ?? 'NONE',
+                ...(input.damageReportId
+                    ? { damageReportId: input.damageReportId }
+                    : {}),
                 requestedBy: input.requestedBy,
                 status: 'REQUESTED',
                 lines: {
@@ -417,14 +472,15 @@ export class ReturnRequestService {
 
     /**
      * Approval routes the request to MM customer returns for intake/inspection
-     * and final disposition (restock / quality hold / damaged / scrap / disposal
-     * / refund-only). Idempotent via a unique MM return link per request.
-     * Once approved the return awaits the physical goods (AWAITING_RETURN).
+     * and final disposition. When preferredResolution is REPLACEMENT, also opens
+     * a $0 child sales order and starts pick/pack (new outbound). Idempotent via
+     * unique MM return link and replacementSalesOrderId.
      */
     async approve(
         id: string,
         companyId: string,
         approvedBy?: string,
+        opts: { preferredResolution?: string } = {},
     ) {
         const request = await this.prisma.sdReturnRequest.findFirst({
             where: { id, companyId },
@@ -439,6 +495,21 @@ export class ReturnRequestService {
         if (request.status !== 'REQUESTED') {
             throw new ConflictException(
                 `Only a REQUESTED return can be approved (current: ${request.status})`,
+            )
+        }
+
+        const resolution =
+            validateResolution(opts.preferredResolution) ??
+            request.preferredResolution
+
+        // COD on-spot refuse: cash never collected for those units — neither
+        // Refund nor Replace (free-ship loop) is allowed.
+        if (
+            request.refundStatus === 'NOT_REQUIRED' &&
+            (resolution === 'REFUND' || resolution === 'REPLACEMENT')
+        ) {
+            throw new BadRequestException(
+                'This return has no cash collected (COD on-spot refuse) — Refund and Replace are not available',
             )
         }
 
@@ -478,6 +549,9 @@ export class ReturnRequestService {
                     customerRef: request.customerId,
                     reason: request.reason,
                     status: 'DRAFT',
+                    ...(request.damageReportId
+                        ? { damageReportId: request.damageReportId }
+                        : {}),
                     lines: {
                         create: request.lines.map((line, index) => ({
                             lineNumber: index + 1,
@@ -503,15 +577,35 @@ export class ReturnRequestService {
             })
         }
 
-        return this.prisma.sdReturnRequest.update({
+        let replacementSalesOrderId = request.replacementSalesOrderId
+        if (resolution === 'REPLACEMENT' && !replacementSalesOrderId) {
+            if (!this.salesOrders) {
+                throw new BadRequestException(
+                    'Replacement fulfillment is unavailable — SalesOrderService not wired',
+                )
+            }
+            const replacement =
+                await this.salesOrders.createReplacementForReturnRequest({
+                    returnRequestId: request.id,
+                    companyId,
+                    createdBy: approvedBy,
+                })
+            replacementSalesOrderId = replacement.id
+        }
+
+        await this.prisma.sdReturnRequest.update({
             where: { id: request.id },
             data: {
                 status: 'AWAITING_RETURN',
                 approvedBy,
                 approvedAt: new Date(),
+                ...(resolution ? { preferredResolution: resolution } : {}),
+                ...(replacementSalesOrderId
+                    ? { replacementSalesOrderId }
+                    : {}),
             },
-            include: { lines: true },
         })
+        return this.findOne(request.id)
     }
 
     /** REQUESTED → REJECTED (admin refuses the return). */
@@ -649,6 +743,11 @@ export class ReturnRequestService {
     ) {
         const { request, payment, refundAmount, returnQuantity } =
             await this.loadRefundContext(id, companyId)
+        if (request.refundStatus === 'NOT_REQUIRED') {
+            throw new BadRequestException(
+                'Refund is not required — COD was never collected for these units',
+            )
+        }
         if (!payment || payment.status !== 'Paid') {
             throw new BadRequestException(
                 'Only a Paid/collected payment can be refunded — an unpaid Cash on Delivery has no refund payable',
@@ -1156,6 +1255,7 @@ export class ReturnRequestService {
                 orderNumber: true,
                 customerName: true,
                 status: true,
+                paymentMethod: true,
                 company: { select: { id: true, code: true, name: true } },
             },
         },

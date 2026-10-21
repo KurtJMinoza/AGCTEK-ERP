@@ -6,6 +6,7 @@ import {
 import {
     LoadPlanStatus,
     Prisma,
+    ShipmentExecutionMode,
     ShipmentStatus,
     TripStatus,
 } from '@prisma/client'
@@ -146,7 +147,10 @@ export class TmsLoadPlansService {
     async availableLines(query: { search?: string }) {
         const where: Prisma.ShipmentLineWhereInput = {
             loadPlanLine: { is: null },
-            shipment: { status: ShipmentStatus.READY },
+            shipment: {
+                status: ShipmentStatus.READY,
+                executionMode: ShipmentExecutionMode.OWN_FLEET,
+            },
         }
         if (query.search?.trim()) {
             const q = query.search.trim()
@@ -244,6 +248,11 @@ export class TmsLoadPlansService {
                 if (line.shipment.status !== ShipmentStatus.READY) {
                     throw new BadRequestException(
                         `Only lines of READY shipments can be loaded (${line.shipment.reference} is ${line.shipment.status})`,
+                    )
+                }
+                if (line.shipment.executionMode === ShipmentExecutionMode.THIRD_PARTY) {
+                    throw new BadRequestException(
+                        `${line.shipment.reference} ships with a third-party courier and cannot be loaded on a truck`,
                     )
                 }
                 const assignedQty =

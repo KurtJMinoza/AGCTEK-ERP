@@ -164,11 +164,14 @@ function setup(overrides: {
 }
 
 describe('ReturnRequestService — return eligibility', () => {
+    const customerLines = [{ salesOrderLineId: 'ol-1', quantity: 1 }]
+
     it('only allows DELIVERED orders through the storefront path', async () => {
         const { service } = setup({ orderStatus: 'DELIVERED' })
         await expect(
             service.createForCustomer('cust-1', 'so-1', {
-                lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }],
+                preferredResolution: 'REFUND',
+                lines: customerLines,
             }),
         ).resolves.toBeTruthy()
     })
@@ -177,18 +180,33 @@ describe('ReturnRequestService — return eligibility', () => {
         const { service } = setup({ orderStatus: 'COMPLETED' })
         await expect(
             service.createForCustomer('cust-1', 'so-1', {
-                lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }],
+                preferredResolution: 'REPLACEMENT',
+                lines: customerLines,
             }),
         ).resolves.toBeTruthy()
     })
 
-    it.each(['CONFIRMED', 'SHIPPED', 'CANCELLED', 'DRAFT'])(
-        'rejects %s orders (pending/picking/dispatched/cancelled are not returnable)',
+    it.each(['CONFIRMED', 'CANCELLED', 'DRAFT', 'SHIPPED'])(
+        'rejects %s orders (delivery not done yet)',
         async (status) => {
             const { service } = setup({ orderStatus: status })
             await expect(
                 service.createForCustomer('cust-1', 'so-1', {
-                    lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }],
+                    preferredResolution: 'REFUND',
+                    lines: customerLines,
+                }),
+            ).rejects.toThrow(BadRequestException)
+        },
+    )
+
+    it.each([undefined, 'STORE_CREDIT'])(
+        'rejects storefront resolution %s (only Replace or Refund)',
+        async (preferredResolution) => {
+            const { service } = setup({ orderStatus: 'DELIVERED' })
+            await expect(
+                service.createForCustomer('cust-1', 'so-1', {
+                    preferredResolution,
+                    lines: customerLines,
                 }),
             ).rejects.toThrow(BadRequestException)
         },
@@ -198,7 +216,8 @@ describe('ReturnRequestService — return eligibility', () => {
         const { service } = setup({ orderOwner: 'other-customer' })
         await expect(
             service.createForCustomer('cust-1', 'so-1', {
-                lines: [{ salesOrderLineId: 'ol-1', quantity: 1 }],
+                preferredResolution: 'REFUND',
+                lines: customerLines,
             }),
         ).rejects.toThrow(NotFoundException)
     })
@@ -359,6 +378,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         preferredResolution: string | null
         refundStatus: string
         mmCustomerReturnId: string | null
+        replacementSalesOrderId?: string | null
         rejectReason?: string | null
         approvedAt?: Date | null
         refundAmount?: Decimal | null
@@ -404,6 +424,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
             preferredResolution: 'REFUND',
             refundStatus: 'NONE',
             mmCustomerReturnId: 'mm-1',
+            replacementSalesOrderId: null,
             lines: [
                 {
                     id: 'rrl-1',
@@ -583,11 +604,40 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
                 findUnique: async () => ({ baseUomId: 'uom-1' }),
             },
         }
+        const replacementCalls: Array<{
+            returnRequestId: string
+            companyId: string
+            createdBy?: string
+        }> = []
+        const salesOrders = {
+            createReplacementForReturnRequest: async (input: {
+                returnRequestId: string
+                companyId: string
+                createdBy?: string
+            }) => {
+                replacementCalls.push(input)
+                return {
+                    id: 'so-repl-1',
+                    orderNumber: 'SO-REPL-1',
+                    status: 'CONFIRMED',
+                }
+            },
+        }
         const service = new ReturnRequestService(
             prisma as unknown as PrismaService,
             mm as unknown as CustomerReturnService,
+            salesOrders as never,
         )
-        return { service, row, paymentCas, mmCalls, refunds, memos }
+        return {
+            service,
+            row,
+            paymentCas,
+            mmCalls,
+            refunds,
+            memos,
+            salesOrders,
+            replacementCalls,
+        }
     }
 
     it('approve moves REQUESTED → AWAITING_RETURN and creates the MM intake', async () => {
@@ -596,6 +646,68 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         expect(updated.status).toBe('AWAITING_RETURN')
         expect(updated.approvedAt).toBeTruthy()
         expect(row.mmCustomerReturnId).toBe('mm-2')
+    })
+
+    it('approve with REPLACEMENT opens a child sales order and stores the link', async () => {
+        const { service, row, replacementCalls } = phase4Setup({
+            mmCustomerReturnId: 'mm-1',
+            preferredResolution: 'REFUND',
+        })
+        const updated = await service.approve('rr-1', 'comp-1', 'user-1', {
+            preferredResolution: 'REPLACEMENT',
+        })
+        expect(updated.status).toBe('AWAITING_RETURN')
+        expect(row.preferredResolution).toBe('REPLACEMENT')
+        expect(row.replacementSalesOrderId).toBe('so-repl-1')
+        expect(replacementCalls).toEqual([
+            {
+                returnRequestId: 'rr-1',
+                companyId: 'comp-1',
+                createdBy: 'user-1',
+            },
+        ])
+    })
+
+    it('approve REFUND/REPLACEMENT is blocked when refundStatus is NOT_REQUIRED', async () => {
+        const { service, replacementCalls } = phase4Setup({
+            mmCustomerReturnId: 'mm-1',
+            refundStatus: 'NOT_REQUIRED',
+            preferredResolution: null,
+        })
+        await expect(
+            service.approve('rr-1', 'comp-1', 'user-1', {
+                preferredResolution: 'REFUND',
+            }),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+            service.approve('rr-1', 'comp-1', 'user-1', {
+                preferredResolution: 'REPLACEMENT',
+            }),
+        ).rejects.toThrow(BadRequestException)
+        expect(replacementCalls).toEqual([])
+    })
+
+    it('createRefund is blocked when refundStatus is NOT_REQUIRED', async () => {
+        const { service } = phase4Setup({
+            status: 'MARKED_DAMAGED',
+            refundStatus: 'NOT_REQUIRED',
+            preferredResolution: 'REFUND',
+        })
+        await expect(
+            service.createRefund('rr-1', 'comp-1', { refundMethod: 'CASH_REFUND' }),
+        ).rejects.toThrow(BadRequestException)
+    })
+
+    it('approve REPLACEMENT is idempotent when replacementSalesOrderId already set', async () => {
+        const { service, replacementCalls } = phase4Setup({
+            status: 'REQUESTED',
+            preferredResolution: 'REPLACEMENT',
+            replacementSalesOrderId: 'so-repl-existing',
+        })
+        await service.approve('rr-1', 'comp-1', 'user-1', {
+            preferredResolution: 'REPLACEMENT',
+        })
+        expect(replacementCalls).toEqual([])
     })
 
     it('reject moves REQUESTED → REJECTED with a reason', async () => {

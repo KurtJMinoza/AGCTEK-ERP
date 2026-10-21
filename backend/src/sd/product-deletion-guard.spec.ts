@@ -213,6 +213,7 @@ describe('ProductService.remove (deletion guard)', () => {
 
     it('404 for an unknown product', async () => {
         const prisma = {
+            // findOne falls back to a SKU lookup when the id is not found.
             sdProduct: {
                 findUnique: jest.fn().mockResolvedValue(null),
                 findFirst: jest.fn().mockResolvedValue(null),
