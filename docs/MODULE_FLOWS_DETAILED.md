@@ -94,19 +94,19 @@ Write inventory · Own sales-order posting · Own fleet/POD execution.
 ## 2.4 Detailed flow — support / return
 
 ```text
-Customer complaint / return request (CRM)     ⬜
-      │
+Customer return request (storefront → SD SdReturnRequest)   ✅
+      │  SD event ReturnRequestRequested
       ▼
-RMA / case opened                             ⬜
-      │
+RMA / case opened (CRM ticket, one per return)               ✅
+      │  agent decides on the case: approve (Replace / Refund) or reject
       ▼
-SD Return Authorization                       ⬜
-      │
+SD approve → MM customer return (expects package)            ✅
+      │          + $0 replacement SO → pick / pack / SCM     ✅
       ▼
 MM Return Receiving → QI → Disposition ✅ (MM side exists)
       │
       ▼
-FICO credit / adjustment event                🔶/⬜
+FICO refund payment / credit event                           ⬜ (refund waits on finance)
 ```
 
 ## 2.5 Detailed flow — customer 360 (read)
@@ -133,7 +133,8 @@ CRM notifications                             ⬜
 | Customer 360 live SD orders + SCM shipments, section-level degradation | ✅ |
 | Ticket activities · default queue (Open + Waiting customer, priority sort) · RMA free-text reference | ✅ |
 | CRM dashboard (`GET /crm/dashboard`): leads, overdue activities, weighted pipeline, tickets by priority, win/loss by reason, lead conversion; deep links to filtered lists / board | ✅ |
-| RMA → SD · loyalty accrual · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
+| RMA hand-off: storefront return → CRM case (`link=RETURN`, return panel); agent approves / rejects on the case, SD applies it (`docs/COD_DELIVERY_CUSTOMER_RETURNS.md`) | ✅ |
+| Refund payment (FICO) · loyalty accrual · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
 
 ---
 

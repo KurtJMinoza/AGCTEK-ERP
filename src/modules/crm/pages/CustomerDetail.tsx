@@ -483,6 +483,7 @@ export default function CustomerDetailPage() {
             <TicketCommentsDialog
                 ticket={viewingTicket}
                 canComment={canCreate}
+                canDecideReturn={canUpdate}
                 onClose={() => setViewingTicket(null)}
                 onCommented={() => void reload()}
             />

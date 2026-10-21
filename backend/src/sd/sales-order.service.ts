@@ -2179,71 +2179,95 @@ export class SalesOrderService {
             where: { idempotencyKey },
             select: { id: true },
         })
-        if (existing) return this.findOne(existing.id)
+        if (existing) return this.completeReplacement(existing.id)
 
         const orderNumber = await this.nextOrderNumber()
-        const created = await this.prisma.sdSalesOrder.create({
-            data: {
-                orderNumber,
-                companyId: original.companyId,
-                warehouseId: original.warehouseId,
-                customerId: original.customerId,
-                customerName: original.customerName,
-                customerEmail: original.customerEmail,
-                shipToName: original.shipToName,
-                shipToPhone: original.shipToPhone,
-                shipToAddressLine1: original.shipToAddressLine1,
-                shipToCity: original.shipToCity,
-                shipToRegion: original.shipToRegion,
-                shipToPostalCode: original.shipToPostalCode,
-                shipToCountry: original.shipToCountry,
-                branchId: original.branchId,
-                divisionId: original.divisionId,
-                channel: 'STANDARD',
-                source: 'ERP',
-                correlationId: randomUUID(),
-                idempotencyKey,
-                createdBy: input.createdBy ?? null,
-                status: 'DRAFT',
-                currency: original.currency ?? SD_CATALOG_CURRENCY,
-                paymentMethod: 'STORE_CREDIT',
-                paymentStatus: 'Paid',
-                subtotal: 0,
-                discountAmount: 0,
-                shippingAmount: 0,
-                totalAmount: 0,
-                notes: `Replacement for return ${request.requestNumber} (original ${original.orderNumber})`,
-                lines: {
-                    create: lines.map((line, idx) => ({
-                        lineNumber: idx + 1,
-                        materialId: line.materialId!,
-                        quantity: line.quantity,
-                        unitPrice: 0,
-                        lineTotal: 0,
-                        description: `Replacement — ${request.requestNumber}`,
-                    })),
-                },
-                payments: {
-                    create: {
-                        companyId: original.companyId,
-                        customerId: original.customerId,
-                        paymentMethod: 'STORE_CREDIT',
-                        amount: 0,
-                        currency: original.currency ?? SD_CATALOG_CURRENCY,
-                        status: 'Paid',
-                        paidAt: new Date(),
-                        isDemo: true,
+        let createdId: string
+        try {
+            const created = await this.prisma.sdSalesOrder.create({
+                data: {
+                    orderNumber,
+                    companyId: original.companyId,
+                    warehouseId: original.warehouseId,
+                    customerId: original.customerId,
+                    customerName: original.customerName,
+                    customerEmail: original.customerEmail,
+                    shipToName: original.shipToName,
+                    shipToPhone: original.shipToPhone,
+                    shipToAddressLine1: original.shipToAddressLine1,
+                    shipToCity: original.shipToCity,
+                    shipToRegion: original.shipToRegion,
+                    shipToPostalCode: original.shipToPostalCode,
+                    shipToCountry: original.shipToCountry,
+                    branchId: original.branchId,
+                    divisionId: original.divisionId,
+                    channel: 'STANDARD',
+                    source: 'ERP',
+                    correlationId: randomUUID(),
+                    idempotencyKey,
+                    createdBy: input.createdBy ?? null,
+                    status: 'DRAFT',
+                    currency: original.currency ?? SD_CATALOG_CURRENCY,
+                    paymentMethod: 'STORE_CREDIT',
+                    paymentStatus: 'Paid',
+                    subtotal: 0,
+                    discountAmount: 0,
+                    shippingAmount: 0,
+                    totalAmount: 0,
+                    notes: `Replacement for return ${request.requestNumber} (original ${original.orderNumber})`,
+                    lines: {
+                        create: lines.map((line, idx) => ({
+                            lineNumber: idx + 1,
+                            materialId: line.materialId!,
+                            quantity: line.quantity,
+                            unitPrice: 0,
+                            lineTotal: 0,
+                            description: `Replacement — ${request.requestNumber}`,
+                        })),
+                    },
+                    payments: {
+                        create: {
+                            companyId: original.companyId,
+                            customerId: original.customerId,
+                            paymentMethod: 'STORE_CREDIT',
+                            amount: 0,
+                            currency: original.currency ?? SD_CATALOG_CURRENCY,
+                            status: 'Paid',
+                            paidAt: new Date(),
+                            isDemo: true,
+                        },
                     },
                 },
-            },
-            include: this.includes,
-        })
+                select: { id: true },
+            })
+            createdId = created.id
+        } catch (error) {
+            // A concurrent approval created it first; that caller confirms and starts picking.
+            if (!this.uniqueViolationTarget(error)?.includes('idempotencyKey')) throw error
+            const winner = await this.prisma.sdSalesOrder.findUniqueOrThrow({
+                where: { idempotencyKey },
+                select: { id: true },
+            })
+            return this.findOne(winner.id)
+        }
+        return this.completeReplacement(createdId)
+    }
 
-        await this.confirm(created.id)
-        await this.createReservationAndPickingForSalesOrder(created.id, {
+    /**
+     * Confirms a replacement order and starts MM reservation / picking. Both steps are idempotent,
+     * so an approval retried after a failed start (e.g. no pickable stock yet) finishes the order
+     * instead of reporting it as started.
+     */
+    private async completeReplacement(id: string) {
+        const order = await this.prisma.sdSalesOrder.findUniqueOrThrow({
+            where: { id },
+            select: { status: true },
+        })
+        if (order.status === 'DRAFT') await this.confirm(id)
+        await this.createReservationAndPickingForSalesOrder(id, {
             throwOnIneligible: true,
         })
-        return this.findOne(created.id)
+        return this.findOne(id)
     }
 
     /**

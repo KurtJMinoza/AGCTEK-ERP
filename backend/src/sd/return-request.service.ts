@@ -10,9 +10,11 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
 import { SalesOrderService } from './sales-order.service'
+import { SdEventEmitterService } from './sd-event-emitter.service'
+import { SD_EVENTS, type SdReturnRequestRequestedPayload } from './sd-event.types'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
@@ -182,6 +184,8 @@ export class ReturnRequestService {
         @Optional()
         @Inject(forwardRef(() => SalesOrderService))
         private readonly salesOrders?: SalesOrderService,
+        @Optional()
+        private readonly sdEvents?: SdEventEmitterService,
     ) {}
 
     /**
@@ -228,7 +232,7 @@ export class ReturnRequestService {
                 'A return request is already pending for this order',
             )
         }
-        return this.create({
+        const created = await this.create({
             companyId: order.companyId,
             salesOrderId: order.id,
             customerId: order.customerId,
@@ -238,6 +242,62 @@ export class ReturnRequestService {
             preferredResolution: resolution,
             lines: input.lines,
         })
+        if (created) await this.announceRequested(created, order.orderNumber)
+        return created
+    }
+
+    /**
+     * Hands the new storefront return to CRM (case queue). The return is already committed, so a
+     * failed hand-off is logged instead of failing the customer's request; CRM can open the case
+     * later (`POST /crm/tickets/from-return/:returnRequestId`).
+     */
+    private async announceRequested(
+        request: { id: string; requestNumber: string; salesOrderId: string; preferredResolution: string | null },
+        orderNumber: string,
+    ) {
+        if (!this.sdEvents) return
+        const payload: SdReturnRequestRequestedPayload = {
+            returnRequestId: request.id,
+            requestNumber: request.requestNumber,
+            salesOrderId: request.salesOrderId,
+            orderNumber,
+            preferredResolution: request.preferredResolution,
+            idempotencyKey: request.id,
+        }
+        try {
+            await this.sdEvents.emit(SD_EVENTS.RETURN_REQUEST_REQUESTED, payload)
+        } catch (err) {
+            this.logger.error(
+                `Return ${request.requestNumber}: CRM case hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+            )
+        }
+    }
+
+    /**
+     * Read model for the CRM case panel: the return with its lines, refund, original order, and the
+     * MM customer return / replacement order created on approval.
+     */
+    async findForCase(id: string) {
+        const request = await this.prisma.sdReturnRequest.findUnique({
+            where: { id },
+            include: this.listInclude,
+        })
+        if (!request) throw new NotFoundException('Return request not found')
+        const [replacementOrder, mmCustomerReturn] = await Promise.all([
+            request.replacementSalesOrderId
+                ? this.prisma.sdSalesOrder.findUnique({
+                      where: { id: request.replacementSalesOrderId },
+                      select: { id: true, orderNumber: true, status: true },
+                  })
+                : null,
+            request.mmCustomerReturnId
+                ? this.prisma.mmCustomerReturn.findUnique({
+                      where: { id: request.mmCustomerReturnId },
+                      select: { id: true, returnNumber: true, status: true },
+                  })
+                : null,
+        ])
+        return { ...request, replacementOrder, mmCustomerReturn }
     }
 
     /** Company-scoped list with module columns (filters: status, refundStatus). */
@@ -480,11 +540,11 @@ export class ReturnRequestService {
         id: string,
         companyId: string,
         approvedBy?: string,
-        opts: { preferredResolution?: string } = {},
+        opts: { preferredResolution?: string; fromCase?: boolean } = {},
     ) {
         const request = await this.prisma.sdReturnRequest.findFirst({
             where: { id, companyId },
-            include: { lines: true },
+            include: { lines: true, crmTicket: { select: { id: true } } },
         })
         if (!request) {
             throw new NotFoundException('Return request not found in company scope')
@@ -497,6 +557,7 @@ export class ReturnRequestService {
                 `Only a REQUESTED return can be approved (current: ${request.status})`,
             )
         }
+        assertDecidedOnCase(request, opts.fromCase, 'approved')
 
         const resolution =
             validateResolution(opts.preferredResolution) ??
@@ -540,9 +601,10 @@ export class ReturnRequestService {
                     )
                 }
             }
+            const returnNumber = `CR-${request.requestNumber}`
             const mmReturn = await this.prisma.mmCustomerReturn.create({
                 data: {
-                    returnNumber: `CR-${request.requestNumber}`,
+                    returnNumber,
                     companyId: request.companyId,
                     warehouseId: request.warehouseId ?? order.warehouseId,
                     sdReturnRequestRef: request.id,
@@ -569,6 +631,14 @@ export class ReturnRequestService {
                         })),
                     },
                 },
+                select: { id: true },
+            }).catch(async (err: unknown) => {
+                // A concurrent approval opened the MM return first: use it.
+                if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
+                return this.prisma.mmCustomerReturn.findUniqueOrThrow({
+                    where: { returnNumber },
+                    select: { id: true },
+                })
             })
             mmCustomerReturnId = mmReturn.id
             await this.prisma.sdReturnRequest.update({
@@ -612,8 +682,13 @@ export class ReturnRequestService {
     async reject(
         id: string,
         companyId: string,
-        input: { reason?: string; performedBy?: string } = {},
+        input: { reason?: string; performedBy?: string; fromCase?: boolean } = {},
     ) {
+        const request = await this.prisma.sdReturnRequest.findFirst({
+            where: { id, companyId },
+            select: { requestNumber: true, crmTicket: { select: { id: true } } },
+        })
+        if (request) assertDecidedOnCase(request, input.fromCase, 'rejected')
         return this.transition(id, companyId, ['REQUESTED'], 'REJECTED', {
             rejectReason: input.reason?.trim() || null,
             rejectedAt: new Date(),
@@ -925,9 +1000,15 @@ export class ReturnRequestService {
     /**
      * APPROVED → PAID. DEMO ONLY: flips the paid payment to Refunded, marks
      * the original invoice REFUNDED (amounts unchanged), and closes the
-     * refund on the return (status REFUNDED).
+     * refund on the return (status REFUNDED). Disabled unless
+     * SD_DEMO_REFUND_PAYMENT=true: without FICO no refund may be reported as paid.
      */
     async payRefund(id: string, companyId: string, performedBy?: string) {
+        if (process.env.SD_DEMO_REFUND_PAYMENT !== 'true') {
+            throw new ConflictException(
+                'Refund payment is handled by finance (FICO); the refund stays approved until finance pays it',
+            )
+        }
         const { request, payment } = await this.loadRefundContext(id, companyId)
         const refund = await this.prisma.sdRefund.findUnique({
             where: { returnRequestId: id },
@@ -1259,6 +1340,7 @@ export class ReturnRequestService {
                 company: { select: { id: true, code: true, name: true } },
             },
         },
+        crmTicket: { select: { id: true } },
     } satisfies Prisma.SdReturnRequestInclude
 
     /** Material base UoM (Phase 3 fix: never create intake lines with empty UoM). */
@@ -1284,6 +1366,22 @@ export class ReturnRequestService {
             where: { requestNumber: { startsWith: prefix } },
         })
         return `${prefix}-${String(count + 1).padStart(4, '0')}`
+    }
+}
+
+/**
+ * A return with a CRM case is approved or rejected by the agent on that case (CRM calls SD with
+ * `fromCase`); SD keeps the warehouse steps and the refund record.
+ */
+function assertDecidedOnCase(
+    request: { requestNumber: string; crmTicket: { id: string } | null },
+    fromCase: boolean | undefined,
+    decision: 'approved' | 'rejected',
+) {
+    if (request.crmTicket && !fromCase) {
+        throw new ConflictException(
+            `Return ${request.requestNumber} has a CRM case; it is ${decision} by the agent on that ticket`,
+        )
     }
 }
 

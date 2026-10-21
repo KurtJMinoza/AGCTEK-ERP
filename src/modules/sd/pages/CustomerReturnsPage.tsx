@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -18,29 +19,20 @@ import { orgService } from '@/modules/mm/material-master/services/referenceServi
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     customerReturnRequestService,
+    DEMO_REFUND_PAYMENT_ENABLED,
     displayStatuses,
     isCommercialResolutionBlocked,
+    REFUND_STATUS_LABEL,
     RESOLUTION_LABEL,
     RESOLUTION_TONE,
+    RETURN_STATUS_TONE,
     type CustomerReturnRequestRow,
 } from '../services/customerReturnRequestService'
+import { apiOpenReturnCase } from '@/modules/crm/services/crmApi'
+import { ticketHref } from '@/modules/crm/utils/deepLinks'
+import usePermissions from '@/utils/hooks/usePermissions'
 
 const ROUTE = '/modules/sd/customer-returns'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    REQUESTED: 'warning',
-    APPROVED: 'info',
-    REJECTED: 'danger',
-    AWAITING_RETURN: 'warning',
-    RECEIVED: 'info',
-    UNDER_INSPECTION: 'warning',
-    RESTOCKED: 'success',
-    MARKED_DAMAGED: 'danger',
-    SCRAPPED: 'danger',
-    REFUNDED: 'success',
-    CLOSED: 'default',
-    CANCELLED: 'default',
-}
 
 const REFUND_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
     REQUESTED: 'warning',
@@ -129,6 +121,21 @@ const CustomerReturnsPage = () => {
     const [loading, setLoading] = useState(true)
     const [confirm, setConfirm] = useState<ConfirmState>(null)
     const [detail, setDetail] = useState<CustomerReturnRequestRow | null>(null)
+    const router = useRouter()
+    const { can } = usePermissions()
+    const canOpenCase = can('crm.tickets', 'create')
+
+    const openCrmCase = useCallback(
+        async (requestId: string) => {
+            try {
+                const { ticket } = await apiOpenReturnCase(requestId)
+                router.push(ticketHref(ticket.id))
+            } catch (err) {
+                pushToast('danger', 'CRM case', errMsg(err, 'Could not open the CRM case'))
+            }
+        },
+        [router],
+    )
 
     useEffect(() => {
         let alive = true
@@ -169,7 +176,19 @@ const CustomerReturnsPage = () => {
 
     const columns: ColumnDef<CustomerReturnRequestRow>[] = useMemo(
         () => [
-            { header: 'Return #', accessorKey: 'requestNumber', size: 150 },
+            {
+                header: 'Return #',
+                accessorKey: 'requestNumber',
+                size: 150,
+                cell: ({ row }) => (
+                    <span className="flex flex-col items-start gap-1">
+                        {row.original.requestNumber}
+                        {row.original.crmTicket ? (
+                            <StatusBadge tone="info">CRM case · decided on the ticket</StatusBadge>
+                        ) : null}
+                    </span>
+                ),
+            },
             {
                 header: 'Sales Order',
                 accessorKey: 'salesOrder.orderNumber',
@@ -245,7 +264,7 @@ const CustomerReturnsPage = () => {
                         return <span className="text-gray-400">—</span>
                     }
                     return (
-                        <StatusBadge tone={STATUS_TONE[returnStatus] ?? 'default'}>
+                        <StatusBadge tone={RETURN_STATUS_TONE[returnStatus] ?? 'default'}>
                             {returnStatus.replace(/_/g, ' ')}
                         </StatusBadge>
                     )
@@ -261,7 +280,7 @@ const CustomerReturnsPage = () => {
                     }
                     return (
                         <StatusBadge tone={REFUND_TONE[refundStatus] ?? 'default'}>
-                            {refundStatus.replace(/_/g, ' ')}
+                            {REFUND_STATUS_LABEL[refundStatus] ?? refundStatus.replace(/_/g, ' ')}
                         </StatusBadge>
                     )
                 },
@@ -292,7 +311,7 @@ const CustomerReturnsPage = () => {
                             },
                         })
                     }
-                    if (r.status === 'REQUESTED') {
+                    if (r.status === 'REQUESTED' && !r.crmTicket) {
                         const blocked = isCommercialResolutionBlocked(
                             r.refundStatus,
                         )
@@ -434,11 +453,11 @@ const CustomerReturnsPage = () => {
                         if ((r.preferredResolution ?? 'REFUND') === 'REFUND') {
                             if (r.refundStatus === 'NONE') {
                                 items.push({
-                                    label: 'Create refund (demo)',
+                                    label: 'Create refund',
                                     run: () =>
                                         void confirmRun(
                                             'Create refund',
-                                            'Create the refund record (DEMO ONLY — no real payment is processed)?',
+                                            'Create the refund record? Finance (FICO) pays it; nothing is paid from SD.',
                                             () =>
                                                 customerReturnRequestService.createRefund(r.id, {
                                                     companyId: company,
@@ -485,8 +504,8 @@ const CustomerReturnsPage = () => {
                                         ),
                                 })
                             } else if (r.refundStatus === 'APPROVED') {
-                                items.push({
-                                    label: 'Mark refund paid',
+                                if (DEMO_REFUND_PAYMENT_ENABLED) items.push({
+                                    label: 'Mark refund paid (demo)',
                                     run: () =>
                                         void confirmRun(
                                             'Mark refund paid',
@@ -568,6 +587,12 @@ const CustomerReturnsPage = () => {
                                 ),
                         })
                     }
+                    if (canOpenCase) {
+                        items.unshift({
+                            label: 'Open CRM case',
+                            run: () => void openCrmCase(r.id),
+                        })
+                    }
                     items.unshift({
                         label: 'View details',
                         run: () => setDetail(r),
@@ -591,7 +616,7 @@ const CustomerReturnsPage = () => {
                 },
             },
         ],
-        [companyId, fetchList],
+        [companyId, fetchList, canOpenCase, openCrmCase],
     )
 
     return (
@@ -752,7 +777,7 @@ const CustomerReturnsPage = () => {
                                             {shown.returnStatus ? (
                                                 <StatusBadge
                                                     tone={
-                                                        STATUS_TONE[
+                                                        RETURN_STATUS_TONE[
                                                             shown.returnStatus
                                                         ] ?? 'default'
                                                     }
@@ -772,10 +797,8 @@ const CustomerReturnsPage = () => {
                                                     }
                                                 >
                                                     Refund:{' '}
-                                                    {shown.refundStatus.replace(
-                                                        /_/g,
-                                                        ' ',
-                                                    )}
+                                                    {REFUND_STATUS_LABEL[shown.refundStatus] ??
+                                                        shown.refundStatus.replace(/_/g, ' ')}
                                                 </StatusBadge>
                                             ) : null}
                                         </>
