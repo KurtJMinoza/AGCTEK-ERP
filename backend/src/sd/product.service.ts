@@ -65,6 +65,35 @@ const WITH_MATERIAL_CATEGORY = {
             },
         },
     },
+    /**
+     * VARIABLE products carry no parent-level assignment — the variant owns
+     * its material, so the catalog scope and the displayed category/company
+     * are resolved through the variants.
+     */
+    variants: {
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+            id: true,
+            materialId: true,
+            companyId: true,
+            company: {
+                select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    logoUrl: true,
+                },
+            },
+            material: {
+                select: {
+                    materialCategory: {
+                        select: { name: true, imageUrl: true },
+                    },
+                },
+            },
+        },
+    },
 } satisfies Prisma.SdProductInclude
 
 type ProductWithMaterialCategory = Prisma.SdProductGetPayload<{
@@ -312,41 +341,65 @@ export class ProductService {
 
     async list(query: ListProductsQueryDto) {
         const search = query.search?.trim()
+        /**
+         * Company scope: a product belongs to a company through its ACTIVE
+         * parent assignment (SIMPLE products) OR through the company of one
+         * of its variants (VARIABLE products — the variant owns the material).
+         */
+        const and: Prisma.SdProductWhereInput[] = []
+        if (query.companyId) {
+            and.push({
+                OR: [
+                    {
+                        materialAssignments: {
+                            some: {
+                                status: 'ACTIVE',
+                                companyId: query.companyId,
+                            },
+                        },
+                    },
+                    {
+                        variants: {
+                            some: {
+                                OR: [
+                                    { companyId: query.companyId },
+                                    { material: { companyId: query.companyId } },
+                                ],
+                            },
+                        },
+                    },
+                ],
+            })
+        }
+        if (search) {
+            and.push({
+                OR: [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { sku: { contains: search, mode: 'insensitive' } },
+                    {
+                        category: {
+                            contains: search,
+                            mode: 'insensitive',
+                        },
+                    },
+                ],
+            })
+        }
         const where: Prisma.SdProductWhereInput = {
             ...(query.divisionId ? { divisionId: query.divisionId } : {}),
-            ...(query.companyId
-                ? {
-                      materialAssignments: {
-                          some: {
-                              status: 'ACTIVE',
-                              companyId: query.companyId,
-                          },
-                      },
-                  }
-                : {}),
             ...(query.activeOnly === 'true'
                 ? { isActive: true, status: 'ACTIVE' }
                 : {}),
             ...(query.status ? { status: query.status } : {}),
             ...(query.sku ? { sku: query.sku } : {}),
-            ...(search
-                ? {
-                      OR: [
-                          { name: { contains: search, mode: 'insensitive' } },
-                          { sku: { contains: search, mode: 'insensitive' } },
-                          {
-                              category: {
-                                  contains: search,
-                                  mode: 'insensitive',
-                              },
-                          },
-                      ],
-                  }
-                : {}),
+            ...(and.length ? { AND: and } : {}),
         }
         const rows = await this.prisma.sdProduct.findMany({
             where,
-            include: WITH_MATERIAL_CATEGORY,
+            include: {
+                ...WITH_MATERIAL_CATEGORY,
+                _count: { select: { variants: true } },
+            },
             orderBy: [
                 { divisionId: 'asc' },
                 { sortOrder: 'asc' },
@@ -382,7 +435,10 @@ export class ProductService {
                 })),
             })
         }
-        return rows.map((row) => this.withMaterialCategory(row))
+        return rows.map((row) => ({
+            ...this.withMaterialCategory(row),
+            variantCount: row._count?.variants ?? 0,
+        }))
     }
 
     async findOne(id: string) {
@@ -403,24 +459,36 @@ export class ProductService {
     /**
      * Material Master owns the category: stock items show the primary linked
      * material's MM category; the stored column is only a fallback/search copy.
+     *
+     * VARIABLE products have no parent-level assignment — their variants own
+     * the materials, so the first linked variant provides category + company.
      */
     private withMaterialCategory({
         materialAssignments,
+        variants,
         ...product
     }: ProductWithMaterialCategory) {
+        const assignments = materialAssignments ?? []
+        const variantRows = variants ?? []
         const primaryId = this.asObject(product.attributes)?.primaryMaterialId
         const primary =
-            materialAssignments.find((row) => row.materialId === primaryId) ??
-            materialAssignments[0]
-        const category = primary?.material.materialCategory?.name
+            assignments.find((row) => row.materialId === primaryId) ??
+            assignments[0]
+        const primaryVariant = variantRows.find((row) => row.materialId)
+        const category =
+            primary?.material.materialCategory?.name ??
+            primaryVariant?.material?.materialCategory?.name
         const categoryImageUrl =
-            primary?.material.materialCategory?.imageUrl?.trim() || null
-        const company = primary?.company
+            primary?.material.materialCategory?.imageUrl?.trim() ||
+            primaryVariant?.material?.materialCategory?.imageUrl?.trim() ||
+            null
+        const companyOwner = primary?.company ?? primaryVariant?.company
+        const company = companyOwner
             ? {
-                  id: primary.company.id,
-                  name: primary.company.name,
-                  code: primary.company.code,
-                  logoUrl: primary.company.logoUrl,
+                  id: companyOwner.id,
+                  name: companyOwner.name,
+                  code: companyOwner.code,
+                  logoUrl: companyOwner.logoUrl,
               }
             : null
         const base = category

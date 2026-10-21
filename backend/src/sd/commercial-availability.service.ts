@@ -166,11 +166,20 @@ export class CommercialAvailabilityService {
                         `Selected variant for ${product.name} is unavailable for this store.`,
                     )
                 }
+                if (!variant.materialId) {
+                    // The variant owns its material and has none linked: the
+                    // parent product holds no stock, so this combination cannot
+                    // be sold. Never fall back to the parent's material.
+                    throw new BadRequestException(
+                        `Selected option combination for ${product.name} is not available for sale.`,
+                    )
+                }
                 materialId = variant.materialId
+                resolvedCompanyId = variant.companyId ?? args.companyId
                 salesUomId = variant.salesUomId ?? variant.materialUomId
-            }
-
-            if (!materialId) {
+            } else if (!materialId) {
+                // Legacy line without a variant: the parent product's
+                // assignment resolves the stock item.
                 const resolved =
                     await this.materialResolution.resolveMaterialForProduct({
                         productId: product.id,
@@ -357,6 +366,61 @@ export class CommercialAvailabilityService {
         channel?: string
         quantity?: number
     }): Promise<CommercialAvailability> {
+        /**
+         * VARIABLE products: the variant owns the material (the parent holds no
+         * stock). Resolve the default variant so the product-level view matches
+         * the storefront, which shows the default variant until a shopper picks
+         * a combination. SIMPLE products have one hidden default variant and
+         * therefore travel the same path.
+         */
+        const variant = await this.prisma.sdProductVariant.findFirst({
+            where: { productId: args.productId, isActive: true },
+            orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+            select: { id: true, materialId: true, companyId: true },
+        })
+        if (variant) {
+            if (!variant.materialId) {
+                return {
+                    productId: args.productId,
+                    materialId: null,
+                    warehouseId: null,
+                    availableBaseQty: 0,
+                    state: 'NOT_MAPPED',
+                }
+            }
+            const companyId = variant.companyId ?? args.companyId
+            const ledger = await this.getCompanyMaterialLedger(
+                variant.materialId,
+                companyId,
+            )
+            const available = ledger.availableQty
+            let state: CommercialAvailability['state'] = 'IN_STOCK'
+            if (available <= 0) state = 'OUT_OF_STOCK'
+            else if (available < 10) state = 'LOW_STOCK'
+            let warehouseId: string | null = null
+            try {
+                warehouseId = await this.resolveFulfillmentWarehouse({
+                    companyId,
+                    materialId: variant.materialId,
+                    channel: args.channel,
+                    branchId: args.branchId,
+                    divisionId: args.divisionId,
+                })
+            } catch {
+                warehouseId = null
+            }
+            return {
+                productId: args.productId,
+                materialId: variant.materialId,
+                warehouseId,
+                availableBaseQty: available,
+                state,
+                lowStockThreshold: 10,
+            }
+        }
+
+        // Legacy product without any variant — the parent assignment resolves
+        // the stock item.
         try {
             const resolved = await this.materialResolution.resolveMaterialForProduct({
                 productId: args.productId,

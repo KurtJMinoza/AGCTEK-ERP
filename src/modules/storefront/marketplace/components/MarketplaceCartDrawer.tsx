@@ -23,13 +23,13 @@ import {
     CHECKOUT_PATH,
     MARKETPLACE_PATH,
 } from '../host'
+import { marketplaceCartItemKey } from '../store/useMarketplaceCartStore'
 import {
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
     ProductImage,
     QuantityStepper,
     formatPrice,
-    productKey,
 } from '../marketplaceUi'
 
 export type MarketplaceCartProps = {
@@ -55,6 +55,7 @@ type Row = {
     product: SdProductRecord
     quantity: number
     unitPrice: number
+    variantName?: string
 }
 
 /** Standalone full-page two-column Cart layout without sidebar or modal wrappers. */
@@ -83,21 +84,32 @@ const MarketplaceCartDrawer = ({
             ]),
         )
         const map = new Map<string, { divisionId: string; rows: Row[] }>()
-        for (const { product, quantity } of items) {
+        for (const item of items) {
+            const { product, quantity, variant } = item
             const divisionId = product.divisionId
             const group = map.get(divisionId) ?? {
                 divisionId,
                 rows: [],
             }
             const division = pricedDivisions.get(divisionId)
-            const line = division?.lines.find(
-                (candidate) => candidate.sku === product.sku,
-            )
+            // A variant line is priced by its own variant (two variants of the
+            // same product share the parent SKU but not the price).
+            const line = variant
+                ? division?.lines.find(
+                      (candidate) => candidate.variantId === variant.variantId,
+                  )
+                : division?.lines.find(
+                      (candidate) =>
+                          candidate.sku === product.sku &&
+                          !candidate.variantId,
+                  )
             group.rows.push({
-                key: productKey(product),
+                key: marketplaceCartItemKey(item),
                 product,
                 quantity,
-                unitPrice: line?.unitPrice ?? product.price,
+                unitPrice:
+                    variant?.unitPrice ?? line?.unitPrice ?? product.price,
+                variantName: variant?.variantName,
             })
             map.set(divisionId, group)
         }
@@ -248,8 +260,15 @@ const MarketplaceCartDrawer = ({
                                                 <div className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
                                                     {row.product.name}
                                                 </div>
+                                                {row.variantName ? (
+                                                    <div className="mt-0.5 text-xs font-medium text-shop-700">
+                                                        {row.variantName}
+                                                    </div>
+                                                ) : null}
                                                 <div className="mt-0.5 text-xs text-gray-500">
-                                                    SKU: {row.product.sku} · {formatPrice(row.unitPrice)} each
+                                                    SKU: {row.product.sku} ·{' '}
+                                                    {formatPrice(row.unitPrice)}{' '}
+                                                    each
                                                 </div>
                                                 <div className="mt-3 flex items-center gap-3">
                                                     <QuantityStepper

@@ -44,6 +44,10 @@ export type ProductVariantDefinition = {
     weight: number | null
     isActive: boolean
     isDefault: boolean
+    /** Hidden variants are not shown to customers (SIMPLE default variant). */
+    isHidden?: boolean
+    /** Whether the variant is visible on the storefront. */
+    isPublished?: boolean
     sortOrder: number
     materialId: string | null
     companyId: string | null
@@ -115,6 +119,9 @@ export type OptionsVariantsDraft = {
 export type VariantStockAvailability = StorefrontAvailability & {
     variantId: string
     materialId: string | null
+    /** Material Master identity of the variant's own material. */
+    materialCode?: string | null
+    materialName?: string | null
     companyId: string | null
 }
 

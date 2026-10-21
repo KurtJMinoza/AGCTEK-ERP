@@ -7,7 +7,6 @@ import {
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
-import { MaterialResolutionService } from './material-resolution.service'
 import {
     UpdateProductOptionsVariantsDto,
     VariantInputDto,
@@ -61,6 +60,10 @@ export type ProductVariantPayload = {
     weight: number | null
     isActive: boolean
     isDefault: boolean
+    /** Hidden variants are not shown to customers (SIMPLE default variant). */
+    isHidden: boolean
+    /** Whether the variant is visible on the storefront. */
+    isPublished: boolean
     sortOrder: number
     materialId: string | null
     companyId: string | null
@@ -93,7 +96,6 @@ export class ProductOptionVariantsService {
     constructor(
         private prisma: PrismaService,
         private availability: CommercialAvailabilityService,
-        private materialResolution: MaterialResolutionService,
     ) {}
 
     /** The product must exist (404 otherwise). */
@@ -501,7 +503,15 @@ export class ProductOptionVariantsService {
             where: { id },
             include: {
                 product: { select: { id: true, divisionId: true, sku: true, name: true } },
-                material: { select: { id: true, materialCode: true, materialName: true, baseUomId: true } },
+                material: {
+                    select: {
+                        id: true,
+                        materialCode: true,
+                        materialName: true,
+                        baseUomId: true,
+                        companyId: true,
+                    },
+                },
                 company: { select: { id: true, code: true, name: true } },
                 optionValues: {
                     include: { optionValue: { include: { option: true } } },
@@ -547,27 +557,30 @@ export class ProductOptionVariantsService {
         if (!variant) {
             throw new NotFoundException('Variant not found')
         }
-        const company = companyId?.trim() || variant.companyId || null
-        // Unlinked variants inherit the parent product's MM assignment.
-        let materialId = variant.materialId ?? null
-        if (!materialId && company) {
-            try {
-                const resolved =
-                    await this.materialResolution.resolveMaterialForProduct({
-                        productId: variant.productId,
-                        companyId: company,
-                        divisionId: variant.product?.divisionId ?? null,
-                        channel: 'ECOMMERCE',
-                    })
-                materialId = resolved.materialId
-            } catch {
-                materialId = null
+
+        // Organization scope: a variant may only be read inside the company
+        // that owns its material.
+        const requestedCompanyId = companyId?.trim() || null
+        if (requestedCompanyId) {
+            const ownerCompanyId =
+                variant.companyId ?? variant.material?.companyId ?? null
+            if (ownerCompanyId && ownerCompanyId !== requestedCompanyId) {
+                throw new NotFoundException('Variant not found')
             }
         }
+
+        const company = requestedCompanyId || variant.companyId || null
+        // The variant owns its material. There is deliberately NO fallback to
+        // the parent product's assignment: a VARIABLE product's parent holds no
+        // stock, and showing the parent's stock as the variant's stock would
+        // sell the wrong material.
+        const materialId = variant.materialId ?? null
         if (!company || !materialId) {
             return {
                 variantId,
                 materialId,
+                materialCode: variant.material?.materialCode ?? null,
+                materialName: variant.material?.materialName ?? null,
                 companyId: company,
                 availableQuantity: 0,
                 reservedQuantity: 0,
@@ -591,6 +604,8 @@ export class ProductOptionVariantsService {
         return {
             variantId,
             materialId,
+            materialCode: variant.material?.materialCode ?? null,
+            materialName: variant.material?.materialName ?? null,
             companyId: company,
             availableQuantity: availability.availableBaseQty,
             reservedQuantity: Math.max(0, ledger.reservedQty),
@@ -612,12 +627,30 @@ export class ProductOptionVariantsService {
         await this.requireProduct(productId)
         const variants = await this.prisma.sdProductVariant.findMany({
             where: { productId },
-            select: { id: true },
+            select: {
+                id: true,
+                companyId: true,
+                material: { select: { companyId: true } },
+            },
         })
+        const requestedCompanyId = companyId?.trim() || null
         return Promise.all(
-            variants.map((variant) =>
-                this.variantAvailability(variant.id, companyId, branchId),
-            ),
+            variants
+                // Organization scope: skip variants owned by another company
+                // instead of failing the whole batch.
+                .filter((variant) => {
+                    if (!requestedCompanyId) return true
+                    const owner =
+                        variant.companyId ?? variant.material?.companyId ?? null
+                    return !owner || owner === requestedCompanyId
+                })
+                .map((variant) =>
+                    this.variantAvailability(
+                        variant.id,
+                        requestedCompanyId ?? undefined,
+                        branchId,
+                    ),
+                ),
         )
     }
 

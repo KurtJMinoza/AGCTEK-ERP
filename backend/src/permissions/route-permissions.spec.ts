@@ -52,8 +52,6 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'sd/products#findOne': 'Public storefront catalog',
     'sd/products#optionsVariants': 'Public storefront product options and variants',
     'sd/products#variantByBarcode': 'Public storefront and scanner variant barcode lookup',
-    'sd/products#variantAvailability': 'Public storefront variant availability badge',
-    'sd/products#productVariantsAvailability': 'Public storefront batch variant availability badge',
     'sd/products#storefrontAvailability': 'Public storefront stock badge',
     'sd/sales-orders#list': 'Storefront order history (anonymous storefront visitors)',
     'sd/sales-orders#createMarketplaceCheckout': 'Storefront checkout (anonymous storefront visitors)',

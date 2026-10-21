@@ -224,6 +224,14 @@ export class CreateProductFamilyDto {
     @Type(() => MaterialDefaultsInput)
     materialDefaults!: MaterialDefaultsInput
 
+    /**
+     * SIMPLE products only: link an existing MM material instead of creating
+     * one. VARIABLE products link a material per variant (`variants[].existingMaterialId`).
+     */
+    @IsOptional()
+    @IsString()
+    existingMaterialId?: string
+
     @IsOptional()
     @IsArray()
     @ArrayMaxSize(10)

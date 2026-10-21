@@ -44,8 +44,9 @@ import {
     formatPrice,
     productKey,
 } from '../marketplaceUi'
-import { useMarketplaceCartStore } from '../store/useMarketplaceCartStore'
+import { useMarketplaceCartStore, marketplaceCartItemKey } from '../store/useMarketplaceCartStore'
 import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
+import { productOptionVariantsService } from '@/modules/sd/services/productOptionVariantsService'
 import MarketplaceHeader from '../components/MarketplaceHeader'
 import MarketplacePaymentMethodSelector from '../components/MarketplacePaymentMethodSelector'
 
@@ -121,6 +122,8 @@ const MarketplaceCheckoutPageContent = () => {
         1,
         Math.floor(Number(searchParams.get('qty') ?? '1')) || 1,
     )
+    /** The variant the shopper chose on the product page (Buy Now). */
+    const buyNowVariantId = searchParams.get('variantId')
 
     const buyNowProduct = useMemo(
         () =>
@@ -133,21 +136,89 @@ const MarketplaceCheckoutPageContent = () => {
                 : null,
         [isBuyNow, buyNowSku, buyNowDivision, catalog.records],
     )
+
+    /**
+     * Buy Now resolves the selected variant from the catalog so the order
+     * line keeps the variant (and therefore the variant's material).
+     */
+    const [buyNowVariant, setBuyNowVariant] = useState<{
+        variantId: string
+        variantName: string
+        variantSku: string
+        materialId?: string
+        unitPrice?: number
+        companyId?: string
+        optionValues?: string[]
+    } | null>(null)
+
+    useEffect(() => {
+        if (!buyNowProduct || !buyNowVariantId) {
+            setBuyNowVariant(null)
+            return
+        }
+        let cancelled = false
+        void productOptionVariantsService
+            .getForProduct(buyNowProduct.id)
+            .then((payload) => {
+                if (cancelled) return
+                const variant = payload.variants?.find(
+                    (candidate) => candidate.id === buyNowVariantId,
+                )
+                if (!variant) {
+                    setBuyNowVariant(null)
+                    return
+                }
+                setBuyNowVariant({
+                    variantId: variant.id,
+                    variantName: variant.variantName,
+                    variantSku: variant.sku,
+                    materialId: variant.materialId ?? undefined,
+                    unitPrice: variant.price ?? buyNowProduct.price,
+                    companyId: variant.companyId ?? undefined,
+                    optionValues: variant.optionValues?.map(
+                        (link) => link.value,
+                    ),
+                })
+            })
+            .catch(() => {
+                if (!cancelled) setBuyNowVariant(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [buyNowProduct, buyNowVariantId])
+
     // Buy Now renders only that one item; otherwise the selected cart items.
     const sourceItems = useMemo(
         () =>
             isBuyNow && buyNowProduct
-                ? [{ product: buyNowProduct, quantity: buyNowQty }]
+                ? [
+                      {
+                          product: buyNowProduct,
+                          quantity: buyNowQty,
+                          variant: buyNowVariant ?? undefined,
+                      },
+                  ]
                 : items.filter((item) =>
-                      selectedKeys.includes(productKey(item.product)),
+                      selectedKeys.includes(marketplaceCartItemKey(item)),
                   ),
-        [isBuyNow, buyNowProduct, buyNowQty, items, selectedKeys],
+        [
+            isBuyNow,
+            buyNowProduct,
+            buyNowQty,
+            buyNowVariant,
+            items,
+            selectedKeys,
+        ],
     )
     const selectedProducts = useMemo(
         () =>
             new Map(
                 sourceItems.map((item) => [
-                    productKey(item.product),
+                    productKey(item.product) +
+                        (item.variant?.variantId
+                            ? `#${item.variant.variantId}`
+                            : ''),
                     item.product,
                 ]),
             ),
@@ -252,10 +323,12 @@ const MarketplaceCheckoutPageContent = () => {
     const summaryRows =
         pricing?.divisions.flatMap((division) =>
             division.lines.map((line) => ({
+                // Variant-aware key: two variants of the same product are two
+                // separate order lines.
                 key: productKey({
                     divisionId: division.divisionId,
                     sku: line.sku,
-                }),
+                }) + (line.variantId ? `#${line.variantId}` : ''),
                 divisionId: division.divisionId,
                 name: line.name,
                 quantity: line.quantity,

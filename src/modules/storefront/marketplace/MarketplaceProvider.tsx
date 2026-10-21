@@ -59,7 +59,7 @@ import {
     formatPrice,
     productKey,
 } from './marketplaceUi'
-import { useMarketplaceCartStore } from './store/useMarketplaceCartStore'
+import { useMarketplaceCartStore, marketplaceCartItemKey } from './store/useMarketplaceCartStore'
 import { useMarketplaceClientStore } from './store/useMarketplaceClientStore'
 import { useMarketplaceFavoritesStore } from './store/useMarketplaceFavoritesStore'
 
@@ -220,13 +220,18 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         )
     }, [router, searchParams])
 
-    const quantityByKey = useMemo(
-        () =>
-            new Map(
-                items.map((item) => [productKey(item.product), item.quantity]),
-            ),
-        [items],
-    )
+    /**
+     * Quantity in cart per parent product (all variants summed) — used for the
+     * "N in your cart" badge on product cards and the product page.
+     */
+    const quantityByKey = useMemo(() => {
+        const totals = new Map<string, number>()
+        for (const item of items) {
+            const key = productKey(item.product)
+            totals.set(key, (totals.get(key) ?? 0) + item.quantity)
+        }
+        return totals
+    }, [items])
     const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
     // Selective checkout: only checked items are priced and ordered.
@@ -234,12 +239,17 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         () =>
             items
                 .filter((item) =>
-                    selectedKeys.includes(productKey(item.product)),
+                    selectedKeys.includes(marketplaceCartItemKey(item)),
                 )
                 .map((item) => ({
                     divisionId: item.product.divisionId as SalesDivisionId,
                     sku: item.product.sku,
                     quantity: item.quantity,
+                    // The selected variant is the stock item — it must travel
+                    // with the line so the order reserves the right material.
+                    variantId: item.variant?.variantId,
+                    variantName: item.variant?.variantName,
+                    unitPrice: item.variant?.unitPrice,
                 })),
         [items, selectedKeys],
     )
@@ -290,7 +300,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const startCheckout = () => {
         const selected = items.filter((item) =>
-            selectedKeys.includes(productKey(item.product)),
+            selectedKeys.includes(marketplaceCartItemKey(item)),
         )
         if (selected.length === 0) return
         const lpgItems = selected.filter(

@@ -33,11 +33,11 @@ export class SdMmPipelineService {
         })
         if (!order) return null
 
-        const companyId =
+        const headerCompanyId =
             order.companyId ??
             (await this.fulfillmentDetermination.defaultCompanyId())
-        /** Mutable: a variant's linked company overrides the fallback per line. */
-        let effectiveCompanyId = companyId
+        /** Companies actually used by the lines (the header may span several). */
+        const lineCompanies = new Set<string>()
 
         const linesByWarehouse = new Map<
             string,
@@ -57,6 +57,13 @@ export class SdMmPipelineService {
             let materialId = line.materialId
             const divisionId = line.divisionId ?? order.divisionId
             let variantSalesUomId: string | null = null
+            /**
+             * Per-line company scope: a variant's linked company overrides the
+             * header/default company for THIS line only (a previous version
+             * shared one mutable variable, so one line's company leaked into
+             * the following lines and the order header).
+             */
+            let effectiveCompanyId = headerCompanyId
 
             // Variants are the stock item: their linked material supplies ATP,
             // reservation and goods issue — never the parent product's material.
@@ -75,10 +82,19 @@ export class SdMmPipelineService {
                     if (variant.companyId) effectiveCompanyId = variant.companyId
                     variantSalesUomId =
                         variant.salesUomId ?? variant.materialUomId ?? null
+                } else {
+                    // The variant owns its material and has none: the parent
+                    // product holds no stock, so there is nothing to reserve.
+                    // Skip the line instead of reserving another variant's
+                    // material against it.
+                    this.logger.warn(
+                        `Order ${order.orderNumber} line ${line.lineNumber}: variant has no linked material — line skipped (no stock reserved)`,
+                    )
+                    continue
                 }
-            }
-
-            if (!materialId && line.sku && divisionId) {
+            } else if (!materialId && line.sku && divisionId) {
+                // Legacy line without a variant: the parent product's
+                // assignment still resolves the stock item.
                 const product =
                     await this.materialResolution.findProductByDivisionSku(
                         divisionId,
@@ -91,7 +107,7 @@ export class SdMmPipelineService {
                             await this.materialResolution.resolveMaterialForProduct(
                                 {
                                     productId: product.id,
-                                    companyId,
+                                    companyId: headerCompanyId,
                                     divisionId,
                                     channel: order.channel,
                                 },
@@ -203,7 +219,17 @@ export class SdMmPipelineService {
                 baseUomId,
             })
             linesByWarehouse.set(warehouseId, bucket)
+            if (effectiveCompanyId) lineCompanies.add(effectiveCompanyId)
         }
+
+        /**
+         * Header company: use the single company the lines agreed on, else
+         * keep the header/default company (never guess between companies).
+         */
+        const orderCompanyId =
+            lineCompanies.size === 1
+                ? [...lineCompanies][0]
+                : headerCompanyId
 
         const primaryWarehouse =
             order.warehouseId ??
@@ -225,7 +251,7 @@ export class SdMmPipelineService {
         await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
-                companyId: effectiveCompanyId,
+                companyId: orderCompanyId,
                 ...(primaryWarehouse ? { warehouseId: primaryWarehouse } : {}),
                 ...(primaryWarehouseBranchId
                     ? { branchId: primaryWarehouseBranchId }
@@ -236,7 +262,7 @@ export class SdMmPipelineService {
         for (const [warehouseId, lines] of linesByWarehouse) {
             await this.fulfillment.syncFulfillmentsForOrder({
                 salesOrderId: order.id,
-                companyId: effectiveCompanyId,
+                companyId: orderCompanyId,
                 warehouseId,
                 lines,
             })

@@ -13,6 +13,7 @@ import {
     HiOutlineUpload,
 } from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import ProductVariantsSubRow from './ProductVariantsSubRow'
 import DataTable, { type ColumnDef, type OnSortParam } from '@/components/shared/DataTable'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -158,6 +159,7 @@ export type ProductCatalogTableSectionProps = {
     onEdit: (product: SdProductRecord) => void
     onDelete: (product: SdProductRecord) => void
     onAddProduct: () => void
+    onAddVariant?: (product: SdProductRecord) => void
     onRefresh?: () => void
     refreshing?: boolean
 }
@@ -177,6 +179,7 @@ const ProductCatalogTableSection = ({
     onEdit,
     onDelete,
     onAddProduct,
+    onAddVariant,
     onRefresh,
     refreshing,
 }: ProductCatalogTableSectionProps) => {
@@ -415,11 +418,43 @@ const ProductCatalogTableSection = ({
                 ),
             },
             {
+                id: 'variants',
+                header: () => <HeaderLabel>Variants</HeaderLabel>,
+                size: 120,
+                cell: ({ row }) => {
+                    const count = row.original.variantCount ?? 0
+                    return (
+                        <span className="text-sm text-gray-600">
+                            {count > 0 ? (
+                                <span className="inline-flex items-center gap-1">
+                                    {count} variant{count === 1 ? '' : 's'}
+                                    <span className="text-xs text-gray-400">
+                                        (expand)
+                                    </span>
+                                </span>
+                            ) : (
+                                <span className="text-gray-400">—</span>
+                            )}
+                        </span>
+                    )
+                },
+            },
+            {
                 id: 'actions',
                 header: () => <span className="sr-only">Actions</span>,
                 size: 88,
                 cell: ({ row }) => (
                     <div className="flex items-center justify-end gap-1">
+                        {canUpdate && onAddVariant && (
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                className="text-gray-500 hover:text-emerald-600"
+                                icon={<HiOutlinePlus className="text-lg" />}
+                                aria-label={`Add variant to ${row.original.name}`}
+                                onClick={() => onAddVariant(row.original)}
+                            />
+                        )}
                         {canUpdate && (
                             <Button
                                 size="sm"
@@ -444,7 +479,7 @@ const ProductCatalogTableSection = ({
                 ),
             },
         ],
-        [onDelete, onEdit, onToggleActive, stockByProductId, togglingId, canUpdate, canDelete],
+        [onDelete, onEdit, onToggleActive, onAddVariant, stockByProductId, togglingId, canUpdate, canDelete],
     )
 
     return (
@@ -589,6 +624,15 @@ const ProductCatalogTableSection = ({
                     setPage(1)
                 }}
                 onSort={handleSort}
+                getRowId={(row) => row.id}
+                renderSubRow={(row) => (
+                    <ProductVariantsSubRow
+                        productId={row.id}
+                        productName={row.name}
+                        companyId={row.company?.id ?? null}
+                        parentPrice={row.price}
+                    />
+                )}
             />
         </AdaptiveCard>
     )
