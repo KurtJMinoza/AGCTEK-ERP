@@ -28,6 +28,7 @@ import { RetailClientService } from '../retail/retail-client.service'
 import { groupLinesByDivision } from './marketplace-checkout.util'
 import { ProductService } from './product.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
+import { resolveCommercialCustomerIds } from './customer-master'
 import { SD_EVENTS } from './sd-event.types'
 import { SdMmPipelineService } from './sd-mm-pipeline.service'
 import {
@@ -362,6 +363,27 @@ export class SalesOrderService {
             },
         })
         return crmHandoffResult(order, true)
+    }
+
+    /**
+     * All commercial orders of one Customer Master, newest first: orders on its own id and on its
+     * linked shop account (storefront orders store the shop account id). `total` counts them all;
+     * `unlinkedShopAccounts` names a same-email shop account whose orders are not linked yet.
+     */
+    async listForCustomerMaster(masterCustomerId: string, limit = 20) {
+        const ids = await resolveCommercialCustomerIds(this.prisma, masterCustomerId)
+        if (!ids) throw new NotFoundException('Customer not found')
+        const where: Prisma.SdSalesOrderWhereInput = { customerId: { in: ids.orderCustomerIds } }
+        const [rows, total] = await Promise.all([
+            this.prisma.sdSalesOrder.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                take: limit,
+                include: { lines: { orderBy: { lineNumber: 'asc' } } },
+            }),
+            this.prisma.sdSalesOrder.count({ where }),
+        ])
+        return { rows, total, unlinkedShopAccounts: ids.unlinkedShopAccounts }
     }
 
     async list(query: ListSalesOrdersQueryDto) {

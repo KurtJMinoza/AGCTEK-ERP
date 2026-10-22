@@ -18,6 +18,8 @@ import type {
     Lead,
     LeadListParams,
     LinkedSalesOrder,
+    MockEarnInput,
+    MockEarnResult,
     Opportunity,
     OpportunityFeedPage,
     OpportunityListParams,
@@ -350,6 +352,15 @@ export async function apiAddTicketComment(ticketId: string, body: string) {
     const { data } = await ErpAxiosBase.post<TicketComment>(
         `/crm/tickets/${encodeURIComponent(ticketId)}/comments`,
         { body },
+    )
+    return data
+}
+
+/** Demo / staging only; the server refuses it (403) unless LOYALTY_MOCK_ACCRUAL=true. */
+export async function apiMockEarnLoyalty(customerId: string, body: MockEarnInput) {
+    const { data } = await ErpAxiosBase.post<MockEarnResult>(
+        `/crm/customers/${encodeURIComponent(customerId)}/loyalty/mock-earn`,
+        body,
     )
     return data
 }

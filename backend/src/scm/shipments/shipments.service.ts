@@ -164,6 +164,7 @@ export class ShipmentsService {
                 exceptionCode: true,
                 exceptionNote: true,
                 createdAt: true,
+                updatedAt: true,
                 courierConsignment: {
                     select: {
                         status: true,

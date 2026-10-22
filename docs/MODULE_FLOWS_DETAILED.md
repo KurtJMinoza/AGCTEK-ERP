@@ -125,7 +125,7 @@ CRM notifications                             ⬜
 | Piece | Status |
 | --- | --- |
 | Nav hub `/modules/crm` → `/crm/*` | ✅ Dashboard · Customers · Leads · Opportunities · Tickets |
-| Backend `crm` module | ✅ core (leads, opportunities, tickets + comments, loyalty read, Customer 360) |
+| Backend `crm` module | ✅ core (leads, opportunities, tickets + comments, loyalty read + mock accrual, Customer 360) |
 | Opportunity activities · stage gates · lost reason · weighted pipeline | ✅ |
 | Closed Won → SD draft Sales Order, channel ECOMMERCE / source CRM (`POST /crm/opportunities/:id/win`; retry `POST :id/sales-order`; UI readiness checklist) | ✅ |
 | SD quotations from opportunities (`/crm/opportunities/:id/quotations`, `/sd/quotations/:id[/action]`): one active per opportunity, prices frozen at send, win converts SENT / ACCEPTED, Closed Lost cancels; Quotations panel on the opportunity workspace | ✅ |
@@ -134,7 +134,8 @@ CRM notifications                             ⬜
 | Ticket activities · default queue (Open + Waiting customer, priority sort) · RMA free-text reference | ✅ |
 | CRM dashboard (`GET /crm/dashboard`): leads, overdue activities, weighted pipeline, tickets by priority, win/loss by reason, lead conversion; deep links to filtered lists / board | ✅ |
 | RMA hand-off: storefront return → CRM case (`link=RETURN`, return panel); agent approves / rejects on the case, SD applies it (`docs/COD_DELIVERY_CUSTOMER_RETURNS.md`) | ✅ |
-| Refund payment (FICO) · loyalty accrual · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
+| Loyalty `accruePoints` + gated mock earn (`LOYALTY_MOCK_ACCRUAL`; Mock-labelled, not invoice-backed) | ✅ demo / staging |
+| Refund payment (FICO) · loyalty accrual from FICO invoices · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
 
 ---
 
