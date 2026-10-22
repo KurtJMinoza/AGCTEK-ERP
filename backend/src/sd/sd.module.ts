@@ -46,6 +46,8 @@ import { PricingConditionService } from './pricing-condition.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
 import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
+import { BackorderReportController } from './backorder-report.controller'
+import { BackorderReportService } from './backorder-report.service'
 
 @Module({
     imports: [
@@ -69,6 +71,7 @@ import { SalesAnalyticsService } from './sales-analytics.service'
         PricingConditionController,
         SalesAnalyticsController,
         UploadsController,
+        BackorderReportController,
     ],
     providers: [
         CustomerService,
@@ -100,6 +103,7 @@ import { SalesAnalyticsService } from './sales-analytics.service'
         ProductMaterialLinkService,
         PricingConditionService,
         SalesAnalyticsService,
+        BackorderReportService,
     ],
     exports: [
         SalesOrderService,

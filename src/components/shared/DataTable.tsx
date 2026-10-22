@@ -72,7 +72,7 @@ type DataTableProps<T> = {
      * clicks on embedded controls (buttons, links, inputs) are left alone.
      */
     renderSubRow?: (row: T) => ReactNode
-    /** Optional per-row class (e.g. staggered entrance animations). */
+    /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
     rowClassName?: (row: T, index: number) => string | undefined
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
@@ -338,7 +338,10 @@ function DataTable<T>(props: DataTableProps<T>) {
             <Table
                 {...rest}
                 overflow={fit ? false : rest.overflow}
-                className={classNames(fit && 'w-full table-fixed', rest.className)}
+                className={classNames(
+                    fit && 'w-full table-fixed',
+                    rest.className,
+                )}
             >
                 <THead>
                     {table.getHeaderGroups().map((headerGroup) => (
@@ -348,12 +351,13 @@ function DataTable<T>(props: DataTableProps<T>) {
                                     <Th
                                         key={header.id}
                                         colSpan={header.colSpan}
-                                        className={(
-                                            header.column.columnDef
-                                                .meta as
-                                                | { className?: string }
-                                                | undefined
-                                        )?.className}
+                                        className={
+                                            (
+                                                header.column.columnDef.meta as
+                                                    | { className?: string }
+                                                    | undefined
+                                            )?.className
+                                        }
                                         style={columnStyle(
                                             header.getSize(),
                                             header.column.columnDef.minSize,
@@ -363,7 +367,9 @@ function DataTable<T>(props: DataTableProps<T>) {
                                             <div
                                                 className={classNames(
                                                     'inline-flex items-center gap-1.5',
-                                                    fit ? 'max-w-full truncate' : 'whitespace-nowrap',
+                                                    fit
+                                                        ? 'max-w-full truncate'
+                                                        : 'whitespace-nowrap',
                                                     header.column.getCanSort() &&
                                                         'cursor-pointer select-none point',
                                                     loading &&
@@ -426,13 +432,16 @@ function DataTable<T>(props: DataTableProps<T>) {
                                     return (
                                         <Fragment key={row.id}>
                                             <Tr
-                                                className={classNames(
-                                                    renderSubRow && 'cursor-pointer',
-                                                    rowClassName?.(
-                                                        row.original as T,
-                                                        row.index,
-                                                    ),
-                                                )}
+                                                className={
+                                                    classNames(
+                                                        renderSubRow &&
+                                                            'cursor-pointer',
+                                                        rowClassName?.(
+                                                            row.original as T,
+                                                            row.index,
+                                                        ),
+                                                    ) || undefined
+                                                }
                                                 onClick={
                                                     renderSubRow
                                                         ? (event) =>
@@ -451,16 +460,22 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                                 key={cell.id}
                                                                 style={columnStyle(
                                                                     cell.column.getSize(),
-                                                                    cell.column.columnDef.minSize,
+                                                                    cell.column
+                                                                        .columnDef
+                                                                        .minSize,
                                                                 )}
                                                                 className={classNames(
                                                                     (
-                                                                        cell.column
+                                                                        cell
+                                                                            .column
                                                                             .columnDef
                                                                             .meta as
-                                                                            | { className?: string }
+                                                                            | {
+                                                                                  className?: string
+                                                                              }
                                                                             | undefined
-                                                                    )?.className,
+                                                                    )
+                                                                        ?.className,
                                                                     fit &&
                                                                         'overflow-hidden',
                                                                 )}
@@ -524,7 +539,9 @@ function DataTable<T>(props: DataTableProps<T>) {
                                 (option) => option.value === pageSize,
                             )}
                             options={pageSizeOption}
-                            onChange={(option) => handleSelectChange(option?.value)}
+                            onChange={(option) =>
+                                handleSelectChange(option?.value)
+                            }
                         />
                     </div>
                 </div>
