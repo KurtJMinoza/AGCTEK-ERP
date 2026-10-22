@@ -7408,26 +7408,68 @@ model DemandPlanAdjustment {
 
 /// Shop customer account (separate from ERP User) — delivery profile + saved cart
 model RetailClient {
-  id           String                @id @default(cuid())
-  email        String                @unique
-  passwordHash String
-  fullName     String
-  phone        String                @default("")
-  addressLine1 String                @default("")
-  city         String                @default("")
-  region       String                @default("")
-  postalCode   String                @default("")
-  country      String                @default("PH")
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  cartItems    RetailCartItem[]
-  addresses    RetailClientAddress[]
-  notifications Notification[]
+  id              String                @id @default(cuid())
+  /// Normalized lowercase Gmail (unique shop identity).
+  email           String                @unique
+  /// Legacy password sign-in (staff-provisioned accounts); Gmail auth does not require it.
+  passwordHash    String?
+  fullName        String
+  firstName       String?
+  lastName        String?
+  emailVerifiedAt DateTime?
+  /// ACTIVE | DISABLED — disabled accounts cannot sign in via shop auth.
+  status          String                @default("ACTIVE")
+  phone           String                @default("")
+  addressLine1    String                @default("")
+  city            String                @default("")
+  region          String                @default("")
+  postalCode      String                @default("")
+  country         String                @default("PH")
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  cartItems       RetailCartItem[]
+  addresses       RetailClientAddress[]
+  notifications   Notification[]
+  authIdentities  RetailAuthIdentity[]
   /// SD Customer Master record linked via Add New Customer (shop reference).
-  sdCustomer   SdCustomer?
-  productReviews ProductReview[]
+  sdCustomer      SdCustomer?
+  productReviews  ProductReview[]
 
   @@index([email])
+  @@index([status])
+}
+
+/// Linked sign-in provider for a shop customer (Google or email OTP).
+model RetailAuthIdentity {
+  id             String       @id @default(cuid())
+  clientId       String
+  client         RetailClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// GOOGLE | EMAIL_OTP
+  provider       String
+  providerUserId String?
+  providerEmail  String
+  lastSignInAt   DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([provider, providerUserId])
+  @@index([clientId])
+  @@index([provider, providerEmail])
+}
+
+/// Hashed email OTP challenges for passwordless Gmail shop sign-in.
+model RetailEmailOtp {
+  id               String    @id @default(cuid())
+  emailNormalized  String
+  codeHash         String
+  expiresAt        DateTime
+  usedAt           DateTime?
+  attemptCount     Int       @default(0)
+  requestIp        String?
+  requestUserAgent String?
+  createdAt        DateTime  @default(now())
+
+  @@index([emailNormalized, createdAt])
+  @@index([emailNormalized, expiresAt])
 }
 
 /// A shopper-owned delivery location. The final map pin is retained separately

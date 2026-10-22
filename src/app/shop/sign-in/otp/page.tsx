@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import MarketplaceOtpPage from '@/modules/storefront/marketplace/pages/MarketplaceOtpPage'
 
 export const metadata: Metadata = {
-    title: 'Verify your number | Amalgated Shop',
+    title: 'Verify your Gmail | Amalgated Shop',
 }
 
 export default async function OtpRoute({

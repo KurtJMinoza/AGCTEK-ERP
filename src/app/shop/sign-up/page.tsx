@@ -1,22 +1,15 @@
-import type { Metadata } from 'next'
-import MarketplaceAuthPage from '@/modules/storefront/marketplace/pages/MarketplaceAuthPage'
+import { redirect } from 'next/navigation'
+import { MARKETPLACE_SIGN_IN_PATH } from '@/modules/storefront/marketplace/host'
 
-export const metadata: Metadata = {
-    title: 'Create account | Amalgated Shop',
-    description:
-        'Create an Amalgated Shop account and save your delivery details for checkout.',
-}
-
-export default async function SignUpRoute({
+export default async function SignUpRedirect({
     searchParams,
 }: {
     searchParams: Promise<{ next?: string | string[] }>
 }) {
     const { next } = await searchParams
-    return (
-        <MarketplaceAuthPage
-            initialMode="sign-up"
-            next={typeof next === 'string' ? next : null}
-        />
-    )
+    const q =
+        typeof next === 'string' && next.trim()
+            ? `?${new URLSearchParams({ next }).toString()}`
+            : ''
+    redirect(`${MARKETPLACE_SIGN_IN_PATH}${q}`)
 }

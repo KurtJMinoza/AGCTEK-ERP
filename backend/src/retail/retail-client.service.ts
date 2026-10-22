@@ -119,7 +119,7 @@ export class RetailClientService {
         })
         if (existing) {
             throw new ConflictException(
-                'An account with this email already exists.',
+                'An account with this email already exists. Sign in at the shop with Google or email verification.',
             )
         }
 
@@ -141,7 +141,7 @@ export class RetailClientService {
                 error.code === 'P2002'
             ) {
                 throw new ConflictException(
-                    'An account with this email already exists.',
+                    'An account with this email already exists. Sign in at the shop with Google or email verification.',
                 )
             }
             throw error
@@ -273,12 +273,17 @@ private async createCustomerFromShopAccount(client: {
                 },
             },
         })
-        const valid = await bcrypt.compare(
-            input.password,
-            client?.passwordHash ?? UNKNOWN_ACCOUNT_HASH,
-        )
+        const hash = client?.passwordHash?.trim()
+        const valid = hash
+            ? await bcrypt.compare(input.password, hash)
+            : false
         if (!client || !valid) {
             throw new UnauthorizedException('Invalid email or password.')
+        }
+        if (client.status === 'DISABLED') {
+            throw new UnauthorizedException(
+                'This customer account is unavailable. Contact support.',
+            )
         }
 
         return {
@@ -411,5 +416,243 @@ private async createCustomerFromShopAccount(client: {
         })
 
         return this.getCart(id)
+    }
+
+    /** Shop Gmail auth: issue session + public profile for an active client. */
+    async buildAuthSession(clientId: string, extras?: { needsProfile?: boolean }) {
+        const client = await this.prisma.retailClient.findUnique({
+            where: { id: clientId.trim() },
+            include: {
+                addresses: {
+                    where: { isDefault: true },
+                    take: 1,
+                    select: {
+                        formattedAddress: true,
+                        addressLine: true,
+                        cityOrMunicipality: true,
+                        provinceOrState: true,
+                        postalCode: true,
+                        country: true,
+                        additionalInfo: true,
+                        latitude: true,
+                        longitude: true,
+                    },
+                },
+            },
+        })
+        if (!client) {
+            throw new NotFoundException('Client not found.')
+        }
+        if (client.status === 'DISABLED') {
+            throw new UnauthorizedException(
+                'This customer account is unavailable. Contact support.',
+            )
+        }
+        const needsProfile =
+            extras?.needsProfile ??
+            !(client.firstName?.trim() || client.fullName?.trim())
+        return {
+            status: 'success' as const,
+            client: this.toPublic(client),
+            needsProfile,
+            ...this.sessions.issue(client.id),
+        }
+    }
+
+    /**
+     * After Gmail verification (Google or OTP): find or create the shop customer,
+     * link auth identity, ensure SD customer, return session.
+     */
+    async upsertFromVerifiedGmail(input: {
+        email: string
+        provider: 'GOOGLE' | 'EMAIL_OTP'
+        providerUserId?: string | null
+        firstName?: string | null
+        lastName?: string | null
+        /** When false (email OTP), missing accounts are rejected — use Google to register. */
+        allowAccountCreation?: boolean
+    }) {
+        const email = input.email.trim().toLowerCase()
+        const allowCreate = input.allowAccountCreation !== false
+        const now = new Date()
+        const displayFirst =
+            input.firstName?.trim() ||
+            input.lastName?.trim() ||
+            'Customer'
+
+        return this.prisma.$transaction(async (tx) => {
+            let client = await tx.retailClient.findUnique({ where: { email } })
+            let created = false
+            if (!client) {
+                if (!allowCreate) {
+                    throw new NotFoundException(
+                        'No shop account found for this email. Use Continue with Google to create one.',
+                    )
+                }
+                created = true
+                try {
+                    client = await tx.retailClient.create({
+                        data: {
+                            email,
+                            passwordHash: null,
+                            fullName: displayFirst,
+                            firstName: input.firstName?.trim() || null,
+                            lastName: input.lastName?.trim() || null,
+                            emailVerifiedAt: now,
+                            status: 'ACTIVE',
+                        },
+                    })
+                } catch (error) {
+                    if (
+                        error instanceof Prisma.PrismaClientKnownRequestError &&
+                        error.code === 'P2002'
+                    ) {
+                        client = await tx.retailClient.findUnique({
+                            where: { email },
+                        })
+                        created = false
+                    } else {
+                        throw error
+                    }
+                }
+            } else if (client.status === 'DISABLED') {
+                throw new UnauthorizedException(
+                    'This customer account is unavailable. Contact support.',
+                )
+            } else {
+                await tx.retailClient.update({
+                    where: { id: client.id },
+                    data: {
+                        emailVerifiedAt: client.emailVerifiedAt ?? now,
+                        ...(input.firstName?.trim() && {
+                            firstName: input.firstName.trim(),
+                            fullName: input.firstName.trim(),
+                        }),
+                        ...(input.lastName?.trim() && {
+                            lastName: input.lastName.trim(),
+                        }),
+                    },
+                })
+            }
+
+            if (!client) {
+                throw new ConflictException('Unable to create shop account.')
+            }
+
+            const providerUserId =
+                input.providerUserId?.trim() ||
+                (input.provider === 'GOOGLE' ? null : client.id)
+
+            if (input.provider === 'GOOGLE' && input.providerUserId) {
+                await tx.retailAuthIdentity.upsert({
+                    where: {
+                        provider_providerUserId: {
+                            provider: input.provider,
+                            providerUserId: input.providerUserId,
+                        },
+                    },
+                    create: {
+                        clientId: client.id,
+                        provider: input.provider,
+                        providerUserId: input.providerUserId,
+                        providerEmail: email,
+                        lastSignInAt: now,
+                    },
+                    update: {
+                        clientId: client.id,
+                        providerEmail: email,
+                        lastSignInAt: now,
+                    },
+                })
+            } else {
+                const existing = await tx.retailAuthIdentity.findFirst({
+                    where: {
+                        clientId: client.id,
+                        provider: input.provider,
+                    },
+                })
+                if (existing) {
+                    await tx.retailAuthIdentity.update({
+                        where: { id: existing.id },
+                        data: { lastSignInAt: now, providerEmail: email },
+                    })
+                } else {
+                    await tx.retailAuthIdentity.create({
+                        data: {
+                            clientId: client.id,
+                            provider: input.provider,
+                            providerUserId: providerUserId ?? client.id,
+                            providerEmail: email,
+                            lastSignInAt: now,
+                        },
+                    })
+                }
+            }
+
+            if (created) {
+                await this.createCustomerFromShopAccountInTx(tx, client)
+            }
+
+            const needsProfile = created && !input.firstName?.trim()
+            return { clientId: client.id, created, needsProfile }
+        })
+    }
+
+    private async createCustomerFromShopAccountInTx(
+        tx: Prisma.TransactionClient,
+        client: { id: string; email: string; fullName: string; phone: string },
+    ) {
+        const customer = await tx.sdCustomer.findUnique({
+            where: { email: client.email },
+            select: { id: true, retailClientId: true },
+        })
+        if (customer) {
+            if (!customer.retailClientId) {
+                await tx.sdCustomer.update({
+                    where: { id: customer.id },
+                    data: { retailClientId: client.id },
+                })
+            }
+            return
+        }
+        for (let attempt = 0; attempt < MAX_CUSTOMER_NUMBER_ATTEMPTS; attempt++) {
+            const customerNumber = await nextCustomerNumber(attempt, this.prisma)
+            try {
+                await tx.sdCustomer.create({
+                    data: {
+                        customerNumber,
+                        companyName: client.fullName,
+                        contactName: client.fullName,
+                        email: client.email,
+                        phone: client.phone,
+                        creditLimit: new Decimal(0),
+                        availableCredit: new Decimal(0),
+                        status: 'ACTIVE',
+                        customerType: 'RETAIL',
+                        retailClientId: client.id,
+                    },
+                })
+                return
+            } catch (error) {
+                if (
+                    error instanceof Prisma.PrismaClientKnownRequestError &&
+                    error.code === 'P2002'
+                ) {
+                    const target = error.meta?.target
+                    const targets = Array.isArray(target)
+                        ? target.map(String)
+                        : [String(target)]
+                    if (targets.includes('email')) {
+                        await tx.sdCustomer.updateMany({
+                            where: { email: client.email },
+                            data: { retailClientId: client.id },
+                        })
+                        return
+                    }
+                    if (targets.includes('customerNumber')) continue
+                }
+                throw error
+            }
+        }
     }
 }

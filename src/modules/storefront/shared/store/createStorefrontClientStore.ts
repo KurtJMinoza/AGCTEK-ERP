@@ -12,6 +12,7 @@ import {
     type RetailProfileUpdate,
     type RetailRegisterPayload,
 } from '@/services/storefront/retailClientService'
+import { shopAuthLogout } from '@/services/storefront/shopAuthService'
 
 type PersistedSession = {
     client: RetailClientProfile | null
@@ -33,6 +34,10 @@ export type StorefrontClientState = PersistedSession & {
     /** Refreshes checkout details after a saved address changes the default location. */
     refreshProfile: () => Promise<void>
     logout: () => void
+    /** Gmail / Google shop auth session (passwordless). */
+    applyShopSession: (
+        session: RetailClientSession & { needsProfile?: boolean },
+    ) => void
 }
 
 const SIGNED_OUT: PersistedSession = {
@@ -117,7 +122,20 @@ export const createStorefrontClientStore = (storageKey: string) =>
                     const client = await fetchRetailClientProfile(token)
                     set({ client })
                 },
-                logout: () => set({ ...SIGNED_OUT, isAccountOpen: false }),
+                applyShopSession: (session) => {
+                    set({
+                        client: session.client,
+                        token: session.token,
+                        expiresAt: session.expiresAt,
+                    })
+                },
+                logout: () => {
+                    const token = get().token
+                    if (token) {
+                        void shopAuthLogout(token).catch(() => {})
+                    }
+                    set({ ...SIGNED_OUT, isAccountOpen: false })
+                },
             }),
             {
                 name: storageKey,

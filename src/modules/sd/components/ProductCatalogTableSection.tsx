@@ -1,9 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Image from 'next/image'
 import {
-    HiOutlineCube,
     HiOutlineFilter,
     HiOutlinePencil,
     HiOutlinePlus,
@@ -18,10 +16,6 @@ import DataTable, { type ColumnDef, type OnSortParam } from '@/components/shared
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
-import Switcher from '@/components/ui/Switcher'
-import Tag from '@/components/ui/Tag'
-import Progress from '@/components/ui/Progress'
-import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import {
     fetchCatalogVariantsSummary,
     fetchProductCatalogStock,
@@ -33,118 +27,18 @@ import type { CatalogStockSnapshot } from '../utils/productCatalogTableColors'
 import { downloadProductCatalogCsv } from '../utils/productCatalogExport'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
-    badgeTextClass,
-    categoryTextClass,
-    priceTextClass,
-    stockBarClass,
-    stockDetail,
-    stockLabel,
-    stockPercent,
-    stockTextClass,
-    visibilityTextClass,
-} from '../utils/productCatalogTableColors'
+    PcBadgeCell,
+    PcCategoryCell,
+    PcCompanyCell,
+    PcPriceCell,
+    PcProductIdentityCell,
+    PcStockCell,
+    PcVariantsCell,
+    PcVisibilityCell,
+    pcTableRowEnterClass,
+} from './ProductCatalogTableCells'
 
 type FilterOption = { value: string; label: string }
-
-const CompanyLogoCell = ({
-    company,
-}: {
-    company: { name: string; logoUrl: string | null }
-}) => {
-    const src = company.logoUrl?.trim() ?? ''
-    return (
-        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-700">
-            {isRenderableImageSrc(src) ? (
-                <Image
-                    src={src}
-                    alt=""
-                    fill
-                    sizes="32px"
-                    unoptimized={isUnoptimizedImage(src)}
-                    className="object-contain p-0.5"
-                />
-            ) : (
-                <span className="flex h-full w-full items-center justify-center text-[10px] font-bold uppercase text-gray-400">
-                    {(company.name ?? '').slice(0, 2) || '?'}
-                </span>
-            )}
-        </div>
-    )
-}
-
-const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
-        value,
-    )
-
-const HeaderLabel = ({ children }: { children: string }) => (
-    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-        {children}
-    </span>
-)
-
-const Thumbnail = ({ src, alt }: { src: string; alt: string }) => (
-    <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
-        {isRenderableImageSrc(src) ? (
-            <Image
-                src={src}
-                alt={alt}
-                fill
-                sizes="44px"
-                unoptimized={isUnoptimizedImage(src)}
-                className="object-cover"
-            />
-        ) : (
-            <HiOutlineCube className="m-auto h-full w-5 text-gray-400" />
-        )}
-    </div>
-)
-
-const StockRemainingMeter = ({
-    snapshot,
-}: {
-    snapshot: CatalogStockSnapshot | undefined
-}) => {
-    const label = stockLabel(snapshot)
-    const detail = stockDetail(snapshot)
-    const state = snapshot?.state ?? 'NOT_MAPPED'
-    return (
-        <div className="min-w-[7rem]">
-            <p
-                className={`mb-1.5 text-sm font-semibold ${stockTextClass(state)}`}
-                title={snapshot?.error}
-            >
-                {label}
-            </p>
-            {detail ? (
-                <p className="mb-1.5 text-[11px] text-gray-500">{detail}</p>
-            ) : null}
-            <Progress
-                percent={stockPercent(snapshot)}
-                showInfo={false}
-                customColorClass={stockBarClass(state)}
-            />
-        </div>
-    )
-}
-
-const VisibilityMeter = ({ active }: { active: boolean }) => {
-    const percent = active ? 100 : 18
-    return (
-        <div className="min-w-[7rem]">
-            <p
-                className={`mb-1.5 text-sm font-medium ${visibilityTextClass(active)}`}
-            >
-                {active ? 'Storefront live' : 'Hidden'}
-            </p>
-            <Progress
-                percent={percent}
-                showInfo={false}
-                customColorClass={active ? 'bg-emerald-500' : 'bg-rose-400'}
-            />
-        </div>
-    )
-}
 
 export type ProductCatalogTableSectionProps = {
     products: SdProductRecord[]
@@ -165,6 +59,13 @@ export type ProductCatalogTableSectionProps = {
     onRefresh?: () => void
     refreshing?: boolean
 }
+
+const LIFECYCLE_OPTIONS: FilterOption[] = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'ACTIVE', label: 'Active' },
+    { value: 'INACTIVE', label: 'Inactive' },
+    { value: 'ARCHIVED', label: 'Archived' },
+]
 
 const ProductCatalogTableSection = ({
     products,
@@ -217,7 +118,6 @@ const ProductCatalogTableSection = ({
             .finally(() => {
                 if (!cancelled) setStockLoading(false)
             })
-        // Variant count + availability across variants (one ledger read).
         fetchCatalogVariantsSummary({
             divisionId: products[0]?.divisionId,
         })
@@ -308,187 +208,116 @@ const ProductCatalogTableSection = ({
         () => [
             {
                 id: 'product',
-                header: () => <HeaderLabel>Product</HeaderLabel>,
+                header: 'Product',
                 enableSorting: true,
-                size: 280,
+                size: 220,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <div className="flex min-w-[12rem] items-center gap-3 py-1">
-                        <Thumbnail
-                            src={row.original.imageUrl}
-                            alt={row.original.name}
-                        />
-                        <div className="min-w-0">
-                            <div className="truncate font-semibold text-gray-900 dark:text-gray-100">
-                                {row.original.name}
-                            </div>
-                            <div className="truncate text-xs text-gray-500">
-                                ID: {row.original.sku}
-                            </div>
-                        </div>
-                    </div>
+                    <PcProductIdentityCell
+                        product={row.original}
+                        stockSnapshot={stockByProductId[row.original.id]}
+                        variantsSummary={variantsSummary[row.original.id]}
+                    />
                 ),
             },
             {
                 id: 'company',
-                header: () => <HeaderLabel>Company</HeaderLabel>,
+                header: 'Company',
                 enableSorting: true,
-                size: 180,
-                cell: ({ row }) => {
-                    const company = row.original.company
-                    if (!company) {
-                        return (
-                            <span className="text-sm text-gray-400">
-                                Not linked to MM
-                            </span>
-                        )
-                    }
-                    return (
-                        <div className="flex min-w-0 items-center gap-2.5">
-                            <CompanyLogoCell company={company} />
-                            <div className="min-w-0">
-                                <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                                    {company.name}
-                                </div>
-                                <div className="truncate text-xs text-gray-500">
-                                    {company.code}
-                                </div>
-                            </div>
-                        </div>
-                    )
-                },
+                size: 160,
+                minSize: 120,
+                meta: { className: 'hidden xl:table-cell' },
+                cell: ({ row }) => <PcCompanyCell product={row.original} />,
             },
             {
                 id: 'category',
-                header: () => <HeaderLabel>Category</HeaderLabel>,
+                header: 'Category',
                 enableSorting: true,
-                size: 130,
+                size: 120,
+                minSize: 96,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
-                    <span
-                        className={`whitespace-nowrap text-sm font-medium ${categoryTextClass(row.original.category)}`}
-                    >
-                        {row.original.category}
-                    </span>
+                    <PcCategoryCell category={row.original.category} />
                 ),
             },
             {
                 id: 'price',
-                header: () => <HeaderLabel>Price</HeaderLabel>,
+                header: 'Price',
                 enableSorting: true,
-                size: 120,
-                cell: ({ row }) => (
-                    <div className="whitespace-nowrap">
-                        <div
-                            className={`font-semibold ${priceTextClass(row.original)}`}
-                        >
-                            {formatPrice(row.original.price)}
-                        </div>
-                        {row.original.originalPrice !== null ? (
-                            <div className="text-xs text-gray-400 line-through">
-                                {formatPrice(row.original.originalPrice)}
-                            </div>
-                        ) : null}
-                    </div>
-                ),
+                size: 100,
+                minSize: 88,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => <PcPriceCell product={row.original} />,
             },
             {
                 id: 'stock',
-                header: () => <HeaderLabel>Stock remaining</HeaderLabel>,
+                header: 'Stock',
                 enableSorting: true,
-                size: 160,
-                cell: ({ row }) => {
-                    const summary = variantsSummary[row.original.id]
-                    // A product with variants shows the availability summed
-                    // across its variants (read from Materials Management).
-                    if (summary && summary.variantCount > 0) {
-                        return (
-                            <div className="min-w-[7rem]">
-                                <p className="mb-1 text-sm font-semibold text-gray-900">
-                                    {summary.availableQty} available
-                                </p>
-                                <p className="text-[11px] text-gray-500">
-                                    Across {summary.variantCount} variant
-                                    {summary.variantCount === 1 ? '' : 's'} · On
-                                    hand {summary.onHandQty} · Reserved{' '}
-                                    {summary.reservedQty}
-                                </p>
-                            </div>
-                        )
-                    }
-                    return (
-                        <StockRemainingMeter
-                            snapshot={stockByProductId[row.original.id]}
-                        />
-                    )
-                },
+                size: 140,
+                minSize: 110,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => (
+                    <PcStockCell
+                        stockSnapshot={stockByProductId[row.original.id]}
+                        variantsSummary={variantsSummary[row.original.id]}
+                    />
+                ),
             },
             {
                 id: 'badge',
-                header: () => <HeaderLabel>Badge</HeaderLabel>,
+                header: 'Badge',
                 enableSorting: true,
-                size: 110,
-                cell: ({ row }) =>
-                    row.original.badge ? (
-                        <Tag
-                            className={`whitespace-nowrap ${badgeTextClass()}`}
-                        >
-                            {row.original.badge}
-                        </Tag>
-                    ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                    ),
+                size: 96,
+                minSize: 80,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => (
+                    <PcBadgeCell badge={row.original.badge} />
+                ),
             },
             {
                 id: 'visible',
-                header: () => <HeaderLabel>Visible</HeaderLabel>,
+                header: 'Visible',
                 enableSorting: true,
-                size: 180,
+                size: 120,
+                minSize: 56,
                 cell: ({ row }) => (
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <VisibilityMeter active={row.original.isActive} />
-                        <Switcher
-                            checked={row.original.isActive}
-                            isLoading={togglingId === row.original.id}
-                            disabled={!canUpdate}
-                            onChange={(checked) =>
-                                onToggleActive(row.original, checked)
-                            }
-                        />
-                    </div>
+                    <PcVisibilityCell
+                        active={row.original.isActive}
+                        toggling={togglingId === row.original.id}
+                        canUpdate={canUpdate}
+                        onToggle={(checked) =>
+                            onToggleActive(row.original, checked)
+                        }
+                    />
                 ),
             },
             {
                 id: 'variants',
-                header: () => <HeaderLabel>Variants</HeaderLabel>,
-                size: 120,
+                header: 'Variants',
+                size: 108,
+                minSize: 88,
+                meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => {
                     const count =
                         variantsSummary[row.original.id]?.variantCount ??
                         row.original.variantCount ??
                         0
                     return (
-                        <span className="text-sm text-gray-600">
-                            {count > 0 ? (
-                                <span className="inline-flex items-center gap-1">
-                                    {count} variant{count === 1 ? '' : 's'}
-                                    <span className="text-xs text-gray-400">
-                                        (expand)
-                                    </span>
-                                </span>
-                            ) : (
-                                <span className="text-gray-400">—</span>
-                            )}
-                        </span>
+                        <PcVariantsCell count={count} expandable={count > 0} />
                     )
                 },
             },
             {
                 id: 'actions',
-                header: () => <span className="sr-only">Actions</span>,
-                size: 88,
+                header: '',
+                size: 72,
+                minSize: 64,
                 cell: ({ row }) => (
-                    <div className="flex items-center justify-end gap-1">
-                        {/* NOTE: no Add Variant button here — the single entry
-                            point lives in the Variants panel header. */}
+                    <div
+                        className="flex items-center justify-end gap-0.5"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                    >
                         {canUpdate && (
                             <Button
                                 size="sm"
@@ -527,8 +356,8 @@ const ProductCatalogTableSection = ({
 
     return (
         <AdaptiveCard className="mt-2 border border-gray-200 shadow-sm dark:border-gray-700">
-            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">
                     Products
                 </h2>
                 <div className="flex flex-wrap items-center gap-2">
@@ -565,12 +394,11 @@ const ProductCatalogTableSection = ({
                 </div>
             </div>
 
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-stretch">
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_auto]">
                 <Input
-                    className="flex-1"
-                    placeholder="Search"
+                    prefix={<HiOutlineSearch className="text-lg text-gray-400" />}
+                    placeholder="Search products…"
                     value={searchInput}
-                    suffix={<HiOutlineSearch className="text-lg text-gray-400" />}
                     onChange={(e) => {
                         onSearchInputChange(e.target.value)
                         setPage(1)
@@ -578,55 +406,51 @@ const ProductCatalogTableSection = ({
                 />
                 <Button
                     size="sm"
-                    className="shrink-0 min-w-[6.5rem]"
+                    className="w-full sm:w-auto"
                     icon={<HiOutlineFilter />}
                     onClick={() => setFilterOpen((open) => !open)}
                 >
-                    Filter
+                    {filterOpen ? 'Hide filters' : 'Filters'}
                 </Button>
             </div>
 
             {filterOpen ? (
-                <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40 md:max-w-sm">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Company
-                    </label>
-                    <Select<FilterOption>
-                        isSearchable={false}
-                        options={companyFilterOptions}
-                        value={companyFilterOptions.find(
-                            (option) => option.value === companyFilter,
-                        )}
-                        onChange={(option) => {
-                            onCompanyFilterChange(option?.value ?? 'all')
-                            setPage(1)
-                        }}
-                    />
-                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Lifecycle
-                    </label>
-                    <Select<FilterOption>
-                        isSearchable={false}
-                        options={[
-                            { value: 'all', label: 'All statuses' },
-                            { value: 'ACTIVE', label: 'Active' },
-                            { value: 'INACTIVE', label: 'Inactive' },
-                            { value: 'ARCHIVED', label: 'Archived' },
-                        ]}
-                        value={[
-                            { value: 'all', label: 'All statuses' },
-                            { value: 'ACTIVE', label: 'Active' },
-                            { value: 'INACTIVE', label: 'Inactive' },
-                            { value: 'ARCHIVED', label: 'Archived' },
-                        ].find((option) => option.value === statusFilter)}
-                        onChange={(option) => {
-                            const value = option?.value ?? 'all'
-                            onStatusFilterChange(
-                                value as 'all' | ProductLifecycleStatus,
-                            )
-                            setPage(1)
-                        }}
-                    />
+                <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40 sm:grid-cols-2">
+                    <div>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Company
+                        </label>
+                        <Select<FilterOption>
+                            isSearchable={false}
+                            options={companyFilterOptions}
+                            value={companyFilterOptions.find(
+                                (option) => option.value === companyFilter,
+                            )}
+                            onChange={(option) => {
+                                onCompanyFilterChange(option?.value ?? 'all')
+                                setPage(1)
+                            }}
+                        />
+                    </div>
+                    <div>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Lifecycle
+                        </label>
+                        <Select<FilterOption>
+                            isSearchable={false}
+                            options={LIFECYCLE_OPTIONS}
+                            value={LIFECYCLE_OPTIONS.find(
+                                (option) => option.value === statusFilter,
+                            )}
+                            onChange={(option) => {
+                                const value = option?.value ?? 'all'
+                                onStatusFilterChange(
+                                    value as 'all' | ProductLifecycleStatus,
+                                )
+                                setPage(1)
+                            }}
+                        />
+                    </div>
                 </div>
             ) : null}
 
@@ -645,42 +469,46 @@ const ProductCatalogTableSection = ({
                 </div>
             ) : null}
 
-            <DataTable<SdProductRecord>
-                className="product-catalog-ecme-table"
-                columns={columns}
-                data={pagedProducts}
-                compact
-                fit
-                hoverable
-                loading={(loading || stockLoading || refreshing) && products.length === 0}
-                noData={!loading && products.length === 0}
-                selectable
-                checkboxChecked={(row) => selectedIds.has(row.id)}
-                onCheckBoxChange={handleCheckBoxChange}
-                onIndeterminateCheckBoxChange={(checked, rows) =>
-                    handleSelectAllChange(checked, rows as { original: SdProductRecord }[])
-                }
-                pagingData={{ total, pageIndex: page, pageSize }}
-                onPaginationChange={setPage}
-                onSelectChange={(size) => {
-                    setPageSize(size)
-                    setPage(1)
-                }}
-                onSort={handleSort}
-                getRowId={(row) => row.id}
-                renderSubRow={(row) => (
-                    <ProductVariantsSubRow
-                        productId={row.id}
-                        productName={row.name}
-                        companyId={row.company?.id ?? null}
-                        parentPrice={row.price}
-                        canUpdate={canUpdate}
-                        onAddVariant={
-                            onAddVariant ? () => onAddVariant(row) : undefined
-                        }
-                    />
-                )}
-            />
+            <div className="min-w-0 overflow-x-auto">
+                <DataTable<SdProductRecord>
+                    columns={columns}
+                    data={pagedProducts}
+                    compact
+                    fit
+                    hoverable
+                    loading={(loading || stockLoading || refreshing) && products.length === 0}
+                    noData={!loading && products.length === 0}
+                    selectable
+                    checkboxChecked={(row) => selectedIds.has(row.id)}
+                    onCheckBoxChange={handleCheckBoxChange}
+                    onIndeterminateCheckBoxChange={(checked, rows) =>
+                        handleSelectAllChange(checked, rows as { original: SdProductRecord }[])
+                    }
+                    pagingData={{ total, pageIndex: page, pageSize }}
+                    onPaginationChange={setPage}
+                    onSelectChange={(size) => {
+                        setPageSize(size)
+                        setPage(1)
+                    }}
+                    onSort={handleSort}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => pcTableRowEnterClass(index)}
+                    renderSubRow={(row) => (
+                        <div className="animate-mm-row-in motion-reduce:animate-none">
+                            <ProductVariantsSubRow
+                                productId={row.id}
+                                productName={row.name}
+                                companyId={row.company?.id ?? null}
+                                parentPrice={row.price}
+                                canUpdate={canUpdate}
+                                onAddVariant={
+                                    onAddVariant ? () => onAddVariant(row) : undefined
+                                }
+                            />
+                        </div>
+                    )}
+                />
+            </div>
         </AdaptiveCard>
     )
 }

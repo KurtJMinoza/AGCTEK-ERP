@@ -14,7 +14,6 @@ export default async function SignInRoute({
     const { next } = await searchParams
     return (
         <MarketplaceAuthPage
-            initialMode="sign-in"
             next={typeof next === 'string' ? next : null}
         />
     )
