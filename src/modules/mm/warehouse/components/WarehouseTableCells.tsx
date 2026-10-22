@@ -15,7 +15,24 @@ import type { IconType } from 'react-icons'
 /** Staggered row entrance for warehouse DataTables (pair with DataTable rowClassName). */
 export function wmTableRowEnterClass(index: number): string {
     const delay = Math.min(index, 12) * 45
-    return `animate-mm-row-in motion-reduce:animate-none opacity-0 [animation-delay:${delay}ms]`
+    return [
+        'group/row',
+        'animate-mm-row-in motion-reduce:animate-none opacity-0',
+        `[animation-delay:${delay}ms]`,
+        'transition-colors duration-200',
+        'hover:bg-gray-50/90 dark:hover:bg-gray-800/45',
+    ].join(' ')
+}
+
+/** Icon tile pop-in (optional extra delay after row stagger). */
+export function wmIconPopClass(extraDelayMs = 0): string {
+    return [
+        'animate-mm-icon-pop motion-reduce:animate-none opacity-0',
+        extraDelayMs > 0 ? `[animation-delay:${extraDelayMs}ms]` : '',
+        'transition-transform duration-200 group-hover/row:scale-105',
+    ]
+        .filter(Boolean)
+        .join(' ')
 }
 
 type WmDocNumberCellProps = {
@@ -36,7 +53,9 @@ export function WmDocNumberCell({
     const Icon = icon === 'pack' ? HiOutlineCube : HiOutlineClipboardList
     const inner = (
         <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light">
+            <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light ${wmIconPopClass(80)}`}
+            >
                 <Icon className="text-lg" />
             </span>
             <div className="min-w-0">
@@ -203,6 +222,7 @@ const PULSE_STATUSES = new Set([
     'ASSIGNED',
     'EXCEPTION',
     'PENDING',
+    'ACTIVE',
 ])
 
 export function WmAnimatedStatus({ status, tone }: WmAnimatedStatusProps) {
@@ -309,7 +329,7 @@ export function WmWarehouseTaskCell({
     return (
         <div className="flex min-w-0 items-center gap-2.5">
             <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.tile}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.tile} ${wmIconPopClass(80)}`}
             >
                 <Icon className="text-lg" />
             </span>

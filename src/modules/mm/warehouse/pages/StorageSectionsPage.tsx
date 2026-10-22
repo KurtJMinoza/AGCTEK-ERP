@@ -6,7 +6,6 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -23,6 +22,12 @@ import { storageTypeService } from '../services/storageTypeService'
 import type { StorageSection, StorageType } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
+import {
+    WmStorageSectionCell,
+    WmStorageStatusCell,
+    WmStorageTypeRefCell,
+    storageTableRowEnterClass,
+} from '../components/StorageTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/storage-sections'
 
@@ -121,22 +126,74 @@ const StorageSectionsPage = () => {
         finally { setBulkDeleting(false) }
     }, [selectedRows, load])
 
-    const columns = useMemo<ColumnDef<StorageSection>[]>(() => [
-        { header: 'Code', accessorKey: 'code', size: 140, cell: ({ row }) => <span className="font-mono text-xs font-semibold">{row.original.code}</span> },
-        { header: 'Name', accessorKey: 'name', size: 180 },
-        { header: 'Description', id: 'desc', size: 180, cell: ({ row }) => row.original.description || <span className="text-gray-400 text-xs">—</span> },
-        { header: 'Storage Type', id: 'storageType', size: 180, cell: ({ row }) => row.original.storageType ? `${row.original.storageType.code} — ${row.original.storageType.name}` : '—' },
-        { header: 'Warehouse', id: 'warehouse', size: 160, cell: ({ row }) => row.original.storageType?.warehouse?.name ?? '—' },
-        { header: 'Status', accessorKey: 'status', size: 100, cell: ({ row }) => <StatusBadge tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}>{row.original.status}</StatusBadge> },
-        {
-            id: 'actions', header: '', size: 56, enableSorting: false, cell: ({ row }) => (
-                <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                    <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>
-                    <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
-                </Dropdown>
-            ),
-        },
-    ], [])
+    const columns = useMemo<ColumnDef<StorageSection>[]>(
+        () => [
+            {
+                header: 'Section',
+                accessorKey: 'code',
+                size: 220,
+                minSize: 180,
+                cell: ({ row }) => (
+                    <WmStorageSectionCell
+                        code={row.original.code}
+                        name={row.original.name}
+                        description={row.original.description}
+                    />
+                ),
+            },
+            {
+                header: 'Storage type',
+                id: 'storageType',
+                size: 180,
+                minSize: 140,
+                cell: ({ row }) => (
+                    <WmStorageTypeRefCell
+                        typeCode={row.original.storageType?.code}
+                        typeName={row.original.storageType?.name}
+                        warehouseName={row.original.storageType?.warehouse?.name}
+                    />
+                ),
+            },
+            {
+                header: 'Status',
+                accessorKey: 'status',
+                size: 100,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <WmStorageStatusCell status={row.original.status} />
+                ),
+            },
+            {
+                id: 'actions',
+                header: '',
+                size: 52,
+                minSize: 48,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <Dropdown
+                        renderTitle={<EllipsisButton />}
+                        placement="bottom-end"
+                    >
+                        <Dropdown.Item
+                            eventKey="edit"
+                            onClick={() => openEdit(row.original)}
+                        >
+                            <HiOutlinePencil className="text-base" />
+                            <span>Edit</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item
+                            eventKey="delete"
+                            onClick={() => setDeleting(row.original)}
+                        >
+                            <HiOutlineTrash className="text-base text-red-500" />
+                            <span className="text-red-500">Delete</span>
+                        </Dropdown.Item>
+                    </Dropdown>
+                ),
+            },
+        ],
+        [],
+    )
 
     const filteredItems = useMemo(
         () => filterTableRows(items, search),
@@ -148,7 +205,7 @@ const StorageSectionsPage = () => {
             <Breadcrumb items={breadcrumbs} />
             <PageHeader title="Storage Sections" description="Define sections within storage types for organizing inventory." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add section</Button>} />
             <AdaptiveCard>
-                <div className="mb-4 max-w-md">
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:max-w-xl">
                     <Input
                         prefix={<HiOutlineSearch className="text-lg" />}
                         placeholder="Search code, name, type, warehouse…"
@@ -156,6 +213,12 @@ const StorageSectionsPage = () => {
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
+                {!loading && filteredItems.length > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {filteredItems.length} section
+                        {filteredItems.length === 1 ? '' : 's'} shown
+                    </p>
+                ) : null}
                 {selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
@@ -165,7 +228,22 @@ const StorageSectionsPage = () => {
                         </div>
                     </div>
                 )}
-                <DataTable<StorageSection> columns={columns} data={filteredItems} compact loading={loading} noData={!loading && filteredItems.length === 0} selectable checkboxChecked={(row) => selectedRows.has(row.id)} onCheckBoxChange={handleCheckBoxChange} onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)} />
+                <DataTable<StorageSection>
+                    columns={columns}
+                    data={filteredItems}
+                    compact
+                    fit
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => storageTableRowEnterClass(index)}
+                    noData={!loading && filteredItems.length === 0}
+                    selectable
+                    checkboxChecked={(row) => selectedRows.has(row.id)}
+                    onCheckBoxChange={handleCheckBoxChange}
+                    onIndeterminateCheckBoxChange={(checked, rows) =>
+                        handleSelectAllChange(checked, rows as any)
+                    }
+                />
             </AdaptiveCard>
 
             <FormDialog

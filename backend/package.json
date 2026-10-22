@@ -31,6 +31,7 @@
     "prisma:report-auto-created-materials": "ts-node --project prisma/tsconfig.seed.json prisma/report-auto-created-materials.ts",
     "prisma:seed-sd-mm-stock": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-test-stock.ts",
     "prisma:seed-supplier-links": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-supplier-material-links-run.ts",
+    "prisma:seed-transfer-workbench": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-transfer-workbench-run.ts",
     "prisma:seed-purchase-requisition": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-purchase-requisition-run.ts",
     "prisma:delete-procurement-docs": "ts-node --project prisma/tsconfig.seed.json prisma/delete-procurement-documents-run.ts",
     "prisma:purge-demo-procurement-20261006": "ts-node --project prisma/tsconfig.seed.json prisma/purge-demo-procurement-20261006-run.ts",

@@ -6,13 +6,11 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
-import Tag from '@/components/ui/Tag'
 import Select from '@/components/ui/Select'
 import Switcher from '@/components/ui/Switcher'
 import Dropdown from '@/components/ui/Dropdown'
@@ -28,6 +26,14 @@ import { useUoms } from '@/modules/mm/shared/useUoms'
 import type { StorageBin, StorageShelf, StorageSection } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
+import {
+    WmBinCapacityCell,
+    WmBinLocationCell,
+    WmBinOperationsCell,
+    WmStorageBinCell,
+    WmStorageStatusCell,
+    storageTableRowEnterClass,
+} from '../components/StorageTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/storage-bins'
 
@@ -80,7 +86,7 @@ const StorageBinsPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await storageBinService.list()
+            const res = await storageBinService.listWithOccupancy()
             setItems(Array.isArray(res) ? res : (res?.data ?? []))
         } catch { /* ignore */ }
         finally { setLoading(false) }
@@ -152,35 +158,109 @@ const StorageBinsPage = () => {
         finally { setBulkDeleting(false) }
     }, [selectedRows, load])
 
-    const columns = useMemo<ColumnDef<StorageBin>[]>(() => [
-        { header: 'Bin Code', accessorKey: 'code', size: 140, cell: ({ row }) => <span className="font-mono text-xs font-semibold text-primary">{row.original.code}</span> },
-        { header: 'Barcode', accessorKey: 'barcode', size: 160, cell: ({ row }) => row.original.barcode ? <Tag className="font-mono text-xs">{row.original.barcode}</Tag> : <span className="text-gray-400 text-xs">—</span> },
-        { header: 'Section', id: 'section', size: 130, cell: ({ row }) => row.original.storageSection?.code ?? '—' },
-        { header: 'Shelf', id: 'shelf', size: 110, cell: ({ row }) => row.original.shelf?.code ?? '—' },
-        { header: 'Storage Type', id: 'type', size: 140, cell: ({ row }) => row.original.storageSection?.storageType?.name ?? '—' },
-        { header: 'Warehouse', id: 'warehouse', size: 150, cell: ({ row }) => row.original.storageSection?.storageType?.warehouse?.name ?? '—' },
-        {
-            header: 'Capacity', id: 'capacity', size: 160, enableSorting: false, cell: ({ row }) => {
-                const b = row.original
-                return (
-                    <div className="flex flex-col text-xs">
-                        <span>Qty: <span className="font-semibold">{Number(b.capacityQuantity).toLocaleString()}</span></span>
-                        <span>Wt: <span className="font-semibold">{Number(b.capacityWeight).toLocaleString()}</span> {b.weightUom || ''}</span>
-                    </div>
-                )
+    const columns = useMemo<ColumnDef<StorageBin>[]>(
+        () => [
+            {
+                header: 'Bin',
+                accessorKey: 'code',
+                size: 160,
+                minSize: 140,
+                cell: ({ row }) => (
+                    <WmStorageBinCell
+                        code={row.original.code}
+                        barcode={row.original.barcode}
+                    />
+                ),
             },
-        },
-        { header: 'Pick', id: 'pick', size: 70, enableSorting: false, cell: ({ row }) => row.original.pickingAllowed ? <Tag className="bg-emerald-100 text-emerald-700 text-xs">Yes</Tag> : <span className="text-gray-400 text-xs">No</span> },
-        { header: 'Status', accessorKey: 'status', size: 100, cell: ({ row }) => <StatusBadge tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}>{row.original.status}</StatusBadge> },
-        {
-            id: 'actions', header: '', size: 56, enableSorting: false, cell: ({ row }) => (
-                <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                    <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}><HiOutlinePencil className="text-base" /><span>Edit</span></Dropdown.Item>
-                    <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}><HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span></Dropdown.Item>
-                </Dropdown>
-            ),
-        },
-    ], [])
+            {
+                header: 'Location',
+                id: 'location',
+                size: 200,
+                minSize: 160,
+                cell: ({ row }) => {
+                    const sec = row.original.storageSection
+                    return (
+                        <WmBinLocationCell
+                            sectionCode={sec?.code}
+                            sectionName={sec?.name}
+                            shelfCode={row.original.shelf?.code}
+                            typeName={sec?.storageType?.name}
+                            warehouseName={sec?.storageType?.warehouse?.name}
+                        />
+                    )
+                },
+            },
+            {
+                header: 'Capacity',
+                id: 'capacity',
+                size: 130,
+                minSize: 110,
+                meta: { className: 'hidden md:table-cell' },
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <WmBinCapacityCell
+                        capacityQuantity={Number(row.original.capacityQuantity)}
+                        capacityWeight={Number(row.original.capacityWeight)}
+                        weightUom={row.original.weightUom}
+                        currentQuantity={row.original.currentQuantity}
+                        utilizationPct={row.original.utilizationPct}
+                    />
+                ),
+            },
+            {
+                header: 'Operations',
+                id: 'ops',
+                size: 140,
+                minSize: 120,
+                meta: { className: 'hidden lg:table-cell' },
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <WmBinOperationsCell
+                        pickingAllowed={row.original.pickingAllowed}
+                        putawayAllowed={row.original.putawayAllowed}
+                    />
+                ),
+            },
+            {
+                header: 'Status',
+                accessorKey: 'status',
+                size: 100,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <WmStorageStatusCell status={row.original.status} />
+                ),
+            },
+            {
+                id: 'actions',
+                header: '',
+                size: 52,
+                minSize: 48,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <Dropdown
+                        renderTitle={<EllipsisButton />}
+                        placement="bottom-end"
+                    >
+                        <Dropdown.Item
+                            eventKey="edit"
+                            onClick={() => openEdit(row.original)}
+                        >
+                            <HiOutlinePencil className="text-base" />
+                            <span>Edit</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item
+                            eventKey="delete"
+                            onClick={() => setDeleting(row.original)}
+                        >
+                            <HiOutlineTrash className="text-base text-red-500" />
+                            <span className="text-red-500">Delete</span>
+                        </Dropdown.Item>
+                    </Dropdown>
+                ),
+            },
+        ],
+        [],
+    )
 
     const filteredItems = useMemo(
         () => filterTableRows(items, search),
@@ -192,14 +272,20 @@ const StorageBinsPage = () => {
             <Breadcrumb items={breadcrumbs} />
             <PageHeader title="Storage Bins" description="Manage individual storage bin locations and their capacity." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add bin</Button>} />
             <AdaptiveCard>
-                <div className="mb-4 max-w-md">
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:max-w-xl">
                     <Input
                         prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search code, barcode, section…"
+                        placeholder="Search code, barcode, section, warehouse…"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
+                {!loading && filteredItems.length > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {filteredItems.length} bin
+                        {filteredItems.length === 1 ? '' : 's'} shown
+                    </p>
+                ) : null}
                 {selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
@@ -209,7 +295,22 @@ const StorageBinsPage = () => {
                         </div>
                     </div>
                 )}
-                <DataTable<StorageBin> columns={columns} data={filteredItems} compact loading={loading} noData={!loading && filteredItems.length === 0} selectable checkboxChecked={(row) => selectedRows.has(row.id)} onCheckBoxChange={handleCheckBoxChange} onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)} />
+                <DataTable<StorageBin>
+                    columns={columns}
+                    data={filteredItems}
+                    compact
+                    fit
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => storageTableRowEnterClass(index)}
+                    noData={!loading && filteredItems.length === 0}
+                    selectable
+                    checkboxChecked={(row) => selectedRows.has(row.id)}
+                    onCheckBoxChange={handleCheckBoxChange}
+                    onIndeterminateCheckBoxChange={(checked, rows) =>
+                        handleSelectAllChange(checked, rows as any)
+                    }
+                />
             </AdaptiveCard>
 
             <FormDialog

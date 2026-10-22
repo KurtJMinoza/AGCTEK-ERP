@@ -17,6 +17,14 @@ import { stockTransferOrderService } from '../services/stockTransferOrderService
 import type { StockTransferOrder, StoQueryParams, StoStatus } from '../types'
 import { errMsg, fmtStoDate, STO_STATUS_TONE } from './StoStatusTone'
 import InfoCard from '../../shared/InfoCard'
+import {
+    StoCreatedCell,
+    StoFulfillmentCell,
+    StoOrderIdentityCell,
+    StoRouteCell,
+    StoStatusCell,
+    stoTableRowEnterClass,
+} from './StoTableCells'
 
 type FilterOption = { value: string; label: string }
 
@@ -222,75 +230,66 @@ export default function StoOrderBoard({
     const columns = useMemo<ColumnDef<StockTransferOrder>[]>(
         () => [
             {
-                header: 'Order #',
+                header: 'Order',
                 accessorKey: 'orderNumber',
-                size: 150,
+                size: 168,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <button
-                        type="button"
-                        className="whitespace-nowrap font-mono text-xs font-semibold text-primary"
-                        onClick={() => openDetail(row.original.id)}
-                    >
-                        {row.original.orderNumber}
-                    </button>
+                    <StoOrderIdentityCell
+                        orderNumber={row.original.orderNumber}
+                        transferType={row.original.transferType}
+                        onOpen={() => openDetail(row.original.id)}
+                    />
                 ),
             },
             {
-                header: 'Type',
-                accessorKey: 'transferType',
-                size: 160,
-                cell: ({ row }) => (
-                    <span className="text-xs text-gray-600 dark:text-gray-300">
-                        {row.original.transferType.replaceAll('_', ' ')}
-                    </span>
-                ),
-            },
-            {
-                header: 'From → To',
+                header: 'Route',
                 id: 'route',
-                size: 240,
-                cell: ({ row }) => {
-                    const s = row.original.sourceWarehouse
-                    const d = row.original.destinationWarehouse
-                    return (
-                        <span className="text-sm">
-                            {s?.code ?? '—'} → {d?.code ?? '—'}
-                        </span>
-                    )
-                },
+                size: 200,
+                minSize: 160,
+                cell: ({ row }) => (
+                    <StoRouteCell
+                        sourceCode={row.original.sourceWarehouse?.code}
+                        sourceName={row.original.sourceWarehouse?.name}
+                        destCode={row.original.destinationWarehouse?.code}
+                        destName={row.original.destinationWarehouse?.name}
+                    />
+                ),
             },
             {
-                header: 'Lines',
-                id: 'lines',
-                size: 70,
+                header: 'Fulfillment',
+                id: 'fulfillment',
+                size: 130,
+                minSize: 110,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
-                    <span className="text-sm">{row.original.lines?.length ?? 0}</span>
+                    <StoFulfillmentCell order={row.original} />
                 ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
-                size: 140,
+                size: 130,
+                minSize: 110,
                 cell: ({ row }) => (
-                    <StatusBadge tone={STO_STATUS_TONE[row.original.status] ?? 'default'}>
-                        {row.original.status}
-                    </StatusBadge>
+                    <StoStatusCell status={row.original.status} />
                 ),
             },
             {
                 header: 'Created',
                 accessorKey: 'createdAt',
-                size: 120,
+                size: 110,
+                minSize: 96,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
-                    <span className="text-sm text-gray-500">
-                        {fmtStoDate(row.original.createdAt)}
-                    </span>
+                    <StoCreatedCell createdAt={row.original.createdAt} />
                 ),
             },
             {
                 header: '',
                 id: 'actions',
-                size: 60,
+                size: 52,
+                minSize: 48,
                 cell: ({ row }) => {
                     const o = row.original
                     const busy = actionBusy?.startsWith(o.id)
@@ -377,51 +376,63 @@ export default function StoOrderBoard({
             )}
 
             <AdaptiveCard>
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-1 flex-wrap items-center gap-3">
-                        <div className="relative min-w-[200px] flex-1">
-                            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <Input
-                                className="pl-9"
-                                placeholder="Search order #"
-                                value={search}
-                                onChange={(e) => {
-                                    setSearch(e.target.value)
-                                    setPage(1)
-                                }}
-                            />
-                        </div>
-                        {statusFilterOptions && (
-                            <Select
-                                className="min-w-[180px]"
-                                options={statusFilterOptions}
-                                value={
-                                    statusFilterOptions.find((o) => o.value === statusFilter) ??
-                                    statusFilterOptions[0]
-                                }
-                                onChange={(opt) => {
-                                    setStatusFilter(opt?.value ?? '')
-                                    setPage(1)
-                                }}
-                            />
-                        )}
-                    </div>
-                    <Button size="sm" onClick={() => fetchList()}>
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]">
+                    <Input
+                        prefix={<HiOutlineSearch className="text-lg" />}
+                        placeholder="Search order #…"
+                        value={search}
+                        onChange={(e) => {
+                            setSearch(e.target.value)
+                            setPage(1)
+                        }}
+                    />
+                    {statusFilterOptions ? (
+                        <Select
+                            placeholder="Status"
+                            options={statusFilterOptions}
+                            value={
+                                statusFilterOptions.find(
+                                    (o) => o.value === statusFilter,
+                                ) ?? statusFilterOptions[0]
+                            }
+                            onChange={(opt) => {
+                                setStatusFilter(opt?.value ?? '')
+                                setPage(1)
+                            }}
+                        />
+                    ) : (
+                        <div />
+                    )}
+                    <Button
+                        className="sm:justify-self-end"
+                        size="sm"
+                        onClick={() => fetchList()}
+                    >
                         Refresh
                     </Button>
                 </div>
 
+                {!loading && total > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {rows.length} on this page · {total} total matching
+                    </p>
+                ) : null}
+
                 <DataTable<StockTransferOrder>
                     columns={columns}
                     data={rows}
+                    compact
+                    fit
                     loading={loading}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => stoTableRowEnterClass(index)}
                     noData={!loading && rows.length === 0}
                     pagingData={{
                         total,
                         pageIndex: page,
                         pageSize,
                     }}
-                    onPaginationChange={setPage}
+                    onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(size) => {
                         setPageSize(size)
                         setPage(1)

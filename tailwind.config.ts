@@ -95,6 +95,14 @@ const config: Config = {
 					'0%, 100%': { opacity: '1' },
 					'50%': { opacity: '0.72' },
 				},
+				'mm-icon-pop': {
+					from: { opacity: '0', transform: 'scale(0.88)' },
+					to: { opacity: '1', transform: 'scale(1)' },
+				},
+				'mm-util-warning': {
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.55' },
+				},
 			},
 			animation: {
 				'retail-marquee': 'retail-marquee 32s linear infinite',
@@ -103,6 +111,8 @@ const config: Config = {
 				'mm-row-in': 'mm-row-in 0.45s ease-out both',
 				'mm-progress-grow': 'mm-progress-grow 0.65s ease-out both',
 				'mm-status-pulse': 'mm-status-pulse 2s ease-in-out infinite',
+				'mm-icon-pop': 'mm-icon-pop 0.4s ease-out both',
+				'mm-util-warning': 'mm-util-warning 1.6s ease-in-out infinite',
 			},
 			colors: {
 				// World-class retail system: deep emerald + champagne gold on cool canvas

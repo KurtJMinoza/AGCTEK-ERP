@@ -44,6 +44,14 @@ import type {
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
+import {
+    WmTransferIdentityCell,
+    WmTransferMetaCell,
+    WmTransferProgressCell,
+    WmTransferRouteCell,
+    WmTransferStatusCell,
+    wmTransferRowEnterClass,
+} from '../components/WmTransferTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/warehouse-transfers'
 
@@ -363,57 +371,61 @@ const TransfersPage = () => {
     const columns = useMemo<ColumnDef<WarehouseTransfer>[]>(
         () => [
             {
-                header: 'Transfer #',
+                header: 'Transfer',
                 accessorKey: 'transferNumber',
-                size: 150,
-                minSize: 120,
+                size: 160,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <button type="button" onClick={() => openDetail(row.original.id)} className="whitespace-nowrap font-mono text-xs font-semibold text-primary hover:underline">
-                        {row.original.transferNumber}
-                    </button>
+                    <WmTransferIdentityCell
+                        transferNumber={row.original.transferNumber}
+                        lineCount={row.original.lines?.length ?? 0}
+                        onOpen={() => openDetail(row.original.id)}
+                    />
                 ),
             },
             {
-                header: 'Source WH',
-                accessorKey: 'sourceWarehouseId',
-                size: 180,
-                minSize: 140,
-                cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.sourceWarehouse?.name ?? '—'}</span>,
+                header: 'Route',
+                id: 'route',
+                size: 200,
+                minSize: 160,
+                cell: ({ row }) => (
+                    <WmTransferRouteCell
+                        source={row.original.sourceWarehouse}
+                        destination={row.original.destinationWarehouse}
+                    />
+                ),
             },
             {
-                header: 'Dest WH',
-                accessorKey: 'destinationWarehouseId',
-                size: 180,
-                minSize: 140,
-                cell: ({ row }) => <span className="whitespace-nowrap text-sm">{row.original.destinationWarehouse?.name ?? '—'}</span>,
-            },
-            {
-                header: 'Lines',
-                id: 'lineCount',
-                size: 80,
-                minSize: 60,
-                cell: ({ row }) => <span className="text-sm">{row.original.lines?.length ?? 0} lines</span>,
+                header: 'Progress',
+                id: 'progress',
+                size: 120,
+                minSize: 100,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => (
+                    <WmTransferProgressCell transfer={row.original} />
+                ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
                 size: 130,
                 minSize: 110,
-                cell: ({ row }) => <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status.replace(/_/g, ' ')}</StatusBadge>,
+                cell: ({ row }) => (
+                    <WmTransferStatusCell status={row.original.status} />
+                ),
             },
             {
-                header: 'Requested By',
-                accessorKey: 'requestedBy',
+                header: 'Request',
+                id: 'request',
                 size: 140,
-                minSize: 100,
-                cell: ({ row }) => <span className="text-sm">{row.original.requestedBy || '—'}</span>,
-            },
-            {
-                header: 'Created',
-                accessorKey: 'createdAt',
-                size: 130,
-                minSize: 110,
-                cell: ({ row }) => <span className="whitespace-nowrap text-xs text-gray-500">{fmtDate(row.original.createdAt)}</span>,
+                minSize: 120,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => (
+                    <WmTransferMetaCell
+                        requestedBy={row.original.requestedBy}
+                        createdAt={row.original.createdAt}
+                    />
+                ),
             },
             {
                 id: 'actions',
@@ -524,19 +536,27 @@ const TransfersPage = () => {
                     </div>
                 )}
 
+                {!loading && meta.total > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {transfers.length} on this page · {meta.total} total matching
+                    </p>
+                ) : null}
                 <div className="mt-4">
                     <DataTable<WarehouseTransfer>
                         columns={columns}
                         data={transfers}
                         compact
+                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
+                        rowClassName={(_, index) => wmTransferRowEnterClass(index)}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
                         onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
                         noData={!loading && transfers.length === 0}
                         pagingData={{ total: meta.total, pageIndex: page, pageSize }}
-                        onPaginationChange={setPage}
+                        onPaginationChange={(p) => setPage(p)}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
                     />
                 </div>
