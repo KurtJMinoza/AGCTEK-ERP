@@ -29,6 +29,11 @@ export class BalanceQueryDto {
     @IsString()
     stockStatus?: string
 
+    /** Free-text filter over material code, material name and SKU. */
+    @IsOptional()
+    @IsString()
+    search?: string
+
     @IsOptional()
     @IsInt()
     @Min(1)

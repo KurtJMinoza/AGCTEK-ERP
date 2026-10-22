@@ -129,9 +129,26 @@ export class ReservationService {
             this.prisma.mmInventoryReservation.count({ where }),
         ])
 
+        const summary = await this.prisma.mmInventoryReservation.groupBy({
+            by: ['status'],
+            where,
+            _count: { _all: true },
+            _sum: { quantity: true, reservedQuantity: true },
+        })
+
         return {
             data,
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+            summary: {
+                byStatus: summary
+                    .map((row) => ({
+                        status: row.status,
+                        count: row._count._all,
+                        quantity: Number(row._sum.quantity ?? 0),
+                        reservedQuantity: Number(row._sum.reservedQuantity ?? 0),
+                    }))
+                    .sort((a, b) => a.status.localeCompare(b.status)),
+            },
         }
     }
 

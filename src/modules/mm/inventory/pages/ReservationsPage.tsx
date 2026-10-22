@@ -6,7 +6,11 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import FilterBar, {
+    type FilterChip,
+    type FilterField,
+} from '@/components/shared/FilterBar'
+import StatCard from '@/components/shared/StatCard'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Button from '@/components/ui/Button'
@@ -15,7 +19,14 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlinePlus, HiOutlineSearch, HiOutlineX } from 'react-icons/hi'
+import {
+    HiOutlinePlus,
+    HiOutlineX,
+    HiOutlineCube,
+    HiOutlineLockClosed,
+    HiOutlineCheckCircle,
+    HiOutlineClipboardList,
+} from 'react-icons/hi'
 import {
     inventoryService,
     type AvailabilityResult,
@@ -23,16 +34,9 @@ import {
 import { reservationService, type Reservation } from '../services/reservationService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { DocStatusBadge } from '../utils/inventoryUi'
 
 const ROUTE = '/modules/mm/inventory-management/reservations'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    OPEN: 'info',
-    PARTIAL: 'warning',
-    FULFILLED: 'success',
-    CANCELLED: 'danger',
-    EXPIRED: 'default',
-}
 
 const SOURCE_OPTS = [
     { value: 'SALES_ORDER', label: 'Sales Order' },
@@ -41,7 +45,7 @@ const SOURCE_OPTS = [
     { value: 'INTERNAL_REQUEST', label: 'Internal Material Request' },
 ]
 
-const STATUS_FILTER_OPTIONS: Opt[] = [
+const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
     { value: '', label: 'All statuses' },
     { value: 'OPEN', label: 'Open' },
     { value: 'PARTIAL', label: 'Partial' },
@@ -49,16 +53,38 @@ const STATUS_FILTER_OPTIONS: Opt[] = [
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
-type Opt = { value: string; label: string }
+/** Human label for the demand that created the reservation. */
+const sourceLabel = (sourceType?: string | null) => {
+    switch (sourceType) {
+        case 'SALES_ORDER':
+            return 'Sales order'
+        case 'PRODUCTION_ORDER':
+            return 'Production order'
+        case 'MAINTENANCE_ORDER':
+            return 'Maintenance order'
+        case 'INTERNAL_REQUEST':
+            return 'Internal request'
+        default:
+            return (sourceType ?? '—').replace(/_/g, ' ').toLowerCase()
+    }
+}
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
-    toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
+    toast.push(
+        <Notification type={type} title={title} closable duration={3500}>
+            {msg}
+        </Notification>,
+        { placement: 'top-end' },
+    )
 }
 
 const ReservationsPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<Reservation[]>([])
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20 })
+    const [summary, setSummary] = useState<
+        { status: string; count: number; quantity: number; reservedQuantity: number }[]
+    >([])
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
     const [status, setStatus] = useState('')
@@ -110,6 +136,7 @@ const ReservationsPage = () => {
             })
             setRows(res.data)
             setMeta({ total: res.meta.total, page: res.meta.page, limit: res.meta.limit })
+            setSummary(res.summary?.byStatus ?? [])
         } catch (e: any) {
             pushToast('danger', 'Load failed', e?.response?.data?.message ?? e.message)
         } finally {
@@ -117,62 +144,136 @@ const ReservationsPage = () => {
         }
     }, [page, search, status])
 
-    useEffect(() => { load() }, [load])
+    useEffect(() => {
+        load()
+    }, [load])
 
     const openCreate = useCallback(async () => {
         await ensure('companies', 'warehouses', 'materials')
         setCreateOpen(true)
     }, [ensure])
 
-    const columns: ColumnDef<Reservation>[] = useMemo(() => [
-        { header: 'Reservation', accessorKey: 'reservationNumber' },
-        {
-            header: 'Material',
-            cell: ({ row }) =>
-                row.original.material?.materialCode ?? row.original.materialId.slice(0, 8),
-        },
-        {
-            header: 'Warehouse',
-            cell: ({ row }) => row.original.warehouse?.name ?? row.original.warehouseId.slice(0, 8),
-        },
-        {
-            header: 'Qty / Reserved',
-            cell: ({ row }) =>
-                `${Number(row.original.quantity)} / ${Number(row.original.reservedQuantity)}`,
-        },
-        {
-            header: 'Fulfilled',
-            cell: ({ row }) => Number(row.original.fulfilledQuantity),
-        },
-        { header: 'Source', accessorKey: 'sourceType' },
-        {
-            header: 'Document',
-            cell: ({ row }) =>
-                `${row.original.sourceDocumentType}:${row.original.sourceDocumentId}`,
-        },
-        {
-            header: 'Status',
-            cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
-            ),
-        },
-        {
-            header: '',
-            id: 'actions',
-            cell: ({ row }) =>
-                ['OPEN', 'PARTIAL'].includes(row.original.status) ? (
-                    <Button size="xs" variant="plain" icon={<HiOutlineX />} onClick={() => setCancelId(row.original.id)}>
-                        Cancel
-                    </Button>
-                ) : null,
-        },
-    ], [])
+    const columns: ColumnDef<Reservation>[] = useMemo(
+        () => [
+            {
+                header: 'Reservation',
+                cell: ({ row }) => {
+                    const r = row.original
+                    return (
+                        <div className="min-w-[10rem]">
+                            <div className="whitespace-nowrap font-mono text-xs font-semibold text-gray-900">
+                                {r.reservationNumber}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-gray-500">
+                                {new Date(r.createdAt).toLocaleDateString()}
+                            </div>
+                        </div>
+                    )
+                },
+            },
+            {
+                header: 'Material',
+                cell: ({ row }) => {
+                    const m = row.original.material
+                    return (
+                        <div className="min-w-[11rem] max-w-[12rem]">
+                            <div className="truncate font-semibold text-gray-900">
+                                {m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                            </div>
+                            <div className="truncate text-xs text-gray-500">
+                                {m?.materialName ?? '—'}
+                            </div>
+                        </div>
+                    )
+                },
+            },
+            {
+                header: 'Warehouse',
+                cell: ({ row }) => (
+                    <div className="min-w-[8rem] max-w-[9rem] truncate whitespace-nowrap text-sm text-gray-600">
+                        {row.original.warehouse?.code ??
+                            row.original.warehouse?.name ??
+                            row.original.warehouseId.slice(0, 8)}
+                    </div>
+                ),
+            },
+            {
+                header: 'Quantity',
+                cell: ({ row }) => {
+                    const r = row.original
+                    const qty = Number(r.quantity ?? 0)
+                    const reserved = Number(r.reservedQuantity ?? 0)
+                    const fulfilled = Number(r.fulfilledQuantity ?? 0)
+                    return (
+                        <div className="min-w-[9rem] whitespace-nowrap text-right">
+                            <div className="font-semibold text-gray-900">
+                                {reserved.toLocaleString()}{' '}
+                                <span className="text-xs font-normal text-gray-500">
+                                    of {qty.toLocaleString()}
+                                </span>
+                            </div>
+                            <div className="text-[11px] text-gray-400">
+                                fulfilled {fulfilled.toLocaleString()}
+                            </div>
+                        </div>
+                    )
+                },
+            },
+            {
+                header: 'Demand',
+                cell: ({ row }) => (
+                    <div className="min-w-[10rem] max-w-[11rem]">
+                        <div className="truncate text-sm text-gray-700">
+                            {sourceLabel(row.original.sourceType)}
+                        </div>
+                        <div
+                            className="truncate font-mono text-[11px] text-gray-400"
+                            title={row.original.sourceDocumentId}
+                        >
+                            {row.original.sourceDocumentId
+                                ? `…${row.original.sourceDocumentId.slice(-8)}`
+                                : '—'}
+                        </div>
+                    </div>
+                ),
+            },
+            {
+                header: 'Status',
+                cell: ({ row }) => (
+                    <DocStatusBadge status={row.original.status} />
+                ),
+            },
+            {
+                header: '',
+                id: 'actions',
+                cell: ({ row }) =>
+                    ['OPEN', 'PARTIAL'].includes(row.original.status) ? (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineX />}
+                            onClick={() => setCancelId(row.original.id)}
+                        >
+                            Cancel
+                        </Button>
+                    ) : null,
+            },
+        ],
+        [],
+    )
 
     const submitCreate = async () => {
-        if (!form.companyId || !form.warehouseId || !form.materialId || !form.sourceDocumentId) {
-            pushToast('danger', 'Validation', 'Company, warehouse, material, and source document are required')
+        if (
+            !form.companyId ||
+            !form.warehouseId ||
+            !form.materialId ||
+            !form.sourceDocumentId
+        ) {
+            pushToast(
+                'danger',
+                'Validation',
+                'Company, warehouse, material, and source document are required',
+            )
             return
         }
         setSubmitting(true)
@@ -200,6 +301,62 @@ const ReservationsPage = () => {
         }
     }
 
+    const chips = useMemo<FilterChip[]>(() => {
+        const list: FilterChip[] = []
+        if (search)
+            list.push({
+                key: 'search',
+                label: `Search: ${search}`,
+                onRemove: () => setSearch(''),
+            })
+        if (status)
+            list.push({
+                key: 'status',
+                label: `Status: ${
+                    STATUS_FILTER_OPTIONS.find((o) => o.value === status)?.label ??
+                    status
+                }`,
+                onRemove: () => setStatus(''),
+            })
+        return list
+    }, [search, status])
+
+    const fields = useMemo<FilterField[]>(
+        () => [
+            {
+                key: 'search',
+                label: 'Search',
+                kind: 'text',
+                inputType: 'search',
+                value: search,
+                placeholder: 'Reservation or source document…',
+                onChange: (value) => {
+                    setSearch(value)
+                    setPage(1)
+                },
+            },
+            {
+                key: 'status',
+                label: 'Status',
+                value: status,
+                options: STATUS_FILTER_OPTIONS,
+                onChange: (value) => {
+                    setStatus(value)
+                    setPage(1)
+                },
+            },
+        ],
+        [search, status],
+    )
+
+    const countOf = (code: string) =>
+        summary.find((s) => s.status === code)?.count ?? 0
+    const reservedTotal = summary.reduce(
+        (acc, s) => acc + s.reservedQuantity,
+        0,
+    )
+    const openTotal = countOf('OPEN') + countOf('PARTIAL')
+
     return (
         <PageContainer>
             <Breadcrumb items={breadcrumbItems} />
@@ -207,35 +364,76 @@ const ReservationsPage = () => {
                 title="Reservations"
                 description="Allocate available stock for sales, production, maintenance, or internal demand without deducting on-hand."
                 actions={
-                    <Button variant="solid" icon={<HiOutlinePlus />} loading={refsLoading} onClick={openCreate}>
+                    <Button
+                        variant="solid"
+                        icon={<HiOutlinePlus />}
+                        loading={refsLoading}
+                        onClick={openCreate}
+                    >
                         Create Reservation
                     </Button>
                 }
             />
 
-            <AdaptiveCard className="mb-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Input
-                        prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search reservation / source…"
-                        value={search}
-                        onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-                    />
-                    <Select<Opt>
-                        placeholder="Status"
-                        options={STATUS_FILTER_OPTIONS}
-                        value={STATUS_FILTER_OPTIONS.find((o) => o.value === status)}
-                        onChange={(opt) => { setStatus(opt?.value ?? ''); setPage(1) }}
-                    />
-                </div>
-            </AdaptiveCard>
+            <FilterBar
+                className="mb-4"
+                fields={fields}
+                chips={chips}
+                onClear={() => {
+                    setSearch('')
+                    setStatus('')
+                    setPage(1)
+                }}
+            />
+
+            <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard
+                    label="Reservations in scope"
+                    value={meta.total.toLocaleString()}
+                    tone="info"
+                    icon={<HiOutlineClipboardList />}
+                />
+                <StatCard
+                    label="Open / partial"
+                    value={openTotal.toLocaleString()}
+                    tone="warning"
+                    icon={<HiOutlineCube />}
+                />
+                <StatCard
+                    label="Reserved quantity"
+                    value={reservedTotal.toLocaleString()}
+                    tone="default"
+                    icon={<HiOutlineLockClosed />}
+                />
+                <StatCard
+                    label="Fulfilled"
+                    value={countOf('FULFILLED').toLocaleString()}
+                    tone="success"
+                    icon={<HiOutlineCheckCircle />}
+                />
+            </div>
+
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span>
+                    {meta.total} reservation{meta.total === 1 ? '' : 's'} in scope
+                </span>
+                <span>
+                    Page {meta.page} · {meta.limit} per page
+                </span>
+            </div>
 
             <AdaptiveCard>
                 <DataTable
                     columns={columns}
                     data={rows}
                     loading={loading}
-                    pagingData={{ total: meta.total, pageIndex: page, pageSize: 20 }}
+                    compact
+                    noData={rows.length === 0}
+                    pagingData={{
+                        total: meta.total,
+                        pageIndex: page,
+                        pageSize: meta.limit,
+                    }}
                     onPaginationChange={setPage}
                 />
             </AdaptiveCard>
@@ -246,53 +444,90 @@ const ReservationsPage = () => {
                 title="Create Reservation"
                 footer={
                     <>
-                        <Button size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" loading={submitting} onClick={submitCreate}>Reserve</Button>
+                        <Button size="sm" onClick={() => setCreateOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button size="sm" variant="solid" loading={submitting} onClick={submitCreate}>
+                            Reserve
+                        </Button>
                     </>
                 }
             >
                 <div className="space-y-3">
                     <FormItem label="Company">
-                        <Select options={companies} value={companies.find((o) => o.value === form.companyId)}
-                            onChange={(o: any) => setForm((f) => ({ ...f, companyId: o?.value ?? '' }))} />
+                        <Select
+                            options={companies}
+                            value={companies.find((o) => o.value === form.companyId)}
+                            onChange={(o: any) =>
+                                setForm((f) => ({ ...f, companyId: o?.value ?? '' }))
+                            }
+                        />
                     </FormItem>
                     <FormItem label="Warehouse">
-                        <Select options={warehouses} value={warehouses.find((o) => o.value === form.warehouseId)}
-                            onChange={(o: any) => setForm((f) => ({ ...f, warehouseId: o?.value ?? '' }))} />
+                        <Select
+                            options={warehouses}
+                            value={warehouses.find((o) => o.value === form.warehouseId)}
+                            onChange={(o: any) =>
+                                setForm((f) => ({ ...f, warehouseId: o?.value ?? '' }))
+                            }
+                        />
                     </FormItem>
                     <FormItem label="Material">
-                        <Select options={materials} value={materials.find((o) => o.value === form.materialId)}
-                            onChange={(o: any) => setForm((f) => ({ ...f, materialId: o?.value ?? '' }))} />
+                        <Select
+                            options={materials}
+                            value={materials.find((o) => o.value === form.materialId)}
+                            onChange={(o: any) =>
+                                setForm((f) => ({ ...f, materialId: o?.value ?? '' }))
+                            }
+                        />
                     </FormItem>
                     <FormItem label="Quantity">
-                        <Input type="number" min={0.000001} value={form.quantity}
-                            onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} />
+                        <Input
+                            type="number"
+                            min={0.000001}
+                            value={form.quantity}
+                            onChange={(e) =>
+                                setForm((f) => ({ ...f, quantity: Number(e.target.value) }))
+                            }
+                        />
                     </FormItem>
                     {atpLoading && (
                         <p className="text-sm text-gray-500">Loading availability…</p>
                     )}
                     {atpPreview && !atpLoading && (
                         <AdaptiveCard className="bg-gray-50 dark:bg-gray-800/50">
-                            <div className="text-sm font-medium mb-2">ATP preview (backend)</div>
+                            <div className="mb-2 text-sm font-medium">ATP preview (backend)</div>
                             <div className="grid grid-cols-3 gap-2 text-sm">
                                 <div>On hand: {atpPreview.onHand}</div>
                                 <div>Reserved: {atpPreview.reserved}</div>
                                 <div>Available: {atpPreview.available}</div>
                             </div>
                             {form.quantity > atpPreview.available && (
-                                <p className="text-danger text-sm mt-2">
+                                <p className="mt-2 text-danger text-sm">
                                     Requested quantity exceeds available stock.
                                 </p>
                             )}
                         </AdaptiveCard>
                     )}
                     <FormItem label="Source Type">
-                        <Select options={SOURCE_OPTS} value={SOURCE_OPTS.find((o) => o.value === form.sourceType)}
-                            onChange={(o: any) => setForm((f) => ({ ...f, sourceType: o?.value ?? 'INTERNAL_REQUEST' }))} />
+                        <Select
+                            options={SOURCE_OPTS}
+                            value={SOURCE_OPTS.find((o) => o.value === form.sourceType)}
+                            onChange={(o: any) =>
+                                setForm((f) => ({
+                                    ...f,
+                                    sourceType: o?.value ?? 'INTERNAL_REQUEST',
+                                }))
+                            }
+                        />
                     </FormItem>
                     <FormItem label="Source Document ID">
-                        <Input value={form.sourceDocumentId}
-                            onChange={(e) => setForm((f) => ({ ...f, sourceDocumentId: e.target.value }))} />
+                        <Input
+                            value={form.sourceDocumentId}
+                            onChange={(e) =>
+                                setForm((f) => ({ ...f, sourceDocumentId: e.target.value }))
+                            }
+                        />
                     </FormItem>
                 </div>
             </FormDialog>

@@ -21,6 +21,50 @@
 | `postedBy` | `createdBy` |
 | `reversalOfTransactionId` | `reversalOfId` |
 
+### Ledger read enrichment (read-only)
+
+`GET /api/v1/mm/inventory/ledger` enriches each posting for display. It never
+changes ledger data — the resolver only *reads* the owning document.
+
+| Field | Meaning |
+| --- | --- |
+| `sourceReference` | The origin document's business number (`GR-2026-00012`, `SO-000045`, `MAT-000010`), resolved from `sourceDocumentType` + `sourceDocumentId` |
+| `reversalOf` | The reversed posting's `transactionNumber` |
+| `reversedBy` | The reversal posted against this posting, when it was reversed |
+
+Owner: `backend/src/mm/inventory/inventory-source-reference.resolver.ts`
+(`InventorySourceReferenceResolver`). Resolution is best-effort: an unknown
+source type or a deleted document yields no `sourceReference`, and the ledger
+still renders. The raw pointer stays in `sourceDocumentId` / `sourceDocumentType`
+for technical lookups.
+
+The same endpoint also returns a **ledger summary** over the whole filter (not
+the current page):
+
+```json
+{
+  "summary": {
+    "total": 15,
+    "inboundQuantity": 1474,
+    "outboundQuantity": 1099,
+    "reversals": 3
+  }
+}
+```
+
+### List-endpoint status summaries
+
+The document lists (Goods Issue, Goods Receipt, Adjustments, Bin Transfer,
+Warehouse Transfer Order, Reservations) return a server-side status breakdown
+alongside the page of rows, so the UI tiles never depend on what happens to be
+on screen:
+
+```json
+{ "summary": { "byStatus": [{ "status": "POSTED", "count": 4 }] } }
+```
+
+Owner: `backend/src/mm/common/status-summary.util.ts` (`toStatusCounts`).
+
 ## Movement types
 
 | Type | Direction | Use |

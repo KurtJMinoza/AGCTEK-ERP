@@ -63,9 +63,22 @@ export type ReservationHeader = {
     }>
 }
 
+export type ReservationSummary = {
+    byStatus: {
+        status: string
+        count: number
+        quantity: number
+        reservedQuantity: number
+    }[]
+}
+
 export const reservationService = {
     list: (params?: Record<string, unknown>) =>
-        ErpAxiosBase.get<{ data: Reservation[]; meta: any }>(RSV, { params }).then((r) => r.data),
+        ErpAxiosBase.get<{
+            data: Reservation[]
+            meta: any
+            summary?: ReservationSummary
+        }>(RSV, { params }).then((r) => r.data),
 
     get: (id: string) =>
         ErpAxiosBase.get<Reservation>(`${RSV}/${id}`).then((r) => r.data),

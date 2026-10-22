@@ -203,6 +203,8 @@ export interface StockOpsListResponse<T> {
     total: number
     page: number
     pageSize: number
+    /** Document counts per status for the whole filter (server-side aggregate). */
+    summary?: { byStatus: { status: string; count: number }[] }
 }
 
 export interface StockOpsQueryParams {
