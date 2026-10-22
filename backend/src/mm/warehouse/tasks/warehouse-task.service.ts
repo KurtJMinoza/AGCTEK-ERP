@@ -21,6 +21,12 @@ import { TransferCompletionHandler } from './task-completion/transfer-completion
 import { Decimal } from '@prisma/client/runtime/library'
 import { Prisma } from '@prisma/client'
 
+/** Options for domain-driven task execution (not exposed on public API DTOs). */
+export type WarehouseTaskExecutionOptions = {
+    /** Skip assignee validation for automated pipelines (e.g. transfer pick). */
+    skipAssigneeCheck?: boolean
+}
+
 const TASK_INCLUDES = {
     material: { select: { id: true, materialCode: true, materialName: true } },
     warehouse: { select: { id: true, code: true, name: true } },
@@ -127,6 +133,14 @@ export class WarehouseTaskService {
         return task
     }
 
+    private assertWorkerAssigned(task: { assignedUserId: string | null }) {
+        if (!task.assignedUserId?.trim()) {
+            throw new BadRequestException(
+                'Assign a worker before starting or completing this task',
+            )
+        }
+    }
+
     async assign(id: string, userId: string) {
         return this.assignment.assign(id, userId)
     }
@@ -135,10 +149,17 @@ export class WarehouseTaskService {
         return this.assignment.reassign(id, userId)
     }
 
-    async start(id: string, dto?: StartTaskDto) {
+    async start(
+        id: string,
+        dto?: StartTaskDto,
+        options?: WarehouseTaskExecutionOptions,
+    ) {
         const task = await this.findOne(id)
         if (!['PENDING', 'ASSIGNED', 'PARTIALLY_COMPLETED'].includes(task.status)) {
             throw new BadRequestException(`Cannot start task in status ${task.status}`)
+        }
+        if (!options?.skipAssigneeCheck) {
+            this.assertWorkerAssigned(task)
         }
 
         const updated = await this.prisma.wmWarehouseTask.update({
@@ -158,14 +179,21 @@ export class WarehouseTaskService {
         return updated
     }
 
-    async complete(id: string, dto: CompleteTaskDto) {
+    async complete(
+        id: string,
+        dto: CompleteTaskDto,
+        options?: WarehouseTaskExecutionOptions,
+    ) {
         const task = await this.findOne(id)
         if (!['IN_PROGRESS', 'PARTIALLY_COMPLETED', 'ASSIGNED'].includes(task.status)) {
             throw new BadRequestException(`Cannot complete task in status ${task.status}`)
         }
+        if (!options?.skipAssigneeCheck) {
+            this.assertWorkerAssigned(task)
+        }
 
         if (task.status === 'ASSIGNED') {
-            await this.start(id)
+            await this.start(id, undefined, options)
         }
 
         const fresh = await this.findOne(id)

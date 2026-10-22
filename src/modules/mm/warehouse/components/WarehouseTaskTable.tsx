@@ -21,8 +21,7 @@ import {
     HiOutlineUserAdd,
 } from 'react-icons/hi'
 import { warehouseTaskService } from '../services/warehouseTaskService'
-import { pickingService } from '../services/pickingService'
-import type { AssignableWorker } from '../types'
+import WarehouseAssignWorkerDialog from './WarehouseAssignWorkerDialog'
 import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type {
     WarehouseTask,
@@ -66,6 +65,10 @@ const OPEN_STATUSES: WarehouseTaskStatus[] = [
     'EXCEPTION',
 ]
 
+function taskHasAssignee(task: WarehouseTask) {
+    return Boolean(task.assignedUserId?.trim())
+}
+
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
         <Notification type={type} title={title} closable duration={3500}>
@@ -80,8 +83,6 @@ type Props = {
     title?: string
 }
 
-type AssignWorkerOption = { value: string; label: string }
-
 export default function WarehouseTaskTable({ mode }: Props) {
     const [tasks, setTasks] = useState<WarehouseTask[]>([])
     const [total, setTotal] = useState(0)
@@ -95,9 +96,8 @@ export default function WarehouseTaskTable({ mode }: Props) {
     const { warehouses: warehouseFilterOpts } = useMmFilterRefs('warehouses')
 
     const [assignOpen, setAssignOpen] = useState(false)
-    const [assignUserId, setAssignUserId] = useState('')
+    const [assignInitialUserId, setAssignInitialUserId] = useState('')
     const [activeTask, setActiveTask] = useState<WarehouseTask | null>(null)
-    const [assignWorkers, setAssignWorkers] = useState<AssignableWorker[]>([])
     const [completeOpen, setCompleteOpen] = useState(false)
     const [completeQty, setCompleteQty] = useState('')
     const [completeBinId, setCompleteBinId] = useState('')
@@ -155,31 +155,6 @@ export default function WarehouseTaskTable({ mode }: Props) {
         fetchTasks()
     }, [fetchTasks])
 
-    const assignWorkerOptions = useMemo<AssignWorkerOption[]>(
-        () =>
-            assignWorkers.map((w) => ({
-                value: w.id,
-                label: `${w.displayName} — ${w.email}`,
-            })),
-        [assignWorkers],
-    )
-
-    useEffect(() => {
-        if (!assignOpen || !activeTask) return
-        let alive = true
-        pickingService
-            .assignableUsers(activeTask.companyId, activeTask.warehouseId)
-            .then((workers) => {
-                if (alive) setAssignWorkers(workers)
-            })
-            .catch(() => {
-                if (alive) setAssignWorkers([])
-            })
-        return () => {
-            alive = false
-        }
-    }, [assignOpen, activeTask])
-
     const runAction = useCallback(
         async (fn: () => Promise<unknown>, success: string) => {
             setActionLoading(true)
@@ -203,11 +178,19 @@ export default function WarehouseTaskTable({ mode }: Props) {
 
     const openAssign = useCallback((t: WarehouseTask) => {
         setActiveTask(t)
-        setAssignUserId(t.assignedUserId ?? '')
+        setAssignInitialUserId(t.assignedUserId ?? '')
         setAssignOpen(true)
     }, [])
 
     const openComplete = useCallback((t: WarehouseTask) => {
+        if (!taskHasAssignee(t)) {
+            pushToast(
+                'danger',
+                'Worker required',
+                'Assign a worker before completing this task.',
+            )
+            return
+        }
         setActiveTask(t)
         const remaining = Number(t.quantity) - Number(t.completedQuantity)
         setCompleteQty(String(Math.max(0, remaining)))
@@ -302,12 +285,13 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 enableSorting: false,
                 cell: ({ row }) => {
                     const t = row.original
-                    const canStart = [
+                    const hasAssignee = taskHasAssignee(t)
+                    const showStart = [
                         'PENDING',
                         'ASSIGNED',
                         'PARTIALLY_COMPLETED',
                     ].includes(t.status)
-                    const canComplete = [
+                    const showComplete = [
                         'IN_PROGRESS',
                         'PARTIALLY_COMPLETED',
                         'ASSIGNED',
@@ -317,6 +301,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
                     const canException = !['COMPLETED', 'CANCELLED'].includes(
                         t.status,
                     )
+                    const assigneeHint = 'Assign a worker first'
                     return (
                         <Dropdown
                             renderTitle={<EllipsisButton />}
@@ -331,10 +316,11 @@ export default function WarehouseTaskTable({ mode }: Props) {
                                     <span>Assign</span>
                                 </Dropdown.Item>
                             ) : null}
-                            {canStart ? (
+                            {showStart ? (
                                 <Dropdown.Item
                                     eventKey="start"
-                                    onClick={() =>
+                                    disabled={!hasAssignee}
+                                    onClick={() => {
                                         void runAction(
                                             () =>
                                                 warehouseTaskService.start(
@@ -342,19 +328,34 @@ export default function WarehouseTaskTable({ mode }: Props) {
                                                 ),
                                             'Task started',
                                         )
-                                    }
+                                    }}
                                 >
                                     <HiOutlinePlay className="text-base" />
-                                    <span>Start</span>
+                                    <span className="flex min-w-0 flex-col">
+                                        <span>Start</span>
+                                        {!hasAssignee ? (
+                                            <span className="text-xs font-normal text-gray-400">
+                                                {assigneeHint}
+                                            </span>
+                                        ) : null}
+                                    </span>
                                 </Dropdown.Item>
                             ) : null}
-                            {canComplete ? (
+                            {showComplete ? (
                                 <Dropdown.Item
                                     eventKey="complete"
+                                    disabled={!hasAssignee}
                                     onClick={() => openComplete(t)}
                                 >
                                     <HiOutlineCheckCircle className="text-base" />
-                                    <span>Complete</span>
+                                    <span className="flex min-w-0 flex-col">
+                                        <span>Complete</span>
+                                        {!hasAssignee ? (
+                                            <span className="text-xs font-normal text-gray-400">
+                                                {assigneeHint}
+                                            </span>
+                                        ) : null}
+                                    </span>
                                 </Dropdown.Item>
                             ) : null}
                             {canException ? (
@@ -496,50 +497,22 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 />
             </AdaptiveCard>
 
-            <FormDialog
+            <WarehouseAssignWorkerDialog
                 isOpen={assignOpen}
-                title="Assign Task"
+                taskNumber={activeTask?.taskNumber}
+                companyId={activeTask?.companyId}
+                warehouseId={activeTask?.warehouseId}
+                initialUserId={assignInitialUserId}
+                confirmLoading={actionLoading}
                 onClose={() => setAssignOpen(false)}
-                onSubmit={() => {
+                onConfirm={(userId) => {
                     if (!activeTask) return
                     return runAction(
-                        () =>
-                            warehouseTaskService.assign(
-                                activeTask.id,
-                                assignUserId,
-                            ),
+                        () => warehouseTaskService.assign(activeTask.id, userId),
                         'Task assigned',
                     )
                 }}
-                confirmLoading={actionLoading}
-            >
-                <FormItem
-                    label="Worker"
-                    errorMessage={
-                        assignWorkers.length === 0
-                            ? 'No assignable workers found for this task company'
-                            : undefined
-                    }
-                >
-                    <Select<AssignWorkerOption>
-                        isClearable
-                        isSearchable
-                        options={assignWorkerOptions}
-                        value={
-                            assignWorkerOptions.find(
-                                (o) => o.value === assignUserId,
-                            ) ?? null
-                        }
-                        onChange={(option) =>
-                            setAssignUserId(option?.value ?? '')
-                        }
-                        placeholder="Select a worker of the task company"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                        Only active workers in the task company can be assigned.
-                    </p>
-                </FormItem>
-            </FormDialog>
+            />
 
             <FormDialog
                 isOpen={completeOpen}

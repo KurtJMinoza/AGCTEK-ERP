@@ -391,4 +391,31 @@ describe('Warehouse Task Engine', () => {
             exceptionService.report('missing', { exceptionCode: 'WRONG_BIN' }),
         ).rejects.toThrow(NotFoundException)
     })
+
+    it('rejects start when no worker is assigned', async () => {
+        mockPrisma.wmWarehouseTask.findUnique.mockResolvedValue({
+            ...baseTask,
+            taskType: 'TRANSFER',
+            status: 'PENDING',
+            assignedUserId: null,
+        })
+
+        await expect(taskService.start('wt1')).rejects.toBeInstanceOf(
+            BadRequestException,
+        )
+        expect(mockPrisma.wmWarehouseTask.update).not.toHaveBeenCalled()
+    })
+
+    it('rejects complete when no worker is assigned', async () => {
+        mockPrisma.wmWarehouseTask.findUnique.mockResolvedValue({
+            ...baseTask,
+            taskType: 'TRANSFER',
+            status: 'ASSIGNED',
+            assignedUserId: null,
+        })
+
+        await expect(
+            taskService.complete('wt1', { quantity: 1 }),
+        ).rejects.toBeInstanceOf(BadRequestException)
+    })
 })

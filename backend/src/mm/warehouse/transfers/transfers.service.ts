@@ -542,10 +542,16 @@ export class TransfersService {
                 referenceId: line.id,
                 metadata: { transferId: transfer.id, transferNumber: transfer.transferNumber },
             })
-            await this.warehouseTasks.start(task.id)
+            await this.warehouseTasks.start(task.id, undefined, {
+                skipAssigneeCheck: true,
+            })
         }
 
-        await this.warehouseTasks.complete(task.id, { quantity: pickedQty })
+        await this.warehouseTasks.complete(
+            task.id,
+            { quantity: pickedQty },
+            { skipAssigneeCheck: true },
+        )
     }
 
     private async generateNextCode(): Promise<string> {
