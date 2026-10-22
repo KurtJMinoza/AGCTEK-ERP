@@ -53,6 +53,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'sd/products#optionsVariants': 'Public storefront product options and variants',
     'sd/products#variantByBarcode': 'Public storefront and scanner variant barcode lookup',
     'sd/products#storefrontAvailability': 'Public storefront stock badge',
+    'uploads#product': 'Public storefront product picture (embedded in an image tag)',
+    'uploads#delivery': 'Public proof-of-delivery picture (embedded in an image tag)',
     'sd/sales-orders#list': 'Storefront order history (anonymous storefront visitors)',
     'sd/sales-orders#createMarketplaceCheckout': 'Storefront checkout (anonymous storefront visitors)',
     'sd/sales-orders#requestReturn': 'Storefront customer return request (authenticated via retail session token)',
