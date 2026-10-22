@@ -6,7 +6,6 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -18,7 +17,22 @@ import Dropdown from '@/components/ui/Dropdown'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash } from 'react-icons/hi'
+import {
+    HiOutlinePlus,
+    HiOutlinePencil,
+    HiOutlineSearch,
+    HiOutlineTrash,
+} from 'react-icons/hi'
+import {
+    SmEntityCell,
+    SmPreferredCell,
+    SmRecordStatusCell,
+    SmSupplierLinkCodeCell,
+    SmSupplyTermsCell,
+    SmUnitPriceCell,
+    SmValidityCell,
+    smTableRowEnterClass,
+} from '../components/SupplierTableCells'
 import { supplierMaterialService } from '../services/supplierMaterialService'
 import type { SupplierMaterial } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
@@ -30,7 +44,10 @@ import {
     visibleError,
     type FieldErrors,
 } from '@/modules/mm/shared/formValidation'
-import { useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
+import {
+    useMaterialOptions,
+    useSupplierOptions,
+} from '@/modules/mm/shared/useEntityOptions'
 
 const ROUTE_PATH = '/modules/mm/supplier-management/supplier-materials'
 
@@ -57,6 +74,9 @@ const SupplierMaterialsPage = () => {
     const [loading, setLoading] = useState(true)
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(20)
+    const [filterSupplierId, setFilterSupplierId] = useState('')
+    const [filterMaterialId, setFilterMaterialId] = useState('')
+    const [filterSearch, setFilterSearch] = useState('')
 
     const [formOpen, setFormOpen] = useState(false)
     const [editItem, setEditItem] = useState<SupplierMaterial | null>(null)
@@ -66,8 +86,16 @@ const SupplierMaterialsPage = () => {
     const [forceValidate, setForceValidate] = useState(false)
     const [lookupHint, setLookupHint] = useState('')
 
-    const { options: supplierOpts } = useSupplierOptions({ enabled: formOpen })
-    const { options: materialOpts } = useMaterialOptions({ enabled: formOpen })
+    const { options: supplierOpts } = useSupplierOptions({ enabled: true })
+    const { options: materialOpts } = useMaterialOptions({ enabled: true })
+    const supplierFilterOpts = useMemo(
+        () => [{ value: '', label: 'All suppliers' }, ...supplierOpts],
+        [supplierOpts],
+    )
+    const materialFilterOpts = useMemo(
+        () => [{ value: '', label: 'All materials' }, ...materialOpts],
+        [materialOpts],
+    )
 
     const fieldErrors = useMemo<FieldErrors>(() => ({
         supplierId: required(form.supplierId, 'Supplier'),
@@ -90,11 +118,39 @@ const SupplierMaterialsPage = () => {
     const fetchData = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await supplierMaterialService.list({ page, pageSize })
+            const res = await supplierMaterialService.list({
+                page,
+                pageSize,
+                supplierId: filterSupplierId || undefined,
+                materialId: filterMaterialId || undefined,
+            })
             setData(res.data)
             setTotal(res.total)
-        } catch { setData([]); setTotal(0) } finally { setLoading(false) }
-    }, [page, pageSize])
+        } catch {
+            setData([])
+            setTotal(0)
+        } finally {
+            setLoading(false)
+        }
+    }, [page, pageSize, filterSupplierId, filterMaterialId])
+
+    const tableRows = useMemo(() => {
+        const q = filterSearch.trim().toLocaleLowerCase()
+        if (!q) return data
+        return data.filter((row) => {
+            const hay = [
+                row.supplierMaterialCode,
+                row.supplier?.supplierCode,
+                row.supplier?.supplierName,
+                row.material?.materialCode,
+                row.material?.materialName,
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLocaleLowerCase()
+            return hay.includes(q)
+        })
+    }, [data, filterSearch])
 
     useEffect(() => { fetchData() }, [fetchData])
 
@@ -211,54 +267,142 @@ const SupplierMaterialsPage = () => {
         }
     }, [deleteItem, fetchData])
 
-    const columns = useMemo<ColumnDef<SupplierMaterial>[]>(() => [
-        {
-            header: 'Supplier',
-            accessorKey: 'supplierId',
-            cell: ({ row }) => {
-                const s = row.original.supplier
-                return s ? <span className="text-sm">{s.supplierCode} — {s.supplierName}</span> : <span>{row.original.supplierId}</span>
+    const columns = useMemo<ColumnDef<SupplierMaterial>[]>(
+        () => [
+            {
+                header: 'Link',
+                accessorKey: 'supplierMaterialCode',
+                size: 140,
+                minSize: 120,
+                cell: ({ row }) => (
+                    <SmSupplierLinkCodeCell
+                        code={row.original.supplierMaterialCode}
+                    />
+                ),
             },
-        },
-        {
-            header: 'Material',
-            accessorKey: 'materialId',
-            cell: ({ row }) => {
-                const m = row.original.material
-                return m ? <span className="text-sm">{m.materialCode} — {m.materialName}</span> : <span>{row.original.materialId}</span>
+            {
+                header: 'Supplier',
+                accessorKey: 'supplierId',
+                size: 180,
+                minSize: 140,
+                cell: ({ row }) => {
+                    const s = row.original.supplier
+                    return (
+                        <SmEntityCell
+                            kind="supplier"
+                            primary={s?.supplierName ?? null}
+                            secondary={s?.supplierCode ?? row.original.supplierId}
+                        />
+                    )
+                },
             },
-        },
-        { header: 'Supplier Code', accessorKey: 'supplierMaterialCode', cell: ({ row }) => <span>{row.original.supplierMaterialCode || '—'}</span> },
-        { header: 'Unit Price', accessorKey: 'unitPrice', cell: ({ row }) => <span className="font-semibold">{Number(row.original.unitPrice).toFixed(2)}</span> },
-        { header: 'MOQ', accessorKey: 'minimumOrderQuantity', cell: ({ row }) => <span>{row.original.minimumOrderQuantity ?? '—'}</span> },
-        { header: 'Lead Time', accessorKey: 'leadTimeDays', cell: ({ row }) => <span>{row.original.leadTimeDays ? `${row.original.leadTimeDays}d` : '—'}</span> },
-        {
-            header: 'Preferred',
-            accessorKey: 'preferredSupplier',
-            cell: ({ row }) => <StatusBadge tone={row.original.preferredSupplier ? 'success' : 'default'}>{row.original.preferredSupplier ? 'Yes' : 'No'}</StatusBadge>,
-        },
-        {
-            header: 'Status',
-            accessorKey: 'status',
-            cell: ({ row }) => <StatusBadge tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}>{row.original.status}</StatusBadge>,
-        },
-        {
-            id: 'actions',
-            header: '',
-            enableSorting: false,
-            size: 48,
-            cell: ({ row }) => (
-                <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                    <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
-                        <HiOutlinePencil className="text-base" /><span>Edit</span>
-                    </Dropdown.Item>
-                    <Dropdown.Item eventKey="delete" onClick={() => setDeleteItem(row.original)}>
-                        <HiOutlineTrash className="text-base text-red-500" /><span className="text-red-500">Delete</span>
-                    </Dropdown.Item>
-                </Dropdown>
-            ),
-        },
-    ], [openEdit])
+            {
+                header: 'Material',
+                accessorKey: 'materialId',
+                size: 180,
+                minSize: 140,
+                cell: ({ row }) => {
+                    const m = row.original.material
+                    return (
+                        <SmEntityCell
+                            kind="material"
+                            primary={m?.materialName ?? null}
+                            secondary={m?.materialCode ?? row.original.materialId}
+                        />
+                    )
+                },
+            },
+            {
+                header: 'Unit price',
+                accessorKey: 'unitPrice',
+                size: 110,
+                minSize: 96,
+                cell: ({ row }) => (
+                    <SmUnitPriceCell
+                        amount={row.original.unitPrice}
+                        currencyCode={row.original.currency?.code}
+                    />
+                ),
+            },
+            {
+                header: 'Supply terms',
+                id: 'terms',
+                size: 150,
+                minSize: 120,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => (
+                    <SmSupplyTermsCell
+                        moq={row.original.minimumOrderQuantity}
+                        leadTimeDays={row.original.leadTimeDays}
+                    />
+                ),
+            },
+            {
+                header: 'Validity',
+                id: 'validity',
+                size: 130,
+                minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => (
+                    <SmValidityCell
+                        start={row.original.validityStart}
+                        end={row.original.validityEnd}
+                    />
+                ),
+            },
+            {
+                header: 'Flags',
+                id: 'flags',
+                size: 100,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <div className="flex flex-col gap-1.5">
+                        <SmPreferredCell
+                            preferred={row.original.preferredSupplier}
+                        />
+                    </div>
+                ),
+            },
+            {
+                header: 'Status',
+                accessorKey: 'status',
+                size: 100,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <SmRecordStatusCell status={row.original.status} />
+                ),
+            },
+            {
+                id: 'actions',
+                header: '',
+                enableSorting: false,
+                size: 52,
+                minSize: 48,
+                cell: ({ row }) => (
+                    <Dropdown
+                        renderTitle={<EllipsisButton />}
+                        placement="bottom-end"
+                    >
+                        <Dropdown.Item
+                            eventKey="edit"
+                            onClick={() => openEdit(row.original)}
+                        >
+                            <HiOutlinePencil className="text-base" />
+                            <span>Edit</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item
+                            eventKey="delete"
+                            onClick={() => setDeleteItem(row.original)}
+                        >
+                            <HiOutlineTrash className="text-base text-red-500" />
+                            <span className="text-red-500">Delete</span>
+                        </Dropdown.Item>
+                    </Dropdown>
+                ),
+            },
+        ],
+        [openEdit],
+    )
 
     return (
         <PageContainer>
@@ -269,16 +413,69 @@ const SupplierMaterialsPage = () => {
                 actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add Link</Button>}
             />
             <AdaptiveCard className="mt-4">
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <Input
+                        className="sm:col-span-2 xl:col-span-1"
+                        prefix={<HiOutlineSearch className="text-lg" />}
+                        placeholder="Search link, supplier, material…"
+                        value={filterSearch}
+                        onChange={(e) => setFilterSearch(e.target.value)}
+                    />
+                    <Select
+                        isSearchable
+                        placeholder="Supplier"
+                        options={supplierFilterOpts}
+                        value={
+                            supplierFilterOpts.find(
+                                (o) => o.value === filterSupplierId,
+                            ) ?? supplierFilterOpts[0]
+                        }
+                        onChange={(opt) => {
+                            setFilterSupplierId(
+                                (opt as { value: string })?.value ?? '',
+                            )
+                            setPage(1)
+                        }}
+                    />
+                    <Select
+                        isSearchable
+                        placeholder="Material"
+                        options={materialFilterOpts}
+                        value={
+                            materialFilterOpts.find(
+                                (o) => o.value === filterMaterialId,
+                            ) ?? materialFilterOpts[0]
+                        }
+                        onChange={(opt) => {
+                            setFilterMaterialId(
+                                (opt as { value: string })?.value ?? '',
+                            )
+                            setPage(1)
+                        }}
+                    />
+                </div>
+                {!loading && total > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {tableRows.length} shown on this page · {total} total
+                        matching
+                        {filterSearch.trim() ? ' (search filters current page)' : ''}
+                    </p>
+                ) : null}
                 <DataTable<SupplierMaterial>
                     columns={columns}
-                    data={data}
+                    data={tableRows}
                     compact
                     fit
                     loading={loading}
-                    noData={!loading && data.length === 0}
-                    pagingData={{ total, pageIndex: page, pageSize }}
-                    onPaginationChange={setPage}
-                    onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => smTableRowEnterClass(index)}
+                    noData={!loading && tableRows.length === 0}
+                    pagingData={{ total, pageIndex: page - 1, pageSize }}
+                    onPaginationChange={(p) => setPage(p + 1)}
+                    onSelectChange={(size) => {
+                        setPageSize(size)
+                        setPage(1)
+                    }}
                 />
             </AdaptiveCard>
 
