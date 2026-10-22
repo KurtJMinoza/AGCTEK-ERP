@@ -5,8 +5,12 @@ import {
     HiOutlineClipboardList,
     HiOutlineCube,
     HiOutlineLocationMarker,
+    HiOutlineRefresh,
+    HiOutlineSwitchHorizontal,
     HiOutlineUser,
+    HiOutlineViewGrid,
 } from 'react-icons/hi'
+import type { IconType } from 'react-icons'
 
 /** Staggered row entrance for warehouse DataTables (pair with DataTable rowClassName). */
 export function wmTableRowEnterClass(index: number): string {
@@ -194,8 +198,11 @@ type WmAnimatedStatusProps = {
 const PULSE_STATUSES = new Set([
     'IN_PROGRESS',
     'PARTIALLY_PICKED',
+    'PARTIALLY_COMPLETED',
     'PACKING',
     'ASSIGNED',
+    'EXCEPTION',
+    'PENDING',
 ])
 
 export function WmAnimatedStatus({ status, tone }: WmAnimatedStatusProps) {
@@ -226,5 +233,143 @@ export function WmItemCountBadge({ count, label = 'items' }: { count: number; la
             <HiOutlineCube className="text-base text-gray-400" />
             {count.toLocaleString()} {label}
         </span>
+    )
+}
+
+const TASK_TYPE_META: Record<
+    string,
+    { label: string; Icon: IconType; chip: string; tile: string }
+> = {
+    PICK: {
+        label: 'Pick',
+        Icon: HiOutlineClipboardList,
+        chip: 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200',
+        tile: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+    },
+    TRANSFER: {
+        label: 'Transfer',
+        Icon: HiOutlineSwitchHorizontal,
+        chip: 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200',
+        tile: 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+    },
+    REPLENISHMENT: {
+        label: 'Replenish',
+        Icon: HiOutlineRefresh,
+        chip: 'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200',
+        tile: 'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300',
+    },
+    RELOCATION: {
+        label: 'Relocate',
+        Icon: HiOutlineLocationMarker,
+        chip: 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200',
+        tile: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+    },
+    COUNT: {
+        label: 'Count',
+        Icon: HiOutlineViewGrid,
+        chip: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+        tile: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+    },
+}
+
+export function WmTaskTypeChip({ taskType }: { taskType: string }) {
+    const meta = TASK_TYPE_META[taskType] ?? {
+        label: taskType,
+        chip: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+    }
+    return (
+        <span
+            className={`inline-flex shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.chip}`}
+        >
+            {meta.label}
+        </span>
+    )
+}
+
+type WmWarehouseTaskCellProps = {
+    taskNumber: string
+    taskType: string
+    warehouse?: { code?: string; name?: string } | null
+    priority?: number
+}
+
+export function WmWarehouseTaskCell({
+    taskNumber,
+    taskType,
+    warehouse,
+    priority,
+}: WmWarehouseTaskCellProps) {
+    const meta = TASK_TYPE_META[taskType] ?? {
+        label: taskType,
+        Icon: HiOutlineClipboardList,
+        tile: 'bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light',
+    }
+    const Icon = meta.Icon
+    const wh = warehouse?.code ?? warehouse?.name
+    return (
+        <div className="flex min-w-0 items-center gap-2.5">
+            <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.tile}`}
+            >
+                <Icon className="text-lg" />
+            </span>
+            <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate font-mono text-xs font-semibold text-primary">
+                        {taskNumber}
+                    </span>
+                    <WmTaskTypeChip taskType={taskType} />
+                    {priority != null && priority <= 2 ? (
+                        <span className="rounded bg-rose-100 px-1 text-[9px] font-bold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                            P{priority}
+                        </span>
+                    ) : null}
+                </div>
+                <p className="truncate text-[11px] text-gray-500">
+                    {wh ? `WH ${wh}` : 'Warehouse'}
+                </p>
+            </div>
+        </div>
+    )
+}
+
+export function WmAssigneeCell({
+    assignedUserId,
+}: {
+    assignedUserId?: string | null
+}) {
+    if (!assignedUserId) {
+        return (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 dark:border-gray-600">
+                <HiOutlineUser className="text-sm opacity-50" />
+                Unassigned
+            </span>
+        )
+    }
+    const short = assignedUserId.length > 12
+        ? `…${assignedUserId.slice(-8)}`
+        : assignedUserId
+    return (
+        <WmPartyCell name="Assigned worker" subtitle={short} />
+    )
+}
+
+export function WmTaskLocationHint({
+    sourceBinId,
+    destinationBinId,
+}: {
+    sourceBinId?: string | null
+    destinationBinId?: string | null
+}) {
+    if (!sourceBinId && !destinationBinId) {
+        return null
+    }
+    const fmt = (id: string) =>
+        id.length > 10 ? `…${id.slice(-6)}` : id
+    return (
+        <p className="mt-0.5 truncate font-mono text-[10px] text-gray-400">
+            {sourceBinId ? fmt(sourceBinId) : '—'}
+            {destinationBinId ? ` → ${fmt(destinationBinId)}` : ''}
+        </p>
     )
 }

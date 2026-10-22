@@ -6,7 +6,6 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -989,24 +988,22 @@ const PackingPage = () => {
                     setDetailOpen(false)
                     setDetailPkg(null)
                 }}
-                size="xl"
-                title={detailPkg?.packageNumber ?? 'Package detail'}
+                width={1024}
+                title="Pack shipment"
                 description={
                     detailPkg
-                        ? `${detailPkg.orderNumber ? `Order: ${detailPkg.orderNumber}` : 'Manual package — no linked sales order'}${detailPkg.packageType ? ` · Type: ${detailPkg.packageType}` : ''}`
+                        ? `Scan and verify every line, then complete packing before seal and dispatch.`
                         : undefined
                 }
                 icon={<HiOutlineCube />}
                 headerExtra={
                     detailPkg ? (
-                        <StatusBadge
-                            tone={STATUS_TONE[detailPkg.status] ?? 'default'}
-                        >
-                            {detailPkg.status.replace(/_/g, ' ')}
-                        </StatusBadge>
+                        <span className="font-mono text-sm font-semibold text-gray-600 dark:text-gray-300">
+                            {detailPkg.packageNumber}
+                        </span>
                     ) : undefined
                 }
-                bodyClassName="overflow-x-hidden"
+                bodyClassName="max-h-[min(72vh,820px)] overflow-y-auto overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={
                     detailPkg && !detailLoading ? (

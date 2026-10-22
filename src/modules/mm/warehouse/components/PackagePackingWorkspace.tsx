@@ -3,17 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import {
-    HiOutlineCube,
+    HiOutlineCheckCircle,
     HiOutlineClock,
+    HiOutlineCube,
     HiOutlineMinus,
     HiOutlinePlus,
     HiOutlineRefresh,
     HiOutlineSearch,
     HiOutlineTruck,
+    HiOutlineUser,
 } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
-import Progress from '@/components/ui/Progress'
+import Segment from '@/components/ui/Segment'
 import Tag from '@/components/ui/Tag'
 import Dialog from '@/components/ui/Dialog'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -31,9 +33,7 @@ import type {
 /** Scanner-first packing screen for one package. */
 export type PackagePackingWorkspaceProps = {
     pkg: WmPackage
-    /** Re-fetch the package after any scan / adjustment / completion. */
     onChanged: () => Promise<void> | void
-    /** Refresh the packages list behind the dialog. */
     onListChanged?: () => Promise<void> | void
 }
 
@@ -41,7 +41,6 @@ type ItemFilter = 'all' | 'remaining' | 'completed' | 'exceptions'
 
 const num = (value: unknown) => Number(value) || 0
 
-/** PENDING (0) · IN_PROGRESS (partial) · COMPLETE (expected). */
 export function packingLineStatus(item: {
     expectedQty: unknown
     scannedQty: unknown
@@ -54,7 +53,7 @@ export function packingLineStatus(item: {
 
 const STATUS_LABEL: Record<string, string> = {
     PENDING: 'Pending',
-    IN_PROGRESS: 'In Progress',
+    IN_PROGRESS: 'In progress',
     COMPLETE: 'Complete',
 }
 
@@ -62,9 +61,9 @@ const STATUS_CLASS: Record<string, string> = {
     PENDING:
         'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
     IN_PROGRESS:
-        'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+        'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300',
     COMPLETE:
-        'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+        'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300',
 }
 
 const PACKAGE_STATUS_TONE: Record<
@@ -78,13 +77,6 @@ const PACKAGE_STATUS_TONE: Record<
     DISPATCHED: 'success',
     CANCELLED: 'danger',
 }
-
-const FILTERS: Array<{ value: ItemFilter; label: string }> = [
-    { value: 'all', label: 'All' },
-    { value: 'remaining', label: 'Remaining' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'exceptions', label: 'Exceptions' },
-]
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -100,7 +92,57 @@ const formatTime = (iso: string) =>
         minute: '2-digit',
     })
 
-/** Product snapshot (kept even for archived/deleted products) by material. */
+function ProgressRing({
+    percent,
+    size = 64,
+}: {
+    percent: number
+    size?: number
+}) {
+    const stroke = 5
+    const r = (size - stroke) / 2
+    const c = 2 * Math.PI * r
+    const offset = c - (Math.min(100, Math.max(0, percent)) / 100) * c
+    const done = percent >= 100
+    return (
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+            <svg
+                width={size}
+                height={size}
+                className="-rotate-90"
+                aria-hidden
+            >
+                <circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={r}
+                    fill="none"
+                    strokeWidth={stroke}
+                    className="stroke-gray-200 dark:stroke-gray-600"
+                />
+                <circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={r}
+                    fill="none"
+                    strokeWidth={stroke}
+                    strokeLinecap="round"
+                    strokeDasharray={c}
+                    strokeDashoffset={offset}
+                    className={`transition-[stroke-dashoffset] duration-500 ${
+                        done
+                            ? 'stroke-emerald-500'
+                            : 'stroke-primary'
+                    }`}
+                />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
+                {percent}%
+            </span>
+        </div>
+    )
+}
+
 function useOrderLineByMaterial(pkg: WmPackage) {
     return useMemo(() => {
         const map = new Map<
@@ -127,6 +169,208 @@ function useOrderLineByMaterial(pkg: WmPackage) {
     }, [pkg.salesOrder?.lines, pkg.pickingTask?.salesOrder?.lines])
 }
 
+type PackingItemCardProps = {
+    item: WmPackageItem
+    snapshot?: {
+        productName?: string | null
+        productImage?: string | null
+        sku?: string | null
+        variantName?: string | null
+    }
+    lastScan?: PackageScanLogEntry
+    editable: boolean
+    scanning: boolean
+    adjustingId: string | null
+    index: number
+    onScan: () => void
+    onAdjust: (
+        action: 'add' | 'remove' | 'reset',
+        quantity?: number,
+    ) => void
+    onAddQty: () => void
+    onReset: () => void
+}
+
+function PackingItemCard({
+    item,
+    snapshot,
+    lastScan,
+    editable,
+    scanning,
+    adjustingId,
+    index,
+    onScan,
+    onAdjust,
+    onAddQty,
+    onReset,
+}: PackingItemCardProps) {
+    const expected = num(item.expectedQty)
+    const scanned = num(item.scannedQty)
+    const status = packingLineStatus(item)
+    const remaining = Math.max(0, expected - scanned)
+    const pct = expected ? Math.round((scanned / expected) * 100) : 0
+    const title =
+        snapshot?.productName?.trim() ||
+        item.material?.materialName ||
+        item.materialId
+    const image = snapshot?.productImage ?? ''
+    const busy = adjustingId === item.id
+
+    return (
+        <article
+            className={`animate-mm-row-in motion-reduce:animate-none overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md dark:bg-gray-900/40 ${
+                status === 'COMPLETE'
+                    ? 'border-emerald-200/80 dark:border-emerald-500/35'
+                    : 'border-gray-200 dark:border-gray-600'
+            }`}
+            style={{ animationDelay: `${Math.min(index, 10) * 40}ms` }}
+        >
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-stretch">
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-600 dark:bg-gray-800">
+                    {isRenderableImageSrc(image) ? (
+                        <Image
+                            src={image}
+                            alt={title}
+                            fill
+                            sizes="64px"
+                            unoptimized={isUnoptimizedImage(image)}
+                            className="object-cover"
+                        />
+                    ) : (
+                        <HiOutlineCube className="m-auto h-full w-6 text-gray-400" />
+                    )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                            <h4
+                                className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100"
+                                title={title}
+                            >
+                                {title}
+                            </h4>
+                            <p className="truncate font-mono text-xs text-gray-500">
+                                {item.material?.materialCode ?? item.materialId}
+                                {snapshot?.variantName
+                                    ? ` · ${snapshot.variantName}`
+                                    : ''}
+                            </p>
+                        </div>
+                        <Tag className={STATUS_CLASS[status]}>
+                            {STATUS_LABEL[status]}
+                        </Tag>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-lg bg-gray-50 px-2.5 py-1 text-xs dark:bg-gray-800/80">
+                            <span className="text-gray-400">Expected </span>
+                            <span className="font-semibold tabular-nums">
+                                {expected}
+                            </span>
+                        </span>
+                        <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs dark:bg-emerald-500/10">
+                            <span className="text-emerald-700/70 dark:text-emerald-300/80">
+                                Scanned{' '}
+                            </span>
+                            <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                                {scanned}
+                            </span>
+                        </span>
+                        <span className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs dark:bg-amber-500/10">
+                            <span className="text-amber-700/70 dark:text-amber-300/80">
+                                Left{' '}
+                            </span>
+                            <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-300">
+                                {remaining}
+                            </span>
+                        </span>
+                    </div>
+
+                    <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                        <div
+                            className={`h-full origin-left rounded-full transition-all duration-500 ${
+                                status === 'COMPLETE'
+                                    ? 'bg-emerald-500'
+                                    : 'bg-primary'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                        />
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
+                        {lastScan ? (
+                            <span className="inline-flex items-center gap-1">
+                                <HiOutlineClock className="text-xs" />
+                                {lastScan.scannedByName} ·{' '}
+                                {formatTime(lastScan.scannedAt)}
+                            </span>
+                        ) : (
+                            <span>Not scanned yet</span>
+                        )}
+                        <span className="tabular-nums">
+                            {scanned}/{expected}
+                        </span>
+                    </div>
+                </div>
+
+                {editable ? (
+                    <div className="flex shrink-0 flex-row flex-wrap gap-1.5 sm:w-36 sm:flex-col sm:justify-center">
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            block
+                            icon={<HiOutlineSearch />}
+                            loading={scanning}
+                            disabled={!!adjustingId && !busy}
+                            onClick={onScan}
+                        >
+                            Scan
+                        </Button>
+                        <div className="flex gap-1">
+                            <Button
+                                size="sm"
+                                className="flex-1"
+                                icon={<HiOutlinePlus />}
+                                disabled={busy}
+                                onClick={() => onAdjust('add', 1)}
+                            >
+                                +1
+                            </Button>
+                            <Button
+                                size="sm"
+                                className="flex-1"
+                                icon={<HiOutlineMinus />}
+                                disabled={busy || scanned <= 0}
+                                onClick={() => onAdjust('remove', 1)}
+                            >
+                                −1
+                            </Button>
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            disabled={busy}
+                            onClick={onAddQty}
+                        >
+                            Add qty…
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            icon={<HiOutlineRefresh />}
+                            disabled={busy || scanned <= 0}
+                            onClick={onReset}
+                        >
+                            Reset
+                        </Button>
+                    </div>
+                ) : null}
+            </div>
+        </article>
+    )
+}
+
 const PackagePackingWorkspace = ({
     pkg,
     onChanged,
@@ -149,12 +393,17 @@ const PackagePackingWorkspace = ({
     const [completing, setCompleting] = useState(false)
 
     const items = useMemo(() => pkg.items ?? [], [pkg.items])
-    const editable =
-        pkg.status === 'OPEN' || pkg.status === 'PACKING'
+    const editable = pkg.status === 'OPEN' || pkg.status === 'PACKING'
 
     const totals = useMemo(() => {
-        const totalExpected = items.reduce((sum, i) => sum + num(i.expectedQty), 0)
-        const totalScanned = items.reduce((sum, i) => sum + num(i.scannedQty), 0)
+        const totalExpected = items.reduce(
+            (sum, i) => sum + num(i.expectedQty),
+            0,
+        )
+        const totalScanned = items.reduce(
+            (sum, i) => sum + num(i.scannedQty),
+            0,
+        )
         return {
             totalExpected,
             totalScanned,
@@ -162,10 +411,13 @@ const PackagePackingWorkspace = ({
             percent: totalExpected
                 ? Math.round((totalScanned / totalExpected) * 100)
                 : 0,
+            lineCount: items.length,
+            linesComplete: items.filter(
+                (i) => packingLineStatus(i) === 'COMPLETE',
+            ).length,
         }
     }, [items])
 
-    /** Keep focus in the scan field so a scanner can fire continuously. */
     const focusScan = useCallback(() => {
         scanInputRef.current?.focus()
         scanInputRef.current?.select()
@@ -252,11 +504,15 @@ const PackagePackingWorkspace = ({
             if (adjustingId) return
             setAdjustingId(item.id)
             try {
-                const result = await packingService.adjustItem(pkg.id, item.id, {
-                    action,
-                    quantity,
-                    reason,
-                })
+                const result = await packingService.adjustItem(
+                    pkg.id,
+                    item.id,
+                    {
+                        action,
+                        quantity,
+                        reason,
+                    },
+                )
                 await applyResult(result)
             } catch (err) {
                 notify(
@@ -285,7 +541,7 @@ const PackagePackingWorkspace = ({
                     'success',
                     allowPartial ? 'Packed with exceptions' : 'Packing complete',
                     allowPartial
-                        ? 'Short pack recorded — disposition it before dispatch.'
+                        ? 'Short pack recorded — disposition before dispatch.'
                         : `${pkg.packageNumber} is verified and ready to seal.`,
                 )
                 setPartialOpen(false)
@@ -303,7 +559,6 @@ const PackagePackingWorkspace = ({
         [pkg.id, pkg.packageNumber, applyResult, focusScan],
     )
 
-    /** Last scanner per item from the audit trail (multiple users may scan). */
     const lastScannedByItem = useMemo(() => {
         const map = new Map<string, PackageScanLogEntry>()
         for (const log of pkg.scanLogs ?? []) {
@@ -312,6 +567,11 @@ const PackagePackingWorkspace = ({
         }
         return map
     }, [pkg.scanLogs])
+
+    const recentLogs = useMemo(
+        () => (pkg.scanLogs ?? []).slice(0, 8),
+        [pkg.scanLogs],
+    )
 
     const filteredItems = useMemo(() => {
         switch (filter) {
@@ -344,405 +604,254 @@ const PackagePackingWorkspace = ({
         pkg.pickingTask?.salesOrder?.customerName ??
         pkg.shipToName
 
+    const remainingCount = items.filter(
+        (i) => packingLineStatus(i) !== 'COMPLETE',
+    ).length
+
     return (
-        <div className="space-y-5">
-            {/* ── Header: package, order, customer, progress ── */}
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/40">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                        <StatusBadge tone={PACKAGE_STATUS_TONE[pkg.status] ?? 'default'}>
-                            {pkg.status.replace(/_/g, ' ')}
-                        </StatusBadge>
-                        <span className="flex items-center gap-2">
-                            <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
+        <div className="space-y-4">
+            {/* Hero summary */}
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 via-white to-primary-subtle/30 dark:border-gray-600 dark:from-gray-800/80 dark:via-gray-900/40 dark:to-primary/5">
+                <div className="flex flex-wrap items-center gap-4 p-4 sm:p-5">
+                    <ProgressRing percent={totals.percent} size={72} />
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge
+                                tone={
+                                    PACKAGE_STATUS_TONE[pkg.status] ?? 'default'
+                                }
+                            >
+                                {pkg.status.replace(/_/g, ' ')}
+                            </StatusBadge>
+                            <span className="font-mono text-base font-bold text-gray-900 dark:text-gray-100">
                                 {pkg.packageNumber}
                             </span>
-                            {orderNumber ? (
-                                <Tag className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                                    Order {orderNumber}
-                                </Tag>
-                            ) : (
-                                <Tag className="bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                                    Manual package
-                                </Tag>
-                            )}
-                        </span>
-                        {customerName ? (
-                            <span className="text-xs text-gray-500">
-                                {customerName}
-                            </span>
-                        ) : null}
-                    </div>
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="font-semibold text-gray-700 dark:text-gray-200">
-                            {totals.totalScanned} of {totals.totalExpected} scanned
-                        </span>
-                        <span
-                            className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
-                                totals.remaining === 0
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
-                            }`}
-                        >
-                            {totals.percent}%
-                        </span>
-                    </div>
-                </div>
-                <Progress
-                    percent={totals.percent}
-                    className="mt-3"
-                    customColorClass={
-                        totals.remaining === 0 ? 'bg-emerald-500' : 'bg-amber-500'
-                    }
-                />
-                <p className="mt-1.5 text-xs text-gray-500">
-                    {totals.remaining === 0
-                        ? 'All items fully scanned — you can complete packing.'
-                        : `${totals.remaining} item(s) remaining`}
-                </p>
-            </div>
-
-            {/* ── Main scan bar ── */}
-            {editable ? (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5 dark:border-blue-500/30 dark:bg-blue-500/10">
-                    <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[260px] flex-1">
-                            <FormItem label="Scan item">
-                                <Input
-                                    ref={scanInputRef}
-                                    size="lg"
-                                    autoFocus
-                                    placeholder="Scan barcode or enter material code"
-                                    value={scanValue}
-                                    onChange={(e) => setScanValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault()
-                                            void handleScan()
-                                        }
-                                    }}
-                                    prefix={
-                                        <HiOutlineSearch className="text-lg text-gray-400" />
-                                    }
-                                />
-                            </FormItem>
                         </div>
-                        <Input
-                            size="lg"
-                            className="w-20"
-                            value={scanQty}
-                            onChange={(e) => setScanQty(e.target.value)}
-                            aria-label="Quantity per scan"
-                            type="number"
-                            min={1}
-                        />
-                        <Button
-                            size="lg"
-                            variant="solid"
-                            icon={<HiOutlineSearch />}
-                            loading={scanning}
-                            disabled={!scanValue.trim()}
-                            onClick={() => void handleScan()}
-                        >
-                            Scan
-                        </Button>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
+                            {orderNumber ? (
+                                <span className="font-mono text-xs font-semibold text-sky-800 dark:text-sky-300">
+                                    {orderNumber}
+                                </span>
+                            ) : (
+                                <span className="text-xs text-gray-400">
+                                    Manual package
+                                </span>
+                            )}
+                            {customerName ? (
+                                <span className="inline-flex items-center gap-1 text-xs">
+                                    <HiOutlineUser className="text-sm opacity-60" />
+                                    {customerName}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                            {totals.linesComplete} of {totals.lineCount} line(s)
+                            complete ·{' '}
+                            <span className="font-medium tabular-nums text-gray-700 dark:text-gray-200">
+                                {totals.totalScanned}/{totals.totalExpected}
+                            </span>{' '}
+                            units scanned
+                        </p>
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">
-                        Scan the item&apos;s barcode or type its material code, then
-                        press <span className="font-medium">Enter</span>. The scan
-                        quantity adds to the line&apos;s scanned total.
-                    </p>
+                    {totals.remaining === 0 && editable ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                            <HiOutlineCheckCircle className="text-base" />
+                            Ready to complete
+                        </span>
+                    ) : null}
                 </div>
-            ) : null}
-
-            {/* ── Filters ── */}
-            <div className="flex flex-wrap items-center gap-2">
-                {FILTERS.map((f) => (
-                    <Button
-                        key={f.value}
-                        size="xs"
-                        variant={filter === f.value ? 'solid' : 'plain'}
-                        onClick={() => setFilter(f.value)}
-                    >
-                        {f.label}
-                        {f.value === 'remaining' && totals.remaining > 0
-                            ? ` (${items.filter((i) => packingLineStatus(i) !== 'COMPLETE').length})`
-                            : ''}
-                    </Button>
-                ))}
-                <span className="ml-auto text-xs text-gray-400">
-                    {filteredItems.length} of {items.length} item(s)
-                </span>
             </div>
 
-            {/* ── Item cards ── */}
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                {filteredItems.map((item) => {
-                    const expected = num(item.expectedQty)
-                    const scanned = num(item.scannedQty)
-                    const status = packingLineStatus(item)
-                    const remaining = Math.max(0, expected - scanned)
-                    const snapshot = lineByMaterial.get(item.materialId)
-                    const title =
-                        snapshot?.productName?.trim() ||
-                        item.material?.materialName ||
-                        item.materialId
-                    const image = snapshot?.productImage ?? ''
-                    const lastScan = lastScannedByItem.get(item.id)
-                    return (
-                        <div
-                            key={item.id}
-                            className={`rounded-lg border p-3.5 ${
-                                status === 'COMPLETE'
-                                    ? 'border-emerald-200 dark:border-emerald-500/40'
-                                    : 'border-gray-200 dark:border-gray-600'
-                            }`}
-                        >
-                            <div className="flex items-start gap-3">
-                                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-600 dark:bg-gray-800">
-                                    {isRenderableImageSrc(image) ? (
-                                        <Image
-                                            src={image}
-                                            alt={title}
-                                            fill
-                                            sizes="48px"
-                                            unoptimized={isUnoptimizedImage(image)}
-                                            className="object-cover"
-                                        />
-                                    ) : (
-                                        <HiOutlineCube className="m-auto h-full w-5 text-gray-400" />
-                                    )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p
-                                        className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100"
-                                        title={title}
-                                    >
-                                        {title}
-                                    </p>
-                                    <p className="truncate text-xs text-gray-500">
-                                        {item.material?.materialCode ??
-                                            item.materialId}
-                                        {snapshot?.variantName
-                                            ? ` · ${snapshot.variantName}`
-                                            : ''}
-                                    </p>
-                                </div>
-                                <Tag className={STATUS_CLASS[status]}>
-                                    {STATUS_LABEL[status]}
-                                </Tag>
-                            </div>
-
-                            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                                <div className="rounded-md bg-gray-50 py-1.5 dark:bg-gray-700/50">
-                                    <p className="text-gray-400">Expected</p>
-                                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                                        {expected}
-                                    </p>
-                                </div>
-                                <div className="rounded-md bg-gray-50 py-1.5 dark:bg-gray-700/50">
-                                    <p className="text-gray-400">Scanned</p>
-                                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                        {scanned}
-                                    </p>
-                                </div>
-                                <div className="rounded-md bg-gray-50 py-1.5 dark:bg-gray-700/50">
-                                    <p className="text-gray-400">Remaining</p>
-                                    <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-                                        {remaining}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <Progress
-                                percent={
-                                    expected
-                                        ? Math.round((scanned / expected) * 100)
-                                        : 0
-                                }
-                                className="mt-2.5"
-                                showInfo={false}
-                                customColorClass={
-                                    status === 'COMPLETE'
-                                        ? 'bg-emerald-500'
-                                        : 'bg-amber-500'
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(260px,300px)_1fr] lg:items-start">
+                {/* Left: scan + finish + activity */}
+                <aside className="space-y-4 lg:sticky lg:top-2">
+                    {editable ? (
+                        <div className="rounded-xl border-2 border-primary/25 bg-primary-subtle/40 p-4 shadow-sm dark:border-primary/30 dark:bg-primary/10">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary-deep dark:text-primary-light">
+                                Scanner
+                            </p>
+                            <Input
+                                ref={scanInputRef}
+                                size="lg"
+                                autoFocus
+                                placeholder="Barcode or material code"
+                                value={scanValue}
+                                onChange={(e) => setScanValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        void handleScan()
+                                    }
+                                }}
+                                prefix={
+                                    <HiOutlineSearch className="text-lg text-primary" />
                                 }
                             />
-
-                            <div className="mt-3 border-t border-gray-100 dark:border-gray-700">
-                                <div className="flex items-center justify-between gap-2 pt-2.5 pb-1">
-                                    {lastScan ? (
-                                        <span className="flex items-center gap-1 text-[11px] text-gray-400">
-                                            <HiOutlineClock className="text-xs" />
-                                            Last scanned by{' '}
-                                            <span className="font-medium text-gray-500">
-                                                {lastScan.scannedByName}
-                                            </span>{' '}
-                                            at {formatTime(lastScan.scannedAt)}
-                                        </span>
-                                    ) : (
-                                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                                            Not scanned yet
-                                        </span>
-                                    )}
-                                    <span className="text-[11px] tabular-nums text-gray-400">
-                                        {scanned}/{expected} scanned
-                                    </span>
-                                </div>
-                                {editable ? (
-                                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-2.5 dark:border-gray-700">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                            <Button
-                                                size="xs"
-                                                variant="solid"
-                                                className="!px-2.5"
-                                                icon={<HiOutlinePlus />}
-                                                disabled={!!adjustingId}
-                                                onClick={() =>
-                                                    void adjust(item, 'add', 1)
-                                                }
-                                            >
-                                                +1
-                                            </Button>
-                                            <Button
-                                                size="xs"
-                                                variant="solid"
-                                                className="!px-2.5"
-                                                icon={<HiOutlineMinus />}
-                                                disabled={
-                                                    !!adjustingId || scanned <= 0
-                                                }
-                                                onClick={() =>
-                                                    void adjust(item, 'remove', 1)
-                                                }
-                                            >
-                                                −1
-                                            </Button>
-                                            <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
-                                            <Button
-                                                size="xs"
-                                                variant="plain"
-                                                disabled={!!adjustingId}
-                                                onClick={() => {
-                                                    setAddQtyItem(item)
-                                                    setAddQtyValue('1')
-                                                    setAddQtyReason('')
-                                                }}
-                                            >
-                                                Add qty
-                                            </Button>
-                                            <Button
-                                                size="xs"
-                                                variant="plain"
-                                                icon={<HiOutlineRefresh />}
-                                                disabled={
-                                                    !!adjustingId || scanned <= 0
-                                                }
-                                                onClick={() => setResetItem(item)}
-                                            >
-                                                Reset
-                                            </Button>
-                                        </div>
-                                        <Button
-                                            size="xs"
-                                            variant="solid"
-                                            icon={<HiOutlineSearch />}
-                                            loading={scanning}
-                                            disabled={!!adjustingId}
-                                            onClick={() =>
-                                                void scanThisItem(item)
-                                            }
-                                        >
-                                            Scan this item
-                                        </Button>
-                                    </div>
-                                ) : null}
+                            <div className="mt-2 flex gap-2">
+                                <Input
+                                    size="sm"
+                                    className="w-20"
+                                    value={scanQty}
+                                    onChange={(e) => setScanQty(e.target.value)}
+                                    aria-label="Quantity per scan"
+                                    type="number"
+                                    min={1}
+                                />
+                                <Button
+                                    className="flex-1"
+                                    size="sm"
+                                    variant="solid"
+                                    loading={scanning}
+                                    disabled={!scanValue.trim()}
+                                    onClick={() => void handleScan()}
+                                >
+                                    Scan item
+                                </Button>
                             </div>
+                            <p className="mt-2 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+                                Focus stays here for wedge scanners. Press{' '}
+                                <kbd className="rounded border border-gray-200 bg-white px-1 dark:border-gray-600 dark:bg-gray-800">
+                                    Enter
+                                </kbd>{' '}
+                                to add quantity to the matching line.
+                            </p>
                         </div>
-                    )
-                })}
-                {filteredItems.length === 0 ? (
-                    <p className="col-span-full rounded-lg border border-dashed border-gray-200 py-8 text-center text-sm text-gray-400 dark:border-gray-600">
-                        No items match this filter.
-                    </p>
-                ) : null}
-            </div>
-
-            {/* ── Recently scanned ── */}
-            <div>
-                <p className="mb-2 text-sm font-semibold heading-text">
-                    Recently scanned
-                </p>
-                <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-gray-200 p-3 text-xs dark:border-gray-600">
-                    {(pkg.scanLogs ?? []).map((log) => (
-                        <li
-                            key={log.id}
-                            className="flex flex-wrap items-center gap-1.5"
-                        >
-                            <span className="font-medium text-gray-700 dark:text-gray-200">
-                                {log.material?.materialName ??
-                                    log.material?.materialCode ??
-                                    log.materialId}
-                            </span>
-                            <span
-                                className={
-                                    log.action === 'remove'
-                                        ? 'text-rose-500'
-                                        : 'text-emerald-600 dark:text-emerald-400'
-                                }
-                            >
-                                {log.action === 'reset'
-                                    ? 'reset'
-                                    : `${log.action === 'remove' ? '−' : '+'}${num(log.scannedQuantity)}`}
-                            </span>
-                            <span className="text-gray-400">
-                                by {log.scannedByName ?? 'system'}
-                            </span>
-                            <span className="text-gray-400">
-                                at {formatTime(log.scannedAt)}
-                            </span>
-                            <Tag className="ml-auto bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300">
-                                {log.scanType}
-                            </Tag>
-                        </li>
-                    ))}
-                    {(pkg.scanLogs ?? []).length === 0 ? (
-                        <li className="text-gray-400">No scans yet.</li>
                     ) : null}
-                </ul>
-            </div>
 
-            {/* ── Complete Packing ── */}
-            {editable ? (
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/40">
-                    <Button
-                        variant="solid"
-                        icon={<HiOutlineTruck />}
-                        loading={completing}
-                        disabled={totals.remaining > 0}
-                        onClick={() => void completePacking(false)}
-                    >
-                        Complete Packing
-                    </Button>
-                    {totals.remaining > 0 ? (
-                        <>
-                            <span className="text-sm text-gray-500">
-                                {totals.remaining} item(s) remaining
-                            </span>
+                    {editable ? (
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-600 dark:bg-gray-900/30">
+                            <p className="text-sm font-semibold heading-text">
+                                Finish packing
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                                {totals.remaining === 0
+                                    ? 'All lines are fully scanned.'
+                                    : `${totals.remaining} unit(s) still open.`}
+                            </p>
                             <Button
-                                size="sm"
-                                variant="plain"
-                                className="ml-auto"
-                                onClick={() => setPartialOpen(true)}
+                                className="mt-3 w-full"
+                                variant="solid"
+                                icon={<HiOutlineTruck />}
+                                loading={completing}
+                                disabled={totals.remaining > 0}
+                                onClick={() => void completePacking(false)}
                             >
-                                Complete with short pack…
+                                Complete packing
                             </Button>
-                        </>
+                            {totals.remaining > 0 ? (
+                                <Button
+                                    className="mt-2 w-full"
+                                    size="sm"
+                                    variant="plain"
+                                    onClick={() => setPartialOpen(true)}
+                                >
+                                    Short pack with reason…
+                                </Button>
+                            ) : null}
+                        </div>
                     ) : null}
-                </div>
-            ) : null}
 
-            {/* ── Add quantity dialog (manual confirmation) ── */}
+                    <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-900/30">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Recent activity
+                        </p>
+                        <ul className="max-h-48 space-y-2 overflow-y-auto text-xs">
+                            {recentLogs.map((log) => (
+                                <li
+                                    key={log.id}
+                                    className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700"
+                                >
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">
+                                        {log.material?.materialCode ??
+                                            log.materialId}
+                                    </span>
+                                    <span
+                                        className={
+                                            log.action === 'remove'
+                                                ? 'font-semibold text-rose-500'
+                                                : 'font-semibold text-emerald-600 dark:text-emerald-400'
+                                        }
+                                    >
+                                        {log.action === 'reset'
+                                            ? 'reset'
+                                            : `${log.action === 'remove' ? '−' : '+'}${num(log.scannedQuantity)}`}
+                                    </span>
+                                    <span className="text-gray-400">
+                                        {log.scannedByName ?? 'system'} ·{' '}
+                                        {formatTime(log.scannedAt)}
+                                    </span>
+                                </li>
+                            ))}
+                            {recentLogs.length === 0 ? (
+                                <li className="py-4 text-center text-gray-400">
+                                    No scans yet
+                                </li>
+                            ) : null}
+                        </ul>
+                    </div>
+                </aside>
+
+                {/* Right: item list */}
+                <section className="min-w-0 space-y-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <Segment
+                            className="w-full sm:w-auto"
+                            value={filter}
+                            onChange={(v) => setFilter(v as ItemFilter)}
+                        >
+                            <Segment.Item value="all">All</Segment.Item>
+                            <Segment.Item value="remaining">
+                                Remaining
+                                {remainingCount > 0 ? ` (${remainingCount})` : ''}
+                            </Segment.Item>
+                            <Segment.Item value="completed">Done</Segment.Item>
+                            <Segment.Item value="exceptions">
+                                Exceptions
+                            </Segment.Item>
+                        </Segment>
+                        <span className="text-xs text-gray-500">
+                            Showing {filteredItems.length} of {items.length}
+                        </span>
+                    </div>
+
+                    <div className="space-y-3">
+                        {filteredItems.map((item, index) => (
+                            <PackingItemCard
+                                key={item.id}
+                                item={item}
+                                index={index}
+                                snapshot={lineByMaterial.get(item.materialId)}
+                                lastScan={lastScannedByItem.get(item.id)}
+                                editable={editable}
+                                scanning={scanning}
+                                adjustingId={adjustingId}
+                                onScan={() => void scanThisItem(item)}
+                                onAdjust={(action, qty) =>
+                                    void adjust(item, action, qty)
+                                }
+                                onAddQty={() => {
+                                    setAddQtyItem(item)
+                                    setAddQtyValue('1')
+                                    setAddQtyReason('')
+                                }}
+                                onReset={() => setResetItem(item)}
+                            />
+                        ))}
+                        {filteredItems.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center dark:border-gray-600">
+                                <HiOutlineCube className="mx-auto mb-2 text-3xl text-gray-300" />
+                                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                                    No items in this view
+                                </p>
+                                <p className="mt-1 text-xs text-gray-400">
+                                    Try another filter or scan a barcode.
+                                </p>
+                            </div>
+                        ) : null}
+                    </div>
+                </section>
+            </div>
+
             <Dialog
                 isOpen={addQtyItem !== null}
                 onClose={() => setAddQtyItem(null)}
@@ -750,11 +859,11 @@ const PackagePackingWorkspace = ({
                 <div className="p-5">
                     <h5 className="mb-2 text-base font-bold">
                         Add quantity —{' '}
-                        {addQtyItem?.material?.materialCode ?? addQtyItem?.materialId}
+                        {addQtyItem?.material?.materialCode ??
+                            addQtyItem?.materialId}
                     </h5>
                     <p className="mb-4 text-sm text-gray-500">
-                        Manual quantity entry requires confirmation. Expected:{' '}
-                        {num(addQtyItem?.expectedQty)}, already scanned:{' '}
+                        Expected {num(addQtyItem?.expectedQty)}, scanned{' '}
                         {num(addQtyItem?.scannedQty)}.
                     </p>
                     <FormItem label="Quantity to add">
@@ -773,7 +882,10 @@ const PackagePackingWorkspace = ({
                         />
                     </FormItem>
                     <div className="mt-4 flex justify-end gap-2">
-                        <Button variant="plain" onClick={() => setAddQtyItem(null)}>
+                        <Button
+                            variant="plain"
+                            onClick={() => setAddQtyItem(null)}
+                        >
                             Cancel
                         </Button>
                         <Button
@@ -786,7 +898,7 @@ const PackagePackingWorkspace = ({
                                     notify(
                                         'danger',
                                         'Invalid quantity',
-                                        'Enter a quantity of at least 1.',
+                                        'Enter at least 1.',
                                     )
                                     return
                                 }
@@ -799,24 +911,22 @@ const PackagePackingWorkspace = ({
                                 setAddQtyItem(null)
                             }}
                         >
-                            Confirm add
+                            Confirm
                         </Button>
                     </div>
                 </div>
             </Dialog>
 
-            {/* ── Reset confirmation ── */}
             <Dialog isOpen={resetItem !== null} onClose={() => setResetItem(null)}>
                 <div className="p-5">
-                    <h5 className="mb-2 text-base font-bold">Reset item scan?</h5>
+                    <h5 className="mb-2 text-base font-bold">Reset line?</h5>
                     <p className="text-sm text-gray-500">
-                        This sets scanned quantity of{' '}
+                        Sets scanned qty for{' '}
                         <span className="font-semibold">
                             {resetItem?.material?.materialCode ??
                                 resetItem?.materialId}
                         </span>{' '}
-                        back to 0. The adjustment is recorded in the scan audit
-                        log.
+                        to zero (logged in audit).
                     </p>
                     <div className="mt-4 flex justify-end gap-2">
                         <Button variant="plain" onClick={() => setResetItem(null)}>
@@ -839,20 +949,16 @@ const PackagePackingWorkspace = ({
                 </div>
             </Dialog>
 
-            {/* ── Short-pack (explicit partial) confirmation ── */}
             <Dialog isOpen={partialOpen} onClose={() => setPartialOpen(false)}>
                 <div className="p-5">
-                    <h5 className="mb-2 text-base font-bold">
-                        Complete with short pack?
-                    </h5>
+                    <h5 className="mb-2 text-base font-bold">Short pack?</h5>
                     <p className="text-sm text-gray-500">
-                        {totals.remaining} unit(s) will remain unpacked. A
-                        reason is required and the shortfall stays visible on
-                        the package for disposition before dispatch.
+                        {totals.remaining} unit(s) will stay unpacked. Reason is
+                        required for disposition.
                     </p>
                     <FormItem label="Reason (required)">
                         <Input
-                            placeholder="e.g. 2 units damaged in transit"
+                            placeholder="e.g. damaged in pick"
                             value={partialReason}
                             onChange={(e) => setPartialReason(e.target.value)}
                         />

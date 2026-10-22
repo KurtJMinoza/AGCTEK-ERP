@@ -3,36 +3,76 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
+import EllipsisButton from '@/components/shared/EllipsisButton'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
+import Dropdown from '@/components/ui/Dropdown'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlinePlay, HiOutlineUserAdd, HiOutlineCheckCircle, HiOutlineExclamation } from 'react-icons/hi'
+import {
+    HiOutlineCheckCircle,
+    HiOutlineExclamation,
+    HiOutlinePlay,
+    HiOutlineRefresh,
+    HiOutlineSearch,
+    HiOutlineUserAdd,
+} from 'react-icons/hi'
 import { warehouseTaskService } from '../services/warehouseTaskService'
 import { pickingService } from '../services/pickingService'
 import type { AssignableWorker } from '../types'
 import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import type { WarehouseTask, WarehouseTaskQueryParams, WarehouseTaskStatus, WarehouseTaskType } from '../types'
+import type {
+    WarehouseTask,
+    WarehouseTaskQueryParams,
+    WarehouseTaskStatus,
+    WarehouseTaskType,
+} from '../types'
+import {
+    WmAnimatedStatus,
+    WmAssigneeCell,
+    WmProductLineCell,
+    WmProgressQtyCell,
+    WmTaskLocationHint,
+    WmWarehouseTaskCell,
+    wmTableRowEnterClass,
+} from './WarehouseTableCells'
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    PENDING: 'warning',
-    ASSIGNED: 'default',
-    IN_PROGRESS: 'success',
-    PARTIALLY_COMPLETED: 'warning',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-    EXCEPTION: 'danger',
-}
+const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> =
+    {
+        PENDING: 'warning',
+        ASSIGNED: 'default',
+        IN_PROGRESS: 'success',
+        PARTIALLY_COMPLETED: 'warning',
+        COMPLETED: 'success',
+        CANCELLED: 'danger',
+        EXCEPTION: 'danger',
+    }
 
-const TASK_TYPES: WarehouseTaskType[] = ['PICK', 'TRANSFER', 'REPLENISHMENT', 'RELOCATION', 'COUNT']
-const OPEN_STATUSES: WarehouseTaskStatus[] = ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'PARTIALLY_COMPLETED', 'EXCEPTION']
+const TASK_TYPES: WarehouseTaskType[] = [
+    'PICK',
+    'TRANSFER',
+    'REPLENISHMENT',
+    'RELOCATION',
+    'COUNT',
+]
+const OPEN_STATUSES: WarehouseTaskStatus[] = [
+    'PENDING',
+    'ASSIGNED',
+    'IN_PROGRESS',
+    'PARTIALLY_COMPLETED',
+    'EXCEPTION',
+]
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
-    toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
+    toast.push(
+        <Notification type={type} title={title} closable duration={3500}>
+            {msg}
+        </Notification>,
+        { placement: 'top-end' },
+    )
 }
 
 type Props = {
@@ -91,7 +131,10 @@ export default function WarehouseTaskTable({ mode }: Props) {
                     ? await warehouseTaskService.myTasks(params)
                     : await warehouseTaskService.list({
                           ...params,
-                          status: mode === 'exceptions' ? 'EXCEPTION' : params.status,
+                          status:
+                              mode === 'exceptions'
+                                  ? 'EXCEPTION'
+                                  : params.status,
                       })
 
             const filtered =
@@ -112,7 +155,6 @@ export default function WarehouseTaskTable({ mode }: Props) {
         fetchTasks()
     }, [fetchTasks])
 
-    /** Assignable workers for the task company (server-scoped), loaded per dialog open. */
     const assignWorkerOptions = useMemo<AssignWorkerOption[]>(
         () =>
             assignWorkers.map((w) => ({
@@ -121,6 +163,7 @@ export default function WarehouseTaskTable({ mode }: Props) {
             })),
         [assignWorkers],
     )
+
     useEffect(() => {
         if (!assignOpen || !activeTask) return
         let alive = true
@@ -137,189 +180,319 @@ export default function WarehouseTaskTable({ mode }: Props) {
         }
     }, [assignOpen, activeTask])
 
-    const runAction = async (fn: () => Promise<unknown>, success: string) => {
-        setActionLoading(true)
-        try {
-            await fn()
-            pushToast('success', 'Success', success)
-            setAssignOpen(false)
-            setCompleteOpen(false)
-            setExceptionOpen(false)
-            setActiveTask(null)
-            fetchTasks()
-        } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : 'Action failed'
-            pushToast('danger', 'Error', msg)
-        } finally {
-            setActionLoading(false)
-        }
-    }
+    const runAction = useCallback(
+        async (fn: () => Promise<unknown>, success: string) => {
+            setActionLoading(true)
+            try {
+                await fn()
+                pushToast('success', 'Success', success)
+                setAssignOpen(false)
+                setCompleteOpen(false)
+                setExceptionOpen(false)
+                setActiveTask(null)
+                await fetchTasks()
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : 'Action failed'
+                pushToast('danger', 'Error', msg)
+            } finally {
+                setActionLoading(false)
+            }
+        },
+        [fetchTasks],
+    )
+
+    const openAssign = useCallback((t: WarehouseTask) => {
+        setActiveTask(t)
+        setAssignUserId(t.assignedUserId ?? '')
+        setAssignOpen(true)
+    }, [])
+
+    const openComplete = useCallback((t: WarehouseTask) => {
+        setActiveTask(t)
+        const remaining = Number(t.quantity) - Number(t.completedQuantity)
+        setCompleteQty(String(Math.max(0, remaining)))
+        setCompleteBinId(t.destinationBinId ?? t.sourceBinId ?? '')
+        setCompleteOpen(true)
+    }, [])
+
+    const openException = useCallback((t: WarehouseTask) => {
+        setActiveTask(t)
+        setExceptionOpen(true)
+    }, [])
 
     const columns = useMemo<ColumnDef<WarehouseTask>[]>(
         () => [
             {
-                header: 'Task #',
+                header: 'Task',
                 accessorKey: 'taskNumber',
-                size: 140,
+                size: 200,
+                minSize: 160,
                 cell: ({ row }) => (
-                    <span className="font-mono text-xs font-semibold text-primary">{row.original.taskNumber}</span>
+                    <WmWarehouseTaskCell
+                        taskNumber={row.original.taskNumber}
+                        taskType={row.original.taskType}
+                        warehouse={row.original.warehouse}
+                        priority={row.original.priority}
+                    />
                 ),
             },
             {
-                header: 'Type',
-                accessorKey: 'taskType',
-                size: 100,
-                cell: ({ row }) => <span className="text-sm">{row.original.taskType}</span>,
-            },
-            {
-                header: 'Material',
-                accessorKey: 'materialId',
+                header: 'Work',
+                id: 'work',
                 size: 200,
+                minSize: 140,
                 cell: ({ row }) => {
                     const m = row.original.material
-                    return <span className="truncate text-sm">{m ? `${m.materialCode} — ${m.materialName}` : '—'}</span>
+                    const name = m?.materialName ?? '—'
+                    const code = m?.materialCode ?? null
+                    return (
+                        <div className="min-w-0">
+                            <WmProductLineCell name={name} code={code} />
+                            <WmTaskLocationHint
+                                sourceBinId={row.original.sourceBinId}
+                                destinationBinId={row.original.destinationBinId}
+                            />
+                        </div>
+                    )
                 },
             },
             {
                 header: 'Progress',
+                id: 'progress',
                 size: 120,
+                minSize: 100,
                 cell: ({ row }) => (
-                    <span className="text-sm">
-                        {Number(row.original.completedQuantity).toLocaleString()} / {Number(row.original.quantity).toLocaleString()}
-                    </span>
+                    <WmProgressQtyCell
+                        done={Number(row.original.completedQuantity)}
+                        total={Number(row.original.quantity)}
+                        label="Done"
+                        tone="pick"
+                    />
                 ),
             },
             {
                 header: 'Assignee',
                 accessorKey: 'assignedUserId',
-                size: 120,
+                size: 140,
+                minSize: 120,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
-                    <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {row.original.assignedUserId || 'Unassigned'}
-                    </span>
+                    <WmAssigneeCell
+                        assignedUserId={row.original.assignedUserId}
+                    />
                 ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
                 size: 130,
+                minSize: 110,
                 cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge>
+                    <WmAnimatedStatus
+                        status={row.original.status}
+                        tone={STATUS_TONE[row.original.status] ?? 'default'}
+                    />
                 ),
             },
             {
-                header: 'Actions',
-                size: 220,
+                header: '',
+                id: 'actions',
+                size: 52,
+                minSize: 48,
+                enableSorting: false,
                 cell: ({ row }) => {
                     const t = row.original
-                    const canStart = ['PENDING', 'ASSIGNED', 'PARTIALLY_COMPLETED'].includes(t.status)
-                    const canComplete = ['IN_PROGRESS', 'PARTIALLY_COMPLETED', 'ASSIGNED'].includes(t.status)
-                    const canAssign = t.status === 'PENDING' || t.status === 'ASSIGNED'
-                    const canException = !['COMPLETED', 'CANCELLED'].includes(t.status)
+                    const canStart = [
+                        'PENDING',
+                        'ASSIGNED',
+                        'PARTIALLY_COMPLETED',
+                    ].includes(t.status)
+                    const canComplete = [
+                        'IN_PROGRESS',
+                        'PARTIALLY_COMPLETED',
+                        'ASSIGNED',
+                    ].includes(t.status)
+                    const canAssign =
+                        t.status === 'PENDING' || t.status === 'ASSIGNED'
+                    const canException = !['COMPLETED', 'CANCELLED'].includes(
+                        t.status,
+                    )
                     return (
-                        <div className="flex flex-wrap gap-1">
-                            {canAssign && (
-                                <Button
-                                    size="xs"
-                                    icon={<HiOutlineUserAdd />}
-                                    onClick={() => {
-                                        setActiveTask(t)
-                                        setAssignUserId(t.assignedUserId ?? '')
-                                        setAssignOpen(true)
-                                    }}
+                        <Dropdown
+                            renderTitle={<EllipsisButton />}
+                            placement="bottom-end"
+                        >
+                            {canAssign ? (
+                                <Dropdown.Item
+                                    eventKey="assign"
+                                    onClick={() => openAssign(t)}
                                 >
-                                    Assign
-                                </Button>
-                            )}
-                            {canStart && (
-                                <Button
-                                    size="xs"
-                                    icon={<HiOutlinePlay />}
-                                    onClick={() => runAction(() => warehouseTaskService.start(t.id), 'Task started')}
-                                >
-                                    Start
-                                </Button>
-                            )}
-                            {canComplete && (
-                                <Button
-                                    size="xs"
-                                    icon={<HiOutlineCheckCircle />}
-                                    onClick={() => {
-                                        setActiveTask(t)
-                                        const remaining = Number(t.quantity) - Number(t.completedQuantity)
-                                        setCompleteQty(String(remaining))
-                                        setCompleteBinId(t.destinationBinId ?? t.sourceBinId ?? '')
-                                        setCompleteOpen(true)
-                                    }}
-                                >
-                                    Complete
-                                </Button>
-                            )}
-                            {canException && (
-                                <Button
-                                    size="xs"
-                                    variant="plain"
-                                    icon={<HiOutlineExclamation />}
-                                    onClick={() => {
-                                        setActiveTask(t)
-                                        setExceptionOpen(true)
-                                    }}
-                                >
-                                    Exception
-                                </Button>
-                            )}
-                            {t.status === 'EXCEPTION' && (
-                                <Button
-                                    size="xs"
+                                    <HiOutlineUserAdd className="text-base" />
+                                    <span>Assign</span>
+                                </Dropdown.Item>
+                            ) : null}
+                            {canStart ? (
+                                <Dropdown.Item
+                                    eventKey="start"
                                     onClick={() =>
-                                        runAction(() => warehouseTaskService.releaseException(t.id), 'Exception released')
+                                        void runAction(
+                                            () =>
+                                                warehouseTaskService.start(
+                                                    t.id,
+                                                ),
+                                            'Task started',
+                                        )
                                     }
                                 >
-                                    Release
-                                </Button>
-                            )}
-                        </div>
+                                    <HiOutlinePlay className="text-base" />
+                                    <span>Start</span>
+                                </Dropdown.Item>
+                            ) : null}
+                            {canComplete ? (
+                                <Dropdown.Item
+                                    eventKey="complete"
+                                    onClick={() => openComplete(t)}
+                                >
+                                    <HiOutlineCheckCircle className="text-base" />
+                                    <span>Complete</span>
+                                </Dropdown.Item>
+                            ) : null}
+                            {canException ? (
+                                <Dropdown.Item
+                                    eventKey="exception"
+                                    onClick={() => openException(t)}
+                                >
+                                    <HiOutlineExclamation className="text-base text-amber-500" />
+                                    <span>Report exception</span>
+                                </Dropdown.Item>
+                            ) : null}
+                            {t.status === 'EXCEPTION' ? (
+                                <Dropdown.Item
+                                    eventKey="release"
+                                    onClick={() =>
+                                        void runAction(
+                                            () =>
+                                                warehouseTaskService.releaseException(
+                                                    t.id,
+                                                ),
+                                            'Exception released',
+                                        )
+                                    }
+                                >
+                                    <HiOutlineRefresh className="text-base" />
+                                    <span>Release exception</span>
+                                </Dropdown.Item>
+                            ) : null}
+                        </Dropdown>
                     )
                 },
             },
         ],
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [],
+        [openAssign, openComplete, openException, runAction],
     )
 
-    const warehouseOptions = [{ value: '', label: 'All warehouses' }, ...warehouseFilterOpts]
-    const typeOptions = [{ value: '', label: 'All types' }, ...TASK_TYPES.map((t) => ({ value: t, label: t }))]
-    const statusOptions = [{ value: '', label: 'All open' }, ...OPEN_STATUSES.map((s) => ({ value: s, label: s }))]
+    const warehouseOptions = [
+        { value: '', label: 'All warehouses' },
+        ...warehouseFilterOpts,
+    ]
+    const typeOptions = [
+        { value: '', label: 'All types' },
+        ...TASK_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, ' ') })),
+    ]
+    const statusOptions = [
+        { value: '', label: 'All open' },
+        ...OPEN_STATUSES.map((s) => ({
+            value: s,
+            label: s.replace(/_/g, ' '),
+        })),
+    ]
+
+    const openCount = useMemo(
+        () => tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length,
+        [tasks],
+    )
 
     return (
         <>
             <AdaptiveCard>
-                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end">
-                    <FormItem label="Search" className="mb-0 flex-1">
-                        <Input value={search} placeholder="Task # or reference…" onChange={(e) => setSearch(e.target.value)} />
-                    </FormItem>
-                    <FormItem label="Warehouse" className="mb-0 w-full lg:w-48">
-                        <Select options={warehouseOptions} value={warehouseOptions.find((o) => o.value === warehouseId)} onChange={(o) => setWarehouseId((o as { value: string })?.value ?? '')} />
-                    </FormItem>
-                    <FormItem label="Type" className="mb-0 w-full lg:w-40">
-                        <Select options={typeOptions} value={typeOptions.find((o) => o.value === taskType)} onChange={(o) => setTaskType((o as { value: string })?.value ?? '')} />
-                    </FormItem>
-                    {mode !== 'exceptions' && (
-                        <FormItem label="Status" className="mb-0 w-full lg:w-44">
-                            <Select options={statusOptions} value={statusOptions.find((o) => o.value === status)} onChange={(o) => setStatus((o as { value: string })?.value ?? '')} />
-                        </FormItem>
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <Input
+                        className="sm:col-span-2 xl:col-span-1"
+                        prefix={<HiOutlineSearch className="text-lg" />}
+                        value={search}
+                        placeholder="Task # or reference…"
+                        onChange={(e) => {
+                            setSearch(e.target.value)
+                            setPage(1)
+                        }}
+                    />
+                    <Select
+                        placeholder="Warehouse"
+                        options={warehouseOptions}
+                        value={warehouseOptions.find(
+                            (o) => o.value === warehouseId,
+                        )}
+                        onChange={(o) => {
+                            setWarehouseId((o as { value: string })?.value ?? '')
+                            setPage(1)
+                        }}
+                    />
+                    <Select
+                        placeholder="Task type"
+                        options={typeOptions}
+                        value={typeOptions.find((o) => o.value === taskType)}
+                        onChange={(o) => {
+                            setTaskType((o as { value: string })?.value ?? '')
+                            setPage(1)
+                        }}
+                    />
+                    {mode !== 'exceptions' ? (
+                        <Select
+                            placeholder="Status"
+                            options={statusOptions}
+                            value={statusOptions.find((o) => o.value === status)}
+                            onChange={(o) => {
+                                setStatus((o as { value: string })?.value ?? '')
+                                setPage(1)
+                            }}
+                        />
+                    ) : (
+                        <div className="flex items-center justify-end">
+                            <Button
+                                size="sm"
+                                icon={<HiOutlineRefresh />}
+                                onClick={() => {
+                                    setPage(1)
+                                    void fetchTasks()
+                                }}
+                            >
+                                Refresh
+                            </Button>
+                        </div>
                     )}
-                    <Button className="lg:mb-0.5" onClick={() => { setPage(1); fetchTasks() }}>Refresh</Button>
                 </div>
+
+                {!loading && tasks.length > 0 ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                        {openCount} open on this page · {total} total matching
+                    </p>
+                ) : null}
 
                 <DataTable
                     columns={columns}
                     data={tasks}
+                    compact
+                    fit
                     loading={loading}
+                    getRowId={(row) => row.id}
+                    rowClassName={(_, index) => wmTableRowEnterClass(index)}
                     noData={!loading && tasks.length === 0}
                     pagingData={{ total, pageIndex: page - 1, pageSize }}
                     onPaginationChange={(p) => setPage(p + 1)}
-                    onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                    onSelectChange={(size) => {
+                        setPageSize(size)
+                        setPage(1)
+                    }}
                 />
             </AdaptiveCard>
 
@@ -330,7 +503,11 @@ export default function WarehouseTaskTable({ mode }: Props) {
                 onSubmit={() => {
                     if (!activeTask) return
                     return runAction(
-                        () => warehouseTaskService.assign(activeTask.id, assignUserId),
+                        () =>
+                            warehouseTaskService.assign(
+                                activeTask.id,
+                                assignUserId,
+                            ),
                         'Task assigned',
                     )
                 }}
@@ -338,7 +515,6 @@ export default function WarehouseTaskTable({ mode }: Props) {
             >
                 <FormItem
                     label="Worker"
-                    invalid={false}
                     errorMessage={
                         assignWorkers.length === 0
                             ? 'No assignable workers found for this task company'
@@ -360,41 +536,103 @@ export default function WarehouseTaskTable({ mode }: Props) {
                         placeholder="Select a worker of the task company"
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                        Only active workers who are members of the task company can be
-                        assigned (server-enforced).
+                        Only active workers in the task company can be assigned.
                     </p>
                 </FormItem>
             </FormDialog>
 
-            <FormDialog isOpen={completeOpen} title="Complete Task" onClose={() => setCompleteOpen(false)} onSubmit={() => {
-                if (!activeTask) return
-                return runAction(() => warehouseTaskService.complete(activeTask.id, {
-                    quantity: Number(completeQty),
-                    destinationBinId: activeTask.taskType === 'RELOCATION' ? completeBinId : undefined,
-                    sourceBinId: activeTask.taskType === 'PICK' ? completeBinId : undefined,
-                    scannedBinId: completeBinId || undefined,
-                }), 'Task completed')
-            }} confirmLoading={actionLoading}>
+            <FormDialog
+                isOpen={completeOpen}
+                title="Complete Task"
+                onClose={() => setCompleteOpen(false)}
+                onSubmit={() => {
+                    if (!activeTask) return
+                    return runAction(
+                        () =>
+                            warehouseTaskService.complete(activeTask.id, {
+                                quantity: Number(completeQty),
+                                destinationBinId:
+                                    activeTask.taskType === 'RELOCATION'
+                                        ? completeBinId
+                                        : undefined,
+                                sourceBinId:
+                                    activeTask.taskType === 'PICK'
+                                        ? completeBinId
+                                        : undefined,
+                                scannedBinId: completeBinId || undefined,
+                            }),
+                        'Task completed',
+                    )
+                }}
+                confirmLoading={actionLoading}
+            >
                 <FormItem label="Quantity">
-                    <Input type="number" value={completeQty} onChange={(e) => setCompleteQty(e.target.value)} />
+                    <Input
+                        type="number"
+                        value={completeQty}
+                        onChange={(e) => setCompleteQty(e.target.value)}
+                    />
                 </FormItem>
-                {(activeTask?.taskType === 'PICK' || activeTask?.taskType === 'RELOCATION') && (
+                {(activeTask?.taskType === 'PICK' ||
+                    activeTask?.taskType === 'RELOCATION') && (
                     <FormItem label="Bin ID">
-                        <Input value={completeBinId} onChange={(e) => setCompleteBinId(e.target.value)} placeholder="Storage bin ID" />
+                        <Input
+                            value={completeBinId}
+                            onChange={(e) => setCompleteBinId(e.target.value)}
+                            placeholder="Storage bin ID"
+                        />
                     </FormItem>
                 )}
             </FormDialog>
 
-            <FormDialog isOpen={exceptionOpen} title="Report Exception" onClose={() => setExceptionOpen(false)} onSubmit={() => { if (activeTask) return runAction(() => warehouseTaskService.reportException(activeTask.id, { exceptionCode, details: exceptionDetails }), 'Exception reported') }} confirmLoading={actionLoading}>
+            <FormDialog
+                isOpen={exceptionOpen}
+                title="Report Exception"
+                onClose={() => setExceptionOpen(false)}
+                onSubmit={() => {
+                    if (!activeTask) return
+                    return runAction(
+                        () =>
+                            warehouseTaskService.reportException(
+                                activeTask.id,
+                                {
+                                    exceptionCode,
+                                    details: exceptionDetails,
+                                },
+                            ),
+                        'Exception reported',
+                    )
+                }}
+                confirmLoading={actionLoading}
+            >
                 <FormItem label="Code">
                     <Select
-                        options={['WRONG_BIN', 'WRONG_MATERIAL', 'WRONG_BATCH', 'WRONG_SERIAL', 'QUANTITY_MISMATCH', 'INSUFFICIENT_STOCK', 'DAMAGED_STOCK', 'BLOCKED_LOCATION'].map((c) => ({ value: c, label: c }))}
-                        value={{ value: exceptionCode, label: exceptionCode }}
-                        onChange={(o) => setExceptionCode((o as { value: string })?.value ?? 'WRONG_BIN')}
+                        options={[
+                            'WRONG_BIN',
+                            'WRONG_MATERIAL',
+                            'WRONG_BATCH',
+                            'WRONG_SERIAL',
+                            'QUANTITY_MISMATCH',
+                            'INSUFFICIENT_STOCK',
+                            'DAMAGED_STOCK',
+                            'BLOCKED_LOCATION',
+                        ].map((c) => ({ value: c, label: c.replace(/_/g, ' ') }))}
+                        value={{
+                            value: exceptionCode,
+                            label: exceptionCode.replace(/_/g, ' '),
+                        }}
+                        onChange={(o) =>
+                            setExceptionCode(
+                                (o as { value: string })?.value ?? 'WRONG_BIN',
+                            )
+                        }
                     />
                 </FormItem>
                 <FormItem label="Details">
-                    <Input value={exceptionDetails} onChange={(e) => setExceptionDetails(e.target.value)} />
+                    <Input
+                        value={exceptionDetails}
+                        onChange={(e) => setExceptionDetails(e.target.value)}
+                    />
                 </FormItem>
             </FormDialog>
         </>
