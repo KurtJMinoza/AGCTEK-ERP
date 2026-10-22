@@ -1,6 +1,11 @@
 import type { GoodsReceipt } from '@/modules/mm/inventory/types'
 import type { MmExpectedReceipt } from '../types'
 import type { ReceivingReceiptSlipData } from '../components/ReceivingReceiptSlip'
+import {
+    companyFromApi,
+    supplierPartyFromApi,
+} from '@/modules/mm/shared/documentSlipUtils'
+import { AWIC_BRAND } from '@/modules/storefront/retail/brand'
 
 function materialLineLabel(m?: {
     materialCode?: string
@@ -26,6 +31,8 @@ export function goodsReceiptToSlip(gr: GoodsReceipt): ReceivingReceiptSlipData {
         poNumber: gr.purchaseOrder?.poNumber,
         stockStatus: gr.stockStatus,
         remarks: gr.remarks ?? undefined,
+        company: companyFromApi(gr.company, AWIC_BRAND.fullName),
+        party: supplierPartyFromApi(gr.supplier),
         lines: (gr.lines ?? []).map((l) => ({
             ...materialLineLabel(l.material),
             quantity: l.quantity,
@@ -45,6 +52,8 @@ export function expectedReceiptToSlip(er: MmExpectedReceipt): ReceivingReceiptSl
         supplier: er.supplier?.supplierName,
         poNumber: er.purchaseOrder?.poNumber,
         remarks: er.remarks ?? undefined,
+        company: companyFromApi(er.company, AWIC_BRAND.fullName),
+        party: supplierPartyFromApi(er.supplier),
         lines: (er.lines ?? []).map((l) => ({
             materialCode: l.material?.materialCode,
             materialName: l.material?.materialName,

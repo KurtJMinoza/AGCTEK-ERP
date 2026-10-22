@@ -4,7 +4,9 @@ import {
     NotFoundException,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { toStatusCounts } from '../common/status-summary.util'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
@@ -255,7 +257,7 @@ export class AdjustmentService {
     }
 
     async findAll(query: StockOpsQueryDto) {
-        const where: any = {}
+        const where: Prisma.MmInventoryAdjustmentWhereInput = {}
         if (query.status) where.status = query.status
         if (query.warehouseId) where.warehouseId = query.warehouseId
         if (query.search) {
@@ -279,7 +281,14 @@ export class AdjustmentService {
             this.prisma.mmInventoryAdjustment.count({ where }),
         ])
 
-        return { data, total, page, pageSize }
+        const byStatus = await this.prisma.mmInventoryAdjustment.groupBy({
+            by: ['status'],
+            where,
+            _count: { _all: true },
+        })
+        const summary = toStatusCounts(byStatus)
+
+        return { data, total, page, pageSize, summary: { byStatus: summary } }
     }
 
     async findOne(id: string) {

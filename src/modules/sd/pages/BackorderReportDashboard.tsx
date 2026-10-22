@@ -384,7 +384,7 @@ const BackorderReportDashboard = () => {
                     loading={loading && !result}
                     noData={!loading && !result?.data.length}
                     getRowId={(row) => row.id}
-                    getRowClassName={rowTint}
+                    rowClassName={rowTint}
                     pagingData={{
                         total: result?.total ?? 0,
                         pageIndex: page,

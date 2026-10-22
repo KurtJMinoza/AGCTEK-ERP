@@ -6,6 +6,11 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import FilterBar, {
+    type FilterChip,
+    type FilterField,
+} from '@/components/shared/FilterBar'
+import StatCard from '@/components/shared/StatCard'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
@@ -13,7 +18,13 @@ import Input from '@/components/ui/Input'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
-import { HiOutlinePlus, HiOutlineRefresh } from 'react-icons/hi'
+import {
+    HiOutlinePlus,
+    HiOutlineRefresh,
+    HiOutlineCube,
+    HiOutlineLockClosed,
+    HiOutlineCheckCircle,
+} from 'react-icons/hi'
 import {
     inventoryService,
     type BalanceSummary,
@@ -21,6 +32,7 @@ import {
 } from '../services/inventoryService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { StockStatusTag } from '../utils/inventoryUi'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
 
@@ -35,10 +47,6 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-function n(v: string | number | undefined) {
-    return Number(v ?? 0)
-}
-
 const InventoryStatusPage = () => {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
@@ -47,7 +55,9 @@ const InventoryStatusPage = () => {
         'materials',
     )
     const { ensure: ensureFormRefs } = useLazyMmRefs()
-    const [statusOpts, setStatusOpts] = useState<Opt[]>([{ value: '', label: 'All statuses' }])
+    const [statusOpts, setStatusOpts] = useState<Opt[]>([
+        { value: '', label: 'All statuses' },
+    ])
     const [companyId, setCompanyId] = useState('')
     const [warehouseId, setWarehouseId] = useState('')
     const [materialId, setMaterialId] = useState('')
@@ -103,15 +113,18 @@ const InventoryStatusPage = () => {
         load()
         const t = window.setTimeout(() => {
             loadFilterRefs()
-            inventoryService.stockStatuses().then((statuses) => {
-                setStatusOpts([
-                    { value: '', label: 'All statuses' },
-                    ...(statuses ?? []).map((s: { code: string }) => ({
-                        value: s.code,
-                        label: s.code.replace(/_/g, ' '),
-                    })),
-                ])
-            }).catch(() => undefined)
+            inventoryService
+                .stockStatuses()
+                .then((statuses) => {
+                    setStatusOpts([
+                        { value: '', label: 'All statuses' },
+                        ...(statuses ?? []).map((s: { code: string }) => ({
+                            value: s.code,
+                            label: s.code.replace(/_/g, ' '),
+                        })),
+                    ])
+                })
+                .catch(() => undefined)
         }, 0)
         return () => window.clearTimeout(t)
     }, [load, loadFilterRefs])
@@ -149,36 +162,159 @@ const InventoryStatusPage = () => {
 
     const columns: ColumnDef<InventoryBalance>[] = useMemo(
         () => [
-            { header: 'Status', accessorKey: 'stockStatus' },
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode ??
-                    row.original.materialId.slice(0, 8),
+                cell: ({ row }) => {
+                    const m = row.original.material
+                    return (
+                        <div className="min-w-[11rem] max-w-[12rem]">
+                            <div className="truncate font-semibold text-gray-900">
+                                {m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                            </div>
+                            <div className="truncate text-xs text-gray-500">
+                                {m?.materialName ?? '—'}
+                            </div>
+                        </div>
+                    )
+                },
             },
             {
-                header: 'Warehouse',
-                cell: ({ row }) =>
-                    row.original.warehouse?.name ??
-                    row.original.warehouseId.slice(0, 8),
+                header: 'Status',
+                cell: ({ row }) => (
+                    <StockStatusTag status={row.original.stockStatus} />
+                ),
             },
             {
-                header: 'Bin',
-                cell: ({ row }) => row.original.storageBin?.code ?? '—',
+                header: 'Location',
+                cell: ({ row }) => (
+                    <div className="min-w-[8rem] max-w-[9rem] whitespace-nowrap text-sm text-gray-600">
+                        <div className="truncate">
+                            {row.original.warehouse?.code ??
+                                row.original.warehouseId.slice(0, 8)}
+                        </div>
+                        <div className="truncate font-mono text-xs text-gray-400">
+                            {row.original.storageBin?.code ?? 'No bin'}
+                        </div>
+                    </div>
+                ),
             },
             {
                 header: 'Quantity',
-                cell: ({ row }) => n(row.original.quantity),
+                cell: ({ row }) => (
+                    <div className="whitespace-nowrap text-right font-semibold text-gray-900">
+                        {Number(row.original.quantity ?? 0).toLocaleString()}
+                    </div>
+                ),
             },
             {
                 header: 'Available',
-                cell: ({ row }) => n(row.original.availableQuantity),
+                cell: ({ row }) => (
+                    <div className="whitespace-nowrap text-right font-semibold text-emerald-600">
+                        {Number(row.original.availableQuantity ?? 0).toLocaleString()}
+                    </div>
+                ),
             },
         ],
         [],
     )
 
     const statusCodes = statusOpts.filter((o) => o.value)
+
+    const labelOf = (opts: Opt[], value: string) =>
+        opts.find((o) => o.value === value)?.label ?? value
+
+    const chips = useMemo<FilterChip[]>(() => {
+        const list: FilterChip[] = []
+        if (companyId)
+            list.push({
+                key: 'companyId',
+                label: `Company: ${labelOf(companies, companyId)}`,
+                onRemove: () => {
+                    setCompanyId('')
+                    setWarehouseId('')
+                    setMaterialId('')
+                },
+            })
+        if (warehouseId)
+            list.push({
+                key: 'warehouseId',
+                label: `Warehouse: ${labelOf(warehouses, warehouseId)}`,
+                onRemove: () => setWarehouseId(''),
+            })
+        if (materialId)
+            list.push({
+                key: 'materialId',
+                label: `Material: ${labelOf(materials, materialId)}`,
+                onRemove: () => setMaterialId(''),
+            })
+        if (stockStatus)
+            list.push({
+                key: 'stockStatus',
+                label: `Status: ${labelOf(statusOpts, stockStatus)}`,
+                onRemove: () => setStockStatus(''),
+            })
+        return list
+    }, [
+        companyId,
+        warehouseId,
+        materialId,
+        stockStatus,
+        companies,
+        warehouses,
+        materials,
+        statusOpts,
+    ])
+
+    const fields = useMemo<FilterField[]>(
+        () => [
+            {
+                key: 'companyId',
+                label: 'Company',
+                value: companyId,
+                options: companies,
+                onChange: (value) => {
+                    setCompanyId(value)
+                    setPage(1)
+                },
+            },
+            {
+                key: 'warehouseId',
+                label: 'Warehouse',
+                value: warehouseId,
+                options: warehouses,
+                onChange: (value) => {
+                    setWarehouseId(value)
+                    setPage(1)
+                },
+            },
+            {
+                key: 'materialId',
+                label: 'Material',
+                value: materialId,
+                options: materials,
+                onChange: (value) => {
+                    setMaterialId(value)
+                    setPage(1)
+                },
+            },
+            {
+                key: 'stockStatus',
+                label: 'Stock status',
+                value: stockStatus,
+                options: statusOpts,
+                onChange: (value) => {
+                    setStockStatus(value)
+                    setPage(1)
+                },
+            },
+        ],
+        [companyId, warehouseId, materialId, stockStatus, companies, warehouses, materials, statusOpts],
+    )
+
+    const byStatus = summary?.byStatus ?? []
+    const onHand = summary?.onHand ?? 0
+    const restricted = summary?.restricted ?? 0
+    const available = summary?.available ?? 0
 
     return (
         <PageContainer>
@@ -207,73 +343,81 @@ const InventoryStatusPage = () => {
                 }
             />
 
-            <AdaptiveCard className="mb-4">
-                <div className="grid gap-3 md:grid-cols-4">
-                    <FormItem label="Company">
-                        <Select
-                            isClearable
-                            options={companies}
-                            value={companies.find((o) => o.value === companyId) ?? null}
-                            onChange={(o: any) => {
-                                setCompanyId(o?.value ?? '')
-                                setPage(1)
-                            }}
-                        />
-                    </FormItem>
-                    <FormItem label="Warehouse">
-                        <Select
-                            isClearable
-                            options={warehouses}
-                            value={warehouses.find((o) => o.value === warehouseId) ?? null}
-                            onChange={(o: any) => {
-                                setWarehouseId(o?.value ?? '')
-                                setPage(1)
-                            }}
-                        />
-                    </FormItem>
-                    <FormItem label="Material">
-                        <Select
-                            isClearable
-                            options={materials}
-                            value={materials.find((o) => o.value === materialId) ?? null}
-                            onChange={(o: any) => {
-                                setMaterialId(o?.value ?? '')
-                                setPage(1)
-                            }}
-                        />
-                    </FormItem>
-                    <FormItem label="Stock status">
-                        <Select
-                            options={statusOpts}
-                            value={statusOpts.find((o) => o.value === stockStatus)}
-                            onChange={(o: any) => {
-                                setStockStatus(o?.value ?? '')
-                                setPage(1)
-                            }}
-                        />
-                    </FormItem>
-                </div>
-            </AdaptiveCard>
+            <FilterBar
+                className="mb-4"
+                fields={fields}
+                chips={chips}
+                onClear={() => {
+                    setCompanyId('')
+                    setWarehouseId('')
+                    setMaterialId('')
+                    setStockStatus('')
+                    setPage(1)
+                }}
+            />
 
-            {summary && summary.byStatus.length > 0 && (
-                <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4 mb-4">
-                    {summary.byStatus.map((s) => (
-                        <AdaptiveCard key={s.status}>
-                            <div className="text-sm text-gray-500">{s.status}</div>
-                            <div className="text-2xl font-semibold mt-1">
+            <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard
+                    label="On hand"
+                    value={onHand.toLocaleString()}
+                    tone="info"
+                    icon={<HiOutlineCube />}
+                />
+                <StatCard
+                    label="Available"
+                    value={available.toLocaleString()}
+                    tone="success"
+                    icon={<HiOutlineCheckCircle />}
+                />
+                <StatCard
+                    label="Restricted"
+                    value={restricted.toLocaleString()}
+                    tone="danger"
+                    icon={<HiOutlineLockClosed />}
+                />
+                <StatCard
+                    label="Balance rows"
+                    value={summary?.rowCount?.toLocaleString() ?? '0'}
+                    tone="default"
+                    icon={<HiOutlineCube />}
+                />
+            </div>
+
+            {byStatus.length > 0 ? (
+                <div className="mb-4 flex flex-wrap gap-2">
+                    {byStatus.map((s) => (
+                        <span
+                            key={s.status}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700"
+                        >
+                            {s.status.replace(/_/g, ' ')}
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
                                 {s.quantity.toLocaleString()}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-1">{s.rowCount} balance rows</div>
-                        </AdaptiveCard>
+                            </span>
+                            <span className="text-gray-400">
+                                · {s.rowCount} rows
+                            </span>
+                        </span>
                     ))}
                 </div>
-            )}
+            ) : null}
+
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span>
+                    {meta.total} balance row{meta.total === 1 ? '' : 's'} in scope
+                </span>
+                <span>
+                    Page {meta.page} · {meta.limit} per page
+                </span>
+            </div>
 
             <AdaptiveCard>
                 <DataTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    compact
+                    noData={rows.length === 0}
                     pagingData={{
                         total: meta.total,
                         pageIndex: page,

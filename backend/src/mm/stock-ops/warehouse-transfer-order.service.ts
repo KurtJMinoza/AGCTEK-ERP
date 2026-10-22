@@ -5,7 +5,9 @@ import {
     Inject,
     forwardRef,
 } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { toStatusCounts } from '../common/status-summary.util'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { CreateWarehouseTransferOrderDto } from './dto/create-warehouse-transfer-order.dto'
@@ -338,7 +340,7 @@ export class WarehouseTransferOrderService {
     }
 
     async findAll(query: StockOpsQueryDto) {
-        const where: any = {}
+        const where: Prisma.MmWarehouseTransferOrderWhereInput = {}
         if (query.status) where.status = query.status
         if (query.warehouseId) {
             where.OR = [
@@ -368,7 +370,14 @@ export class WarehouseTransferOrderService {
             this.prisma.mmWarehouseTransferOrder.count({ where }),
         ])
 
-        return { data, total, page, pageSize }
+        const byStatus = await this.prisma.mmWarehouseTransferOrder.groupBy({
+            by: ['status'],
+            where,
+            _count: { _all: true },
+        })
+        const summary = toStatusCounts(byStatus)
+
+        return { data, total, page, pageSize, summary: { byStatus: summary } }
     }
 
     async findOne(id: string) {

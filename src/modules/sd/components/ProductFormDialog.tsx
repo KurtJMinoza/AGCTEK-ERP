@@ -25,7 +25,7 @@ import {
 import { validateOptionsVariants } from '../services/productOptionVariantsValidation'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import ProductCatalogMaterialSection from './ProductCatalogMaterialSection'
-import ProductMaterialDefaultsSection from './ProductMaterialDefaultsSection'
+import ProductMaterialSection from './ProductMaterialSection'
 import ProductReviewSection from './ProductReviewSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
@@ -85,26 +85,11 @@ const productSchema = z
         materialLinkMode: z.enum(['single', 'multiple']),
         materialIds: z.array(z.string()),
         /**
-         * AUTO_CREATE = one Material Master is generated per variant from the
-         * material defaults below (the default). LINK_EXISTING = the product
-         * keeps the legacy parent→material link.
+         * The existing Material Master item a SIMPLE product links (its
+         * hidden default variant). VARIABLE products link one material per
+         * variant in the Options & Variants step.
          */
-        materialMode: z.enum(['AUTO_CREATE', 'LINK_EXISTING']),
-        materialDefaults: z.object({
-            materialTypeId: z.string(),
-            materialCategoryId: z.string(),
-            baseUomId: z.string(),
-            salesUomId: z.string().optional(),
-            defaultWarehouseId: z.string().optional(),
-            storageBinId: z.string().optional(),
-            standardCost: z.number().min(0),
-            safetyStock: z.number().min(0),
-            maximumStock: z.number().min(0),
-            reorderPoint: z.number().min(0),
-            batchManaged: z.boolean(),
-            serialManaged: z.boolean(),
-            expiryManaged: z.boolean(),
-        }),
+        materialId: z.string(),
         measurements: z.object({
             unit: z.string().trim().max(120),
             weight: z.string().trim().max(120),
@@ -117,36 +102,20 @@ const productSchema = z
         message: 'Must be higher than the selling price',
     })
     /**
-     * The parent→material link is only required for a SIMPLE product that
-     * links an existing material. A VARIABLE product's parent holds no
-     * stock — each variant owns its own material.
+     * A SIMPLE product must link one existing material. A VARIABLE product
+     * links one material per variant (validated with the variants).
      */
     .refine(
         (values) =>
-            values.materialMode === 'LINK_EXISTING' &&
             values.productConfig === 'SIMPLE' &&
             (values.companyId.trim().length === 0 ||
-                values.materialIds.length === 0)
+                values.materialId.trim().length === 0)
                 ? false
                 : true,
         {
-            path: ['materialIds'],
-            message: 'Select company and at least one MM material',
-        },
-    )
-    .refine(
-        (values) =>
-            values.materialMode === 'AUTO_CREATE' &&
-            (values.companyId.trim().length === 0 ||
-                !values.materialDefaults.materialTypeId ||
-                !values.materialDefaults.materialCategoryId ||
-                !values.materialDefaults.baseUomId)
-                ? false
-                : true,
-        {
-            path: ['materialDefaults.materialTypeId'],
+            path: ['materialId'],
             message:
-                'Select the company, material type, material category and base unit of measure',
+                'Select the company and the existing MM material this product sells',
         },
     )
     .refine(
@@ -172,23 +141,6 @@ const productSchema = z
 type FormShape = z.infer<typeof productSchema>
 type Option = { value: string; label: string }
 
-/** Blank material defaults — the wizard fills them before the family create. */
-const EMPTY_MATERIAL_DEFAULTS: FormShape['materialDefaults'] = {
-    materialTypeId: '',
-    materialCategoryId: '',
-    baseUomId: '',
-    salesUomId: undefined,
-    defaultWarehouseId: undefined,
-    storageBinId: undefined,
-    standardCost: 0,
-    safetyStock: 0,
-    maximumStock: 0,
-    reorderPoint: 0,
-    batchManaged: false,
-    serialManaged: false,
-    expiryManaged: false,
-}
-
 const FORM_ID = 'sd-product-form'
 
 /** Dynamic wizard steps based on product config selection. */
@@ -196,7 +148,7 @@ const getCreateWizardSteps = (config: 'SIMPLE' | 'VARIABLE') =>
     config === 'VARIABLE'
         ? [
               'Product info',
-              'Material defaults',
+              'Material',
               'Pricing & media',
               'Details',
               'Options & Variants',
@@ -204,7 +156,7 @@ const getCreateWizardSteps = (config: 'SIMPLE' | 'VARIABLE') =>
           ] as const
         : [
               'Product info',
-              'Material defaults',
+              'Material',
               'Pricing & media',
               'Details',
               'Review',
@@ -215,15 +167,9 @@ type WizardSteps = ReturnType<typeof getCreateWizardSteps>
 /** Wizard step index of "Options & Variants" (VARIABLE products only). */
 const OPTIONS_VARIANTS_STEP_INDEX = 4
 
-const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}` | `materialDefaults.${string}`)[][] = [
+const CREATE_STEP_FIELDS: (keyof FormShape | `measurements.${keyof ProductMeasurements}`)[][] = [
     ['sku', 'name', 'companyId'],
-    [
-        'materialMode',
-        'materialDefaults.materialTypeId',
-        'materialDefaults.materialCategoryId',
-        'materialDefaults.baseUomId',
-        'companyId',
-    ],
+    ['companyId', 'materialId'],
     ['price', 'originalPrice', 'badge', 'imageUrl'],
     ['description', 'sortOrder', 'isActive'],
     [],
@@ -261,8 +207,7 @@ const toFormValues = (
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
-              materialMode: 'LINK_EXISTING',
-              materialDefaults: { ...EMPTY_MATERIAL_DEFAULTS },
+              materialId: '',
               measurements: productMeasurements(product),
           }
         : {
@@ -285,8 +230,7 @@ const toFormValues = (
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
-              materialMode: 'AUTO_CREATE',
-              materialDefaults: { ...EMPTY_MATERIAL_DEFAULTS },
+              materialId: '',
               measurements: { ...EMPTY_MEASUREMENTS },
           }
 
@@ -440,8 +384,22 @@ const ProductFormDialog = ({
         null,
     )
 
+    /**
+     * Initialise the form when the dialog opens.
+     *
+     * `reset` from useForm() is a NEW function reference on every render, so
+     * this effect would re-run constantly and wipe the form (and bounce the
+     * wizard back to step 1) on every keystroke. The one-shot guard makes it
+     * run exactly once per open.
+     */
+    const initialisedForOpen = useRef(false)
     useEffect(() => {
-        if (!isOpen) return
+        if (!isOpen) {
+            initialisedForOpen.current = false
+            return
+        }
+        if (initialisedForOpen.current) return
+        initialisedForOpen.current = true
         reset(toFormValues(product, defaultDivisionId))
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
@@ -456,7 +414,10 @@ const ProductFormDialog = ({
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
     const productConfig = useWatch({ control, name: 'productConfig' })
     const materialIds = useWatch({ control, name: 'materialIds' })
-    const materialMode = useWatch({ control, name: 'materialMode' })
+    const rawCompanyId = useWatch({ control, name: 'companyId' })
+    // The company field holds the option VALUE (a string).
+    const companyId =
+        typeof rawCompanyId === 'string' ? rawCompanyId : ''
     const CREATE_WIZARD_STEPS = getCreateWizardSteps(productConfig ?? 'SIMPLE')
     const editing = mode === 'edit'
     const createWizard = !editing
@@ -476,11 +437,26 @@ const ProductFormDialog = ({
             ? validateOptionsVariants(optionsDraft)
             : []
 
-    /** Restore an auto-saved draft when the create wizard reopens. */
+    /**
+     * Restore an auto-saved draft when the create wizard reopens.
+     *
+     * `reset` from useForm() is a NEW function reference on every render, so
+     * this effect re-runs constantly. Without the one-shot guard it called
+     * `reset(draft.values)` on every render — which silently wiped whatever
+     * the user had just selected (e.g. the material in the Material step) and
+     * bounced the wizard back to step 1. The draft is therefore restored
+     * exactly once per open.
+     */
+    const draftRestoredForOpen = useRef(false)
     useEffect(() => {
-        if (!isOpen || editing) return
+        if (!isOpen || editing) {
+            draftRestoredForOpen.current = false
+            return
+        }
+        if (draftRestoredForOpen.current) return
         const draft = readProductFormDraft()
         if (!draft) return
+        draftRestoredForOpen.current = true
         reset({
             ...toFormValues(null, defaultDivisionId),
             ...draft.values,
@@ -495,7 +471,16 @@ const ProductFormDialog = ({
         setDraftRestored(true)
     }, [isOpen, editing, reset, defaultDivisionId])
 
-    /** Persist the in-progress draft (debounced) on every form change. */
+    /**
+     * Persist the in-progress draft (debounced) on every form change.
+     *
+     * `watch` is a new reference on every render, so the latest wizard step
+     * and options draft are kept in refs — otherwise the subscription would
+     * be torn down and rebuilt on every render and could miss a change.
+     */
+    const draftContextRef = useRef({ wizardStep, optionsDraft })
+    draftContextRef.current = { wizardStep, optionsDraft }
+
     useEffect(() => {
         if (!isOpen || editing) return
         const subscription = watch((values) => {
@@ -503,10 +488,11 @@ const ProductFormDialog = ({
                 window.clearTimeout(draftTimer.current)
             }
             draftTimer.current = window.setTimeout(() => {
+                const ctx = draftContextRef.current
                 writeProductFormDraft({
                     savedAt: Date.now(),
-                    wizardStep,
-                    optionsVariants: optionsDraft ?? null,
+                    wizardStep: ctx.wizardStep,
+                    optionsVariants: ctx.optionsDraft ?? null,
                     values: values as Partial<FormShape>,
                 })
             }, 400)
@@ -517,7 +503,7 @@ const ProductFormDialog = ({
                 window.clearTimeout(draftTimer.current)
             }
         }
-    }, [isOpen, editing, watch, wizardStep, optionsDraft])
+    }, [isOpen, editing, watch])
 
     /** Load existing options + variants when editing (create keeps restored drafts). */
     useEffect(() => {
@@ -681,8 +667,7 @@ const ProductFormDialog = ({
             materialIds,
             materialLinkMode,
             companyId,
-            materialMode,
-            materialDefaults,
+            materialId,
             measurements,
             ...rest
         } = values
@@ -746,8 +731,7 @@ const ProductFormDialog = ({
             payload.materialIds = materialIds
             payload.materialLinkMode = materialLinkMode
             payload.companyId = companyId
-            payload.materialMode = materialMode
-            payload.materialDefaults = materialDefaults
+            payload.materialId = materialId
         }
         await onSubmit(payload)
         clearProductFormDraft()
@@ -767,8 +751,10 @@ const ProductFormDialog = ({
     /** Field + business checks for one wizard step (shared by Next and step clicks). */
     const validateWizardStep = async (step: number): Promise<boolean> => {
         const fields = CREATE_STEP_FIELDS[step] ?? []
-        const ok = await trigger(fields as (keyof FormShape)[])
-        if (!ok) return false
+        if (fields.length) {
+            const ok = await trigger(fields as (keyof FormShape)[])
+            if (!ok) return false
+        }
 
         const values = getValues()
         if (step === 1) {
@@ -776,18 +762,16 @@ const ProductFormDialog = ({
                 setError('companyId', { message: 'Select a company' })
                 return false
             }
-            if (!values.materialIds?.length) {
-                setError('materialIds', {
-                    message: 'Select at least one MM material',
-                })
-                return false
-            }
+            // A SIMPLE product links exactly one existing material (its hidden
+            // default variant). A VARIABLE product links one material per
+            // variant in the Options & Variants step — nothing is required here.
             if (
-                values.materialLinkMode === 'single' &&
-                values.materialIds.length > 1
+                values.productConfig === 'SIMPLE' &&
+                !values.materialId?.trim()
             ) {
-                setError('materialIds', {
-                    message: 'Single-material mode allows only one MM material',
+                setError('materialId', {
+                    message:
+                        'Select the existing MM material this product sells',
                 })
                 return false
             }
@@ -830,11 +814,11 @@ const ProductFormDialog = ({
     const wizardStepHint = createWizard
         ? [
               'Choose storefront and product identity.',
-              'Set the material defaults applied to the generated Material Masters.',
+              'Link the existing Material Master item this product sells.',
               'Set prices, badge, and storefront media.',
               'Description, specs, display order, and visibility.',
               'Define the option combinations the customer can pick.',
-              'Review everything, then create the product and its materials.',
+              'Review everything, then create the product and its links.',
           ][wizardStep]
         : null
 
@@ -1167,156 +1151,17 @@ const ProductFormDialog = ({
                         )
                     ) : (
                         <>
-                            <div className="md:col-span-2">
-                                <p className="text-sm font-semibold text-gray-900">
-                                    Material source
-                                </p>
-                                <p className="mt-1 text-xs text-gray-500">
-                                    {productConfig === 'VARIABLE'
-                                        ? 'Each variant gets its own Material Master with independent stock.'
-                                        : 'The product gets one hidden default variant with its own Material Master.'}
-                                </p>
-                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <Controller
-                                name="materialMode"
-                                control={control}
-                                render={({ field }) => (
-                                    <label
-                                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${
-                                            field.value === 'AUTO_CREATE'
-                                                ? 'border-primary-500 bg-primary-500/5'
-                                                : 'border-gray-200 dark:border-gray-700'
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="materialMode"
-                                            value="AUTO_CREATE"
-                                            checked={field.value === 'AUTO_CREATE'}
-                                            onChange={() =>
-                                                field.onChange('AUTO_CREATE')
-                                            }
-                                            className="mt-1"
-                                        />
-                                        <span>
-                                            <span className="font-semibold text-gray-900">
-                                                Create material
-                                            </span>
-                                            <span className="mt-1 block text-xs text-gray-500">
-                                                One Material Master per variant,
-                                                generated from the defaults below.
-                                            </span>
-                                        </span>
-                                    </label>
-                                )}
-                            />
-                            <Controller
-                                name="materialMode"
-                                control={control}
-                                render={({ field }) => (
-                                    <label
-                                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${
-                                            field.value === 'LINK_EXISTING'
-                                                ? 'border-primary-500 bg-primary-500/5'
-                                                : 'border-gray-200 dark:border-gray-700'
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="materialMode"
-                                            value="LINK_EXISTING"
-                                            checked={field.value === 'LINK_EXISTING'}
-                                            onChange={() =>
-                                                field.onChange('LINK_EXISTING')
-                                            }
-                                            className="mt-1"
-                                        />
-                                        <span>
-                                            <span className="font-semibold text-gray-900">
-                                                Link existing material
-                                            </span>
-                                            <span className="mt-1 block text-xs text-gray-500">
-                                                Advanced — reuse an existing MM
-                                                material instead of generating
-                                                one.
-                                            </span>
-                                        </span>
-                                    </label>
-                                )}
-                            />
-                        </div>
-                    </div>
-                    {materialMode === 'AUTO_CREATE' ? (
-                        <>
-                            {(errors.materialDefaults?.materialTypeId ||
-                                errors.companyId) && (
+                            {(errors.materialId || errors.companyId) && (
                                 <p className="md:col-span-2 text-sm text-red-600">
-                                    {errors.materialDefaults?.materialTypeId
-                                        ?.message ??
+                                    {errors.materialId?.message ??
                                         errors.companyId?.message}
                                 </p>
                             )}
-                            <ProductMaterialDefaultsSection
+                            <ProductMaterialSection
                                 control={control}
                                 disabled={saving || uploading}
+                                productConfig={productConfig}
                             />
-                        </>
-                    ) : (
-                        <>
-                            {(errors.materialIds || errors.companyId) && (
-                                <p className="md:col-span-2 text-sm text-red-600">
-                                    {errors.materialIds?.message ??
-                                        errors.companyId?.message}
-                                </p>
-                            )}
-                            <ProductCatalogMaterialSection
-                                control={control}
-                                editing={editing}
-                                divisionId={divisionId}
-                                productDivisionId={product?.divisionId}
-                                initialMaterialIds={editMaterialIds}
-                                initialCompanyId={editCompanyId}
-                                mmStockRefreshKey={mmStockRefreshKey}
-                                onMaterialsLoaded={applyMaterialMeasurements}
-                            />
-                            <FormItem
-                                label="Category"
-                                extra={
-                                    <span className="text-xs text-gray-500">
-                                        From Materials Management
-                                    </span>
-                                }
-                            >
-                                <Input
-                                    readOnly
-                                    disabled
-                                    value={
-                                        (materialIds.length
-                                            ? mmCategory
-                                            : null) ?? ''
-                                    }
-                                    placeholder="Set by the linked MM material"
-                                />
-                            </FormItem>
-                            {valuationCurrency ? (
-                                <FormItem
-                                    label="Valuation currency"
-                                    extra={
-                                        <span className="text-xs text-gray-500">
-                                            From MM material valuation — use for
-                                            storefront prices
-                                        </span>
-                                    }
-                                >
-                                    <Input
-                                        readOnly
-                                        disabled
-                                        value={valuationCurrency}
-                                    />
-                                </FormItem>
-                            ) : null}
-                        </>
-                    )}
                         </>
                     )}
                     {divisionId === LPG_DIVISION_ID ? (
@@ -1622,6 +1467,7 @@ const ProductFormDialog = ({
                             value={optionsDraft}
                             onChange={setOptionsDraft}
                             errors={optionsIssues}
+                            companyId={companyId || null}
                             parentPrice={watchedPrice || product?.price || 0}
                             parentCompareAt={
                                 watchedOriginalPrice ??

@@ -1,16 +1,21 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
+import { Prisma } from '@prisma/client'
 import { RESTRICTED_STOCK_STATUSES } from './inventory.constants'
 import { BalanceQueryDto } from './dto/balance-query.dto'
 import { TransactionQueryDto } from './dto/transaction-query.dto'
+import { InventorySourceReferenceResolver } from './inventory-source-reference.resolver'
 
 @Injectable()
 export class InventoryBalanceQueryService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private readonly sourceReferences: InventorySourceReferenceResolver,
+    ) {}
 
     private readonly balanceIncludes = {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, logoUrl: true } },
         warehouse: { select: { id: true, code: true, name: true } },
         storageBin: { select: { id: true, code: true } },
         material: {
@@ -19,6 +24,9 @@ export class InventoryBalanceQueryService {
                 materialCode: true,
                 materialName: true,
                 materialCategoryId: true,
+                sku: true,
+                materialCategory: { select: { id: true, code: true, name: true } },
+                baseUom: { select: { id: true, code: true, name: true } },
             },
         },
         batch: { select: { id: true, batchNumber: true, expiryDate: true } },
@@ -26,7 +34,7 @@ export class InventoryBalanceQueryService {
     }
 
     private readonly transactionIncludes = {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, logoUrl: true } },
         warehouse: { select: { id: true, code: true, name: true } },
         storageBin: { select: { id: true, code: true } },
         material: {
@@ -35,10 +43,16 @@ export class InventoryBalanceQueryService {
         batch: { select: { id: true, batchNumber: true } },
         serialNumber: { select: { id: true, serialNumber: true } },
         uom: { select: { id: true, code: true, name: true } },
+        /** The posting this row reverses (human-readable reference). */
+        reversalOf: {
+            select: { id: true, transactionNumber: true, movementType: true },
+        },
+        /** The reversal posted against this row, when it was reversed. */
+        reversedBy: { select: { id: true, transactionNumber: true } },
     }
 
     private buildBalanceWhere(dto: BalanceQueryDto) {
-        const where: Record<string, string> = {}
+        const where: Prisma.MmInventoryBalanceWhereInput = {}
         if (dto.companyId) where.companyId = dto.companyId
         if (dto.warehouseId) where.warehouseId = dto.warehouseId
         if (dto.materialId) where.materialId = dto.materialId
@@ -46,6 +60,16 @@ export class InventoryBalanceQueryService {
         if (dto.batchId) where.batchId = dto.batchId
         if (dto.serialNumberId) where.serialNumberId = dto.serialNumberId
         if (dto.stockStatus) where.stockStatus = dto.stockStatus
+        const search = dto.search?.trim()
+        if (search) {
+            where.material = {
+                OR: [
+                    { materialCode: { contains: search, mode: 'insensitive' } },
+                    { materialName: { contains: search, mode: 'insensitive' } },
+                    { sku: { contains: search, mode: 'insensitive' } },
+                ],
+            }
+        }
         return where
     }
 
@@ -166,9 +190,44 @@ export class InventoryBalanceQueryService {
             this.prisma.mmInventoryTransaction.count({ where }),
         ])
 
+        // Resolve the origin document number so the ledger shows a reference
+        // the user can act on instead of an internal id.
+        const references = await this.sourceReferences.resolve(data)
+        const rows = data.map((txn) => ({
+            ...txn,
+            sourceReference:
+                references.get(
+                    `${txn.sourceDocumentType ?? ''}::${txn.sourceDocumentId ?? ''}`,
+                ) ?? null,
+        }))
+
+        // Aggregate tiles — computed by the database over the whole filter,
+        // not derived from the rows on this page.
+        const [inbound, outbound, reversals] = await Promise.all([
+            this.prisma.mmInventoryTransaction.aggregate({
+                where: { ...where, signedQuantity: { gt: 0 } },
+                _sum: { signedQuantity: true },
+            }),
+            this.prisma.mmInventoryTransaction.aggregate({
+                where: { ...where, signedQuantity: { lt: 0 } },
+                _sum: { signedQuantity: true },
+            }),
+            this.prisma.mmInventoryTransaction.count({
+                where: { ...where, reversalOfId: { not: null } },
+            }),
+        ])
+
         return {
-            data,
+            data: rows,
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+            summary: {
+                total,
+                inboundQuantity: Number(inbound._sum.signedQuantity ?? 0),
+                outboundQuantity: Math.abs(
+                    Number(outbound._sum.signedQuantity ?? 0),
+                ),
+                reversals,
+            },
         }
     }
 

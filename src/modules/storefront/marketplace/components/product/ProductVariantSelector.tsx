@@ -10,6 +10,8 @@ import {
     type ProductVariantDefinition,
     type VariantImageMode,
 } from '@/modules/sd/services/productOptionVariantsService'
+import MaterialVariantCards from './MaterialVariantCards'
+import { useProductVariantsAvailability } from './useProductVariantsAvailability'
 
 /**
  * Ecommerce product option selector (Size, Color, Bottle Size, Flavor, Pack…).
@@ -17,20 +19,31 @@ import {
  * color swatches, image swatches or tiles. Resolves the exact variant for the
  * current selections, preselects the default variant, disables combinations
  * without an ACTIVE variant and reports per-variant MM availability.
+ *
+ * A product WITHOUT option groups (its variants are told apart by the
+ * material they sell) gets a variant list instead, so those variants are
+ * visible and pickable on the product page too.
  */
 const ProductVariantSelector = ({
     product,
     onVariantChange,
     onHasVariants,
     onVariantImageMode,
+    onMaterialVariantContext,
 }: {
     product: SdProductRecord
     onVariantChange: (variant: ProductVariantDefinition | null) => void
     onHasVariants: (hasVariants: boolean) => void
     onVariantImageMode?: (mode: VariantImageMode) => void
+    /** Material-linked variants (no option groups) the customer can pick. */
+    onMaterialVariantContext?: (ctx: {
+        sellableVariants: ProductVariantDefinition[]
+    }) => void
 }) => {
     const [payload, setPayload] = useState<ProductOptionsVariants | null>(null)
     const [selection, setSelection] = useState<Record<string, string>>({})
+    /** The variant the customer picked (products without option groups). */
+    const [chosenVariantId, setChosenVariantId] = useState<string | null>(null)
     useEffect(() => {
         let alive = true
         productOptionVariantsService
@@ -50,42 +63,111 @@ const ProductVariantSelector = ({
         }
     }, [product.id, onHasVariants, onVariantChange, onVariantImageMode])
 
+    /** The variants a customer may pick: active, published and not hidden. */
+    const sellableVariants = useMemo(
+        () =>
+            (payload?.variants ?? []).filter(
+                (variant) =>
+                    variant.isActive && variant.isPublished && !variant.isHidden,
+            ),
+        [payload],
+    )
+
+    const hasOptionGroups = (payload?.options.length ?? 0) > 0
+
+    const materialListActive =
+        Boolean(payload?.hasVariants) &&
+        !hasOptionGroups &&
+        sellableVariants.length > 0
+
+    const { byVariantId, loading: variantStockLoading } =
+        useProductVariantsAvailability(
+            product.id,
+            materialListActive,
+        )
+
+    useEffect(() => {
+        if (!materialListActive) {
+            onMaterialVariantContext?.({ sellableVariants: [] })
+            return
+        }
+        onMaterialVariantContext?.({ sellableVariants })
+    }, [materialListActive, sellableVariants, onMaterialVariantContext])
+
     /** Preselect the default (active) variant until the customer picks one. */
     useEffect(() => {
         if (!payload || !payload.hasVariants) return
-        setSelection((current) => {
-            if (Object.values(current).some(Boolean)) return current
-            const fallback =
-                payload.variants.find(
-                    (variant) => variant.isDefault && variant.isActive,
-                ) ?? null
-            if (!fallback) return current
-            const next: Record<string, string> = {}
-            for (const link of fallback.optionValues) {
-                next[link.optionId] = link.optionValueId
+        if (payload.options.length > 0) {
+            setSelection((current) => {
+                if (Object.values(current).some(Boolean)) return current
+                const fallback =
+                    payload.variants.find(
+                        (variant) => variant.isDefault && variant.isActive,
+                    ) ?? null
+                if (!fallback) return current
+                const next: Record<string, string> = {}
+                for (const link of fallback.optionValues) {
+                    next[link.optionId] = link.optionValueId
+                }
+                return next
+            })
+            return
+        }
+        // No option groups: preselect the default customer-visible variant.
+        if (sellableVariants.length === 0) return
+        setChosenVariantId((current) => {
+            if (current && sellableVariants.some((v) => v.id === current)) {
+                return current
             }
-            return next
+            const fallback =
+                sellableVariants.find((variant) => variant.isDefault) ??
+                sellableVariants[0]
+            return fallback.id
         })
-    }, [payload])
+    }, [payload, sellableVariants])
 
     const selectedVariant = useMemo(() => {
         if (!payload || !payload.hasVariants) return null
-        const valueIds = payload.options
-            .map((option) => selection[option.id])
-            .filter(Boolean)
-        if (valueIds.length !== payload.options.length) return null
+
+        // A product WITH option groups: the chosen option values decide.
+        if (payload.options.length > 0) {
+            const valueIds = payload.options
+                .map((option) => selection[option.id])
+                .filter(Boolean)
+            if (valueIds.length !== payload.options.length) return null
+            const matches = (variant: ProductVariantDefinition) =>
+                variant.optionValues.length === valueIds.length &&
+                valueIds.every((id) =>
+                    variant.optionValues.some(
+                        (link) => link.optionValueId === id,
+                    ),
+                )
+            return (
+                payload.variants.find(
+                    (variant) =>
+                        matches(variant) &&
+                        variant.isActive &&
+                        variant.isPublished &&
+                        !variant.isHidden,
+                ) ??
+                payload.variants.find(matches) ??
+                null
+            )
+        }
+
+        // A product WITHOUT option groups: the customer picks the variant.
+        if (sellableVariants.length > 0) {
+            return sellableVariants.find((v) => v.id === chosenVariantId) ?? null
+        }
+
+        // Only the hidden default variant (a SIMPLE product): it stays the
+        // sellable item, but it is never shown to the customer.
         return (
             payload.variants.find(
-                (variant) =>
-                    variant.optionValues.length === valueIds.length &&
-                    valueIds.every((id) =>
-                        variant.optionValues.some(
-                            (link) => link.optionValueId === id,
-                        ),
-                    ),
+                (variant) => variant.isDefault && variant.isActive,
             ) ?? null
         )
-    }, [payload, selection])
+    }, [payload, selection, chosenVariantId, sellableVariants])
 
     useEffect(() => {
         onVariantChange(
@@ -306,6 +388,33 @@ const ProductVariantSelector = ({
                         </button>
                     )
                 })}
+            </div>
+        )
+    }
+
+    /**
+     * A product whose variants have no customer-selectable options: the
+     * variants are told apart by the material they sell, so they are listed
+     * and picked directly. Each entry shows the product it belongs to.
+     */
+    if (!hasOptionGroups) {
+        if (sellableVariants.length === 0) return null
+        const sortedSellable = [...sellableVariants].sort(
+            (a, b) =>
+                Number(b.isDefault) - Number(a.isDefault) ||
+                a.sortOrder - b.sortOrder,
+        )
+        return (
+            <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium text-gray-900">Variant</p>
+                <MaterialVariantCards
+                    product={product}
+                    variants={sortedSellable}
+                    selectedId={selectedVariant?.id ?? null}
+                    onSelect={setChosenVariantId}
+                    stockByVariantId={byVariantId}
+                    stockLoading={variantStockLoading}
+                />
             </div>
         )
     }

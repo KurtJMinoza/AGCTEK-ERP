@@ -23,7 +23,9 @@ import Tag from '@/components/ui/Tag'
 import Progress from '@/components/ui/Progress'
 import { isRenderableImageSrc, isUnoptimizedImage } from '@/utils/productImage'
 import {
+    fetchCatalogVariantsSummary,
     fetchProductCatalogStock,
+    type CatalogVariantsSummary,
     type ProductLifecycleStatus,
     type SdProductRecord,
 } from '../services/productCatalogService'
@@ -193,10 +195,14 @@ const ProductCatalogTableSection = ({
         Record<string, CatalogStockSnapshot>
     >({})
     const [stockLoading, setStockLoading] = useState(false)
+    const [variantsSummary, setVariantsSummary] = useState<
+        Record<string, CatalogVariantsSummary>
+    >({})
 
     useEffect(() => {
         if (!products.length) {
             setStockByProductId({})
+            setVariantsSummary({})
             return
         }
         let cancelled = false
@@ -210,6 +216,19 @@ const ProductCatalogTableSection = ({
             })
             .finally(() => {
                 if (!cancelled) setStockLoading(false)
+            })
+        // Variant count + availability across variants (one ledger read).
+        fetchCatalogVariantsSummary({
+            divisionId: products[0]?.divisionId,
+        })
+            .then((rows) => {
+                if (cancelled) return
+                setVariantsSummary(
+                    Object.fromEntries(rows.map((row) => [row.productId, row])),
+                )
+            })
+            .catch(() => {
+                if (!cancelled) setVariantsSummary({})
             })
         return () => {
             cancelled = true
@@ -376,11 +395,31 @@ const ProductCatalogTableSection = ({
                 header: () => <HeaderLabel>Stock remaining</HeaderLabel>,
                 enableSorting: true,
                 size: 160,
-                cell: ({ row }) => (
-                    <StockRemainingMeter
-                        snapshot={stockByProductId[row.original.id]}
-                    />
-                ),
+                cell: ({ row }) => {
+                    const summary = variantsSummary[row.original.id]
+                    // A product with variants shows the availability summed
+                    // across its variants (read from Materials Management).
+                    if (summary && summary.variantCount > 0) {
+                        return (
+                            <div className="min-w-[7rem]">
+                                <p className="mb-1 text-sm font-semibold text-gray-900">
+                                    {summary.availableQty} available
+                                </p>
+                                <p className="text-[11px] text-gray-500">
+                                    Across {summary.variantCount} variant
+                                    {summary.variantCount === 1 ? '' : 's'} · On
+                                    hand {summary.onHandQty} · Reserved{' '}
+                                    {summary.reservedQty}
+                                </p>
+                            </div>
+                        )
+                    }
+                    return (
+                        <StockRemainingMeter
+                            snapshot={stockByProductId[row.original.id]}
+                        />
+                    )
+                },
             },
             {
                 id: 'badge',
@@ -422,7 +461,10 @@ const ProductCatalogTableSection = ({
                 header: () => <HeaderLabel>Variants</HeaderLabel>,
                 size: 120,
                 cell: ({ row }) => {
-                    const count = row.original.variantCount ?? 0
+                    const count =
+                        variantsSummary[row.original.id]?.variantCount ??
+                        row.original.variantCount ??
+                        0
                     return (
                         <span className="text-sm text-gray-600">
                             {count > 0 ? (
@@ -445,16 +487,8 @@ const ProductCatalogTableSection = ({
                 size: 88,
                 cell: ({ row }) => (
                     <div className="flex items-center justify-end gap-1">
-                        {canUpdate && onAddVariant && (
-                            <Button
-                                size="sm"
-                                variant="plain"
-                                className="text-gray-500 hover:text-emerald-600"
-                                icon={<HiOutlinePlus className="text-lg" />}
-                                aria-label={`Add variant to ${row.original.name}`}
-                                onClick={() => onAddVariant(row.original)}
-                            />
-                        )}
+                        {/* NOTE: no Add Variant button here — the single entry
+                            point lives in the Variants panel header. */}
                         {canUpdate && (
                             <Button
                                 size="sm"
@@ -479,7 +513,16 @@ const ProductCatalogTableSection = ({
                 ),
             },
         ],
-        [onDelete, onEdit, onToggleActive, onAddVariant, stockByProductId, togglingId, canUpdate, canDelete],
+        [
+            onDelete,
+            onEdit,
+            onToggleActive,
+            stockByProductId,
+            variantsSummary,
+            togglingId,
+            canUpdate,
+            canDelete,
+        ],
     )
 
     return (
@@ -631,6 +674,10 @@ const ProductCatalogTableSection = ({
                         productName={row.name}
                         companyId={row.company?.id ?? null}
                         parentPrice={row.price}
+                        canUpdate={canUpdate}
+                        onAddVariant={
+                            onAddVariant ? () => onAddVariant(row) : undefined
+                        }
                     />
                 )}
             />

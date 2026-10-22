@@ -66,14 +66,14 @@ type DataTableProps<T> = {
      * row index, which drifts when a list is reordered by a refresh.
      */
     getRowId?: (row: T, index: number) => string
-    /** Extra classes per body row (e.g. warning tints). */
-    getRowClassName?: (row: T) => string | undefined
     /**
      * Renders a nested detail row beneath its parent row. When provided, the
      * whole row becomes clickable and toggles that detail row open/closed;
      * clicks on embedded controls (buttons, links, inputs) are left alone.
      */
     renderSubRow?: (row: T) => ReactNode
+    /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
+    rowClassName?: (row: T, index: number) => string | undefined
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -154,8 +154,8 @@ function DataTable<T>(props: DataTableProps<T>) {
         fit = false,
         hidePagination = false,
         getRowId,
-        getRowClassName,
         renderSubRow,
+        rowClassName,
         ref,
         ...rest
     } = props
@@ -436,8 +436,9 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                     classNames(
                                                         renderSubRow &&
                                                             'cursor-pointer',
-                                                        getRowClassName?.(
+                                                        rowClassName?.(
                                                             row.original as T,
+                                                            row.index,
                                                         ),
                                                     ) || undefined
                                                 }

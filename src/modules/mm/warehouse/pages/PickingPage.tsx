@@ -7,7 +7,6 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -49,6 +48,16 @@ import type {
     StorageBin,
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    WmAnimatedStatus,
+    WmBinChip,
+    WmDocNumberCell,
+    WmPartyCell,
+    WmProductLineCell,
+    WmProgressQtyCell,
+    WmSalesOrderChip,
+    wmTableRowEnterClass,
+} from '../components/WarehouseTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/picking'
 
@@ -845,20 +854,31 @@ const PickingPage = () => {
     const columns = useMemo<ColumnDef<PickGroupRow>[]>(
         () => [
             {
-                header: 'Picking Number',
+                header: 'Pick task',
                 accessorKey: 'tasks',
-                size: 150,
-                minSize: 120,
+                size: 168,
+                minSize: 140,
                 cell: ({ row }) => {
                     const first = row.original.tasks[0]
                     const count = row.original.tasks.length
                     return (
-                        <span className="whitespace-nowrap font-mono text-xs font-semibold text-primary">
-                            {first?.taskNumber ?? '—'}
-                            {count > 1 ? ` +${count - 1}` : ''}
-                        </span>
+                        <WmDocNumberCell
+                            primary={first?.taskNumber ?? '—'}
+                            secondary={row.original.warehouseName ?? undefined}
+                            icon="pick"
+                            extraCount={count > 1 ? count - 1 : undefined}
+                        />
                     )
                 },
+            },
+            {
+                header: 'Sales order',
+                accessorKey: 'orderNumber',
+                size: 130,
+                minSize: 110,
+                cell: ({ row }) => (
+                    <WmSalesOrderChip orderNumber={row.original.orderNumber} />
+                ),
             },
             {
                 header: 'Customer',
@@ -876,28 +896,18 @@ const PickingPage = () => {
                             )
                             .find(Boolean)
                     return (
-                        <span className="truncate text-sm">
-                            {cust || '—'}
-                        </span>
+                        <WmPartyCell
+                            name={cust}
+                            subtitle={row.original.companyName ?? undefined}
+                        />
                     )
                 },
             },
             {
-                header: 'Bin',
-                accessorKey: 'sourceBin',
-                size: 120,
-                minSize: 100,
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-xs text-gray-500">
-                        {row.original.sourceBin?.code || '—'}
-                    </span>
-                ),
-            },
-            {
                 header: 'Item',
                 accessorKey: 'material',
-                size: 240,
-                minSize: 180,
+                size: 220,
+                minSize: 160,
                 cell: ({ row }) => {
                     const m = row.original.material
                     const product = row.original.productDisplay
@@ -921,40 +931,35 @@ const PickingPage = () => {
                                 ? 'Deleted product'
                                 : null
                     return (
-                        <div className="min-w-0">
-                            <div className="truncate text-sm" title={itemName}>
-                                {itemCode ? `${itemCode} — ` : ''}
-                                {itemName}
-                            </div>
-                            {lifecycleLabel ? (
-                                <span className="text-xs text-amber-600 dark:text-amber-300">
-                                    {lifecycleLabel}
-                                </span>
-                            ) : null}
-                        </div>
+                        <WmProductLineCell
+                            name={itemName}
+                            code={itemCode}
+                            hint={lifecycleLabel}
+                        />
                     )
                 },
             },
             {
-                header: 'Qty To Pick',
-                accessorKey: 'requiredQty',
-                size: 110,
-                minSize: 90,
+                header: 'Bin',
+                accessorKey: 'sourceBin',
+                size: 108,
+                minSize: 92,
                 cell: ({ row }) => (
-                    <span className="text-sm font-medium">
-                        {row.original.requiredQty.toLocaleString()}
-                    </span>
+                    <WmBinChip code={row.original.sourceBin?.code} />
                 ),
             },
             {
-                header: 'Picked Qty',
-                accessorKey: 'pickedQty',
-                size: 110,
-                minSize: 90,
+                header: 'Pick progress',
+                id: 'pickProgress',
+                size: 128,
+                minSize: 108,
                 cell: ({ row }) => (
-                    <span className="text-sm font-medium">
-                        {row.original.pickedQty.toLocaleString()}
-                    </span>
+                    <WmProgressQtyCell
+                        done={row.original.pickedQty}
+                        total={row.original.requiredQty}
+                        label="Picked"
+                        tone="pick"
+                    />
                 ),
             },
             {
@@ -963,11 +968,10 @@ const PickingPage = () => {
                 size: 130,
                 minSize: 110,
                 cell: ({ row }) => (
-                    <StatusBadge
+                    <WmAnimatedStatus
+                        status={row.original.status}
                         tone={STATUS_TONE[row.original.status] ?? 'default'}
-                    >
-                        {row.original.status.replace(/_/g, ' ')}
-                    </StatusBadge>
+                    />
                 ),
             },
             {
@@ -1162,6 +1166,8 @@ const PickingPage = () => {
                         compact
                         fit
                         loading={loading}
+                        getRowId={(row) => row.key}
+                        rowClassName={(_, index) => wmTableRowEnterClass(index)}
                         selectable
                         checkboxChecked={(row) =>
                             row.tasks.some((t) => selectedRows.has(t.id))

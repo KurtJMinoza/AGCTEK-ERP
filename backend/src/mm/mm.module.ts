@@ -45,6 +45,7 @@ import { TransfersService } from './warehouse/transfers/transfers.service'
 import { InventoryController } from './inventory/inventory.controller'
 import { InventoryPostingService } from './inventory/inventory-posting.service'
 import { InventoryBalanceQueryService } from './inventory/inventory-balance-query.service'
+import { InventorySourceReferenceResolver } from './inventory/inventory-source-reference.resolver'
 import { MmInventoryBalanceService } from './inventory/inventory-balance.service'
 import { InventoryAvailabilityService } from './inventory/inventory-availability.service'
 import { MaterialInventorySyncListener } from './inventory/material-inventory-sync.listener'
@@ -353,6 +354,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StockTransferWarehouseBridgeService,
         InventoryPostingService,
         InventoryBalanceQueryService,
+        InventorySourceReferenceResolver,
         MmInventoryBalanceService,
         InventoryAvailabilityService,
         MaterialInventorySyncListener,

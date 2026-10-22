@@ -276,6 +276,48 @@ export class InventoryAvailabilityService {
     }
 
     /**
+     * Company totals for MANY materials in one query.
+     *
+     * The Product Catalog list shows the availability summed across a
+     * product's variants — this keeps that a single ledger read instead of
+     * one query per variant.
+     */
+    async getPickableMaterialTotalsBatch(
+        companyId: string,
+        materialIds: string[],
+    ): Promise<Map<string, CompanyMaterialTotals>> {
+        const unique = [...new Set(materialIds.filter(Boolean))]
+        const result = new Map<string, CompanyMaterialTotals>()
+        if (!unique.length) return result
+        const balances = await this.prisma.mmInventoryBalance.findMany({
+            where: {
+                companyId,
+                materialId: { in: unique },
+                storageBinId: { not: null },
+            },
+            select: {
+                materialId: true,
+                stockStatus: true,
+                quantity: true,
+                reservedQuantity: true,
+            },
+        })
+        const grouped = new Map<string, typeof balances>()
+        for (const balance of balances) {
+            const rows = grouped.get(balance.materialId) ?? []
+            rows.push(balance)
+            grouped.set(balance.materialId, rows)
+        }
+        for (const materialId of unique) {
+            result.set(
+                materialId,
+                this.aggregateBalancesCompany(grouped.get(materialId) ?? []),
+            )
+        }
+        return result
+    }
+
+    /**
      * Commercial stock for SD Product Catalog / ecommerce.
      * Computed from the LIVE ledger — the ATP authority. The material master
      * onHand/reserved cache only re-syncs on stock postings and drifts after

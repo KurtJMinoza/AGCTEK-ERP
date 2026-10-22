@@ -5,6 +5,7 @@ import { ReportsService } from './reports.service'
 import { StockVarianceReportService } from './stock-variance-report.service'
 import { WarehousePerformanceReportService } from './warehouse-performance-report.service'
 import { InventoryBalanceQueryService } from '../inventory/inventory-balance-query.service'
+import { InventorySourceReferenceResolver } from '../inventory/inventory-source-reference.resolver'
 import { InventoryValueService } from '../valuation/inventory-value.service'
 import { DashboardAnalyticsService } from '../dashboard/dashboard-analytics.service'
 import { DashboardVisibilityService } from '../dashboard/dashboard-visibility.service'
@@ -87,6 +88,7 @@ describe('MM-14 Reports & Analytics', () => {
                     ReportsService,
                     { provide: PrismaService, useValue: prisma },
                     InventoryBalanceQueryService,
+                    InventorySourceReferenceResolver,
                     { provide: InventoryValueService, useValue: inventoryValue },
                     { provide: DashboardAnalyticsService, useValue: analytics },
                     {

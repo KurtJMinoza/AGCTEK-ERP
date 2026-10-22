@@ -27,7 +27,7 @@ const SupplierInvoicePrintPanel = ({
             <div className="mb-3 flex items-center justify-between gap-2">
                 <h6 className="text-sm font-semibold heading-text">{title}</h6>
                 <Button
-                    size="sm"
+                    size="lg"
                     variant="solid"
                     icon={<HiOutlinePrinter />}
                     onClick={onPrint ?? (() => window.print())}

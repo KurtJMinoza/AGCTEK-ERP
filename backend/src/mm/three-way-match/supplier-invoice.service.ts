@@ -12,6 +12,16 @@ import {
 } from './dto/three-way-match.dto'
 
 const INVOICE_INCLUDES = {
+    company: {
+        select: {
+            id: true,
+            code: true,
+            name: true,
+            logoUrl: true,
+            address: true,
+            tin: true,
+        },
+    },
     supplier: true,
     purchaseOrder: { include: { currency: true, supplier: true } },
     currency: true,

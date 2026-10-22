@@ -26,6 +26,14 @@ export interface GoodsReceipt {
     id: string
     documentNumber: string
     companyId: string
+    company?: {
+        id: string
+        code?: string
+        name?: string
+        logoUrl?: string | null
+        address?: string | null
+        tin?: string | null
+    }
     warehouseId: string
     warehouse?: { id: string; name: string }
     purchaseOrderId?: string | null
@@ -40,6 +48,11 @@ export interface GoodsReceipt {
         supplierName?: string
         name?: string
         code?: string
+        billingAddress?: string | null
+        shippingAddress?: string | null
+        taxId?: string | null
+        email?: string | null
+        phone?: string | null
     } | null
     receiverId?: string | null
     postingDate: string
@@ -203,6 +216,8 @@ export interface StockOpsListResponse<T> {
     total: number
     page: number
     pageSize: number
+    /** Document counts per status for the whole filter (server-side aggregate). */
+    summary?: { byStatus: { status: string; count: number }[] }
 }
 
 export interface StockOpsQueryParams {

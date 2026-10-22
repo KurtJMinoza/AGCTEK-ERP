@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { HiOutlineArchive } from 'react-icons/hi'
+import { HiOutlineArchive, HiOutlinePlus } from 'react-icons/hi'
 import Spinner from '@/components/ui/Spinner'
 import Button from '@/components/ui/Button'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
@@ -22,6 +22,9 @@ type Props = {
     companyId?: string | null
     /** Parent product price — used when a variant inherits it. */
     parentPrice: number
+    /** The ONE Add Variant entry point for this product. */
+    onAddVariant?: () => void
+    canUpdate?: boolean
 }
 
 const money = (value: number) =>
@@ -62,6 +65,8 @@ const ProductVariantsSubRow = ({
     productName,
     companyId,
     parentPrice,
+    onAddVariant,
+    canUpdate = false,
 }: Props) => {
     const [variants, setVariants] = useState<ProductVariantDefinition[]>([])
     const [stock, setStock] = useState<Record<string, VariantStockAvailability>>(
@@ -72,7 +77,10 @@ const ProductVariantsSubRow = ({
     const [pendingArchive, setPendingArchive] =
         useState<ProductVariantDefinition | null>(null)
     const [archiving, setArchiving] = useState(false)
-    const { canUpdate } = useResourceAccess('sd.product-catalog')
+    const { canUpdate: canManageCatalog } = useResourceAccess(
+        'sd.product-catalog',
+    )
+    const mayAddVariant = canUpdate && canManageCatalog
 
     useEffect(() => {
         let cancelled = false
@@ -160,9 +168,20 @@ const ProductVariantsSubRow = ({
 
     return (
         <div className="space-y-2 px-2 py-3">
-            <p className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Variants
-            </p>
+            <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Variants ({rows.length})
+                </p>
+                {mayAddVariant && onAddVariant ? (
+                    <Button
+                        size="xs"
+                        icon={<HiOutlinePlus className="text-base" />}
+                        onClick={onAddVariant}
+                    >
+                        Add Variant
+                    </Button>
+                ) : null}
+            </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                     <thead className="text-xs uppercase tracking-wide text-gray-500">

@@ -1,11 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
+import Tabs from '@/components/ui/Tabs'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable from '@/components/shared/DataTable'
 import PageContainer from '@/components/shared/PageContainer'
@@ -14,6 +15,10 @@ import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import usePermissions from '@/utils/hooks/usePermissions'
 import LoyaltyPanel from '../components/LoyaltyPanel'
+import CardGrid from '../components/customer360/CardGrid'
+import SalesOrderCard from '../components/customer360/SalesOrderCard'
+import ShipmentCard, { SCM_SHIPMENTS_PATH } from '../components/customer360/ShipmentCard'
+import { shipmentActivityAt } from '../components/customer360/statusTones'
 import OpportunityFormDialog from '../components/OpportunityFormDialog'
 import TicketActivitiesDialog from '../components/TicketActivitiesDialog'
 import TicketCommentsDialog from '../components/TicketCommentsDialog'
@@ -28,13 +33,7 @@ import {
 } from '../utils/format'
 import { SD_SALES_ORDERS_PATH } from '../components/OpportunitySalesOrderDialog'
 import { opportunityHref } from '../utils/deepLinks'
-import type {
-    Customer360Order,
-    Customer360SectionState,
-    Customer360Shipment,
-    Opportunity,
-    Ticket,
-} from '../types'
+import type { Customer360SectionState, Opportunity, Ticket } from '../types'
 
 /** A degraded section shows its placeholder; the rest of the page still renders. */
 function Section({
@@ -69,6 +68,30 @@ function SectionNotice({ state }: { state: Exclude<Customer360SectionState, { st
 }
 
 const unavailableBadge = { tone: 'warning', label: 'Unavailable' } as const
+/** Recent cards per section; the full lists live in SD / SCM. */
+const CARD_LIMIT = 5
+
+const CUSTOMER_360_TABS = ['opportunities', 'orders', 'shipments', 'tickets', 'loyalty'] as const
+type Customer360Tab = (typeof CUSTOMER_360_TABS)[number]
+const isCustomer360Tab = (value: string | null): value is Customer360Tab =>
+    (CUSTOMER_360_TABS as readonly string[]).includes(value ?? '')
+
+const { TabList, TabNav, TabContent } = Tabs
+
+/** Tab label with a count when the section loaded (`null` hides it). */
+function TabLabel({ label, count }: { label: string; count: number | null }) {
+    return (
+        <span className="inline-flex items-center gap-1.5">
+            {label}
+            {count !== null ? (
+                <span className="rounded-full bg-gray-100 px-1.5 text-xs tabular-nums text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                    {count}
+                </span>
+            ) : null}
+        </span>
+    )
+}
+const SD_CUSTOMER_MASTER_PATH = '/modules/sd/customer-master'
 
 export default function CustomerDetailPage() {
     const params = useParams<{ id: string }>()
@@ -200,96 +223,28 @@ export default function CustomerDetailPage() {
         () => new Map((data?.orders ?? []).map((o) => [o.id, o.orderNumber])),
         [data?.orders],
     )
+    const searchParams = useSearchParams()
+    const router = useRouter()
+    const pathname = usePathname()
+    const tabParam = searchParams.get('tab')
+    /** `?tab=` wins; otherwise shop accounts (orders, no deals) open on Orders, the rest on Opportunities. */
+    const tab: Customer360Tab = isCustomer360Tab(tabParam)
+        ? tabParam
+        : data && data.opportunities.length === 0 && data.orders.length > 0
+          ? 'orders'
+          : 'opportunities'
+    const selectTab = (next: string) => {
+        const query = new URLSearchParams(searchParams.toString())
+        query.set('tab', next)
+        router.replace(`${pathname}?${query.toString()}`, { scroll: false })
+    }
 
-    const orderColumns = useMemo<ColumnDef<Customer360Order>[]>(
-        () => [
-            {
-                header: 'Order',
-                cell: ({ row }) => <span className="font-medium">{row.original.orderNumber}</span>,
-            },
-            {
-                header: 'Status',
-                cell: ({ row }) => (
-                    <StatusBadge tone={crmTone(row.original.status)}>
-                        {formatEnumLabel(row.original.status)}
-                    </StatusBadge>
-                ),
-            },
-            { header: 'Channel', cell: ({ row }) => formatEnumLabel(row.original.channel) },
-            {
-                header: 'Total',
-                cell: ({ row }) => (
-                    <span className="tabular-nums">
-                        {formatMoney(
-                            row.original.totalAmount === null ? null : Number(row.original.totalAmount),
-                            row.original.currency,
-                        )}
-                    </span>
-                ),
-            },
-            {
-                header: 'From opportunity',
-                cell: ({ row }) => row.original.opportunity?.name ?? '—',
-            },
-            { header: 'Created', cell: ({ row }) => formatDate(row.original.createdAt) },
-        ],
-        [],
-    )
-
-    const shipmentColumns = useMemo<ColumnDef<Customer360Shipment>[]>(
-        () => [
-            {
-                header: 'Shipment',
-                cell: ({ row }) => (
-                    <div>
-                        <p className="font-medium">{row.original.reference}</p>
-                        {row.original.trackingNumber ? (
-                            <p className="text-xs text-gray-500">
-                                {row.original.carrier ? `${row.original.carrier} · ` : ''}
-                                {row.original.trackingNumber}
-                            </p>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                header: 'Order',
-                cell: ({ row }) =>
-                    (row.original.salesOrderId && orderNumberById.get(row.original.salesOrderId)) ??
-                    '—',
-            },
-            {
-                header: 'Status',
-                cell: ({ row }) => (
-                    <div>
-                        <StatusBadge tone={crmTone(row.original.status)}>
-                            {formatEnumLabel(row.original.status)}
-                        </StatusBadge>
-                        {row.original.exceptionCode ? (
-                            <p
-                                className="mt-1 text-xs text-red-500"
-                                title={row.original.exceptionNote ?? undefined}
-                            >
-                                {formatEnumLabel(row.original.exceptionCode)}
-                            </p>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                header: 'ETA',
-                cell: ({ row }) =>
-                    formatDate(row.original.latestDeliveryAt ?? row.original.requestedDeliveryAt),
-            },
-            {
-                header: 'Delivered',
-                cell: ({ row }) =>
-                    row.original.deliveredAt
-                        ? `${formatDate(row.original.deliveredAt)}${row.original.hasProofOfDelivery ? ' · POD' : ''}`
-                        : '—',
-            },
-        ],
-        [orderNumberById],
+    const recentShipments = useMemo(
+        () =>
+            [...(data?.shipments ?? [])]
+                .sort((a, b) => shipmentActivityAt(b) - shipmentActivityAt(a))
+                .slice(0, CARD_LIMIT),
+        [data?.shipments],
     )
 
     if (!data) {
@@ -401,9 +356,15 @@ export default function CustomerDetailPage() {
                     badge={loyalty ? undefined : unavailableBadge}
                 />
                 <StatCard
-                    label="Recent SD orders"
-                    value={ordersOk ? data.orders.length : '—'}
-                    badge={ordersOk ? undefined : unavailableBadge}
+                    label="Orders"
+                    value={ordersOk ? (summary.salesOrders ?? data.orders.length) : '—'}
+                    badge={
+                        !ordersOk
+                            ? unavailableBadge
+                            : data.unlinkedShopAccounts.length
+                              ? { tone: 'warning', label: 'Shop account not linked' }
+                              : undefined
+                    }
                 />
                 <StatCard
                     label="Revenue"
@@ -412,57 +373,125 @@ export default function CustomerDetailPage() {
                 />
             </div>
 
-            <Section title="Opportunities" state={sections.opportunities}>
-                <DataTable
-                    columns={opportunityColumns}
-                    data={data.opportunities}
-                    loading={loading}
-                    noData={!loading && data.opportunities.length === 0}
-                    hidePagination
-                />
-            </Section>
+            <Tabs value={tab} onChange={selectTab}>
+                <TabList className="mb-4 overflow-x-auto">
+                    <TabNav value="opportunities" className="shrink-0">
+                        <TabLabel
+                            label="Opportunities"
+                            count={sections.opportunities.status === 'ok' ? data.opportunities.length : null}
+                        />
+                    </TabNav>
+                    <TabNav value="orders" className="shrink-0">
+                        <TabLabel label="Orders" count={ordersOk ? (summary.salesOrders ?? null) : null} />
+                    </TabNav>
+                    <TabNav value="shipments" className="shrink-0">
+                        <TabLabel
+                            label="Shipments"
+                            count={sections.shipments.status === 'ok' ? data.shipments.length : null}
+                        />
+                    </TabNav>
+                    <TabNav value="tickets" className="shrink-0">
+                        <TabLabel
+                            label="Tickets"
+                            count={sections.tickets.status === 'ok' ? data.tickets.length : null}
+                        />
+                    </TabNav>
+                    <TabNav value="loyalty" className="shrink-0">
+                        <TabLabel label="Loyalty" count={null} />
+                    </TabNav>
+                </TabList>
 
-            <Section
-                title="SD sales orders"
-                state={sections.orders}
-                actions={
-                    <Link href={SD_SALES_ORDERS_PATH} className="text-sm text-primary hover:underline">
-                        Open in SD
-                    </Link>
-                }
-            >
-                <DataTable
-                    columns={orderColumns}
-                    data={data.orders}
-                    loading={loading}
-                    noData={!loading && data.orders.length === 0}
-                    hidePagination
-                />
-            </Section>
+                <TabContent value="opportunities">
+                    <Section title="Opportunities" state={sections.opportunities}>
+                        <DataTable
+                            columns={opportunityColumns}
+                            data={data.opportunities}
+                            loading={loading}
+                            noData={!loading && data.opportunities.length === 0}
+                            hidePagination
+                        />
+                    </Section>
+                </TabContent>
 
-            <Section title="Shipments (SCM)" state={sections.shipments}>
-                <DataTable
-                    columns={shipmentColumns}
-                    data={data.shipments}
-                    loading={loading}
-                    noData={!loading && data.shipments.length === 0}
-                    hidePagination
-                />
-            </Section>
+                <TabContent value="orders">
+                    <Section title="Recent sales orders" state={sections.orders}>
+                        {data.unlinkedShopAccounts.map((account) => (
+                            <Alert key={account.id} showIcon type="warning" className="mb-3">
+                                Shop account {account.email} is not linked to this Customer Master, so its storefront
+                                orders (and their shipments) are not shown here.{' '}
+                                <Link href={SD_CUSTOMER_MASTER_PATH} className="underline">
+                                    Link it in SD Customer Master
+                                </Link>
+                                .
+                            </Alert>
+                        ))}
+                        <CardGrid
+                            loading={loading}
+                            shown={Math.min(data.orders.length, CARD_LIMIT)}
+                            total={summary.salesOrders ?? data.orders.length}
+                            fullList={
+                                <Link href={SD_SALES_ORDERS_PATH} className="text-primary hover:underline">
+                                    Open in SD
+                                </Link>
+                            }
+                        >
+                            {data.orders.slice(0, CARD_LIMIT).map((order) => (
+                                <SalesOrderCard key={order.id} order={order} />
+                            ))}
+                        </CardGrid>
+                    </Section>
+                </TabContent>
 
-            <Section title="Tickets" state={sections.tickets}>
-                <DataTable
-                    columns={ticketColumns}
-                    data={data.tickets}
-                    loading={loading}
-                    noData={!loading && data.tickets.length === 0}
-                    hidePagination
-                />
-            </Section>
+                <TabContent value="shipments">
+                    <Section title="Recent shipments" state={sections.shipments}>
+                        <CardGrid
+                            loading={loading}
+                            shown={recentShipments.length}
+                            total={data.shipments.length}
+                            fullList={
+                                <Link href={SCM_SHIPMENTS_PATH} className="text-primary hover:underline">
+                                    Open in SCM
+                                </Link>
+                            }
+                        >
+                            {recentShipments.map((shipment) => (
+                                <ShipmentCard
+                                    key={shipment.id}
+                                    shipment={shipment}
+                                    orderNumber={
+                                        (shipment.salesOrderId && orderNumberById.get(shipment.salesOrderId)) || null
+                                    }
+                                />
+                            ))}
+                        </CardGrid>
+                    </Section>
+                </TabContent>
 
-            <Section title="Loyalty" state={sections.loyalty}>
-                <LoyaltyPanel loyalty={loyalty} loading={loading} />
-            </Section>
+                <TabContent value="tickets">
+                    <Section title="Tickets" state={sections.tickets}>
+                        <DataTable
+                            columns={ticketColumns}
+                            data={data.tickets}
+                            loading={loading}
+                            noData={!loading && data.tickets.length === 0}
+                            hidePagination
+                        />
+                    </Section>
+                </TabContent>
+
+                <TabContent value="loyalty">
+                    <Section title="Loyalty" state={sections.loyalty}>
+                        <LoyaltyPanel
+                            loyalty={loyalty}
+                            loading={loading}
+                            customerId={customer.id}
+                            orders={data.orders}
+                            canMockEarn={can('crm.loyalty', 'update')}
+                            onChanged={() => void reload()}
+                        />
+                    </Section>
+                </TabContent>
+            </Tabs>
 
             <OpportunityFormDialog
                 isOpen={Boolean(opportunityDialog)}

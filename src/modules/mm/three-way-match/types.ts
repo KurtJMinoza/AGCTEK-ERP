@@ -9,6 +9,14 @@ export interface SupplierInvoice {
     id: string
     invoiceNumber: string
     companyId: string
+    company?: {
+        id: string
+        code?: string
+        name?: string
+        logoUrl?: string | null
+        address?: string | null
+        tin?: string | null
+    }
     supplierId: string
     purchaseOrderId: string
     currencyId?: string | null
@@ -24,7 +32,16 @@ export interface SupplierInvoice {
     matchedAt?: string | null
     remarks?: string | null
     createdAt: string
-    supplier?: { id: string; supplierCode: string; supplierName: string }
+    supplier?: {
+        id: string
+        supplierCode: string
+        supplierName: string
+        billingAddress?: string | null
+        shippingAddress?: string | null
+        taxId?: string | null
+        email?: string | null
+        phone?: string | null
+    }
     purchaseOrder?: { id: string; poNumber: string }
     currency?: { id: string; code: string } | null
     lines?: SupplierInvoiceLine[]

@@ -29,6 +29,7 @@ import { Button, Card, Input, Dialog, Select } from '@/components/ui'
 | --- | --- |
 | Page chrome | `PageHeader`, shared `PageContainer` (content only), `Container`, `AdaptiveCard`; shell containment via route `meta` + `template/PageContainer` |
 | Tables | `DataTable` |
+| Filter toolbars | `FilterBar` (compact field row + applied chips; MM list pages) |
 | Forms sections | `FormSection`, `FormDialog`, `ConfirmDialog` |
 | Status | `StatusBadge`, `Tag` (via ui), `GrowShrinkValue` |
 | Numbers | `NumericInput`, `AbbreviateNumber`, `CustomFormatInput` |
@@ -44,3 +45,17 @@ Put ERP-specific selectors and widgets in modules, e.g.:
 - `src/modules/procurement/components/VendorSelector.tsx`
 
 These should wrap ECME `Select` / `Dialog` / `Input` — not reinvent them.
+
+## MM Inventory shared UI (`src/modules/mm/inventory/utils`)
+
+The Inventory Management sub-modules share one visual language. Reuse these
+instead of rebuilding them per page:
+
+| Need | Use |
+| --- | --- |
+| Shared atoms (tones, status chips, "safe to retry", radar blip) | `inventoryUi.tsx` |
+| Ledger / movement table columns | `ledgerColumns.tsx` (`buildTransactionColumns`) |
+| Document list columns (Issue / Receipt / Adjustment / Transfer) | `stockDocColumns.tsx` (`buildStockDocColumns`) |
+| Summary tiles for document lists | `summaryTiles.tsx` (`StatusSummaryTiles`) |
+| Human labels for movement / source / reason / actor codes | `ledgerLabels.ts` |
+

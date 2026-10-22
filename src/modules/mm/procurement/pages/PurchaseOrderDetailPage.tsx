@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -69,6 +69,19 @@ import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 
 const ROUTE_PATH = '/modules/mm/procurement/purchase-orders'
 
+const PO_DETAIL_TABS = [
+    'overview',
+    'items',
+    'delivery',
+    'approval',
+    'receiving',
+    'invoice',
+    'accounting',
+    'attachments',
+    'audit',
+    'flow',
+] as const
+
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
     DRAFT: 'default',
     PENDING_APPROVAL: 'warning',
@@ -102,12 +115,20 @@ type GrLinePick = { value: string; label: string; maxQty: number; poLineId: stri
 const PurchaseOrderDetailPage = () => {
     const params = useParams()
     const router = useRouter()
+    const searchParams = useSearchParams()
     const id = params?.id as string
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [po, setPo] = useState<MmPurchaseOrder | null>(null)
     const [loading, setLoading] = useState(true)
     const [tab, setTab] = useState('overview')
+
+    useEffect(() => {
+        const t = searchParams.get('tab')
+        if (t && (PO_DETAIL_TABS as readonly string[]).includes(t)) {
+            setTab(t)
+        }
+    }, [searchParams])
     const [audits, setAudits] = useState<MmPurchaseOrderAudit[]>([])
     const [attachments, setAttachments] = useState<MmPurchaseOrderAttachment[]>([])
     const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null)
@@ -1226,6 +1247,17 @@ const PurchaseOrderDetailPage = () => {
                                 </div>
                                 <AdaptiveCard>
                                     <div className="flex flex-wrap items-center gap-2 p-2">
+                                        <Button
+                                            size="sm"
+                                            variant="plain"
+                                            onClick={() =>
+                                                router.push(
+                                                    `/modules/mm/procurement/supplier-invoices?purchaseOrderId=${id}`,
+                                                )
+                                            }
+                                        >
+                                            New invoice (full page)
+                                        </Button>
                                         <Button
                                             size="sm"
                                             variant="plain"

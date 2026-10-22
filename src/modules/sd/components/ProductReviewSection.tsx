@@ -35,17 +35,21 @@ const ProductReviewSection = ({
     productSku,
     productConfig,
 }: Props) => {
-    const { ensure, companies, warehouses } = useLazyMmRefs()
+    const { ensure, companies } = useLazyMmRefs()
 
-    const companyId = useWatch({ control, name: 'companyId' }) as string
-    const defaultWarehouseId = useWatch({
+    const rawCompanyId = useWatch({ control, name: 'companyId' })
+    // The form field holds the option VALUE (a string). Guard anyway so an
+    // object can never reach React's child rendering.
+    const companyId =
+        typeof rawCompanyId === 'string' ? rawCompanyId : ''
+    const materialId = useWatch({
         control,
-        name: 'materialDefaults.defaultWarehouseId',
+        name: 'materialId',
     }) as string | undefined
     const price = useWatch({ control, name: 'price' }) as number
 
     useEffect(() => {
-        void ensure('companies', 'warehouses')
+        void ensure('companies')
     }, [ensure])
 
     const variants = useMemo(
@@ -60,42 +64,55 @@ const ProductReviewSection = ({
     const variantCount =
         productConfig === 'SIMPLE' ? 1 : variants.length
 
-    /** One material per variant, unless the variant links an existing one. */
-    const materialsToCreate = useMemo(
-        () =>
-            productConfig === 'SIMPLE'
-                ? 1
-                : variants.filter((variant) => !variant.materialId).length,
-        [variants, productConfig],
-    )
+    /**
+     * One material per variant — the Product Catalog LINKS existing
+     * materials, it never creates them.
+     */
     const materialsToLink = useMemo(
         () =>
             productConfig === 'SIMPLE'
-                ? 0
+                ? materialId
+                    ? 1
+                    : 0
                 : variants.filter((variant) => !!variant.materialId).length,
-        [variants, productConfig],
+        [variants, productConfig, materialId],
+    )
+    const missingMaterials = useMemo(
+        () =>
+            productConfig === 'SIMPLE'
+                ? materialId
+                    ? 0
+                    : 1
+                : variants.filter((variant) => !variant.materialId).length,
+        [variants, productConfig, materialId],
     )
 
     const companyLabel =
         companies.find((company) => company.value === companyId)?.label ??
         companyId ??
         '—'
-    const warehouseLabel = defaultWarehouseId
-        ? (warehouses.find((w) => w.value === defaultWarehouseId)?.label ??
-          defaultWarehouseId)
-        : '—'
 
     const rows = [
         { label: 'Parent product', value: productName || '—' },
         ...(productSku ? [{ label: 'Product code', value: productSku }] : []),
-        { label: 'Product configuration', value: productConfig === 'SIMPLE' ? 'Simple product' : 'Product with variants' },
+        {
+            label: 'Product configuration',
+            value:
+                productConfig === 'SIMPLE'
+                    ? 'Simple product'
+                    : 'Product with variants',
+        },
         { label: 'Variants', value: String(variantCount) },
-        { label: 'Materials to create', value: String(materialsToCreate) },
-        ...(materialsToLink > 0
-            ? [{ label: 'Existing materials to link', value: String(materialsToLink) }]
+        { label: 'Existing materials to link', value: String(materialsToLink) },
+        ...(missingMaterials > 0
+            ? [
+                  {
+                      label: 'Variants without a material',
+                      value: String(missingMaterials),
+                  },
+              ]
             : []),
         { label: 'Company', value: companyLabel },
-        { label: 'Default warehouse', value: warehouseLabel },
     ]
 
     return (
@@ -105,9 +122,10 @@ const ProductReviewSection = ({
                     Review and create
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                    The parent product, its variants and the Material Masters
-                    are created in one server transaction. If any material
-                    fails, the whole operation is rolled back.
+                    The parent product, its variants and their links to
+                    existing Material Master items are created in one server
+                    transaction. The Product Catalog never creates a material,
+                    a Stock Keeping Unit or stock.
                 </p>
             </div>
 
@@ -134,7 +152,7 @@ const ProductReviewSection = ({
                                 <th className="py-2 pr-3">SKU</th>
                                 <th className="py-2 pr-3">Barcode</th>
                                 <th className="py-2 pr-3 text-right">Price</th>
-                                <th className="py-2">Material action</th>
+                                <th className="py-2">Material link</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -164,12 +182,12 @@ const ProductReviewSection = ({
                                             className={
                                                 variant.materialId
                                                     ? 'text-xs font-medium text-blue-600'
-                                                    : 'text-xs font-medium text-emerald-600'
+                                                    : 'text-xs font-medium text-amber-600'
                                             }
                                         >
                                             {variant.materialId
-                                                ? 'Link existing material'
-                                                : 'Create material'}
+                                                ? 'Existing material linked'
+                                                : 'No material selected'}
                                         </span>
                                     </td>
                                 </tr>

@@ -13,6 +13,7 @@ import {
     VariantImageMode,
     ProductOptionInputDto,
 } from './dto/product-option-variants.dto'
+import { variantCombinationKey } from './product-combination-key'
 
 const MAX_OPTIONS = 10
 const MAX_VARIANTS = 500
@@ -204,9 +205,10 @@ export class ProductOptionVariantsService {
             explicitDefaultIndex >= 0 ? explicitDefaultIndex : 0
 
         await this.assertUniqueness(dto, productId)
-        await this.assertReferences(dto)
+        await this.assertReferences(dto, productId)
 
-        await this.prisma.$transaction(async (tx) => {
+        try {
+            await this.prisma.$transaction(async (tx) => {
             const existing = await tx.sdProductVariant.findMany({
                 where: { productId },
                 select: { id: true },
@@ -240,8 +242,11 @@ export class ProductOptionVariantsService {
                 })
             }
 
-            if (dto.options.length === 0) return
-
+            // A product may have NO customer-selectable options. The option
+            // groups are then simply skipped — but the variants are still
+            // replaced from the payload. Returning here would delete every
+            // variant of the product and create none, losing the material
+            // links of a SIMPLE product on every save.
             const valueIdByKey = new Map<string, string>()
             for (const [oi, option] of dto.options.entries()) {
                 const optionRow = await tx.sdProductOption.create({
@@ -275,6 +280,16 @@ export class ProductOptionVariantsService {
                     data: {
                         productId,
                         variantName: variant.variantName.trim(),
+                        // The normalized combination key MUST be set here:
+                        // without it every variant falls back to the schema
+                        // default "__default__" and the second insert violates
+                        // the unique (productId, combinationKey) constraint.
+                        combinationKey: this.buildCombinationKey(
+                            dto.options,
+                            variant.optionValues,
+                            variant.materialId?.trim() || null,
+                            variant.sku,
+                        ),
                         sku: variant.sku.trim(),
                         barcode: variant.barcode?.trim() || null,
                         price:
@@ -329,10 +344,45 @@ export class ProductOptionVariantsService {
                         },
                     })
                 }
+
+                // Record the catalog origin of the linked material so the
+                // audit report can tell manually linked materials from the
+                // ones the old bug auto-created.
+                if (variant.materialId) {
+                    await tx.mmMaterial.updateMany({
+                        where: { id: variant.materialId },
+                        data: {
+                            catalogVariantId: variantRow.id,
+                            catalogSource: 'MANUALLY_LINKED',
+                        },
+                    })
+                }
             }
-        })
+            })
+        } catch (error) {
+            // A unique-constraint violation is a conflict, not a server error:
+            // map it to a message the Product Catalog can show.
+            if (this.isUniqueConstraintError(error)) {
+                const target = (error as { meta?: { target?: string[] } }).meta
+                    ?.target
+                const fields = Array.isArray(target) ? target.join(', ') : 'value'
+                throw new ConflictException(
+                    `A variant with the same ${fields} already exists. Reload the product and try again.`,
+                )
+            }
+            throw error
+        }
 
         return this.getForProduct(productId)
+    }
+
+    /** Prisma P2002 — unique constraint violation. */
+    private isUniqueConstraintError(error: unknown): boolean {
+        return (
+            typeof error === 'object' &&
+            error !== null &&
+            (error as { code?: string }).code === 'P2002'
+        )
     }
 
     private validateStructure(dto: UpdateProductOptionsVariantsDto) {
@@ -378,6 +428,24 @@ export class ProductOptionVariantsService {
             }
         }
 
+        // A product WITHOUT options has no option combination to compare —
+        // its variants are told apart by the material they link, so the
+        // material must be unique within the product.
+        if (dto.options.length === 0) {
+            const materialIds = new Set<string>()
+            for (const variant of dto.variants) {
+                const materialId = variant.materialId?.trim()
+                if (!materialId) continue
+                if (materialIds.has(materialId)) {
+                    throw new ConflictException(
+                        `Two variants link the same material (${variant.sku}). A material may back only one variant.`,
+                    )
+                }
+                materialIds.add(materialId)
+            }
+            return
+        }
+
         const combos = new Set<string>()
         for (const variant of dto.variants) {
             if (variant.optionValues.length !== dto.options.length) {
@@ -395,6 +463,22 @@ export class ProductOptionVariantsService {
             }
             combos.add(comboKey)
         }
+    }
+
+    /**
+     * Normalized combination key, e.g. "color:black|size:medium". The option
+     * order follows the product's option order.
+     *
+     * A product WITHOUT options keys its variants by the material they link,
+     * so a second variant is never mistaken for a duplicate of the first.
+     */
+    private buildCombinationKey(
+        options: Array<{ name: string }>,
+        optionValues: string[],
+        materialId?: string | null,
+        sku?: string | null,
+    ): string {
+        return variantCombinationKey(options, optionValues, materialId, sku)
     }
 
     private async assertUniqueness(
@@ -428,9 +512,12 @@ export class ProductOptionVariantsService {
                     )
                 }
                 barcodes.add(barcode)
+                // The product's OWN current variants still hold this barcode
+                // until they are replaced — exclude them, exactly like the SKU
+                // check, so re-saving an unchanged product does not fail.
                 const existingBarcode =
-                    await this.prisma.sdProductVariant.findUnique({
-                        where: { barcode },
+                    await this.prisma.sdProductVariant.findFirst({
+                        where: { barcode, productId: { not: productId } },
                         select: { id: true },
                     })
                 if (existingBarcode) {
@@ -442,18 +529,75 @@ export class ProductOptionVariantsService {
         }
     }
 
-    private async assertReferences(dto: UpdateProductOptionsVariantsDto) {
+    /**
+     * Every variant must link an EXISTING, active, sellable material of the
+     * same company. The Product Catalog never creates a material.
+     */
+    private async assertReferences(
+        dto: UpdateProductOptionsVariantsDto,
+        productId: string,
+    ) {
         for (const variant of dto.variants) {
-            if (variant.materialId) {
-                const material = await this.prisma.mmMaterial.findUnique({
-                    where: { id: variant.materialId },
-                    select: { id: true },
-                })
-                if (!material) {
-                    throw new BadRequestException(
-                        `Variant ${variant.sku}: unknown MM material`,
-                    )
-                }
+            if (!variant.materialId) {
+                throw new BadRequestException(
+                    `Variant ${variant.sku}: select an existing MM material. Materials are created in Materials Management and linked to a variant.`,
+                )
+            }
+            const material = await this.prisma.mmMaterial.findFirst({
+                where: { id: variant.materialId },
+                select: {
+                    id: true,
+                    materialCode: true,
+                    status: true,
+                    sellable: true,
+                    companyId: true,
+                    sku: true,
+                    deletedAt: true,
+                },
+            })
+            if (!material || material.deletedAt) {
+                throw new NotFoundException(
+                    `Variant ${variant.sku}: the selected material no longer exists.`,
+                )
+            }
+            if (
+                variant.companyId &&
+                material.companyId &&
+                material.companyId !== variant.companyId
+            ) {
+                throw new BadRequestException(
+                    `Variant ${variant.sku}: the selected material belongs to another company.`,
+                )
+            }
+            if (material.status !== 'ACTIVE') {
+                throw new BadRequestException(
+                    `Variant ${variant.sku}: the selected material is not active. Activate it in Materials Management first.`,
+                )
+            }
+            if (!material.sellable) {
+                throw new BadRequestException(
+                    `Variant ${variant.sku}: the selected material is not sellable. Mark it sellable in Materials Management first.`,
+                )
+            }
+            if (!material.sku?.trim()) {
+                throw new BadRequestException(
+                    `Variant ${variant.sku}: the selected material has no Stock Keeping Unit. Add one in Materials Management first.`,
+                )
+            }
+            // A material may back only one active variant. This product's own
+            // variants are being replaced, so they do not count.
+            const linked = await this.prisma.sdProductVariant.findFirst({
+                where: {
+                    materialId: material.id,
+                    isActive: true,
+                    productId: { not: productId },
+                },
+                select: { id: true },
+            })
+            if (linked) {
+                throw new ConflictException(
+                    `Variant ${variant.sku}: this material is already linked to another variant.`,
+                )
             }
             if (variant.companyId) {
                 const company = await this.prisma.company.findUnique({

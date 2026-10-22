@@ -531,6 +531,18 @@ export type LoyaltySummary = {
     pointsBalance: number
     tier: string | null
     transactions: LoyaltyTransaction[]
+    /** LOYALTY_MOCK_ACCRUAL is on (demo / staging): mock earn is available. */
+    mockAccrual: boolean
+}
+
+/** Demo / staging earn: a sales order (once per order) or an explicit grant. */
+export type MockEarnInput = { salesOrderId?: string; points?: number; note?: string }
+
+export type MockEarnResult = {
+    /** False when this sales order had already earned (nothing changed). */
+    created: boolean
+    transaction: LoyaltyTransaction
+    summary: LoyaltySummary
 }
 
 export type CrmProfile = {
@@ -555,7 +567,11 @@ export type Customer360 = {
         openOpportunities: number | null
         wonOpportunities: number | null
         openTickets: number | null
+        /** All SD orders of this Customer Master (own id + linked shop account); null when unavailable. */
+        salesOrders: number | null
     }
+    /** Same-email shop accounts not linked to this Customer Master: their orders are not included. */
+    unlinkedShopAccounts: { id: string; email: string }[]
     opportunities: Opportunity[]
     tickets: Ticket[]
     /** null when the loyalty section is unavailable. */
@@ -602,6 +618,7 @@ export type Customer360Shipment = {
     trackingNumber: string | null
     carrier: string | null
     createdAt: string
+    updatedAt: string
 }
 
 export const DASHBOARD_PERIODS = [30, 90, 365] as const

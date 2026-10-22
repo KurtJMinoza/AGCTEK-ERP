@@ -6,7 +6,9 @@ import {
     forwardRef,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { toStatusCounts } from '../common/status-summary.util'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
@@ -465,7 +467,7 @@ export class GoodsReceiptService {
     }
 
     async findAll(query: StockOpsQueryDto) {
-        const where: any = {}
+        const where: Prisma.MmGoodsReceiptWhereInput = {}
         if (query.status) where.status = query.status
         if (query.warehouseId) where.warehouseId = query.warehouseId
         if (query.purchaseOrderId) where.purchaseOrderId = query.purchaseOrderId
@@ -488,7 +490,14 @@ export class GoodsReceiptService {
             }),
             this.prisma.mmGoodsReceipt.count({ where }),
         ])
-        return { data, total, page, pageSize }
+        const byStatus = await this.prisma.mmGoodsReceipt.groupBy({
+            by: ['status'],
+            where,
+            _count: { _all: true },
+        })
+        const summary = toStatusCounts(byStatus)
+
+        return { data, total, page, pageSize, summary: { byStatus: summary } }
     }
 
     async findOne(id: string) {
@@ -674,6 +683,16 @@ export class GoodsReceiptService {
             where: { id },
             include: {
                 lines: { include: { material: true, uom: true, storageBin: true } },
+                company: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        logoUrl: true,
+                        address: true,
+                        tin: true,
+                    },
+                },
                 warehouse: true,
                 supplier: true,
                 purchaseOrder: { select: { id: true, poNumber: true, status: true } },

@@ -6,7 +6,10 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import FilterBar, {
+    type FilterChip,
+    type FilterField,
+} from '@/components/shared/FilterBar'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -20,7 +23,6 @@ import Tabs from '@/components/ui/Tabs'
 import { FormItem } from '@/components/ui/Form'
 import {
     HiOutlinePlus,
-    HiOutlineSearch,
     HiOutlineEye,
     HiOutlineTrash,
     HiOutlineCheck,
@@ -36,19 +38,19 @@ import {
     useLazyMaterialEntities,
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
-import type { BinTransfer, BinTransferLine, WarehouseTransferOrder, WtoLine, StockOpsQueryParams } from '../types'
-import type { Warehouse, StorageBin } from '../../warehouse/types'
-import type { Material } from '../../material-master/types'
+import type { BinTransfer, BinTransferLine, WarehouseTransferOrder, WtoLine } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import classNames from '@/utils/classNames'
+import { buildStockDocColumns } from '../utils/stockDocColumns'
+import { StatusSummaryTiles } from '../utils/summaryTiles'
+import { DocStatusBadge } from '../utils/inventoryUi'
 import InfoCard from '../../shared/InfoCard'
 
 type StatusFilterOption = { value: string; label: string }
 
-function TransferListToolbar({
+function TransferFilterBar({
     search,
     onSearchChange,
-    statusTab,
+    status,
     onStatusChange,
     statusOptions,
     createLabel,
@@ -56,61 +58,73 @@ function TransferListToolbar({
 }: {
     search: string
     onSearchChange: (value: string) => void
-    statusTab: string
+    status: string
     onStatusChange: (value: string) => void
     statusOptions: StatusFilterOption[]
     createLabel: string
     onCreate: () => void
 }) {
+    const fields = useMemo<FilterField[]>(
+        () => [
+            {
+                key: 'search',
+                label: 'Search',
+                kind: 'text',
+                inputType: 'search',
+                value: search,
+                placeholder: 'Document number…',
+                onChange: onSearchChange,
+            },
+            {
+                key: 'status',
+                label: 'Status',
+                value: status,
+                options: statusOptions,
+                onChange: onStatusChange,
+            },
+        ],
+        [search, status, statusOptions, onSearchChange, onStatusChange],
+    )
+
+    const chips = useMemo<FilterChip[]>(() => {
+        const list: FilterChip[] = []
+        if (search)
+            list.push({
+                key: 'search',
+                label: `Search: ${search}`,
+                onRemove: () => onSearchChange(''),
+            })
+        if (status)
+            list.push({
+                key: 'status',
+                label: `Status: ${
+                    statusOptions.find((o) => o.value === status)?.label ?? status
+                }`,
+                onRemove: () => onStatusChange(''),
+            })
+        return list
+    }, [search, status, statusOptions, onSearchChange, onStatusChange])
+
     return (
-        <div className="mb-4 space-y-3 border-b border-gray-200 pb-4 dark:border-gray-600">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Input
-                    prefix={<HiOutlineSearch className="text-lg" />}
-                    placeholder="Search document #, warehouse…"
-                    value={search}
-                    onChange={(e: { target: { value: string } }) => onSearchChange(e.target.value)}
-                    className="w-full min-w-0 sm:flex-1"
-                />
+        <FilterBar
+            className="mb-4"
+            fields={fields}
+            chips={chips}
+            onClear={() => {
+                onSearchChange('')
+                onStatusChange('')
+            }}
+            actions={
                 <Button
                     variant="solid"
                     size="sm"
                     icon={<HiOutlinePlus />}
-                    className="w-full shrink-0 sm:w-auto"
                     onClick={onCreate}
                 >
                     {createLabel}
                 </Button>
-            </div>
-            <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
-                <div
-                    className="inline-flex min-w-full gap-1 rounded-lg bg-gray-100 p-1 sm:min-w-0 dark:bg-gray-800/70"
-                    role="tablist"
-                    aria-label="Filter by status"
-                >
-                    {statusOptions.map((t) => {
-                        const selected = statusTab === t.value
-                        return (
-                            <button
-                                key={t.value || 'all'}
-                                type="button"
-                                role="tab"
-                                aria-selected={selected}
-                                className={classNames(
-                                    'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                                    selected
-                                        ? 'bg-white text-primary shadow-sm dark:bg-gray-900 dark:text-primary'
-                                        : 'text-gray-600 hover:bg-white/60 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900/40 dark:hover:text-gray-100',
-                                )}
-                                onClick={() => onStatusChange(t.value)}
-                            >
-                                {t.label}
-                            </button>
-                        )
-                    })}
-                </div>
-            </div>
-        </div>
+            }
+        />
     )
 }
 
@@ -236,19 +250,6 @@ function WhTransferLineEditor({
 
 const ROUTE = '/modules/mm/inventory-management/stock-transfers'
 
-const BIN_STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    DRAFT: 'default', POSTED: 'success', CANCELLED: 'danger', REVERSED: 'warning',
-}
-const WTO_STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    DRAFT: 'default',
-    APPROVED: 'success',
-    PICKED: 'warning',
-    DISPATCHED: 'warning',
-    IN_TRANSIT: 'warning',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-}
-
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
@@ -274,6 +275,7 @@ function BinTransferTab() {
     const [pageSize, setPageSize] = useState(20)
     const [rows, setRows] = useState<BinTransfer[]>([])
     const [total, setTotal] = useState(0)
+    const [summary, setSummary] = useState<{ status: string; count: number }[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchList = useCallback(async () => {
@@ -281,14 +283,15 @@ function BinTransferTab() {
         try {
             const res = await binTransferService.list({ page, pageSize, search: search || undefined, status: statusTab || undefined })
             setRows(res.data); setTotal(res.total)
+            setSummary(res.summary?.byStatus ?? [])
         } catch { /* ignore */ } finally { setLoading(false) }
     }, [page, pageSize, search, statusTab])
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const { ensure: ensureWh, rows: warehouses, loading: whLoading } = useLazyWarehouseEntities()
-    const { ensure: ensureMat, rows: materials, loading: matLoading } = useLazyMaterialEntities()
-    const { loadForWarehouse, rows: bins, loading: binsLoading } = useLazyBinsForWarehouse()
+    const { ensure: ensureWh, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMat, rows: materials } = useLazyMaterialEntities()
+    const { loadForWarehouse, rows: bins } = useLazyBinsForWarehouse()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -378,36 +381,109 @@ function BinTransferTab() {
         { header: 'Dest Bin', accessorKey: 'destinationBin.code', size: 96, cell: ({ row }) => row.original.destinationBin?.code ?? '—' },
     ], [])
 
-    const columns: ColumnDef<BinTransfer>[] = useMemo(() => [
-        { header: 'Document #', accessorKey: 'documentNumber' },
-        { header: 'Posting Date', accessorKey: 'postingDate', cell: ({ row }) => fmtDate(row.original.postingDate) },
-        { header: 'Warehouse', accessorKey: 'warehouse.name', cell: ({ row }) => row.original.warehouse?.name ?? '—' },
-        { header: 'Lines', accessorKey: 'lines', cell: ({ row }) => row.original.lines?.length ?? 0 },
-        { header: 'Status', accessorKey: 'status', cell: ({ row }) => <StatusBadge tone={BIN_STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge> },
-        { header: '', id: 'actions', cell: ({ row }) => (
-            <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                <Dropdown.Item eventKey="view" onClick={() => openDetail(row.original.id)}><HiOutlineEye className="mr-2" /> View</Dropdown.Item>
-                {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="post" onClick={() => setConfirmAction({ action: 'Post', fn: async () => { await binTransferService.post(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Post</Dropdown.Item>}
-                {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="cancel" onClick={() => setConfirmAction({ action: 'Cancel', fn: async () => { await binTransferService.cancel(row.original.id); fetchList() } })}><HiOutlineX className="mr-2" /> Cancel</Dropdown.Item>}
-            </Dropdown>
-        )},
-    ], [openDetail, fetchList])
+    const columns: ColumnDef<BinTransfer>[] = useMemo(
+        () =>
+            buildStockDocColumns<BinTransfer>({
+                detail: { header: 'Movement', value: () => 'Bin to bin' },
+                warehouse: (row) => row.warehouse?.name ?? '—',
+                actions: [
+                    {
+                        header: '',
+                        id: 'actions',
+                        cell: ({ row }) => (
+                            <Dropdown
+                                renderTitle={<EllipsisButton />}
+                                placement="bottom-end"
+                            >
+                                <Dropdown.Item
+                                    eventKey="view"
+                                    onClick={() => openDetail(row.original.id)}
+                                >
+                                    <HiOutlineEye className="mr-2" /> View
+                                </Dropdown.Item>
+                                {row.original.status === 'DRAFT' && (
+                                    <Dropdown.Item
+                                        eventKey="post"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Post',
+                                                fn: async () => {
+                                                    await binTransferService.post(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineCheck className="mr-2" /> Post
+                                    </Dropdown.Item>
+                                )}
+                                {row.original.status === 'DRAFT' && (
+                                    <Dropdown.Item
+                                        eventKey="cancel"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Cancel',
+                                                fn: async () => {
+                                                    await binTransferService.cancel(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineX className="mr-2" /> Cancel
+                                    </Dropdown.Item>
+                                )}
+                            </Dropdown>
+                        ),
+                    },
+                ],
+            }),
+        [openDetail, fetchList],
+    )
 
     return (
         <>
-            <TransferListToolbar
+            <TransferFilterBar
                 search={search}
                 onSearchChange={(v) => { setSearch(v); setPage(1) }}
-                statusTab={statusTab}
+                status={statusTab}
                 onStatusChange={(v) => { setStatusTab(v); setPage(1) }}
                 statusOptions={BIN_STATUS_FILTERS}
                 createLabel="New Bin Transfer"
                 onCreate={openCreate}
             />
 
-            <div className="overflow-x-auto">
-                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
+            <StatusSummaryTiles
+                byStatus={summary}
+                total={total}
+                totalLabel="Transfers in scope"
+            />
+
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span>
+                    {total} transfer{total === 1 ? '' : 's'} in scope
+                </span>
+                <span>
+                    Page {page} · {pageSize} per page
+                </span>
             </div>
+
+            <AdaptiveCard>
+                <DataTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    compact
+                    noData={rows.length === 0}
+                    pagingData={{ total, pageIndex: page, pageSize }}
+                    onPaginationChange={(p) => setPage(p)}
+                    onSelectChange={(s) => setPageSize(s)}
+                />
+            </AdaptiveCard>
 
             <FormDialog
                 isOpen={createOpen}
@@ -458,7 +534,7 @@ function BinTransferTab() {
                 size="xl"
                 title={detail?.documentNumber ?? 'Bin Transfer'}
                 icon={<HiOutlineSwitchHorizontal />}
-                headerExtra={detail ? <StatusBadge tone={BIN_STATUS_TONE[detail.status] ?? 'default'}>{detail.status}</StatusBadge> : undefined}
+                headerExtra={detail ? <DocStatusBadge status={detail.status} /> : undefined}
                 bodyClassName="overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={
@@ -521,6 +597,7 @@ function WarehouseTransferTab() {
     const [pageSize, setPageSize] = useState(20)
     const [rows, setRows] = useState<WarehouseTransferOrder[]>([])
     const [total, setTotal] = useState(0)
+    const [summary, setSummary] = useState<{ status: string; count: number }[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchList = useCallback(async () => {
@@ -528,13 +605,14 @@ function WarehouseTransferTab() {
         try {
             const res = await warehouseTransferOrderService.list({ page, pageSize, search: search || undefined, status: statusTab || undefined })
             setRows(res.data); setTotal(res.total)
+            setSummary(res.summary?.byStatus ?? [])
         } catch { /* ignore */ } finally { setLoading(false) }
     }, [page, pageSize, search, statusTab])
 
     useEffect(() => { fetchList() }, [fetchList])
 
-    const { ensure: ensureWh, rows: warehouses, loading: whLoading } = useLazyWarehouseEntities()
-    const { ensure: ensureMat, rows: materials, loading: matLoading } = useLazyMaterialEntities()
+    const { ensure: ensureWh, rows: warehouses } = useLazyWarehouseEntities()
+    const { ensure: ensureMat, rows: materials } = useLazyMaterialEntities()
 
     const warehouseOpts = useMemo(() => warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })), [warehouses])
     const materialOpts = useMemo(() => materials.map((m) => ({ value: m.id, label: `${m.materialCode} — ${m.materialName}` })), [materials])
@@ -621,43 +699,155 @@ function WarehouseTransferTab() {
             header: 'Status',
             accessorKey: 'status',
             size: 100,
-            cell: ({ row }) => <StatusBadge tone={WTO_STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge>,
+            cell: ({ row }) => <DocStatusBadge status={row.original.status} />,
         },
     ], [])
 
-    const columns: ColumnDef<WarehouseTransferOrder>[] = useMemo(() => [
-        { header: 'Document #', accessorKey: 'documentNumber' },
-        { header: 'Posting Date', accessorKey: 'postingDate', cell: ({ row }) => fmtDate(row.original.postingDate) },
-        { header: 'Source WH', accessorKey: 'sourceWarehouse.name', cell: ({ row }) => row.original.sourceWarehouse?.name ?? '—' },
-        { header: 'Dest WH', accessorKey: 'destinationWarehouse.name', cell: ({ row }) => row.original.destinationWarehouse?.name ?? '—' },
-        { header: 'Lines', accessorKey: 'lines', cell: ({ row }) => row.original.lines?.length ?? 0 },
-        { header: 'Status', accessorKey: 'status', cell: ({ row }) => <StatusBadge tone={WTO_STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge> },
-        { header: '', id: 'actions', cell: ({ row }) => (
-            <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
-                <Dropdown.Item eventKey="view" onClick={() => openDetail(row.original.id)}><HiOutlineEye className="mr-2" /> View</Dropdown.Item>
-                {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="approve" onClick={() => setConfirmAction({ action: 'Approve', fn: async () => { await warehouseTransferOrderService.approve(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Approve</Dropdown.Item>}
-                {row.original.status === 'APPROVED' && <Dropdown.Item eventKey="pick" onClick={() => setConfirmAction({ action: 'Pick', fn: async () => { await warehouseTransferOrderService.pick(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Pick</Dropdown.Item>}
-                {row.original.status === 'PICKED' && <Dropdown.Item eventKey="dispatch" onClick={() => setConfirmAction({ action: 'Dispatch', fn: async () => { await warehouseTransferOrderService.dispatch(row.original.id); fetchList() } })}><HiOutlineTruck className="mr-2" /> Dispatch</Dropdown.Item>}
-                {(row.original.status === 'DRAFT' || row.original.status === 'APPROVED') && <Dropdown.Item eventKey="cancel" onClick={() => setConfirmAction({ action: 'Cancel', fn: async () => { await warehouseTransferOrderService.cancel(row.original.id); fetchList() } })}><HiOutlineX className="mr-2" /> Cancel</Dropdown.Item>}
-            </Dropdown>
-        )},
-    ], [openDetail, fetchList])
+    const columns: ColumnDef<WarehouseTransferOrder>[] = useMemo(
+        () =>
+            buildStockDocColumns<WarehouseTransferOrder>({
+                detail: {
+                    header: 'Route',
+                    value: (row) =>
+                        `${row.sourceWarehouse?.name ?? '—'} → ${
+                            row.destinationWarehouse?.name ?? '—'
+                        }`,
+                },
+                actions: [
+                    {
+                        header: '',
+                        id: 'actions',
+                        cell: ({ row }) => (
+                            <Dropdown
+                                renderTitle={<EllipsisButton />}
+                                placement="bottom-end"
+                            >
+                                <Dropdown.Item
+                                    eventKey="view"
+                                    onClick={() => openDetail(row.original.id)}
+                                >
+                                    <HiOutlineEye className="mr-2" /> View
+                                </Dropdown.Item>
+                                {row.original.status === 'DRAFT' && (
+                                    <Dropdown.Item
+                                        eventKey="approve"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Approve',
+                                                fn: async () => {
+                                                    await warehouseTransferOrderService.approve(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineCheck className="mr-2" /> Approve
+                                    </Dropdown.Item>
+                                )}
+                                {row.original.status === 'APPROVED' && (
+                                    <Dropdown.Item
+                                        eventKey="pick"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Pick',
+                                                fn: async () => {
+                                                    await warehouseTransferOrderService.pick(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineCheck className="mr-2" /> Pick
+                                    </Dropdown.Item>
+                                )}
+                                {row.original.status === 'PICKED' && (
+                                    <Dropdown.Item
+                                        eventKey="dispatch"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Dispatch',
+                                                fn: async () => {
+                                                    await warehouseTransferOrderService.dispatch(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineTruck className="mr-2" /> Dispatch
+                                    </Dropdown.Item>
+                                )}
+                                {(row.original.status === 'DRAFT' ||
+                                    row.original.status === 'APPROVED') && (
+                                    <Dropdown.Item
+                                        eventKey="cancel"
+                                        onClick={() =>
+                                            setConfirmAction({
+                                                action: 'Cancel',
+                                                fn: async () => {
+                                                    await warehouseTransferOrderService.cancel(
+                                                        row.original.id,
+                                                    )
+                                                    fetchList()
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <HiOutlineX className="mr-2" /> Cancel
+                                    </Dropdown.Item>
+                                )}
+                            </Dropdown>
+                        ),
+                    },
+                ],
+            }),
+        [openDetail, fetchList],
+    )
 
     return (
         <>
-            <TransferListToolbar
+            <TransferFilterBar
                 search={search}
                 onSearchChange={(v) => { setSearch(v); setPage(1) }}
-                statusTab={statusTab}
+                status={statusTab}
                 onStatusChange={(v) => { setStatusTab(v); setPage(1) }}
                 statusOptions={WTO_STATUS_FILTERS}
                 createLabel="New WH Transfer"
                 onCreate={openCreate}
             />
 
-            <div className="overflow-x-auto">
-                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
+            <StatusSummaryTiles
+                byStatus={summary}
+                total={total}
+                totalLabel="Transfers in scope"
+            />
+
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span>
+                    {total} transfer{total === 1 ? '' : 's'} in scope
+                </span>
+                <span>
+                    Page {page} · {pageSize} per page
+                </span>
             </div>
+
+            <AdaptiveCard>
+                <DataTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    compact
+                    noData={rows.length === 0}
+                    pagingData={{ total, pageIndex: page, pageSize }}
+                    onPaginationChange={(p) => setPage(p)}
+                    onSelectChange={(s) => setPageSize(s)}
+                />
+            </AdaptiveCard>
 
             <FormDialog
                 isOpen={createOpen}
@@ -704,7 +894,7 @@ function WarehouseTransferTab() {
                 size="xl"
                 title={detail?.documentNumber ?? 'Warehouse Transfer'}
                 icon={<HiOutlineTruck />}
-                headerExtra={detail ? <StatusBadge tone={WTO_STATUS_TONE[detail.status] ?? 'default'}>{detail.status}</StatusBadge> : undefined}
+                headerExtra={detail ? <DocStatusBadge status={detail.status} /> : undefined}
                 bodyClassName="overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={

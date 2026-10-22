@@ -1,5 +1,13 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 
+/** Server-side aggregate over the whole ledger filter. */
+export type InventoryLedgerSummary = {
+    total: number
+    inboundQuantity: number
+    outboundQuantity: number
+    reversals: number
+}
+
 export type InventoryListMeta = {
     total: number
     page: number
@@ -22,7 +30,12 @@ export type InventoryBalance = {
     availableQuantity: string | number
     version?: number
     updatedAt?: string
-    company?: { id: string; name?: string; code?: string }
+    company?: {
+        id: string
+        name?: string
+        code?: string
+        logoUrl?: string | null
+    }
     warehouse?: { id: string; name?: string; code?: string }
     storageBin?: { id: string; code?: string } | null
     material?: {
@@ -30,6 +43,11 @@ export type InventoryBalance = {
         materialCode?: string
         materialName?: string
         name?: string
+        /** Stock Keeping Unit — read from Material Master. */
+        sku?: string | null
+        materialCategoryId?: string
+        materialCategory?: { id: string; code?: string; name?: string } | null
+        baseUom?: { id: string; code?: string; name?: string } | null
     }
     batch?: { id: string; batchNumber?: string } | null
     serialNumber?: { id: string; serialNumber?: string } | null
@@ -60,13 +78,28 @@ export type InventoryTransaction = {
     sourceModule?: string | null
     sourceDocumentType?: string | null
     sourceDocumentId?: string | null
+    /** The origin document's business number, resolved server-side. */
+    sourceReference?: string | null
     reasonCode?: string | null
     remarks?: string | null
     reversalOfId?: string | null
+    /** The posting this row reverses (human-readable reference). */
+    reversalOf?: {
+        id: string
+        transactionNumber: string
+        movementType?: string | null
+    } | null
+    /** The reversal posted against this row, when it was reversed. */
+    reversedBy?: { id: string; transactionNumber: string } | null
     idempotencyKey?: string | null
     createdBy?: string | null
     createdAt?: string
-    company?: { id: string; name?: string; code?: string }
+    company?: {
+        id: string
+        name?: string
+        code?: string
+        logoUrl?: string | null
+    }
     warehouse?: { id: string; name?: string; code?: string }
     storageBin?: { id: string; code?: string } | null
     material?: {
@@ -74,6 +107,11 @@ export type InventoryTransaction = {
         materialCode?: string
         materialName?: string
         name?: string
+        /** Stock Keeping Unit — read from Material Master. */
+        sku?: string | null
+        materialCategoryId?: string
+        materialCategory?: { id: string; code?: string; name?: string } | null
+        baseUom?: { id: string; code?: string; name?: string } | null
     }
     uom?: { id: string; code?: string }
 }
@@ -108,6 +146,8 @@ export type BalanceQueryParams = {
     storageBinId?: string
     batchId?: string
     stockStatus?: string
+    /** Free-text filter over material code, material name and SKU. */
+    search?: string
     page?: number
     limit?: number
 }
@@ -208,16 +248,18 @@ export const inventoryService = {
         ),
 
     ledger: (params?: TransactionQueryParams) =>
-        ErpAxiosBase.get<{ data: InventoryTransaction[]; meta: InventoryListMeta }>(
-            `${BASE}/ledger`,
-            { params },
-        ).then((r) => r.data),
+        ErpAxiosBase.get<{
+            data: InventoryTransaction[]
+            meta: InventoryListMeta
+            summary?: InventoryLedgerSummary
+        }>(`${BASE}/ledger`, { params }).then((r) => r.data),
 
     transactions: (params?: TransactionQueryParams) =>
-        ErpAxiosBase.get<{ data: InventoryTransaction[]; meta: InventoryListMeta }>(
-            `${BASE}/transactions`,
-            { params },
-        ).then((r) => r.data),
+        ErpAxiosBase.get<{
+            data: InventoryTransaction[]
+            meta: InventoryListMeta
+            summary?: InventoryLedgerSummary
+        }>(`${BASE}/transactions`, { params }).then((r) => r.data),
 
     traceability: (params: TraceabilityQueryParams) =>
         ErpAxiosBase.get<{ data: InventoryTransaction[]; meta: InventoryListMeta }>(

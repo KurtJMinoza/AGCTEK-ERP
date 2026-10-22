@@ -81,6 +81,10 @@ export class MaterialOverridesInput {
     @IsOptional() @IsBoolean() expiryManaged?: boolean
 }
 
+/**
+ * One sellable combination. It LINKS an existing Material Master item —
+ * the Product Catalog never creates a material.
+ */
 export class VariantInput {
     @IsBoolean()
     enabled!: boolean
@@ -124,7 +128,7 @@ export class VariantInput {
     @Type(() => MaterialOverridesInput)
     materialOverrides?: MaterialOverridesInput
 
-    /** Link an existing MM material instead of auto-creating one. */
+    /** The existing MM material this variant sells (required). */
     @IsOptional()
     @IsString()
     existingMaterialId?: string
@@ -132,33 +136,20 @@ export class VariantInput {
 
 // ─── Material defaults ──────────────────────────────────────────────────────
 
+/**
+ * Stock ownership for the product. The Product Catalog never creates a
+ * material — the variants link EXISTING Material Master items, so only the
+ * owning company is needed here.
+ */
 export class MaterialDefaultsInput {
     @IsString()
     @IsNotEmpty()
     companyId!: string
 
+    /** Optional: only used to label the product category when sent. */
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    materialTypeId!: string
-
-    @IsString()
-    @IsNotEmpty()
-    materialCategoryId!: string
-
-    @IsString()
-    @IsNotEmpty()
-    baseUomId!: string
-
-    @IsOptional() @IsString() salesUomId?: string
-    @IsOptional() @IsString() defaultWarehouseId?: string
-    @IsOptional() @IsString() storageBinId?: string
-    @IsOptional() @IsNumber() @Min(0) standardCost?: number
-    @IsOptional() @IsNumber() @Min(0) safetyStock?: number
-    @IsOptional() @IsNumber() @Min(0) maximumStock?: number
-    @IsOptional() @IsNumber() @Min(0) reorderPoint?: number
-    @IsOptional() @IsBoolean() batchManaged?: boolean
-    @IsOptional() @IsBoolean() serialManaged?: boolean
-    @IsOptional() @IsBoolean() expiryManaged?: boolean
+    materialCategoryId?: string
 }
 
 // ─── Root ────────────────────────────────────────────────────────────────────

@@ -39,9 +39,12 @@ import { DeliveryMonitorService } from './delivery-monitor.service'
 import { SalesInvoiceController } from './sales-invoice.controller'
 import { SalesInvoicePdfService } from './sales-invoice-pdf.service'
 import { ProductFamilyService } from './product-family.service'
+import { ProductVariantService } from './product-variant.service'
+import { ProductMaterialLinkService } from './product-material-link.service'
 import { PricingConditionController } from './pricing-condition.controller'
 import { PricingConditionService } from './pricing-condition.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
+import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
@@ -67,6 +70,7 @@ import { BackorderReportService } from './backorder-report.service'
         SalesInvoiceController,
         PricingConditionController,
         SalesAnalyticsController,
+        UploadsController,
         BackorderReportController,
     ],
     providers: [
@@ -95,6 +99,8 @@ import { BackorderReportService } from './backorder-report.service'
         OrderTrackingService,
         OrderTrackingNotifierListener,
         ProductFamilyService,
+        ProductVariantService,
+        ProductMaterialLinkService,
         PricingConditionService,
         SalesAnalyticsService,
         BackorderReportService,

@@ -24,7 +24,11 @@ const mockPrisma = {
         deleteMany: jest.fn(),
     },
     sdProductVariantOptionValue: { create: jest.fn(), deleteMany: jest.fn() },
-    mmMaterial: { findUnique: jest.fn() },
+    mmMaterial: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        updateMany: jest.fn(),
+    },
     company: { findUnique: jest.fn() },
     $transaction: jest.fn(),
 }
@@ -105,6 +109,7 @@ const tx = {
     sdProductVariantOptionValue: { deleteMany: jest.fn(), create: jest.fn() },
     sdProductOptionValue: { deleteMany: jest.fn(), create: jest.fn() },
     sdProductOption: { deleteMany: jest.fn(), create: jest.fn() },
+    mmMaterial: { updateMany: jest.fn() },
 }
 
 describe('ProductOptionVariantsService', () => {
@@ -133,7 +138,19 @@ describe('ProductOptionVariantsService', () => {
             (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
         )
         mockPrisma.sdProductVariant.findFirst.mockResolvedValue(null)
+        mockPrisma.mmMaterial.updateMany.mockResolvedValue({ count: 0 })
         mockPrisma.mmMaterial.findUnique.mockResolvedValue({ id: 'mat-1' })
+        // A variant may only link an existing, active, sellable material of
+        // the same company that already has a Stock Keeping Unit.
+        mockPrisma.mmMaterial.findFirst.mockResolvedValue({
+            id: 'mat-1',
+            materialCode: 'MAT-000101',
+            status: 'ACTIVE',
+            sellable: true,
+            companyId: 'c-1',
+            sku: 'TEE-BLK-M',
+            deletedAt: null,
+        })
         mockPrisma.company.findUnique.mockResolvedValue({ id: 'c-1' })
         mockAvailability.getCompanyMaterialLedger.mockResolvedValue({
             onHandQty: 0,
@@ -286,6 +303,112 @@ describe('ProductOptionVariantsService', () => {
         await service.updateOptionsAndVariants('p1', inherit)
         expect(tx.sdProductVariant.create).toHaveBeenCalledWith({
             data: expect.objectContaining({ price: null }),
+        })
+    })
+
+    /**
+     * Regression: every variant MUST get its own normalized combination key.
+     * Without it every row fell back to the schema default "__default__" and
+     * the second insert violated the unique (productId, combinationKey)
+     * constraint — an unhandled Prisma error surfaced as HTTP 500
+     * ("Product not updated / Internal server error") when adding a variant.
+     */
+    it('writes a distinct combination key for every variant', async () => {
+        await service.updateOptionsAndVariants('p1', dto)
+
+        const keys = tx.sdProductVariant.create.mock.calls.map(
+            (call: any) => call[0].data.combinationKey,
+        )
+        expect(keys).toEqual([
+            'color:black|size:medium',
+            'color:black|size:large',
+        ])
+        expect(new Set(keys).size).toBe(keys.length)
+    })
+
+    /**
+     * Regression: a product WITHOUT customer-selectable options used to lose
+     * every variant on save — the service deleted the variants and then
+     * returned early without recreating them, so the material links of a
+     * SIMPLE product were lost on every edit.
+     */
+    describe('a product without customer-selectable options', () => {
+        const optionlessDto: UpdateProductOptionsVariantsDto = {
+            options: [],
+            variants: [
+                {
+                    variantName: 'Default',
+                    sku: 'TEE-DEFAULT',
+                    barcode: undefined,
+                    price: null,
+                    compareAtPrice: null,
+                    cost: null,
+                    imageUrl: '',
+                    weight: null,
+                    isActive: true,
+                    isDefault: true,
+                    materialId: 'mat-1',
+                    companyId: 'c-1',
+                    optionValues: [],
+                },
+                {
+                    variantName: 'Second',
+                    sku: 'TEE-SECOND',
+                    barcode: undefined,
+                    price: null,
+                    compareAtPrice: null,
+                    cost: null,
+                    imageUrl: '',
+                    weight: null,
+                    isActive: true,
+                    isDefault: false,
+                    materialId: 'mat-2',
+                    companyId: 'c-1',
+                    optionValues: [],
+                },
+            ],
+        }
+
+        it('keeps the variants instead of deleting them', async () => {
+            await service.updateOptionsAndVariants('p1', optionlessDto)
+
+            // The variants are replaced from the payload — not dropped.
+            expect(tx.sdProductVariant.create).toHaveBeenCalledTimes(2)
+            const created = tx.sdProductVariant.create.mock.calls.map(
+                (call: any) => call[0].data,
+            )
+            expect(created.map((v: any) => v.variantName)).toEqual([
+                'Default',
+                'Second',
+            ])
+            // The material links survive the save.
+            expect(created.map((v: any) => v.materialId)).toEqual([
+                'mat-1',
+                'mat-2',
+            ])
+        })
+
+        it('keys each option-less variant by its material', async () => {
+            await service.updateOptionsAndVariants('p1', optionlessDto)
+
+            const keys = tx.sdProductVariant.create.mock.calls.map(
+                (call: any) => call[0].data.combinationKey,
+            )
+            expect(keys).toEqual(['material:mat-1', 'material:mat-2'])
+        })
+
+        it('rejects two variants that link the same material', async () => {
+            const clash: UpdateProductOptionsVariantsDto = {
+                ...optionlessDto,
+                variants: [
+                    { ...optionlessDto.variants[0] },
+                    { ...optionlessDto.variants[1], materialId: 'mat-1' },
+                ],
+            }
+
+            await expect(
+                service.updateOptionsAndVariants('p1', clash),
+            ).rejects.toThrow(/same material/)
         })
     })
 

@@ -21,24 +21,35 @@ const nextConfig = {
         ],
     },
     async rewrites() {
-        return [
-            {
-                source: '/api/v1/:path*',
-                destination: `${nestOrigin}/api/v1/:path*`,
-            },
-            {
-                source: '/socket.io',
-                destination: `${nestOrigin}/socket.io/`,
-            },
-            {
-                source: '/socket.io/',
-                destination: `${nestOrigin}/socket.io/`,
-            },
-            {
-                source: '/socket.io/:path*',
-                destination: `${nestOrigin}/socket.io/:path*`,
-            },
-        ]
+        return {
+            // Before the filesystem check: Next snapshots `public/` at startup,
+            // so a picture uploaded while the app runs would 404 until it
+            // restarts. The API streams the uploads from disk instead.
+            beforeFiles: [
+                {
+                    source: '/uploads/:path*',
+                    destination: `${nestOrigin}/api/v1/uploads/:path*`,
+                },
+            ],
+            afterFiles: [
+                {
+                    source: '/api/v1/:path*',
+                    destination: `${nestOrigin}/api/v1/:path*`,
+                },
+                {
+                    source: '/socket.io',
+                    destination: `${nestOrigin}/socket.io/`,
+                },
+                {
+                    source: '/socket.io/',
+                    destination: `${nestOrigin}/socket.io/`,
+                },
+                {
+                    source: '/socket.io/:path*',
+                    destination: `${nestOrigin}/socket.io/:path*`,
+                },
+            ],
+        }
     },
 }
 
