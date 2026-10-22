@@ -43,6 +43,7 @@ import {
     effectiveVariantPrice,
     type ProductVariantDefinition,
     type VariantImageMode,
+    variantLabel,
 } from '@/modules/sd/services/productOptionVariantsService'
 import {
     formatReviewDate,
@@ -499,6 +500,28 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                 </span>
                             ) : null}
                         </div>
+                        {selectedVariant ? (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-shop-50/70 px-3 py-2 text-sm">
+                                <span className="font-semibold text-gray-900">
+                                    {variantLabel(selectedVariant)}
+                                </span>
+                                {variantLabel(selectedVariant) !==
+                                selectedVariant.variantName ? (
+                                    <span className="text-[11px] text-gray-500">
+                                        {selectedVariant.variantName}
+                                    </span>
+                                ) : null}
+                                <span className="font-mono text-[11px] text-gray-500">
+                                    SKU {selectedVariant.sku}
+                                    {selectedVariant.barcode
+                                        ? ` · ${selectedVariant.barcode}`
+                                        : ''}
+                                </span>
+                                <span className="text-[11px] text-gray-500">
+                                    Product: {product.name} · {product.sku}
+                                </span>
+                            </div>
+                        ) : null}
                         <ProductStockStatus
                             loading={loading}
                             stock={stock}

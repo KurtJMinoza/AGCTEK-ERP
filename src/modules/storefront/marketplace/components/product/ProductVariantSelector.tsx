@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from 'react'
 import classNames from '@/utils/classNames'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
+    effectiveVariantPrice,
     productOptionVariantsService,
     type ProductOptionDefinition,
     type ProductOptionsVariants,
     type ProductVariantDefinition,
     type VariantImageMode,
+    variantLabel,
 } from '@/modules/sd/services/productOptionVariantsService'
+import { formatPrice } from '../../marketplaceUi'
 
 /**
  * Ecommerce product option selector (Size, Color, Bottle Size, Flavor, Pack…).
@@ -17,6 +20,10 @@ import {
  * color swatches, image swatches or tiles. Resolves the exact variant for the
  * current selections, preselects the default variant, disables combinations
  * without an ACTIVE variant and reports per-variant MM availability.
+ *
+ * A product WITHOUT option groups (its variants are told apart by the
+ * material they sell) gets a variant list instead, so those variants are
+ * visible and pickable on the product page too.
  */
 const ProductVariantSelector = ({
     product,
@@ -31,6 +38,8 @@ const ProductVariantSelector = ({
 }) => {
     const [payload, setPayload] = useState<ProductOptionsVariants | null>(null)
     const [selection, setSelection] = useState<Record<string, string>>({})
+    /** The variant the customer picked (products without option groups). */
+    const [chosenVariantId, setChosenVariantId] = useState<string | null>(null)
     useEffect(() => {
         let alive = true
         productOptionVariantsService
@@ -50,42 +59,92 @@ const ProductVariantSelector = ({
         }
     }, [product.id, onHasVariants, onVariantChange, onVariantImageMode])
 
+    /** The variants a customer may pick: active, published and not hidden. */
+    const sellableVariants = useMemo(
+        () =>
+            (payload?.variants ?? []).filter(
+                (variant) =>
+                    variant.isActive && variant.isPublished && !variant.isHidden,
+            ),
+        [payload],
+    )
+
+    const hasOptionGroups = (payload?.options.length ?? 0) > 0
+
     /** Preselect the default (active) variant until the customer picks one. */
     useEffect(() => {
         if (!payload || !payload.hasVariants) return
-        setSelection((current) => {
-            if (Object.values(current).some(Boolean)) return current
-            const fallback =
-                payload.variants.find(
-                    (variant) => variant.isDefault && variant.isActive,
-                ) ?? null
-            if (!fallback) return current
-            const next: Record<string, string> = {}
-            for (const link of fallback.optionValues) {
-                next[link.optionId] = link.optionValueId
+        if (payload.options.length > 0) {
+            setSelection((current) => {
+                if (Object.values(current).some(Boolean)) return current
+                const fallback =
+                    payload.variants.find(
+                        (variant) => variant.isDefault && variant.isActive,
+                    ) ?? null
+                if (!fallback) return current
+                const next: Record<string, string> = {}
+                for (const link of fallback.optionValues) {
+                    next[link.optionId] = link.optionValueId
+                }
+                return next
+            })
+            return
+        }
+        // No option groups: preselect the default customer-visible variant.
+        if (sellableVariants.length === 0) return
+        setChosenVariantId((current) => {
+            if (current && sellableVariants.some((v) => v.id === current)) {
+                return current
             }
-            return next
+            const fallback =
+                sellableVariants.find((variant) => variant.isDefault) ??
+                sellableVariants[0]
+            return fallback.id
         })
-    }, [payload])
+    }, [payload, sellableVariants])
 
     const selectedVariant = useMemo(() => {
         if (!payload || !payload.hasVariants) return null
-        const valueIds = payload.options
-            .map((option) => selection[option.id])
-            .filter(Boolean)
-        if (valueIds.length !== payload.options.length) return null
+
+        // A product WITH option groups: the chosen option values decide.
+        if (payload.options.length > 0) {
+            const valueIds = payload.options
+                .map((option) => selection[option.id])
+                .filter(Boolean)
+            if (valueIds.length !== payload.options.length) return null
+            const matches = (variant: ProductVariantDefinition) =>
+                variant.optionValues.length === valueIds.length &&
+                valueIds.every((id) =>
+                    variant.optionValues.some(
+                        (link) => link.optionValueId === id,
+                    ),
+                )
+            return (
+                payload.variants.find(
+                    (variant) =>
+                        matches(variant) &&
+                        variant.isActive &&
+                        variant.isPublished &&
+                        !variant.isHidden,
+                ) ??
+                payload.variants.find(matches) ??
+                null
+            )
+        }
+
+        // A product WITHOUT option groups: the customer picks the variant.
+        if (sellableVariants.length > 0) {
+            return sellableVariants.find((v) => v.id === chosenVariantId) ?? null
+        }
+
+        // Only the hidden default variant (a SIMPLE product): it stays the
+        // sellable item, but it is never shown to the customer.
         return (
             payload.variants.find(
-                (variant) =>
-                    variant.optionValues.length === valueIds.length &&
-                    valueIds.every((id) =>
-                        variant.optionValues.some(
-                            (link) => link.optionValueId === id,
-                        ),
-                    ),
+                (variant) => variant.isDefault && variant.isActive,
             ) ?? null
         )
-    }, [payload, selection])
+    }, [payload, selection, chosenVariantId, sellableVariants])
 
     useEffect(() => {
         onVariantChange(
@@ -306,6 +365,88 @@ const ProductVariantSelector = ({
                         </button>
                     )
                 })}
+            </div>
+        )
+    }
+
+    /**
+     * A product whose variants have no customer-selectable options: the
+     * variants are told apart by the material they sell, so they are listed
+     * and picked directly. Each entry shows the product it belongs to.
+     */
+    if (!hasOptionGroups) {
+        if (sellableVariants.length === 0) return null
+        return (
+            <div className="flex flex-col gap-3">
+                <p className="text-sm font-medium text-gray-700">
+                    Choose a variant
+                </p>
+                <ul className="grid grid-cols-1 gap-2.5">
+                    {sellableVariants.map((variant) => {
+                        const selected = variant.id === selectedVariant?.id
+                        return (
+                            <li key={variant.id}>
+                                <button
+                                    type="button"
+                                    aria-pressed={selected}
+                                    onClick={() =>
+                                        setChosenVariantId(variant.id)
+                                    }
+                                    className={classNames(
+                                        'flex w-full items-start gap-3 rounded-xl border p-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
+                                        selected
+                                            ? 'border-shop-500 bg-shop-50/60 shadow-sm'
+                                            : 'border-gray-200 bg-white hover:border-shop-300',
+                                    )}
+                                >
+                                    {variant.imageUrl ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                            src={variant.imageUrl}
+                                            alt=""
+                                            className="h-14 w-14 shrink-0 rounded-lg border border-gray-100 object-cover"
+                                        />
+                                    ) : (
+                                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-xs font-medium text-gray-400">
+                                            {variant.variantName
+                                                .slice(0, 2)
+                                                .toUpperCase()}
+                                        </span>
+                                    )}
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-sm font-semibold text-gray-900">
+                                            {variantLabel(variant)}
+                                        </span>
+                                        {variantLabel(variant) !==
+                                        variant.variantName ? (
+                                            <span className="block truncate text-[11px] text-gray-500">
+                                                {variant.variantName}
+                                            </span>
+                                        ) : null}
+                                        <span className="block truncate font-mono text-[11px] text-gray-500">
+                                            SKU {variant.sku}
+                                            {variant.barcode
+                                                ? ` · ${variant.barcode}`
+                                                : ''}
+                                        </span>
+                                        <span className="block truncate text-[11px] text-gray-400">
+                                            Product: {product.name} ·{' '}
+                                            {product.sku}
+                                        </span>
+                                        <span className="mt-1 block text-sm font-semibold text-gray-900">
+                                            {formatPrice(
+                                                effectiveVariantPrice(
+                                                    product.price,
+                                                    variant,
+                                                ),
+                                            )}
+                                        </span>
+                                    </span>
+                                </button>
+                            </li>
+                        )
+                    })}
+                </ul>
             </div>
         )
     }
