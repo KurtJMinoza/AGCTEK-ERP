@@ -42,6 +42,11 @@ import {
 import type { SalesOrderShippingDetails } from '@/types/storefront/retail'
 import MarketplaceCheckoutDialog from './components/MarketplaceCheckoutDialog'
 import MarketplaceProductCard from './components/MarketplaceProductCard'
+import StorefrontVariantPickDialog from './components/product/StorefrontVariantPickDialog'
+import {
+    productOptionVariantsService,
+    type ProductVariantDefinition,
+} from '@/modules/sd/services/productOptionVariantsService'
 import {
     CART_PATH,
     CHECKOUT_PATH,
@@ -178,6 +183,13 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     const [confirmClearOpen, setConfirmClearOpen] = useState(false)
     /** Add-to-cart awaiting confirmation. */
     const [requestedAdd, setRequestedAdd] = useState<PendingAdd | null>(null)
+    /** Product card / quick add: pick among material-linked variants first. */
+    const [cardVariantPick, setCardVariantPick] = useState<{
+        product: SdProductRecord
+        quantity: number
+        buyNow: boolean
+        variants: ProductVariantDefinition[]
+    } | null>(null)
     const checkoutIdRef = useRef<string | null>(null)
 
     useEffect(() => setHydrated(true), [])
@@ -392,7 +404,43 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const requestAdd = useCallback(
-        async (product: SdProductRecord, quantity = 1, buyNow = false, variantInfo?: PendingAdd['variantInfo']) => {
+        async (
+            product: SdProductRecord,
+            quantity = 1,
+            buyNow = false,
+            variantInfo?: PendingAdd['variantInfo'],
+        ) => {
+            if (!variantInfo) {
+                try {
+                    const payload =
+                        await productOptionVariantsService.getForProduct(
+                            product.id,
+                        )
+                    const sellable = payload.variants.filter(
+                        (variant) =>
+                            variant.isActive &&
+                            variant.isPublished &&
+                            !variant.isHidden,
+                    )
+                    const hasOptionGroups = payload.options.length > 0
+                    if (
+                        payload.hasVariants &&
+                        !hasOptionGroups &&
+                        sellable.length > 1
+                    ) {
+                        setCardVariantPick({
+                            product,
+                            quantity,
+                            buyNow,
+                            variants: sellable,
+                        })
+                        return
+                    }
+                } catch {
+                    /* treat as simple product */
+                }
+            }
+
             // Product cards do not load ATP individually (to avoid an N+1
             // catalog request), so check just-in-time when a shopper adds an
             // item. Checkout repeats the check on the server before an SO can
@@ -401,6 +449,7 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                 const stock = await fetchStorefrontAvailability(
                     product.divisionId,
                     product.sku,
+                    variantInfo?.variantId,
                 )
                 const available = Math.max(
                     0,
@@ -518,6 +567,26 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         <MarketplaceContext.Provider value={value}>
             {children}
 
+            {cardVariantPick ? (
+                <StorefrontVariantPickDialog
+                    isOpen
+                    product={cardVariantPick.product}
+                    variants={cardVariantPick.variants}
+                    buyNow={cardVariantPick.buyNow}
+                    onClose={() => setCardVariantPick(null)}
+                    onConfirm={(_variant, qty, variantInfo) => {
+                        const pending = cardVariantPick
+                        setCardVariantPick(null)
+                        void requestAdd(
+                            pending.product,
+                            qty,
+                            pending.buyNow,
+                            variantInfo,
+                        )
+                    }}
+                />
+            ) : null}
+
             <ConfirmDialog
                 isOpen={requestedAdd !== null}
                 type="info"
@@ -538,12 +607,28 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
                         <p className="font-semibold text-gray-900">
                             {requestedAdd.product.name}
                         </p>
+                        {requestedAdd.variantInfo ? (
+                            <p className="text-gray-600">
+                                Option:{' '}
+                                <span className="font-medium text-gray-900">
+                                    {requestedAdd.variantInfo.variantName}
+                                </span>
+                                <span className="ml-2 font-mono text-xs text-gray-400">
+                                    {requestedAdd.variantInfo.variantSku}
+                                </span>
+                            </p>
+                        ) : null}
                         <p>
                             {requestedAdd.quantity} ×{' '}
-                            {formatPrice(requestedAdd.product.price)} ={' '}
+                            {formatPrice(
+                                requestedAdd.variantInfo?.unitPrice ??
+                                    requestedAdd.product.price,
+                            )}{' '}
+                            ={' '}
                             <span className="font-semibold text-gray-900">
                                 {formatPrice(
-                                    requestedAdd.product.price *
+                                    (requestedAdd.variantInfo?.unitPrice ??
+                                        requestedAdd.product.price) *
                                         requestedAdd.quantity,
                                 )}
                             </span>

@@ -38,6 +38,7 @@ import MarketplaceProductRow from '../components/MarketplaceProductRow'
 import ProductGallery from '../components/product/ProductGallery'
 import ProductStockStatus from '../components/product/ProductStockStatus'
 import ProductVariantSelector from '../components/product/ProductVariantSelector'
+import StorefrontVariantPickDialog from '../components/product/StorefrontVariantPickDialog'
 import {
     effectiveVariantCompareAt,
     effectiveVariantPrice,
@@ -187,9 +188,17 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
     const { stock, loading, available, soldOut, maxQuantity } =
         useProductAvailability(product, selectedVariant?.id ?? null)
     const [hasVariants, setHasVariants] = useState(false)
+    const [materialSellableVariants, setMaterialSellableVariants] = useState<
+        ProductVariantDefinition[]
+    >([])
+    const [variantPickOpen, setVariantPickOpen] = useState(false)
+    const [variantPickBuyNow, setVariantPickBuyNow] = useState(false)
     /** Admin setting: variant image replaces the main product photo. */
     const [variantImageMode, setVariantImageMode] =
         useState<VariantImageMode>('replace')
+
+    const materialVariantPicker =
+        materialSellableVariants.length > 1
 
     useEffect(() => {
         setQuantity((q) => Math.max(1, Math.min(q, maxQuantity)))
@@ -268,8 +277,9 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
 
     const unavailableLabel =
         stock?.state === 'NOT_MAPPED' ? 'Unavailable' : 'Out of stock'
-    const variantSelected = hasVariants ? Boolean(selectedVariant) : true
-    const addDisabled = soldOut || (hasVariants && !selectedVariant)
+    const addDisabled = materialVariantPicker
+        ? false
+        : soldOut || (hasVariants && !selectedVariant)
     /** Cart/order snapshot: parent product + the selected sellable variant. */
     const variantSnapshot = selectedVariant
         ? {
@@ -297,6 +307,11 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
         }
     }
     const addToCart = () => {
+        if (materialVariantPicker) {
+            setVariantPickBuyNow(false)
+            setVariantPickOpen(true)
+            return
+        }
         if (hasVariants && !selectedVariant) {
             notify(
                 'danger',
@@ -308,6 +323,11 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
         requestAdd(product, quantity, false, buildVariantInfo())
     }
     const buyNow = () => {
+        if (materialVariantPicker) {
+            setVariantPickBuyNow(true)
+            setVariantPickOpen(true)
+            return
+        }
         if (hasVariants && !selectedVariant) {
             notify(
                 'danger',
@@ -482,6 +502,9 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                         onVariantChange={setSelectedVariant}
                         onHasVariants={setHasVariants}
                         onVariantImageMode={setVariantImageMode}
+                        onMaterialVariantContext={({ sellableVariants }) =>
+                            setMaterialSellableVariants(sellableVariants)
+                        }
                     />
 
                     {/* Buy panel */}
@@ -500,25 +523,13 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                                 </span>
                             ) : null}
                         </div>
-                        {selectedVariant ? (
+                        {selectedVariant && !materialVariantPicker ? (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-shop-50/70 px-3 py-2 text-sm">
                                 <span className="font-semibold text-gray-900">
                                     {variantLabel(selectedVariant)}
                                 </span>
-                                {variantLabel(selectedVariant) !==
-                                selectedVariant.variantName ? (
-                                    <span className="text-[11px] text-gray-500">
-                                        {selectedVariant.variantName}
-                                    </span>
-                                ) : null}
                                 <span className="font-mono text-[11px] text-gray-500">
-                                    SKU {selectedVariant.sku}
-                                    {selectedVariant.barcode
-                                        ? ` · ${selectedVariant.barcode}`
-                                        : ''}
-                                </span>
-                                <span className="text-[11px] text-gray-500">
-                                    Product: {product.name} · {product.sku}
+                                    {selectedVariant.sku}
                                 </span>
                             </div>
                         ) : null}
@@ -922,6 +933,28 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
                     </div>
                 </div>
             </div>
+
+            {materialVariantPicker ? (
+                <StorefrontVariantPickDialog
+                    isOpen={variantPickOpen}
+                    product={product}
+                    variants={materialSellableVariants}
+                    initialVariantId={selectedVariant?.id}
+                    buyNow={variantPickBuyNow}
+                    onClose={() => setVariantPickOpen(false)}
+                    onConfirm={(variant, qty, variantInfo) => {
+                        setVariantPickOpen(false)
+                        setSelectedVariant(variant)
+                        setQuantity(qty)
+                        requestAdd(
+                            product,
+                            qty,
+                            variantPickBuyNow,
+                            variantInfo,
+                        )
+                    }}
+                />
+            ) : null}
         </>
     )
 }

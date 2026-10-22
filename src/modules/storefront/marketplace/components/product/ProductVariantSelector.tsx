@@ -4,15 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import classNames from '@/utils/classNames'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
-    effectiveVariantPrice,
     productOptionVariantsService,
     type ProductOptionDefinition,
     type ProductOptionsVariants,
     type ProductVariantDefinition,
     type VariantImageMode,
-    variantLabel,
 } from '@/modules/sd/services/productOptionVariantsService'
-import { formatPrice } from '../../marketplaceUi'
+import MaterialVariantCards from './MaterialVariantCards'
+import { useProductVariantsAvailability } from './useProductVariantsAvailability'
 
 /**
  * Ecommerce product option selector (Size, Color, Bottle Size, Flavor, Pack…).
@@ -30,11 +29,16 @@ const ProductVariantSelector = ({
     onVariantChange,
     onHasVariants,
     onVariantImageMode,
+    onMaterialVariantContext,
 }: {
     product: SdProductRecord
     onVariantChange: (variant: ProductVariantDefinition | null) => void
     onHasVariants: (hasVariants: boolean) => void
     onVariantImageMode?: (mode: VariantImageMode) => void
+    /** Material-linked variants (no option groups) the customer can pick. */
+    onMaterialVariantContext?: (ctx: {
+        sellableVariants: ProductVariantDefinition[]
+    }) => void
 }) => {
     const [payload, setPayload] = useState<ProductOptionsVariants | null>(null)
     const [selection, setSelection] = useState<Record<string, string>>({})
@@ -70,6 +74,25 @@ const ProductVariantSelector = ({
     )
 
     const hasOptionGroups = (payload?.options.length ?? 0) > 0
+
+    const materialListActive =
+        Boolean(payload?.hasVariants) &&
+        !hasOptionGroups &&
+        sellableVariants.length > 0
+
+    const { byVariantId, loading: variantStockLoading } =
+        useProductVariantsAvailability(
+            product.id,
+            materialListActive,
+        )
+
+    useEffect(() => {
+        if (!materialListActive) {
+            onMaterialVariantContext?.({ sellableVariants: [] })
+            return
+        }
+        onMaterialVariantContext?.({ sellableVariants })
+    }, [materialListActive, sellableVariants, onMaterialVariantContext])
 
     /** Preselect the default (active) variant until the customer picks one. */
     useEffect(() => {
@@ -376,77 +399,22 @@ const ProductVariantSelector = ({
      */
     if (!hasOptionGroups) {
         if (sellableVariants.length === 0) return null
+        const sortedSellable = [...sellableVariants].sort(
+            (a, b) =>
+                Number(b.isDefault) - Number(a.isDefault) ||
+                a.sortOrder - b.sortOrder,
+        )
         return (
-            <div className="flex flex-col gap-3">
-                <p className="text-sm font-medium text-gray-700">
-                    Choose a variant
-                </p>
-                <ul className="grid grid-cols-1 gap-2.5">
-                    {sellableVariants.map((variant) => {
-                        const selected = variant.id === selectedVariant?.id
-                        return (
-                            <li key={variant.id}>
-                                <button
-                                    type="button"
-                                    aria-pressed={selected}
-                                    onClick={() =>
-                                        setChosenVariantId(variant.id)
-                                    }
-                                    className={classNames(
-                                        'flex w-full items-start gap-3 rounded-xl border p-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500',
-                                        selected
-                                            ? 'border-shop-500 bg-shop-50/60 shadow-sm'
-                                            : 'border-gray-200 bg-white hover:border-shop-300',
-                                    )}
-                                >
-                                    {variant.imageUrl ? (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img
-                                            src={variant.imageUrl}
-                                            alt=""
-                                            className="h-14 w-14 shrink-0 rounded-lg border border-gray-100 object-cover"
-                                        />
-                                    ) : (
-                                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-xs font-medium text-gray-400">
-                                            {variant.variantName
-                                                .slice(0, 2)
-                                                .toUpperCase()}
-                                        </span>
-                                    )}
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block truncate text-sm font-semibold text-gray-900">
-                                            {variantLabel(variant)}
-                                        </span>
-                                        {variantLabel(variant) !==
-                                        variant.variantName ? (
-                                            <span className="block truncate text-[11px] text-gray-500">
-                                                {variant.variantName}
-                                            </span>
-                                        ) : null}
-                                        <span className="block truncate font-mono text-[11px] text-gray-500">
-                                            SKU {variant.sku}
-                                            {variant.barcode
-                                                ? ` · ${variant.barcode}`
-                                                : ''}
-                                        </span>
-                                        <span className="block truncate text-[11px] text-gray-400">
-                                            Product: {product.name} ·{' '}
-                                            {product.sku}
-                                        </span>
-                                        <span className="mt-1 block text-sm font-semibold text-gray-900">
-                                            {formatPrice(
-                                                effectiveVariantPrice(
-                                                    product.price,
-                                                    variant,
-                                                ),
-                                            )}
-                                        </span>
-                                    </span>
-                                </button>
-                            </li>
-                        )
-                    })}
-                </ul>
+            <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium text-gray-900">Variant</p>
+                <MaterialVariantCards
+                    product={product}
+                    variants={sortedSellable}
+                    selectedId={selectedVariant?.id ?? null}
+                    onSelect={setChosenVariantId}
+                    stockByVariantId={byVariantId}
+                    stockLoading={variantStockLoading}
+                />
             </div>
         )
     }
