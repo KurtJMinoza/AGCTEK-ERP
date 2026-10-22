@@ -294,7 +294,7 @@ export default function CustomerReviewsSection({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
                 <div>
                     <div className="flex items-center gap-2">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-shop-50 text-shop-600">
                             <MessageSquare className="h-4 w-4" />
                         </span>
                         <h2
@@ -313,7 +313,7 @@ export default function CustomerReviewsSection({
                     <button
                         type="button"
                         onClick={() => setIsModalOpen(true)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-shop-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-shop-700 active:scale-[0.98] transition-all cursor-pointer"
                     >
                         <MessageSquare className="h-4 w-4" />
                         Write a Review
@@ -357,7 +357,7 @@ export default function CustomerReviewsSection({
                                 onClick={() => setSelectedRating(null)}
                                 className={`text-xs font-semibold px-3 py-1 rounded-lg transition-colors cursor-pointer ${
                                     selectedRating === null
-                                        ? 'bg-emerald-700 text-white shadow-xs ring-1 ring-emerald-700'
+                                        ? 'bg-shop-700 text-white shadow-xs ring-1 ring-shop-700'
                                         : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                                 }`}
                             >
@@ -375,13 +375,13 @@ export default function CustomerReviewsSection({
                                     onClick={() => setSelectedRating(isSelected ? null : starNum)}
                                     className={`group w-full flex items-center gap-3 text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer border text-left ${
                                         isSelected
-                                            ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-400/50 font-bold text-emerald-950 shadow-xs'
+                                            ? 'bg-shop-50 border-shop-300 ring-1 ring-shop-400/50 font-bold text-shop-900 shadow-xs'
                                             : 'bg-transparent border-transparent hover:bg-gray-100 text-gray-700 hover:text-gray-900'
                                     }`}
                                     aria-pressed={isSelected}
                                     aria-label={`Filter by ${starNum} stars (${count} reviews)`}
                                 >
-                                    <span className={`w-14 flex items-center gap-1 shrink-0 ${isSelected ? 'font-bold text-emerald-950' : 'font-medium text-gray-700 group-hover:text-gray-900'}`}>
+                                    <span className={`w-14 flex items-center gap-1 shrink-0 ${isSelected ? 'font-bold text-shop-900' : 'font-medium text-gray-700 group-hover:text-gray-900'}`}>
                                         <span>{starNum} star</span>
                                         <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                                     </span>
@@ -393,7 +393,7 @@ export default function CustomerReviewsSection({
                                             style={{ width: `${percentage}%` }}
                                         />
                                     </div>
-                                    <span className={`w-16 text-right font-mono text-xs shrink-0 ${isSelected ? 'font-bold text-emerald-950' : 'text-gray-500 group-hover:text-gray-700'}`}>
+                                    <span className={`w-16 text-right font-mono text-xs shrink-0 ${isSelected ? 'font-bold text-shop-900' : 'text-gray-500 group-hover:text-gray-700'}`}>
                                         {count} ({percentage}%)
                                     </span>
                                 </button>
@@ -412,12 +412,12 @@ export default function CustomerReviewsSection({
                         onClick={() => setSelectedRating(null)}
                         className={`px-4 py-2 border rounded-md text-xs sm:text-sm font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
                             selectedRating === null
-                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                ? 'bg-shop-600 text-white border-shop-600 shadow-xs'
                                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
                         }`}
                     >
                         <span>All</span>
-                        <span className={`text-xs ${selectedRating === null ? 'text-emerald-100' : 'text-gray-400'}`}>
+                        <span className={`text-xs ${selectedRating === null ? 'text-shop-100' : 'text-gray-400'}`}>
                             ({totalReviews})
                         </span>
                     </button>
@@ -431,7 +431,7 @@ export default function CustomerReviewsSection({
                                 onClick={() => setSelectedRating(isSelected ? null : starNum)}
                                 className={`px-4 py-2 border rounded-md text-xs sm:text-sm font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
                                     isSelected
-                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                        ? 'bg-shop-600 text-white border-shop-600 shadow-xs'
                                         : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
                                 }`}
                             >
@@ -446,7 +446,7 @@ export default function CustomerReviewsSection({
                                 <span>Star</span>
                                 <span
                                     className={`text-xs ${
-                                        isSelected ? 'text-emerald-100' : 'text-gray-400'
+                                        isSelected ? 'text-shop-100' : 'text-gray-400'
                                     }`}
                                 >
                                     ({count})
@@ -458,7 +458,7 @@ export default function CustomerReviewsSection({
 
                 {/* Active Filter Indicator */}
                 {selectedRating !== null && (
-                    <div className="mb-4 flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-2.5 text-xs border border-emerald-200 text-emerald-900">
+                    <div className="mb-4 flex items-center justify-between rounded-xl bg-shop-50 px-4 py-2.5 text-xs border border-shop-200 text-shop-900">
                         <span className="flex items-center gap-2 font-medium">
                             <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
                             <span>
@@ -468,7 +468,7 @@ export default function CustomerReviewsSection({
                         <button
                             type="button"
                             onClick={() => setSelectedRating(null)}
-                            className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                            className="inline-flex items-center gap-1 font-semibold text-shop-700 hover:text-shop-800 hover:underline cursor-pointer"
                         >
                             <X className="h-3.5 w-3.5" />
                             All Reviews
@@ -478,7 +478,7 @@ export default function CustomerReviewsSection({
 
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+                        <Loader2 className="h-8 w-8 animate-spin text-shop-600" />
                         <span className="mt-2 text-sm font-medium">Loading reviews...</span>
                     </div>
                 ) : error ? (
@@ -504,7 +504,7 @@ export default function CustomerReviewsSection({
                             <button
                                 type="button"
                                 onClick={() => setSelectedRating(null)}
-                                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
+                                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-shop-50 px-4 py-2 text-xs font-semibold text-shop-700 hover:bg-shop-100 transition-colors cursor-pointer"
                             >
                                 View all reviews ({totalReviews})
                             </button>
@@ -512,7 +512,7 @@ export default function CustomerReviewsSection({
                             <button
                                 type="button"
                                 onClick={() => setIsModalOpen(true)}
-                                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
+                                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-shop-50 px-4 py-2 text-xs font-semibold text-shop-700 hover:bg-shop-100 transition-colors cursor-pointer"
                             >
                                 <Sparkles className="h-3.5 w-3.5" />
                                 Leave First Review
@@ -536,7 +536,7 @@ export default function CustomerReviewsSection({
                                                 />
                                             </div>
                                         ) : (
-                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-sm font-bold text-white shadow-sm">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-shop-500 to-shop-800 text-sm font-bold text-white shadow-sm">
                                                 {formatReviewerName(rev).charAt(0).toUpperCase()}
                                             </div>
                                         )}
@@ -545,7 +545,7 @@ export default function CustomerReviewsSection({
                                                 <h4 className="text-sm font-semibold text-gray-900">
                                                     {formatReviewerName(rev)}
                                                 </h4>
-                                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-100">
+                                                <span className="inline-flex items-center gap-1 rounded-full bg-shop-50 px-2 py-0.5 text-[10px] font-medium text-shop-700 border border-shop-100">
                                                     <ShieldCheck className="h-3 w-3" />
                                                     Verified Purchase
                                                 </span>
@@ -626,7 +626,7 @@ export default function CustomerReviewsSection({
                         </button>
 
                         <div className="flex items-center gap-2 mb-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-shop-50 text-shop-600">
                                 <Sparkles className="h-4 w-4" />
                             </span>
                             <h3 id="write-review-title" className="text-lg font-bold text-gray-900">
@@ -639,7 +639,7 @@ export default function CustomerReviewsSection({
 
                         {submitSuccess ? (
                             <div className="flex flex-col items-center justify-center py-10 text-center">
-                                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mb-3 animate-bounce">
+                                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-shop-50 text-shop-600 mb-3 animate-bounce">
                                     <CheckCircle2 className="h-8 w-8" />
                                 </div>
                                 <h4 className="text-base font-semibold text-gray-900">
@@ -667,7 +667,7 @@ export default function CustomerReviewsSection({
                                                         onClick={() => setRating(star)}
                                                         onMouseEnter={() => setHoverRating(star)}
                                                         onMouseLeave={() => setHoverRating(null)}
-                                                        className="p-1 rounded-md hover:bg-amber-50 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                                                        className="p-1 rounded-md hover:bg-amber-50 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500"
                                                         aria-label={`${star} star${star > 1 ? 's' : ''}`}
                                                     >
                                                         <Star
@@ -702,7 +702,7 @@ export default function CustomerReviewsSection({
                                         onChange={(e) => setComment(e.target.value)}
                                         placeholder="What did you like or dislike? How was the build quality, performance, or packaging?"
                                         required
-                                        className="w-full rounded-xl border border-gray-200 p-3.5 text-sm text-gray-900 placeholder-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-colors"
+                                        className="w-full rounded-xl border border-gray-200 p-3.5 text-sm text-gray-900 placeholder-gray-400 focus:border-shop-500 focus:ring-2 focus:ring-shop-500/20 focus:outline-none transition-colors"
                                     />
                                 </div>
 
@@ -720,7 +720,7 @@ export default function CustomerReviewsSection({
                                     {/* Upload Drop/Button Area */}
                                     <div
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50/60 p-4 text-center hover:bg-gray-50 hover:border-emerald-400 transition-colors cursor-pointer"
+                                        className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50/60 p-4 text-center hover:bg-gray-50 hover:border-shop-400 transition-colors cursor-pointer"
                                     >
                                         <Camera className="h-6 w-6 text-gray-400 mb-1" />
                                         <p className="text-xs font-medium text-gray-700">
@@ -787,7 +787,7 @@ export default function CustomerReviewsSection({
                                     <button
                                         type="submit"
                                         disabled={isSubmitting}
-                                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
+                                        className="inline-flex items-center gap-2 rounded-xl bg-shop-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-shop-700 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
                                     >
                                         {isSubmitting ? (
                                             <>
