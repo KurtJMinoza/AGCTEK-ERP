@@ -24,7 +24,7 @@ This document answers: **what each module owns, how value flows today, what is i
 | **SD** | **Integration** | `backend/src/sd/` · nav in `erp-modules.ts` · no `src/modules/sd` |
 | **PP** | **Integration** | `backend/src/pp/` (BOM / production orders for MM MRP) |
 | **FICO** | **Integration** | `backend/src/fico/` · nav scaffold · MM accounting consumer |
-| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; SO / RMA / loyalty accrual deferred |
+| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; Closed Won → SO, RMA hand-off, loyalty mock accrual (FICO earn deferred) |
 
 **Strategic posture:** MM and SCM are **deep enough to freeze**; do not redesign MM again. The imbalance is maturity across modules — next work is **cross-module business cycles**, not more MM surface area. See [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
 
@@ -368,7 +368,7 @@ Support / RMA request → SD return auth → MM return receiving → QI → disp
 | Layer | Status |
 | --- | --- |
 | Navigation | Hub `/modules/crm` → Dashboard, Customers, Leads, Opportunities, Tickets at `/crm/*` (permission-aware) |
-| Backend | `backend/src/crm` — leads, opportunities, tickets + comments, loyalty (read), Customer 360; `/api/v1/crm/*`, every handler `RequirePermission(MODULE_CODES.CRM, …)` |
+| Backend | `backend/src/crm` — leads, opportunities, tickets + comments, loyalty (read + `accruePoints` / gated mock earn), Customer 360; `/api/v1/crm/*`, every handler `RequirePermission(MODULE_CODES.CRM, …)` |
 | Data | `crm_*` tables (migration `20261011120000_add_crm_core`); every CRM record references `SdCustomer` (`onDelete: Restrict`) — no CRM customer master, number or credit fields |
 | Frontend | `src/modules/crm` (SCM layout: types · services · hooks · components · pages); `/crm` layout calls `requireModuleView('crm')` |
 
@@ -423,7 +423,7 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
 - **Migration warning:** the partial index and the sequence `sd_quotation_number_seq` are raw SQL that Prisma cannot model. `prisma migrate dev` / `migrate diff` may propose dropping `sd_quotations_one_active_per_opportunity`; delete that statement from any generated migration.
 - **Real-database verification:** `npm run test:pg` (backend, uses `DATABASE_URL`) runs `src/sd/quotation.pg-spec.ts`. It covers the partial index, the sequence, rollback, concurrent creation and wins, and the lock races. It creates and deletes its own data, and the default `npm test` does not run it.
 
-**Customer 360:** `GET /crm/customers/:id/360` returns 404 only when the `SdCustomer` is missing. Profile, opportunities, tickets, loyalty, SD orders and SCM shipments are read live and independently; each reports `sections.<name>.status` (`ok` | `unavailable` | `not_connected`). A failing section falls back to null/[] (summary counts null) and the rest of the payload still returns 200. SD orders come from `SalesOrderService.list({ customerId, limit: 20 })`, each tagged with the CRM opportunity that handed it off. Shipments come from SCM's `ShipmentsService.findBySalesOrderIds`, which resolves by id through package → picking task → MM reservation header (source SD / SALES_ORDER), or the legacy `SALES_ORDER:<id>` picking source. Shipments depend on the orders read, so they become unavailable when SD fails. Nothing is copied into CRM.
+**Customer 360:** `GET /crm/customers/:id/360` returns 404 only when the `SdCustomer` is missing. Profile, opportunities, tickets, loyalty, SD orders and SCM shipments are read live and independently; each reports `sections.<name>.status` (`ok` | `unavailable` | `not_connected`). A failing section falls back to null/[] (summary counts null) and the rest of the payload still returns 200. SD orders come from `SalesOrderService.listForCustomerMaster(customerId, 20)`: the latest 20 plus the total count (`summary.salesOrders`), each tagged with the CRM opportunity that handed it off. Storefront orders store the **shop account** id in `customerId`, so SD resolves the master's order identities with `resolveCommercialCustomerIds` (`backend/src/sd/customer-master.ts`): the master id plus its linked shop account (`SdCustomer.retailClientId`), through the FK only, never by email. A same-email shop account linked to no master is returned as `unlinkedShopAccounts`; the page warns that its orders are missing instead of showing a quiet zero (`npm run prisma:report-unlinked-shop-accounts` lists such accounts). The inverse, `findCustomerMasterId` (order → master), is what return cases, loyalty mock earn and SD sales returns use. Shipments come from SCM's `ShipmentsService.findBySalesOrderIds`, which resolves by id through package → picking task → MM reservation header (source SD / SALES_ORDER), or the legacy `SALES_ORDER:<id>` picking source. Shipments depend on the orders read, so they become unavailable when SD fails. Nothing is copied into CRM.
 
 **Ticket queue:** `GET /crm/tickets` defaults to the working queue (OPEN + WAITING_CUSTOMER) sorted by priority (URGENT → LOW, oldest first within a priority); `queue=ALL` drops the status filter, an explicit `status` overrides the queue, and `sort=newest` orders by creation date. Priority paging uses per-priority counts (one `groupBy`) rather than a stored rank column. `rmaReference` is free text, searchable, and informational.
 
@@ -442,7 +442,17 @@ Choosing Closed Won opens the win dialog with a readiness checklist (active SD c
 
 **CRM dashboard:** `GET /crm/dashboard?days=30|90|365` (crm:read, default 90) is a read-only summary from CRM tables only. Live counts are new / qualified leads, records with overdue activities (opportunities and tickets, each with an activity count), the weighted open pipeline (same query as `/crm/opportunities/pipeline`), and the default ticket queue by priority and status. The period covers win/loss by `closedAt` (won amount per currency, lost by reason, win rate) and the lead cohort created in the window with its current status (no `convertedAt` is stored). Every widget links to a list filtered to exactly those records: `opportunities?activity=OVERDUE|stage|lostReason|closedFrom|view=board`, `tickets?queue=ALL&activity=OVERDUE|priority|status`, `leads?status|createdFrom`. The "overdue" rule (record still accepts activities and has an open activity past due) lives once in `CrmActivitiesService` and is shared by the list filters and the dashboard. List pages read these query parameters on load and show filters without a control as removable chips.
 
-**Deferred (`TODO(crm-integration)`):** ticket RMA → SD return authorization; loyalty accrual from FICO invoice clearance; FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
+**Loyalty accrual (mock until FICO):** `CrmLoyaltyService.accruePoints` is the only write path to `CrmLoyaltyAccount` / `CrmLoyaltyTransaction`.
+- It creates the account on the first earn and appends one ledger row. Balance and tier move in the same transaction, under the account row lock.
+- An EARN with a `(referenceType, referenceId)` posts once, and the balance never goes below zero.
+- Tier comes from the balance: SILVER ≥ 1,000, GOLD ≥ 5,000, PLATINUM ≥ 20,000, otherwise BRONZE.
+- Today only the demo / staging `POST /crm/customers/:customerId/loyalty/mock-earn` (`crm.loyalty` update) calls it, gated by `LOYALTY_MOCK_ACCRUAL=true` (otherwise 403).
+  - With `salesOrderId`: `floor(total / 100 PHP) × LOYALTY_POINTS_PER_100_PHP` points, posted once per order (`referenceType = SALES_ORDER`). The order must belong to the customer, be in PHP, and not be DRAFT or CANCELLED.
+  - Without it: an admin grant (`referenceType = MOCK`).
+- **Mock ≠ FICO:** these rows are not invoice-backed. The UI labels them **Mock** and shows "Mock accrual on · not invoice-backed" while the flag is on. Real earn will come from a FICO invoice-cleared consumer calling the same `accruePoints` with an INVOICE reference.
+- Not in scope: storefront redemption, expiry, campaigns, an order-complete hook.
+- `GET …/loyalty` returns `mockAccrual`. Real-database checks: `src/crm/loyalty/loyalty.pg-spec.ts`.
+**Deferred (`TODO(crm-integration)`):** loyalty accrual from FICO invoice clearance (will call `accruePoints`); FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
 
 Do not invent inventory or SO engines inside CRM.
 

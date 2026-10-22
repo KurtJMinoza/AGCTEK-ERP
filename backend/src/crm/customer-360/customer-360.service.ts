@@ -10,6 +10,13 @@ import { ticketInclude } from '../tickets/tickets.service'
 
 const SECTION_LIMIT = 50
 const ORDER_LIMIT = 20
+
+type OrdersRead = {
+    rows: ReturnType<typeof salesOrderSummary>[]
+    total: number
+    unlinkedShopAccounts: { id: string; email: string }[]
+}
+const EMPTY_ORDERS: OrdersRead = { rows: [], total: 0, unlinkedShopAccounts: [] }
 const OPEN_TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER']
 
 /** Identity only; credit / AR stay with SD and FICO. */
@@ -48,8 +55,8 @@ const SECTION_LABELS: Record<Customer360Section, string> = {
     opportunities: 'Opportunities',
     tickets: 'Tickets',
     loyalty: 'Loyalty',
-    orders: 'SD sales orders',
-    shipments: 'SCM shipments',
+    orders: 'Sales orders',
+    shipments: 'Shipments',
     invoices: 'FICO invoices',
 }
 
@@ -76,7 +83,7 @@ export class CrmCustomer360Service {
         })
         if (!customer) throw new NotFoundException('Customer not found')
 
-        const ordersRead = this.section(customerId, 'orders', [], () => this.readOrders(customerId))
+        const ordersRead = this.section(customerId, 'orders', EMPTY_ORDERS, () => this.readOrders(customerId))
         const [profile, opportunities, tickets, loyalty, orders, shipments] = await Promise.all([
             this.section(customerId, 'profile', null, () =>
                 this.prisma.crmProfile.findUnique({ where: { customerId } }),
@@ -101,11 +108,14 @@ export class CrmCustomer360Service {
                 openOpportunities: opportunities[0]?.open ?? null,
                 wonOpportunities: opportunities[0]?.won ?? null,
                 openTickets: tickets[0]?.open ?? null,
+                salesOrders: orders[1].status === 'ok' ? orders[0].total : null,
             },
             opportunities: opportunities[0]?.rows ?? [],
             tickets: tickets[0]?.rows ?? [],
             loyalty: loyalty[0],
-            orders: orders[0].map((order) => ({
+            /** Same-email shop accounts not linked to this Customer Master: their orders are missing above. */
+            unlinkedShopAccounts: orders[0].unlinkedShopAccounts,
+            orders: orders[0].rows.map((order) => ({
                 ...order,
                 opportunity: opportunityBySalesOrder.get(order.id) ?? null,
             })),
@@ -158,15 +168,19 @@ export class CrmCustomer360Service {
         return { rows, open }
     }
 
-    private async readOrders(customerId: string) {
-        const rows = await this.salesOrders.list({ customerId, limit: ORDER_LIMIT })
-        return rows.map(salesOrderSummary)
+    /** Orders on the master id and on its linked shop account (SD resolves the identities). */
+    private async readOrders(customerId: string): Promise<OrdersRead> {
+        const { rows, total, unlinkedShopAccounts } = await this.salesOrders.listForCustomerMaster(
+            customerId,
+            ORDER_LIMIT,
+        )
+        return { rows: rows.map(salesOrderSummary), total, unlinkedShopAccounts }
     }
 
-    /** Shipments are found through the customer's SD orders, so they depend on that read. */
+    /** Shipments are found through the same resolved SD orders, so they depend on that read. */
     private async readShipments(
         customerId: string,
-        ordersRead: Promise<readonly [{ id: string }[], SectionState]>,
+        ordersRead: Promise<readonly [OrdersRead, SectionState]>,
     ) {
         type Shipments = Awaited<ReturnType<ShipmentsService['findBySalesOrderIds']>>
         const [orders, state] = await ordersRead
@@ -174,7 +188,7 @@ export class CrmCustomer360Service {
             return [[] as Shipments, this.unavailable('shipments')] as const
         }
         return this.section(customerId, 'shipments', [] as Shipments, () =>
-            this.shipments.findBySalesOrderIds(orders.map((o) => o.id)),
+            this.shipments.findBySalesOrderIds(orders.rows.map((o) => o.id)),
         )
     }
 

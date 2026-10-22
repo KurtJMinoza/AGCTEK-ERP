@@ -57,13 +57,15 @@ function mockPrisma(opts: { customer?: boolean; withChildren?: boolean } = {}) {
     }
 }
 
-function setup(prisma = mockPrisma(), orders: unknown[] = [], shipments: unknown[] = []) {
+function setup(prisma = mockPrisma(), orders: unknown[] = [], shipments: unknown[] = [], unlinkedShopAccounts: unknown[] = []) {
     const p = prisma as unknown as PrismaService
-    const salesOrders = { list: jest.fn().mockResolvedValue(orders) }
+    const salesOrders = {
+        listForCustomerMaster: jest.fn().mockResolvedValue({ rows: orders, total: orders.length, unlinkedShopAccounts }),
+    }
     const scm = { findBySalesOrderIds: jest.fn().mockResolvedValue(shipments) }
     const service = new CrmCustomer360Service(
         p,
-        new CrmLoyaltyService(p),
+        new CrmLoyaltyService(p, salesOrders as unknown as SalesOrderService),
         salesOrders as unknown as SalesOrderService,
         scm as unknown as ShipmentsService,
     )
@@ -86,7 +88,7 @@ describe('CrmCustomer360Service', () => {
         await expect(service.get('missing')).rejects.toBeInstanceOf(NotFoundException)
         expect(prisma.crmProfile.findUnique).not.toHaveBeenCalled()
         expect(prisma.crmOpportunity.findMany).not.toHaveBeenCalled()
-        expect(salesOrders.list).not.toHaveBeenCalled()
+        expect(salesOrders.listForCustomerMaster).not.toHaveBeenCalled()
     })
 
     it('returns empty sections, all ok, when the customer has no records', async () => {
@@ -94,7 +96,7 @@ describe('CrmCustomer360Service', () => {
         await expect(service.get('cust-1')).resolves.toEqual({
             customer,
             profile: null,
-            summary: { openOpportunities: 0, wonOpportunities: 0, openTickets: 0 },
+            summary: { openOpportunities: 0, wonOpportunities: 0, openTickets: 0, salesOrders: 0 },
             opportunities: [],
             tickets: [],
             loyalty: {
@@ -103,7 +105,9 @@ describe('CrmCustomer360Service', () => {
                 pointsBalance: 0,
                 tier: null,
                 transactions: [],
+                mockAccrual: false,
             },
+            unlinkedShopAccounts: [],
             orders: [],
             shipments: [],
             invoices: [],
@@ -120,7 +124,7 @@ describe('CrmCustomer360Service', () => {
         )
         const result = await service.get('cust-1')
 
-        expect(salesOrders.list).toHaveBeenCalledWith({ customerId: 'cust-1', limit: 20 })
+        expect(salesOrders.listForCustomerMaster).toHaveBeenCalledWith('cust-1', 20)
         expect(scm.findBySalesOrderIds).toHaveBeenCalledWith(['so-1'])
         expect(result.orders).toEqual([
             expect.objectContaining({
@@ -133,26 +137,42 @@ describe('CrmCustomer360Service', () => {
         ])
         expect(result.shipments).toEqual([shipment])
         expect(result.opportunities[0].amount).toBe('2500.00')
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: 1 })
+        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: 1, salesOrders: 1 })
         expect(result.sections).toEqual(allOk)
     })
 
     it('degrades the SD orders section (and dependent shipments) without failing the payload', async () => {
         const { service, salesOrders, scm } = setup(mockPrisma({ withChildren: true }))
-        salesOrders.list.mockRejectedValue(new Error('SD down'))
+        salesOrders.listForCustomerMaster.mockRejectedValue(new Error('SD down'))
 
         const result = await service.get('cust-1')
 
         expect(result.orders).toEqual([])
+        expect(result.summary.salesOrders).toBeNull()
         expect(result.shipments).toEqual([])
         expect(result.sections.orders).toEqual({
             status: 'unavailable',
-            message: 'SD sales orders could not be loaded right now',
+            message: 'Sales orders could not be loaded right now',
         })
         expect(result.sections.shipments.status).toBe('unavailable')
         expect(scm.findBySalesOrderIds).not.toHaveBeenCalled()
         expect(result.opportunities).toHaveLength(1)
         expect(result.sections.opportunities).toEqual({ status: 'ok' })
+    })
+
+    it('counts every order of the Customer Master, not just the listed ones, and flags an unlinked shop account', async () => {
+        const { service, salesOrders } = setup(mockPrisma(), [sdOrder], [], [{ id: 'shop-9', email: 'jd@example.com' }])
+        salesOrders.listForCustomerMaster.mockResolvedValue({
+            rows: [sdOrder],
+            total: 37,
+            unlinkedShopAccounts: [{ id: 'shop-9', email: 'jd@example.com' }],
+        })
+
+        const result = await service.get('cust-1')
+
+        expect(result.summary.salesOrders).toBe(37)
+        expect(result.orders).toHaveLength(1)
+        expect(result.unlinkedShopAccounts).toEqual([{ id: 'shop-9', email: 'jd@example.com' }])
     })
 
     it('degrades only the SCM section when shipments fail', async () => {
@@ -179,7 +199,7 @@ describe('CrmCustomer360Service', () => {
         expect(result.profile).toBeNull()
         expect(result.tickets).toEqual([])
         expect(result.loyalty).toBeNull()
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: null })
+        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: null, salesOrders: 1 })
         expect(result.sections).toMatchObject({
             profile: { status: 'unavailable' },
             tickets: { status: 'unavailable' },
