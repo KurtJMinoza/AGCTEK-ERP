@@ -126,6 +126,29 @@ export type VariantStockAvailability = StorefrontAvailability & {
 }
 
 /**
+ * A variant's customer-facing label.
+ *
+ * A variant with option values is labelled by them ("Small / Medium"), the
+ * way a shopper reads a combination. A variant without options (its material
+ * tells it apart) falls back to its own name.
+ */
+export const variantLabel = (
+    variant:
+        | {
+              variantName: string
+              optionValues: { value: string }[]
+          }
+        | null
+        | undefined,
+): string => {
+    if (!variant) return ''
+    const values = (variant.optionValues ?? [])
+        .map((link) => link.value?.trim())
+        .filter(Boolean)
+    return values.length ? values.join(' / ') : variant.variantName
+}
+
+/**
  * A variant's sellable price: its own override when set, otherwise the parent
  * product price (inheritance rule 1/2).
  */

@@ -71,7 +71,6 @@ export type ProductInput = {
     /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
     productConfig?: 'SIMPLE' | 'VARIABLE'
     /** Required for STOCK_ITEM — explicit SD ↔ MM link at creation. */
-    materialId?: string
     materialIds?: string[]
     materialLinkMode?: 'single' | 'multiple'
     companyId?: string
@@ -82,29 +81,17 @@ export type ProductInput = {
     /** Options + variants draft; saved via the product options endpoint after the product row exists. */
     optionsVariants?: OptionsVariantsDraft | null
     /**
-     * AUTO_CREATE = one Material Master is generated per variant from the
-     * material defaults. LINK_EXISTING = the legacy parent→material link.
+     * The existing Material Master item this product links. The Product
+     * Catalog never creates a material.
      */
-    materialMode?: 'AUTO_CREATE' | 'LINK_EXISTING'
-    /** Defaults applied to every generated Material Master. */
-    materialDefaults?: ProductMaterialDefaults
+    materialId?: string
 }
 
-/** Defaults applied to the Material Master generated for each variant. */
+/** Stock ownership for the product (variants link existing materials). */
 export type ProductMaterialDefaults = {
-    materialTypeId: string
-    materialCategoryId: string
-    baseUomId: string
-    salesUomId?: string
-    defaultWarehouseId?: string
-    storageBinId?: string
-    standardCost?: number
-    safetyStock?: number
-    maximumStock?: number
-    reorderPoint?: number
-    batchManaged?: boolean
-    serialManaged?: boolean
-    expiryManaged?: boolean
+    companyId: string
+    /** Optional: only used to label the product category when sent. */
+    materialCategoryId?: string
 }
 
 /** Matches the server's PRODUCT_GALLERY_MAX. */
@@ -359,24 +346,13 @@ export type CreateProductFamilyInput = {
     salesUomId?: string
     sku?: string
     idempotencyKey?: string
-    /** SIMPLE products only: link this material instead of creating one. */
-    existingMaterialId?: string
     materialDefaults: {
         companyId: string
-        materialTypeId: string
-        materialCategoryId: string
-        baseUomId: string
-        salesUomId?: string
-        defaultWarehouseId?: string
-        storageBinId?: string
-        standardCost?: number
-        safetyStock?: number
-        maximumStock?: number
-        reorderPoint?: number
-        batchManaged?: boolean
-        serialManaged?: boolean
-        expiryManaged?: boolean
+        /** Optional: only used to label the product category when sent. */
+        materialCategoryId?: string
     }
+    /** SIMPLE products: the existing material the hidden default links to. */
+    existingMaterialId?: string
     options?: Array<{
         name: string
         displayStyle?: string
@@ -401,6 +377,151 @@ export type CreateProductFamilyInput = {
         materialOverrides?: Record<string, unknown>
         existingMaterialId?: string
     }>
+}
+
+/** Per-product variant count and the availability across its variants. */
+export type CatalogVariantsSummary = {
+    productId: string
+    sku: string
+    name: string
+    productConfig: string
+    variantCount: number
+    onHandQty: number
+    reservedQty: number
+    availableQty: number
+}
+
+/**
+ * Variant count and combined availability per product — the Product Catalog
+ * list shows one parent product with "N Variants" and the availability summed
+ * across its variants. Stock is read from Materials Management.
+ */
+export async function fetchCatalogVariantsSummary(params?: {
+    divisionId?: string
+    companyId?: string
+}): Promise<CatalogVariantsSummary[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<CatalogVariantsSummary[]>(
+            '/sd/products/variants-summary',
+            {
+                params: {
+                    divisionId: params?.divisionId || undefined,
+                    companyId: params?.companyId || undefined,
+                },
+            },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toError(error, 'Unable to load the variant summary')
+    }
+}
+
+/** A Material Master item that may back a Product Catalog variant. */
+export type LinkableMaterial = {
+    id: string
+    materialCode: string
+    materialName: string
+    /** Stock Keeping Unit — read from Materials Management, never generated. */
+    sku: string | null
+    barcode: string | null
+    status: string
+    sellable: boolean
+    companyId: string | null
+    companyName: string | null
+    uomCode: string | null
+    uomName: string | null
+    warehouseId: string | null
+    warehouseName: string | null
+    /** Live stock, read from the MM ledger. */
+    onHandQty: number
+    reservedQty: number
+    availableQty: number
+}
+
+/**
+ * Materials that may back a variant: same company, active, sellable, with a
+ * Stock Keeping Unit and not linked to another active variant.
+ */
+export async function fetchLinkableMaterials(params?: {
+    productId?: string
+    companyId?: string
+    search?: string
+}): Promise<LinkableMaterial[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<LinkableMaterial[]>(
+            '/sd/products/linkable-materials',
+            {
+                params: {
+                    productId: params?.productId || undefined,
+                    companyId: params?.companyId || undefined,
+                    search: params?.search || undefined,
+                },
+            },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toError(error, 'Unable to load Materials Management items')
+    }
+}
+
+/**
+ * Add ONE child variant to an existing product.
+ *
+ * The variant links an existing Material Master item — the request carries no
+ * material payload, no opening stock and no material SKU.
+ */
+export async function addVariantToProduct(
+    productId: string,
+    input: {
+        materialId: string
+        optionValues: string[]
+        variantName?: string
+        price?: number | null
+        barcode?: string | null
+        weight?: number | null
+        imageUrl?: string
+        isDefault?: boolean
+        isPublished?: boolean
+        idempotencyKey?: string
+    },
+): Promise<SdProductRecord> {
+    try {
+        const { data } = await ErpAxiosBase.post<ApiProduct>(
+            `/sd/products/${encodeURIComponent(productId)}/variants`,
+            input,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Variant was not added')
+    }
+}
+
+/** Edit a child variant (option values, name, price, image, material link). */
+export async function updateProductVariant(
+    productId: string,
+    variantId: string,
+    input: {
+        materialId?: string
+        optionValues?: string[]
+        variantName?: string
+        price?: number | null
+        barcode?: string | null
+        weight?: number | null
+        imageUrl?: string
+        isActive?: boolean
+        isPublished?: boolean
+        isDefault?: boolean
+    },
+): Promise<SdProductRecord> {
+    try {
+        const { data } = await ErpAxiosBase.patch<ApiProduct>(
+            `/sd/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+            input,
+        )
+        return fromApi(data)
+    } catch (error) {
+        throw toError(error, 'Variant was not updated')
+    }
 }
 
 /** Add new variant combinations to an existing variable product. */

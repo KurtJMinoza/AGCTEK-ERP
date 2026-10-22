@@ -26,8 +26,12 @@ import { ProductService } from './product.service'
 import { ProductOptionVariantsService } from './product-option-variants.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { ProductFamilyService } from './product-family.service'
+import { ProductVariantService } from './product-variant.service'
 import { CreateProductFamilyDto } from './dto/create-product-family.dto'
-import { AddProductVariantsDto } from './dto/add-product-variants.dto'
+import {
+    AddVariantDto,
+    UpdateVariantDto,
+} from './dto/product-variant.dto'
 import { PRODUCT_VIDEO_MAX_BYTES } from './product-image-storage'
 import { RequirePermission } from '../permissions/permission.guard'
 
@@ -89,6 +93,7 @@ export class ProductController {
         private availabilityService: CommercialAvailabilityService,
         private optionVariants: ProductOptionVariantsService,
         private productFamily: ProductFamilyService,
+        private productVariant: ProductVariantService,
     ) {}
 
     @Get()
@@ -224,8 +229,9 @@ export class ProductController {
     }
 
     /**
-     * Unified product-family creation: parent product + options + variants +
-     * auto-created MM materials — all in one atomic transaction.
+     * Unified product-family creation: parent product + options + variants,
+     * each variant linking an EXISTING MM material — all in one atomic
+     * transaction. No Material Master record is ever created here.
      */
     @Post('family')
     @RequirePermission('sd.product-catalog', 'create')
@@ -234,22 +240,73 @@ export class ProductController {
     }
 
     /**
-     * Add new option values + variant combinations to an existing variable
-     * product. Only the MISSING combinations are created — existing variants,
-     * their materials and their stock are preserved, and no second parent
-     * product is created.
+     * Per-product variant count and the availability summed across the
+     * product's variants — the Product Catalog list shows one parent product
+     * with "N Variants" and the combined availability.
+     */
+    @Get('variants-summary')
+    @RequirePermission('sd.product-catalog', 'read')
+    variantsSummary(
+        @Query('divisionId') divisionId?: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.productVariant.catalogVariantsSummary({
+            divisionId,
+            companyId,
+        })
+    }
+
+    /**
+     * Materials that may back a variant — same company, active, sellable,
+     * stocked with a SKU and not already linked to another active variant.
+     * Stock is read from Materials Management.
+     *
+     * `productId` is optional: the creation wizard uses it to scope the list
+     * to the product being created (which has no id yet).
+     */
+    @Get('linkable-materials')
+    @RequirePermission('sd.product-catalog', 'read')
+    linkableMaterials(
+        @Query('productId') productId?: string,
+        @Query('companyId') companyId?: string,
+        @Query('search') search?: string,
+    ) {
+        return this.productVariant.listLinkableMaterials(
+            productId ?? null,
+            companyId,
+            search,
+        )
+    }
+
+    /**
+     * Add ONE child variant to an existing product.
+     *
+     * The variant links an existing Material Master item — the request never
+     * carries a material payload, an opening stock or a material SKU. No
+     * second parent product is created and no material is created.
      */
     @Post(':id/variants')
     @RequirePermission('sd.product-catalog', 'update')
-    addVariants(
+    addVariant(
         @Param('id') id: string,
-        @Body() dto: AddProductVariantsDto,
+        @Body() dto: AddVariantDto,
     ) {
-        return this.productFamily.addVariants(
-            id,
-            dto.newOptionValues ?? [],
-            dto.newVariants ?? [],
-        )
+        return this.productVariant.addVariant(id, dto)
+    }
+
+    /**
+     * Edit a child variant (option values, name, price, image, active /
+     * published state, or the linked material). Relinking never creates or
+     * deletes a material.
+     */
+    @Patch(':id/variants/:variantId')
+    @RequirePermission('sd.product-catalog', 'update')
+    updateVariant(
+        @Param('id') id: string,
+        @Param('variantId') variantId: string,
+        @Body() dto: UpdateVariantDto,
+    ) {
+        return this.productVariant.updateVariant(id, variantId, dto)
     }
 
     /** Archive a variant (hide from shop, preserve history). */

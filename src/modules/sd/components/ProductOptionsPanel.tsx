@@ -19,9 +19,10 @@ import Select from '@/components/ui/Select'
 import Spinner from '@/components/ui/Spinner'
 import Switcher from '@/components/ui/Switcher'
 import { FormItem } from '@/components/ui/Form'
-import { materialService } from '@/modules/mm/material-master/services/materialService'
 import type { Material } from '@/modules/mm/material-master/types'
+import { fetchLinkableMaterials } from '../services/productCatalogService'
 import { uploadProductImage } from '@/modules/sd/services/productCatalogService'
+import VariantImageField from './VariantImageField'
 import type {
     OptionsVariantsDraft,
     OptionDisplayStyle,
@@ -71,6 +72,7 @@ const ProductOptionsPanel = ({
     defaultSku = '',
     disabled = false,
     errors = [],
+    companyId = null,
 }: {
     initial: ProductOptionsVariants | null
     /** Lifted draft state (parent owns it so save happens on form submit). */
@@ -84,36 +86,72 @@ const ProductOptionsPanel = ({
     disabled?: boolean
     /** Validation messages — shown after a failed save attempt. */
     errors?: string[]
+    /** Company scope for the linkable-material list. */
+    companyId?: string | null
 }) => {
     const [materials, setMaterials] = useState<Material[]>([])
-    const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
     const [uploadingValue, setUploadingValue] = useState<string | null>(null)
-    const [imageErrors, setImageErrors] = useState<Record<number, string>>({})
     const [generateHint, setGenerateHint] = useState<string | null>(null)
 
+    /**
+     * Only materials that may back a variant are offered: same company,
+     * active, sellable, with a Stock Keeping Unit and not already linked to
+     * another active variant. The Product Catalog never creates a material.
+     */
     useEffect(() => {
-        materialService
-            .list({ limit: 500, page: 1 } as never)
-            .then((res: unknown) => {
+        let cancelled = false
+        fetchLinkableMaterials({ companyId: companyId ?? undefined })
+            .then((rows) => {
+                if (cancelled) return
                 setMaterials(
-                    Array.isArray(res)
-                        ? (res as Material[])
-                        : ((res as { data?: Material[] })?.data ?? []),
+                    rows.map((row) => ({
+                        id: row.id,
+                        materialCode: row.materialCode,
+                        materialName: row.materialName,
+                        sku: row.sku,
+                        status: row.status,
+                        companyId: row.companyId,
+                    })) as unknown as Material[],
                 )
             })
-            .catch(() => {})
-    }, [])
+            .catch(() => {
+                if (!cancelled) setMaterials([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [companyId])
+
+    const draft: OptionsVariantsDraft = value ?? { options: [], variants: [] }
+
+    /**
+     * A material may back only one variant. The server already refuses a
+     * material that is linked to another ACTIVE variant; this hides the
+     * materials this draft has already used (they are not saved yet, so the
+     * server cannot know about them).
+     */
+    const materialsUsedInDraft = useMemo(() => {
+        const used = new Set<string>()
+        for (const variant of draft.variants) {
+            if (variant.isActive === false) continue
+            if (variant.materialId) used.add(variant.materialId)
+        }
+        return used
+    }, [draft.variants])
 
     const materialOptions = useMemo<MaterialOption[]>(
         () =>
-            materials.map((material) => ({
-                value: material.id,
-                label: `${material.materialCode} — ${material.materialName}`,
-            })),
-        [materials],
+            materials
+                .filter((material) => !materialsUsedInDraft.has(material.id))
+                .map((material) => ({
+                    value: material.id,
+                    label: `${material.materialCode} — ${material.materialName}${
+                        material.sku ? ` (${material.sku})` : ''
+                    }`,
+                })),
+        [materials, materialsUsedInDraft],
     )
 
-    const draft: OptionsVariantsDraft = value ?? { options: [], variants: [] }
     const showValidation = errors.length > 0
     const variantImageMode = draft.variantImageMode ?? 'replace'
 
@@ -179,33 +217,6 @@ const ProductOptionsPanel = ({
             /* surfaced by the product form's error toast on save */
         } finally {
             setUploadingValue(null)
-        }
-    }
-
-    const handleVariantImage = async (
-        index: number,
-        file: File | null | undefined,
-    ) => {
-        if (!file) return
-        setUploadingIndex(index)
-        setImageErrors((prev) => {
-            const next = { ...prev }
-            delete next[index]
-            return next
-        })
-        try {
-            const url = await uploadProductImage(file)
-            updateVariant(index, { imageUrl: url })
-        } catch (error) {
-            setImageErrors((prev) => ({
-                ...prev,
-                [index]:
-                    error instanceof Error
-                        ? error.message
-                        : 'Unable to upload image',
-            }))
-        } finally {
-            setUploadingIndex(null)
         }
     }
 
@@ -741,8 +752,6 @@ const ProductOptionsPanel = ({
                                 variant.price !== null &&
                                 (!Number.isFinite(variant.price) ||
                                     variant.price < 0)
-                            const uploading =
-                                uploadingIndex === variantIndex
                             return (
                                 <div
                                     key={variantIndex}
@@ -1034,7 +1043,7 @@ const ProductOptionsPanel = ({
                                                 <Select<MaterialOption>
                                                     size="sm"
                                                     isClearable
-                                                    placeholder="Link MM material"
+                                                    placeholder="Link an existing MM material"
                                                     options={materialOptions}
                                                     value={
                                                         materialOptions.find(
@@ -1054,95 +1063,30 @@ const ProductOptionsPanel = ({
                                                         )
                                                     }
                                                 />
+                                                <p className="mt-1 text-xs text-gray-500">
+                                                    Materials are created in
+                                                    Materials Management and
+                                                    linked here. The variant
+                                                    takes its Stock Keeping
+                                                    Unit and stock from that
+                                                    material.
+                                                </p>
                                             </FormItem>
                                         </div>
                                         <div className="col-span-2">
-                                            <FormItem
-                                                label="Variant image"
-                                                invalid={Boolean(
-                                                    imageErrors[variantIndex],
-                                                )}
-                                                errorMessage={
-                                                    imageErrors[variantIndex]
-                                                }
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    {variant.imageUrl ? (
-                                                        <span className="relative shrink-0">
-                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                            <img
-                                                                src={
-                                                                    variant.imageUrl
-                                                                }
-                                                                alt=""
-                                                                className="h-12 w-12 rounded-lg border border-gray-200 object-cover dark:border-gray-700"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                aria-label="Remove image"
-                                                                disabled={
-                                                                    disabled
-                                                                }
-                                                                className="absolute -right-1.5 -top-1.5 rounded-full border border-gray-200 bg-white p-0.5 text-gray-500 shadow hover:text-red-500 dark:border-gray-600 dark:bg-gray-800"
-                                                                onClick={() =>
-                                                                    updateVariant(
-                                                                        variantIndex,
-                                                                        {
-                                                                            imageUrl:
-                                                                                '',
-                                                                        },
-                                                                    )
-                                                                }
-                                                            >
-                                                                <HiOutlineX className="h-3 w-3" />
-                                                            </button>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-200 text-gray-300 dark:border-gray-700 dark:text-gray-600">
-                                                            <HiOutlinePhotograph className="h-5 w-5" />
-                                                        </span>
-                                                    )}
-                                                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-primary hover:text-primary dark:border-gray-600 dark:text-gray-300">
-                                                        {uploading ? (
-                                                            <>
-                                                                <Spinner
-                                                                    size={14}
-                                                                />{' '}
-                                                                Uploading…
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <HiOutlineUpload className="h-4 w-4" />{' '}
-                                                                {variant.imageUrl
-                                                                    ? 'Replace image'
-                                                                    : 'Upload image'}
-                                                            </>
-                                                        )}
-                                                        <input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            className="hidden"
-                                                            disabled={
-                                                                disabled ||
-                                                                uploadingIndex !==
-                                                                    null
-                                                            }
-                                                            onChange={(event) => {
-                                                                void handleVariantImage(
-                                                                    variantIndex,
-                                                                    event.target
-                                                                        .files?.[0],
-                                                                )
-                                                                event.target.value =
-                                                                    ''
-                                                            }}
-                                                        />
-                                                    </label>
-                                                    <span className="text-[11px] text-gray-400">
-                                                        PNG, JPG, WEBP — up to 5
-                                                        MB
-                                                    </span>
-                                                </div>
+                                            <FormItem label="Variant image">
+                                                <VariantImageField
+                                                    value={variant.imageUrl}
+                                                    onChange={(url) =>
+                                                        updateVariant(
+                                                            variantIndex,
+                                                            {
+                                                                imageUrl: url,
+                                                            },
+                                                        )
+                                                    }
+                                                    disabled={disabled}
+                                                />
                                             </FormItem>
                                         </div>
                                     </div>

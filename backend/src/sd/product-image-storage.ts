@@ -101,6 +101,51 @@ export function deleteProductImageByUrl(
     if (existsSync(absolutePath)) unlinkSync(absolutePath)
 }
 
+/**
+ * The upload folders the API serves.
+ *
+ * Next.js snapshots `public/` when it starts, so a picture uploaded while the
+ * app is running is not served until the web app restarts. The API therefore
+ * serves the uploads itself, straight from disk.
+ */
+export type UploadKind = 'products' | 'deliveries'
+
+/** Absolute path of an uploaded file, or null when the name is not allowed. */
+export function uploadFilePath(
+    kind: UploadKind,
+    fileName: string,
+): string | null {
+    // Only a generated file name is allowed: no separators, no traversal.
+    if (!/^[0-9a-f-]{36}\.[a-z0-9]{3,4}$/.test(fileName)) return null
+    const root =
+        kind === 'products' ? UPLOAD_ROOT : DELIVERY_UPLOAD_ROOT
+    return join(root, fileName)
+}
+
+/** Content type for an uploaded file. */
+export function uploadContentType(fileName: string): string {
+    const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+    switch (ext) {
+        case 'png':
+            return 'image/png'
+        case 'jpg':
+        case 'jpeg':
+            return 'image/jpeg'
+        case 'webp':
+            return 'image/webp'
+        case 'gif':
+            return 'image/gif'
+        case 'mp4':
+            return 'video/mp4'
+        case 'webm':
+            return 'video/webm'
+        case 'mov':
+            return 'video/quicktime'
+        default:
+            return 'application/octet-stream'
+    }
+}
+
 /** Proof-of-delivery photos live in their own `public/uploads/deliveries` folder. */
 const DELIVERY_UPLOAD_ROOT = resolve(
     process.env.DELIVERY_UPLOAD_DIR ??

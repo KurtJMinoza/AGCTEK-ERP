@@ -61,6 +61,17 @@ export function validateOptionsVariants(
         )
     }
 
+    // Every enabled variant must link an EXISTING Material Master item — the
+    // Product Catalog never creates one.
+    variants.forEach((variant, index) => {
+        if (variant.isActive === false) return
+        if (variant.materialId) return
+        const label = variant.variantName?.trim() || `Variant ${index + 1}`
+        issues.push(
+            `Variant "${label}": link an existing MM material (create it in Materials Management first)`,
+        )
+    })
+
     const skus = new Set<string>()
     const combos = new Set<string>()
     variants.forEach((variant, index) => {

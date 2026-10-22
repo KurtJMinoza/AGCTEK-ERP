@@ -3972,6 +3972,8 @@ model SdProductVariant {
   /// Hidden variants are not shown to customers (used for SIMPLE product default variants).
   isHidden       Boolean                       @default(false)
   sortOrder      Int                           @default(0)
+  /// Client-generated key so a double submit cannot create two variants.
+  idempotencyKey String?                       @unique
   /// MM stock authority for this variant (null = non-stock / service variant)
   materialId     String?
   material       MmMaterial?                   @relation("SdVariantMaterial", fields: [materialId], references: [id], onDelete: SetNull)

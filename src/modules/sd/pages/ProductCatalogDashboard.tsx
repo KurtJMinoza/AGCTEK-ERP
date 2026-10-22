@@ -44,39 +44,20 @@ import { useProductCatalogStore } from '../store/useProductCatalogStore'
 function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null {
     const ov = values.optionsVariants
     if (!values.companyId) return null
-    const defaults = values.materialDefaults
     const productConfig = values.productConfig ?? 'SIMPLE'
-    if (
-        productConfig === 'VARIABLE' &&
-        (!ov || !ov.options.length || !ov.variants.length)
-    ) {
-        return null
+    const existingMaterialId = values.materialId?.trim() || undefined
+
+    if (productConfig === 'VARIABLE') {
+        // Every configured variant must link an existing material.
+        if (!ov || !ov.options.length || !ov.variants.length) return null
+        const enabled = ov.variants.filter((v) => v.isActive !== false)
+        if (enabled.length === 0) return null
+        if (enabled.some((v) => !v.materialId)) return null
+    } else {
+        // A simple product links exactly one existing material.
+        if (!existingMaterialId) return null
     }
-    // AUTO_CREATE requires the material defaults collected in the wizard.
-    // LINK_EXISTING resolves the defaults server-side from the linked material.
-    const linkExisting =
-        values.materialMode === 'LINK_EXISTING'
-            ? values.materialIds?.[0]
-            : undefined
-    if (
-        values.materialMode === 'AUTO_CREATE' &&
-        (!defaults?.materialTypeId ||
-            !defaults.materialCategoryId ||
-            !defaults.baseUomId)
-    ) {
-        return null
-    }
-    if (values.materialMode === 'LINK_EXISTING' && !linkExisting) {
-        return null
-    }
-    const materialTypeId =
-        defaults?.materialTypeId ||
-        (linkExisting ? '__FROM_MATERIAL__' : '')
-    const materialCategoryId =
-        defaults?.materialCategoryId ||
-        (linkExisting ? '__FROM_MATERIAL__' : '')
-    const baseUomId =
-        defaults?.baseUomId || (linkExisting ? '__FROM_MATERIAL__' : '')
+
     return {
         divisionId: values.divisionId,
         name: values.name,
@@ -87,41 +68,8 @@ function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null
         badge: values.badge ?? undefined,
         productConfig,
         sku: values.sku || undefined,
-        ...(linkExisting ? { existingMaterialId: linkExisting } : {}),
-        materialDefaults: {
-            companyId: values.companyId,
-            materialTypeId,
-            materialCategoryId,
-            baseUomId,
-            ...(defaults?.salesUomId ? { salesUomId: defaults.salesUomId } : {}),
-            ...(defaults?.defaultWarehouseId
-                ? { defaultWarehouseId: defaults.defaultWarehouseId }
-                : {}),
-            ...(defaults?.storageBinId
-                ? { storageBinId: defaults.storageBinId }
-                : {}),
-            ...(defaults?.standardCost !== undefined
-                ? { standardCost: defaults.standardCost }
-                : {}),
-            ...(defaults?.safetyStock !== undefined
-                ? { safetyStock: defaults.safetyStock }
-                : {}),
-            ...(defaults?.maximumStock !== undefined
-                ? { maximumStock: defaults.maximumStock }
-                : {}),
-            ...(defaults?.reorderPoint !== undefined
-                ? { reorderPoint: defaults.reorderPoint }
-                : {}),
-            ...(defaults?.batchManaged !== undefined
-                ? { batchManaged: defaults.batchManaged }
-                : {}),
-            ...(defaults?.serialManaged !== undefined
-                ? { serialManaged: defaults.serialManaged }
-                : {}),
-            ...(defaults?.expiryManaged !== undefined
-                ? { expiryManaged: defaults.expiryManaged }
-                : {}),
-        },
+        materialDefaults: { companyId: values.companyId },
+        ...(existingMaterialId ? { existingMaterialId } : {}),
         options: (ov?.options ?? []).map((opt, i) => ({
             name: opt.name,
             displayStyle: opt.displayStyle ?? 'BUTTON',
@@ -282,12 +230,12 @@ const ProductCatalogDashboard = () => {
                             familyInput.productConfig === 'SIMPLE'
                                 ? 1
                                 : enabledVariants.filter(
-                                      (v) => !v.existingMaterialId,
+                                      (v) => !!v.existingMaterialId,
                                   ).length
                         notify(
                             'success',
                             'Product added',
-                            `${created.name} with ${variantCount} variant(s) and ${materialCount} material(s) is now listed.`,
+                            `${created.name} with ${variantCount} variant(s) linked to ${materialCount} existing material(s) is now listed.`,
                         )
                         afterChange(created.divisionId ?? values.divisionId)
                         setDialog(null)
@@ -326,10 +274,25 @@ const ProductCatalogDashboard = () => {
                 const { divisionId: _divisionId, sku: _sku, ...changes } = values
                 const updated = await updateProduct(dialog.product.id, changes)
                 if (values.optionsVariants) {
-                    await productOptionVariantsService.saveForProduct(
-                        dialog.product.id,
-                        values.optionsVariants,
-                    )
+                    try {
+                        await productOptionVariantsService.saveForProduct(
+                            dialog.product.id,
+                            values.optionsVariants,
+                        )
+                    } catch (optionErr) {
+                        // The product itself was saved — say so, instead of
+                        // reporting "Product not updated" for a saved product.
+                        afterChange(updated.divisionId)
+                        setDialog(null)
+                        notify(
+                            'danger',
+                            'Product updated, but options & variants failed',
+                            optionErr instanceof Error
+                                ? optionErr.message
+                                : 'Open the product and retry the Options & Variants step.',
+                        )
+                        return
+                    }
                 }
                 notify('success', 'Product updated', `${updated.name} saved.`)
                 afterChange(updated.divisionId)

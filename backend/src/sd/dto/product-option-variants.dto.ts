@@ -171,15 +171,22 @@ export class VariantInputDto {
     /**
      * Display values in the same order as `options` (e.g. ["Black", "Medium"]
      * for [Color, Size]). Each value must exist in its option.
+     *
+     * A product WITHOUT customer-selectable options has no values to pick, so
+     * an empty array is valid there. The "one value per option" rule is
+     * enforced against the product's actual options in the service.
      */
     @IsArray()
-    @ArrayMinSize(1)
     @IsString({ each: true })
     optionValues!: string[]
 }
 
 export class UpdateProductOptionsVariantsDto {
-    /** Empty arrays clear options and variants (back to a simple product). */
+    /**
+     * The product's option groups. An empty array means the product has no
+     * customer-selectable options — its variants are still replaced by the
+     * payload below.
+     */
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => ProductOptionInputDto)
