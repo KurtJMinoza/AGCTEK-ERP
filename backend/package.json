@@ -27,6 +27,7 @@
     "prisma:seed-mm-reference": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reference-essentials-run.ts",
     "prisma:seed-material-samples": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-material-samples-run.ts",
     "prisma:seed-kirkland-variants": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-variants-kirkland-vitamin-e.ts",
+    "prisma:report-auto-created-materials": "ts-node --project prisma/tsconfig.seed.json prisma/report-auto-created-materials.ts",
     "prisma:seed-sd-mm-stock": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-test-stock.ts",
     "prisma:seed-supplier-links": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-supplier-material-links-run.ts",
     "prisma:seed-purchase-requisition": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-purchase-requisition-run.ts",
