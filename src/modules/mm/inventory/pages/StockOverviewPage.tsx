@@ -32,6 +32,7 @@ import {
     useLazyBinsForWarehouse,
 } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import MmCompanyCell from '@/modules/mm/shared/MmCompanyCell'
 
 const ROUTE = '/modules/mm/inventory-management/stock-overview'
 const LEDGER_ROUTE = '/modules/mm/inventory-management/inventory-ledger'
@@ -406,9 +407,7 @@ const StockOverviewPage = () => {
             {
                 header: 'Company',
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-sm text-gray-600">
-                        {row.original.company?.code ?? '—'}
-                    </span>
+                    <MmCompanyCell company={row.original.company} />
                 ),
             },
             {

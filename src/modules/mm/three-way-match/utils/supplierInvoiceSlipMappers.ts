@@ -1,5 +1,9 @@
 import type { SupplierInvoice } from '../types'
 import type { SupplierInvoiceSlipData } from '../components/SupplierInvoiceSlip'
+import {
+    companyFromApi,
+    supplierPartyFromApi,
+} from '@/modules/mm/shared/documentSlipUtils'
 
 export function supplierInvoiceToSlip(inv: SupplierInvoice): SupplierInvoiceSlipData {
     const currency = inv.currency?.code
@@ -10,11 +14,12 @@ export function supplierInvoiceToSlip(inv: SupplierInvoice): SupplierInvoiceSlip
         paymentEligible: inv.paymentEligible,
         invoiceDate: inv.invoiceDate,
         postingDate: inv.postingDate,
-        supplier: inv.supplier
-            ? `${inv.supplier.supplierCode} — ${inv.supplier.supplierName}`
-            : inv.supplierId,
+        supplier: inv.supplier?.supplierName,
+        supplierCode: inv.supplier?.supplierCode,
         poNumber: inv.purchaseOrder?.poNumber,
         currency,
+        company: companyFromApi(inv.company),
+        party: supplierPartyFromApi(inv.supplier),
         totalAmount: inv.totalAmount,
         taxAmount: inv.taxAmount,
         remarks: inv.remarks ?? undefined,

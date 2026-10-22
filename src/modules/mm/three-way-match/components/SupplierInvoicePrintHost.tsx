@@ -32,7 +32,7 @@ export function SupplierInvoicePrintHost({
             <FormDialog
                     isOpen={slip !== null}
                     onClose={onClose}
-                    size="sm"
+                    size="lg"
                     title="Print supplier invoice"
                     icon={<HiOutlinePrinter />}
                     footer={

@@ -26,6 +26,14 @@ export interface GoodsReceipt {
     id: string
     documentNumber: string
     companyId: string
+    company?: {
+        id: string
+        code?: string
+        name?: string
+        logoUrl?: string | null
+        address?: string | null
+        tin?: string | null
+    }
     warehouseId: string
     warehouse?: { id: string; name: string }
     purchaseOrderId?: string | null
@@ -40,6 +48,11 @@ export interface GoodsReceipt {
         supplierName?: string
         name?: string
         code?: string
+        billingAddress?: string | null
+        shippingAddress?: string | null
+        taxId?: string | null
+        email?: string | null
+        phone?: string | null
     } | null
     receiverId?: string | null
     postingDate: string

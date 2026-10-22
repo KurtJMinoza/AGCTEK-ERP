@@ -43,6 +43,15 @@ import type {
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
+import {
+    WmAnimatedStatus,
+    WmDocNumberCell,
+    WmItemCountBadge,
+    WmPartyCell,
+    WmProgressQtyCell,
+    WmSalesOrderChip,
+    wmTableRowEnterClass,
+} from '../components/WarehouseTableCells'
 import dynamic from 'next/dynamic'
 
 const ShipToMapDialog = dynamic(
@@ -92,6 +101,21 @@ function pushToast(
 }
 
 /** Backend validation message (possibly an array) from an axios failure. */
+function packageExpectedTotal(pkg: WmPackage): number {
+    if (pkg.totalItemQuantity != null) return Number(pkg.totalItemQuantity) || 0
+    return (pkg.items ?? []).reduce(
+        (sum, item) => sum + (Number(item.expectedQty) || 0),
+        0,
+    )
+}
+
+function packageScannedTotal(pkg: WmPackage): number {
+    return (pkg.items ?? []).reduce(
+        (sum, item) => sum + (Number(item.scannedQty) || 0),
+        0,
+    )
+}
+
 function apiErrorMessage(err: unknown, fallback: string): string {
     const response = (err as { response?: { data?: { message?: unknown } } })
         ?.response?.data
@@ -529,34 +553,37 @@ const PackingPage = () => {
     const columns = useMemo<ColumnDef<WmPackage>[]>(
         () => [
             {
-                header: 'Package Number',
+                header: 'Package',
                 accessorKey: 'packageNumber',
-                size: 140,
-                minSize: 120,
+                size: 160,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <button
-                        type="button"
+                    <WmDocNumberCell
+                        primary={row.original.packageNumber}
+                        secondary={
+                            row.original.packageType
+                                ? row.original.packageType
+                                : row.original.warehouse?.code ?? undefined
+                        }
+                        icon="pack"
                         onClick={() => openDetail(row.original)}
-                        className="whitespace-nowrap font-mono text-xs font-semibold text-primary hover:underline"
-                    >
-                        {row.original.packageNumber}
-                    </button>
+                    />
                 ),
             },
             {
-                header: 'Total Items',
-                id: 'totalItems',
-                size: 90,
-                minSize: 80,
+                header: 'Sales order',
+                id: 'orderNumber',
+                size: 130,
+                minSize: 110,
                 cell: ({ row }) => {
-                    const total =
-                        row.original.totalItemQuantity ??
-                        (row.original.items ?? []).reduce(
-                            (sum, item) =>
-                                sum + (Number(item.expectedQty) || 0),
-                            0,
-                        )
-                    return <span className="text-sm">{total} items</span>
+                    const order =
+                        row.original.salesOrder ??
+                        row.original.pickingTask?.salesOrder
+                    const orderNo =
+                        row.original.orderNumber ??
+                        order?.orderNumber ??
+                        null
+                    return <WmSalesOrderChip orderNumber={orderNo} />
                 },
             },
             {
@@ -568,15 +595,52 @@ const PackingPage = () => {
                     const order =
                         row.original.salesOrder ??
                         row.original.pickingTask?.salesOrder
+                    const name =
+                        order?.customerName ||
+                        order?.shipToName ||
+                        row.original.shipToName ||
+                        null
                     return (
-                        <span className="text-sm">
-                            {order?.customerName ||
-                                order?.shipToName ||
-                                row.original.shipToName ||
-                                '—'}
-                        </span>
+                        <WmPartyCell
+                            name={name}
+                            subtitle={order?.shipToCity ?? undefined}
+                        />
                     )
                 },
+            },
+            {
+                header: 'Pack progress',
+                id: 'packProgress',
+                size: 128,
+                minSize: 108,
+                cell: ({ row }) => {
+                    const expected = packageExpectedTotal(row.original)
+                    const scanned = packageScannedTotal(row.original)
+                    return (
+                        <WmProgressQtyCell
+                            done={scanned}
+                            total={expected}
+                            label="Scanned"
+                            tone="pack"
+                        />
+                    )
+                },
+            },
+            {
+                header: 'Lines',
+                id: 'totalItems',
+                size: 100,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <WmItemCountBadge
+                        count={(row.original.items ?? []).length}
+                        label={
+                            (row.original.items ?? []).length === 1
+                                ? 'line'
+                                : 'lines'
+                        }
+                    />
+                ),
             },
             {
                 header: 'Status',
@@ -584,11 +648,10 @@ const PackingPage = () => {
                 size: 140,
                 minSize: 120,
                 cell: ({ row }) => (
-                    <StatusBadge
+                    <WmAnimatedStatus
+                        status={row.original.status}
                         tone={STATUS_TONE[row.original.status] ?? 'default'}
-                    >
-                        {row.original.status.replace(/_/g, ' ')}
-                    </StatusBadge>
+                    />
                 ),
             },
             {
@@ -747,6 +810,8 @@ const PackingPage = () => {
                         compact
                         fit
                         loading={loading}
+                        getRowId={(row) => row.id}
+                        rowClassName={(_, index) => wmTableRowEnterClass(index)}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}

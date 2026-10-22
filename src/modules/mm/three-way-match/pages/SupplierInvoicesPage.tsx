@@ -25,14 +25,16 @@ import { supplierInvoiceToSlip } from '../utils/supplierInvoiceSlipMappers'
 import type { SupplierInvoiceSlipData } from '../components/SupplierInvoiceSlip'
 import InfoCard from '@/modules/mm/shared/InfoCard'
 import { fmtMoney } from '@/modules/mm/shared/formatters'
-import { goodsReceiptService } from '@/modules/mm/inventory/services/goodsReceiptService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { SupplierInvoice } from '../types'
-import type { GoodsReceipt } from '@/modules/mm/inventory/types'
 import type { MmPurchaseOrder, MmPurchaseOrderLine } from '@/modules/mm/procurement/types'
 import { poInvoiceOpenQty } from '@/modules/mm/procurement/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
+import {
+    listPurchaseOrdersForInvoicing,
+    loadSupplierInvoicePoDraft,
+    resolvePurchaseOrderId,
+} from '../utils/supplierInvoicePoDraft'
 import {
     firstError,
     positiveNumber,
@@ -43,7 +45,7 @@ import {
 
 const ROUTE = '/modules/mm/procurement/supplier-invoices'
 
-function pushToast(type: 'success' | 'danger', title: string, msg: string) {
+function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: string) {
     toast.push(
         <Notification type={type} title={title} closable duration={3500}>
             {msg}
@@ -52,26 +54,33 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-type GrPick = { value: string; label: string; maxQty: number }
+type PoSelectOption = { value: string; label: string }
 
 const SupplierInvoicesPage = () => {
     const searchParams = useSearchParams()
     const highlightId = searchParams.get('invoiceId')
+    const prefillPoId = searchParams.get('purchaseOrderId')
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<SupplierInvoice[]>([])
     const [loading, setLoading] = useState(false)
-    const { ensure: ensureFormRefs, companies, suppliers } = useLazyMmRefs()
+    const { ensure: ensureFormRefs, suppliers } = useLazyMmRefs()
     const [open, setOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const [poLookup, setPoLookup] = useState('')
+    const [poOptions, setPoOptions] = useState<PoSelectOption[]>([])
+    const [poOptionsLoading, setPoOptionsLoading] = useState(false)
+    const [selectedPoId, setSelectedPoId] = useState<string | null>(null)
     const [po, setPo] = useState<MmPurchaseOrder | null>(null)
     const [poLoading, setPoLoading] = useState(false)
+    const [postedGrCount, setPostedGrCount] = useState(0)
     const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10))
     const [supplierId, setSupplierId] = useState('')
     const [remarks, setRemarks] = useState('')
     const [invLines, setInvLines] = useState<Record<string, string>>({})
     const [grLineId, setGrLineId] = useState<Record<string, string>>({})
-    const [grOpts, setGrOpts] = useState<Record<string, GrPick[]>>({})
+    const [grOpts, setGrOpts] = useState<
+        Record<string, { value: string; label: string; maxQty: number }[]>
+    >({})
     const [touched, setTouched] = useState<Record<string, boolean>>({})
     const [forceValidate, setForceValidate] = useState(false)
     const [detailOpen, setDetailOpen] = useState(false)
@@ -127,80 +136,178 @@ const SupplierInvoicesPage = () => {
         [po],
     )
 
-    const loadPo = async (poIdOrNumber: string) => {
-        const q = poIdOrNumber.trim()
-        if (!q) return
-        setPoLoading(true)
-        try {
-            let poData: MmPurchaseOrder
-            if (q.startsWith('PO-') || q.length < 20) {
-                const list = await ErpAxiosBase.get('/mm/purchase-orders', {
-                    params: { search: q, pageSize: 5 },
-                }).then((r) => r.data)
-                const hit = (list.data ?? []).find(
-                    (p: MmPurchaseOrder) => p.poNumber === q || p.id === q,
-                ) ?? list.data?.[0]
-                if (!hit?.id) throw new Error('PO not found')
-                poData = await ErpAxiosBase.get(`/mm/purchase-orders/${hit.id}`).then((r) => r.data)
-            } else {
-                poData = await ErpAxiosBase.get(`/mm/purchase-orders/${q}`).then((r) => r.data)
-            }
-            setPo(poData)
-            setSupplierId(poData.supplierId ?? '')
-            const openLines = (poData.lines ?? []).filter((l: MmPurchaseOrderLine) => poInvoiceOpenQty(l) > 0)
-            const grRes = await goodsReceiptService.list({
-                purchaseOrderId: poData.id,
-                status: 'POSTED',
-                pageSize: 100,
-            })
-            const receipts = (grRes.data ?? []) as GoodsReceipt[]
-            const opts: Record<string, GrPick[]> = {}
-            const qtyInit: Record<string, string> = {}
-            const grInit: Record<string, string> = {}
-            for (const l of openLines) {
-                const open = poInvoiceOpenQty(l)
-                qtyInit[l.id] = String(open)
-                const picks: GrPick[] = []
-                for (const gr of receipts) {
-                    for (const gl of gr.lines ?? []) {
-                        if (gl.purchaseOrderLineId && gl.purchaseOrderLineId !== l.id) continue
-                        if (!gl.purchaseOrderLineId && gl.materialId !== l.materialId) continue
-                        picks.push({
-                            value: gl.id,
-                            label: `${gr.documentNumber} · qty ${Number(gl.quantity)}`,
-                            maxQty: Number(gl.quantity),
-                        })
-                    }
+    const poQtySummary = useMemo(() => {
+        const lines = po?.lines ?? []
+        const received = lines.reduce((s, l) => s + Number(l.receivedQuantity || 0), 0)
+        const invoiced = lines.reduce((s, l) => s + Number(l.invoicedQuantity || 0), 0)
+        const open = lines.reduce((s, l) => s + poInvoiceOpenQty(l), 0)
+        return {
+            ordered: lines.reduce((s, l) => s + Number(l.quantity), 0),
+            received,
+            invoiced,
+            open,
+        }
+    }, [po])
+
+    const canInvoicePo = invOpenLines.length > 0
+
+    const poLinePreviewColumns = useMemo<ColumnDef<MmPurchaseOrderLine>[]>(
+        () => [
+            { header: '#', accessorKey: 'lineNumber', size: 44 },
+            {
+                header: 'Material',
+                id: 'm',
+                cell: ({ row }) => (
+                    <span className="text-sm">
+                        {row.original.material?.materialCode ?? row.original.materialId}
+                    </span>
+                ),
+            },
+            {
+                header: 'Received',
+                id: 'rcv',
+                cell: ({ row }) => <span>{Number(row.original.receivedQuantity || 0)}</span>,
+            },
+            {
+                header: 'Invoiced',
+                id: 'inv',
+                cell: ({ row }) => <span>{Number(row.original.invoicedQuantity || 0)}</span>,
+            },
+            {
+                header: 'Open',
+                id: 'open',
+                cell: ({ row }) => (
+                    <span
+                        className={
+                            poInvoiceOpenQty(row.original) > 0
+                                ? 'font-medium text-primary'
+                                : 'text-gray-400'
+                        }
+                    >
+                        {poInvoiceOpenQty(row.original)}
+                    </span>
+                ),
+            },
+        ],
+        [],
+    )
+
+    const applyPoDraft = useCallback(
+        (draft: Awaited<ReturnType<typeof loadSupplierInvoicePoDraft>>) => {
+            setPo(draft.po)
+            setSelectedPoId(draft.po.id)
+            setSupplierId(draft.po.supplierId ?? '')
+            setGrOpts(draft.grOpts)
+            setInvLines(draft.invLines)
+            setGrLineId(draft.grLineId)
+            setPostedGrCount(draft.postedReceiptCount)
+        },
+        [],
+    )
+
+    const clearPoDraft = useCallback(() => {
+        setPo(null)
+        setSelectedPoId(null)
+        setPostedGrCount(0)
+        setInvLines({})
+        setGrLineId({})
+        setGrOpts({})
+    }, [])
+
+    const loadPoById = useCallback(
+        async (purchaseOrderId: string) => {
+            setPoLoading(true)
+            try {
+                const draft = await loadSupplierInvoicePoDraft(purchaseOrderId)
+                applyPoDraft(draft)
+                if (draft.openLines.length === 0) {
+                    pushToast(
+                        'warning',
+                        'Nothing to invoice',
+                        draft.postedReceiptCount === 0
+                            ? 'This PO has no posted goods receipts yet. Receive and post a GR first.'
+                            : 'All received quantity on this PO is already invoiced.',
+                    )
+                } else if (draft.postedReceiptCount === 0) {
+                    pushToast(
+                        'warning',
+                        'Goods receipts',
+                        'No posted GR found — you will need a posted receipt to allocate each line.',
+                    )
                 }
-                opts[l.id] = picks
-                grInit[l.id] = picks[0]?.value ?? ''
+            } catch (e: unknown) {
+                const err = e as { response?: { data?: { message?: string } }; message?: string }
+                pushToast(
+                    'danger',
+                    'PO',
+                    err?.response?.data?.message || err?.message || 'Failed to load PO',
+                )
+                clearPoDraft()
+            } finally {
+                setPoLoading(false)
             }
-            setGrOpts(opts)
-            setInvLines(qtyInit)
-            setGrLineId(grInit)
-        } catch (e: unknown) {
-            const err = e as { response?: { data?: { message?: string } }; message?: string }
-            pushToast('danger', 'PO', err?.response?.data?.message || err?.message || 'Failed to load PO')
-            setPo(null)
+        },
+        [applyPoDraft, clearPoDraft],
+    )
+
+    const loadPoOptions = useCallback(async () => {
+        setPoOptionsLoading(true)
+        try {
+            const list = await listPurchaseOrdersForInvoicing()
+            setPoOptions(
+                list.map((p) => ({
+                    value: p.id,
+                    label: `${p.poNumber} — ${p.supplier?.supplierName ?? 'No supplier'} (${p.status})`,
+                })),
+            )
+        } catch {
+            setPoOptions([])
+            pushToast('danger', 'PO list', 'Could not load purchase orders ready for invoicing.')
         } finally {
-            setPoLoading(false)
+            setPoOptionsLoading(false)
+        }
+    }, [])
+
+    const loadPoFromLookup = async () => {
+        const q = poLookup.trim()
+        if (!q) {
+            pushToast('warning', 'Purchase order', 'Choose a PO from the list or enter a PO number.')
+            return
+        }
+        try {
+            const id = await resolvePurchaseOrderId(q)
+            await loadPoById(id)
+        } catch (e: unknown) {
+            const err = e as { message?: string }
+            pushToast('danger', 'PO', err?.message || 'PO not found')
+            clearPoDraft()
         }
     }
 
     const openCreate = useCallback(async () => {
         await ensureFormRefs('companies', 'suppliers')
-        setPo(null)
+        clearPoDraft()
         setPoLookup('')
         setInvoiceDate(new Date().toISOString().slice(0, 10))
         setSupplierId('')
         setRemarks('')
-        setInvLines({})
-        setGrLineId({})
-        setGrOpts({})
         setTouched({})
         setForceValidate(false)
         setOpen(true)
-    }, [ensureFormRefs])
+        void loadPoOptions()
+    }, [ensureFormRefs, clearPoDraft, loadPoOptions])
+
+    useEffect(() => {
+        if (!prefillPoId || highlightId) return
+        void (async () => {
+            await ensureFormRefs('companies', 'suppliers')
+            setOpen(true)
+            setForceValidate(false)
+            setTouched({})
+            void loadPoOptions()
+            await loadPoById(prefillPoId)
+        })()
+    }, [prefillPoId, highlightId, ensureFormRefs, loadPoById, loadPoOptions])
 
     const errors = useMemo<FieldErrors>(() => {
         const errs: FieldErrors = {}
@@ -406,7 +513,7 @@ const SupplierInvoicesPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Supplier Invoices"
-                description="Capture vendor invoices against PO and posted goods receipts (same flow as PO → Receiving → Invoice tab)"
+                description="Select a partially or fully received PO, allocate posted goods receipt lines, then create and submit for three-way match."
                 actions={
                     <Button variant="solid" icon={<HiOutlinePlus />} onClick={() => void openCreate()}>
                         New Invoice
@@ -425,30 +532,145 @@ const SupplierInvoicesPage = () => {
                 footer={
                     <>
                         <Button size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" loading={submitting} onClick={() => void submit()}>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={submitting}
+                            disabled={!canInvoicePo}
+                            onClick={() => void submit()}
+                        >
                             Create & Submit
                         </Button>
                     </>
                 }
             >
                 <div className="space-y-3">
-                    <FormItem label="Purchase order" asterisk>
-                        <div className="flex gap-2">
-                            <Input
-                                placeholder="PO number or ID"
-                                value={poLookup}
-                                onChange={(e) => setPoLookup(e.target.value)}
-                            />
-                            <Button size="sm" loading={poLoading} onClick={() => void loadPo(poLookup)}>
-                                Load
-                            </Button>
-                        </div>
-                        {po ? (
-                            <p className="mt-1 text-xs text-gray-500">
-                                Loaded {po.poNumber} · {po.lines?.length ?? 0} line(s)
-                            </p>
-                        ) : null}
+                    <FormItem
+                        label="Purchase order"
+                        asterisk
+                        invalid={Boolean(visibleError(errors, touched, 'po', forceValidate))}
+                        errorMessage={visibleError(errors, touched, 'po', forceValidate)}
+                    >
+                        <Select
+                            isSearchable
+                            placeholder={
+                                poOptionsLoading
+                                    ? 'Loading POs with receipts…'
+                                    : 'Select PO (partially or fully received)'
+                            }
+                            isLoading={poOptionsLoading || poLoading}
+                            options={poOptions}
+                            value={
+                                selectedPoId
+                                    ? (poOptions.find((o) => o.value === selectedPoId) ?? {
+                                          value: selectedPoId,
+                                          label: po?.poNumber ?? selectedPoId,
+                                      })
+                                    : null
+                            }
+                            onChange={(o: PoSelectOption | null) => {
+                                const id = o?.value ?? ''
+                                setSelectedPoId(id || null)
+                                setTouched((t) => ({ ...t, po: true }))
+                                if (id) void loadPoById(id)
+                                else clearPoDraft()
+                            }}
+                        />
+                        <p className="mt-2 text-xs text-gray-500">
+                            Or find by number:{' '}
+                            <span className="inline-flex w-full max-w-md flex-wrap items-center gap-2 sm:inline-flex">
+                                <Input
+                                    className="min-w-[12rem] flex-1"
+                                    placeholder="PO-2026-00042"
+                                    value={poLookup}
+                                    onChange={(e) => setPoLookup(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            void loadPoFromLookup()
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    size="sm"
+                                    type="button"
+                                    loading={poLoading}
+                                    onClick={() => void loadPoFromLookup()}
+                                >
+                                    Find PO
+                                </Button>
+                            </span>
+                        </p>
                     </FormItem>
+                    {po ? (
+                        <AdaptiveCard className="overflow-hidden !p-0">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-600">
+                                <div>
+                                    <p className="text-sm font-semibold heading-text">{po.poNumber}</p>
+                                    <p className="text-xs text-gray-500">
+                                        Invoice-open = received − invoiced on each PO line
+                                    </p>
+                                </div>
+                                <StatusBadge status={po.status} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5">
+                                <InfoCard
+                                    label="Supplier"
+                                    value={
+                                        po.supplier
+                                            ? `${po.supplier.supplierCode} — ${po.supplier.supplierName}`
+                                            : 'Not set on PO'
+                                    }
+                                />
+                                <InfoCard label="Open to invoice" value={String(poQtySummary.open)} />
+                                <InfoCard label="Posted GRs" value={String(postedGrCount)} />
+                                <InfoCard label="Received (PO)" value={String(poQtySummary.received)} />
+                                <InfoCard label="Invoiced (PO)" value={String(poQtySummary.invoiced)} />
+                            </div>
+                            <div className="border-t border-gray-200 px-2 pb-2 dark:border-gray-600">
+                                <DataTable
+                                    columns={poLinePreviewColumns}
+                                    data={po.lines ?? []}
+                                    compact
+                                    fit
+                                    hidePagination
+                                    noData={(po.lines ?? []).length === 0}
+                                />
+                            </div>
+                            {!canInvoicePo ? (
+                                <div className="border-t border-gray-200 bg-gray-50 px-4 py-4 dark:border-gray-600 dark:bg-gray-800/40">
+                                    <p className="text-sm font-semibold heading-text">
+                                        No quantity available to invoice
+                                    </p>
+                                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                                        {postedGrCount > 0 && poQtySummary.received === 0
+                                            ? 'This PO has posted goods receipt(s), but line received quantities are still zero. Open the PO, confirm receiving updated the PO lines, or post GR from the PO Receiving flow.'
+                                            : poQtySummary.received > 0 && poQtySummary.open === 0
+                                              ? 'All received quantity on this PO is already invoiced.'
+                                              : 'Post a goods receipt against this PO first, then return here when received − invoiced is greater than zero.'}
+                                    </p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        <Link
+                                            href={`/modules/mm/procurement/purchase-orders/${po.id}`}
+                                        >
+                                            <Button size="sm" variant="solid" type="button">
+                                                Open PO
+                                            </Button>
+                                        </Link>
+                                        <Link
+                                            href={`/modules/mm/procurement/purchase-orders/${po.id}?tab=receiving`}
+                                        >
+                                            <Button size="sm" variant="default" type="button">
+                                                Receiving tab
+                                            </Button>
+                                        </Link>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </AdaptiveCard>
+                    ) : null}
+                    {canInvoicePo ? (
+                    <>
                     <FormItem label="Invoice date">
                         <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
                     </FormItem>
@@ -473,7 +695,9 @@ const SupplierInvoicesPage = () => {
                     <FormItem label="Remarks">
                         <Input textArea value={remarks} onChange={(e) => setRemarks(e.target.value)} />
                     </FormItem>
-                    {invOpenLines.map((l) => {
+                    </>
+                    ) : null}
+                    {canInvoicePo ? invOpenLines.map((l) => {
                         const err = visibleError(errors, touched, l.id, forceValidate)
                         const grErr = visibleError(errors, touched, `gr-${l.id}`, forceValidate)
                         const options = (grOpts[l.id] ?? []).map((o) => ({ value: o.value, label: o.label }))
@@ -512,10 +736,7 @@ const SupplierInvoicesPage = () => {
                                 ) : null}
                             </div>
                         )
-                    })}
-                    {po && invOpenLines.length === 0 ? (
-                        <p className="text-sm text-gray-500">No received quantity left to invoice on this PO.</p>
-                    ) : null}
+                    }) : null}
                 </div>
             </FormDialog>
 

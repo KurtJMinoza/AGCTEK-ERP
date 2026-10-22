@@ -683,6 +683,16 @@ export class GoodsReceiptService {
             where: { id },
             include: {
                 lines: { include: { material: true, uom: true, storageBin: true } },
+                company: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        logoUrl: true,
+                        address: true,
+                        tin: true,
+                    },
+                },
                 warehouse: true,
                 supplier: true,
                 purchaseOrder: { select: { id: true, poNumber: true, status: true } },

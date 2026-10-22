@@ -809,7 +809,7 @@ const GoodsReceiptPage = () => {
             <FormDialog
                 isOpen={printSlip !== null && !detailOpen}
                 onClose={() => setPrintSlip(null)}
-                size="sm"
+                size="lg"
                 title="Goods receipt"
                 icon={<HiOutlinePrinter />}
                 footer={

@@ -30,7 +30,12 @@ export type InventoryBalance = {
     availableQuantity: string | number
     version?: number
     updatedAt?: string
-    company?: { id: string; name?: string; code?: string }
+    company?: {
+        id: string
+        name?: string
+        code?: string
+        logoUrl?: string | null
+    }
     warehouse?: { id: string; name?: string; code?: string }
     storageBin?: { id: string; code?: string } | null
     material?: {
@@ -89,7 +94,12 @@ export type InventoryTransaction = {
     idempotencyKey?: string | null
     createdBy?: string | null
     createdAt?: string
-    company?: { id: string; name?: string; code?: string }
+    company?: {
+        id: string
+        name?: string
+        code?: string
+        logoUrl?: string | null
+    }
     warehouse?: { id: string; name?: string; code?: string }
     storageBin?: { id: string; code?: string } | null
     material?: {

@@ -17,7 +17,14 @@ export type InboundQueryParams = {
     pageSize?: number
 }
 
-export type MmRef = { id: string; code?: string; name?: string }
+export type MmRef = {
+    id: string
+    code?: string
+    name?: string
+    logoUrl?: string | null
+    address?: string | null
+    tin?: string | null
+}
 export type MmMaterialRef = {
     id: string
     materialCode: string
@@ -30,6 +37,11 @@ export type MmSupplierRef = {
     id: string
     supplierCode: string
     supplierName: string
+    billingAddress?: string | null
+    shippingAddress?: string | null
+    taxId?: string | null
+    email?: string | null
+    phone?: string | null
 }
 export type MmPoRef = { id: string; poNumber: string; status?: string }
 export type MmAsnRef = { id: string; asnNumber: string }

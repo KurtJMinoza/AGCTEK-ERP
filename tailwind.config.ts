@@ -83,11 +83,26 @@ const config: Config = {
 					from: { transform: 'rotate(0deg)' },
 					to: { transform: 'rotate(360deg)' },
 				},
+				'mm-row-in': {
+					from: { opacity: '0', transform: 'translateY(8px)' },
+					to: { opacity: '1', transform: 'translateY(0)' },
+				},
+				'mm-progress-grow': {
+					from: { transform: 'scaleX(0)' },
+					to: { transform: 'scaleX(1)' },
+				},
+				'mm-status-pulse': {
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.72' },
+				},
 			},
 			animation: {
 				'retail-marquee': 'retail-marquee 32s linear infinite',
 				float: 'float 6s ease-in-out infinite',
 				'slow-spin': 'slow-spin 60s linear infinite',
+				'mm-row-in': 'mm-row-in 0.45s ease-out both',
+				'mm-progress-grow': 'mm-progress-grow 0.65s ease-out both',
+				'mm-status-pulse': 'mm-status-pulse 2s ease-in-out infinite',
 			},
 			colors: {
 				// World-class retail system: deep emerald + champagne gold on cool canvas

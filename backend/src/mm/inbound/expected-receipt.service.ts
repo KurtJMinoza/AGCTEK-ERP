@@ -41,11 +41,31 @@ const ER_INCLUDES = {
             uom: { select: { id: true, code: true, name: true } },
         },
     },
-    supplier: { select: { id: true, supplierCode: true, supplierName: true } },
+    supplier: {
+        select: {
+            id: true,
+            supplierCode: true,
+            supplierName: true,
+            billingAddress: true,
+            shippingAddress: true,
+            taxId: true,
+            email: true,
+            phone: true,
+        },
+    },
     purchaseOrder: { select: { id: true, poNumber: true, status: true } },
     asn: { select: { id: true, asnNumber: true } },
     warehouse: { select: { id: true, code: true, name: true } },
-    company: { select: { id: true, name: true } },
+    company: {
+        select: {
+            id: true,
+            code: true,
+            name: true,
+            logoUrl: true,
+            address: true,
+            tin: true,
+        },
+    },
     goodsReceipts: { select: { id: true, documentNumber: true, status: true } },
 }
 

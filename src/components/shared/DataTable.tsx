@@ -72,6 +72,8 @@ type DataTableProps<T> = {
      * clicks on embedded controls (buttons, links, inputs) are left alone.
      */
     renderSubRow?: (row: T) => ReactNode
+    /** Optional per-row class (e.g. staggered entrance animations). */
+    rowClassName?: (row: T, index: number) => string | undefined
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -153,6 +155,7 @@ function DataTable<T>(props: DataTableProps<T>) {
         hidePagination = false,
         getRowId,
         renderSubRow,
+        rowClassName,
         ref,
         ...rest
     } = props
@@ -423,11 +426,13 @@ function DataTable<T>(props: DataTableProps<T>) {
                                     return (
                                         <Fragment key={row.id}>
                                             <Tr
-                                                className={
-                                                    renderSubRow
-                                                        ? 'cursor-pointer'
-                                                        : undefined
-                                                }
+                                                className={classNames(
+                                                    renderSubRow && 'cursor-pointer',
+                                                    rowClassName?.(
+                                                        row.original as T,
+                                                        row.index,
+                                                    ),
+                                                )}
                                                 onClick={
                                                     renderSubRow
                                                         ? (event) =>

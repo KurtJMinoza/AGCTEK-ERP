@@ -15,7 +15,7 @@ export class InventoryBalanceQueryService {
     ) {}
 
     private readonly balanceIncludes = {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, logoUrl: true } },
         warehouse: { select: { id: true, code: true, name: true } },
         storageBin: { select: { id: true, code: true } },
         material: {
@@ -34,7 +34,7 @@ export class InventoryBalanceQueryService {
     }
 
     private readonly transactionIncludes = {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, logoUrl: true } },
         warehouse: { select: { id: true, code: true, name: true } },
         storageBin: { select: { id: true, code: true } },
         material: {
