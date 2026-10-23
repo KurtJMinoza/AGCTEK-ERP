@@ -6,11 +6,13 @@ import {
     AcceptQuotationDto,
     CancelQuotationDto,
     ListQuotationsQueryDto,
+    QuotationStockCheckDto,
     RejectQuotationDto,
     ReviseQuotationDto,
     SendQuotationDto,
     UpdateQuotationDraftDto,
 } from './dto/quotation.dto'
+import { CommercialAvailabilityService } from './commercial-availability.service'
 import { QuotationService } from './quotation.service'
 import { QuotationPdfService } from './quotation-pdf.service'
 
@@ -23,6 +25,7 @@ export class QuotationController {
     constructor(
         private readonly quotations: QuotationService,
         private readonly pdf: QuotationPdfService,
+        private readonly availability: CommercialAvailabilityService,
     ) {}
 
     @Get()
@@ -35,6 +38,16 @@ export class QuotationController {
     @RequirePermission('sd.quotations', 'read')
     findOne(@Param('id') id: string) {
         return this.quotations.findOne(id)
+    }
+
+    /**
+     * Indicative stock for quotation lines (OK / LOW / NONE / NOT_TRACKED / UNKNOWN). Read-only:
+     * reserves nothing and never blocks saving or sending the quotation.
+     */
+    @Post('stock-check')
+    @RequirePermission('sd.quotations', 'read')
+    stockCheck(@Body() dto: QuotationStockCheckDto) {
+        return this.availability.getQuotationLineStock(dto.lines)
     }
 
     /**

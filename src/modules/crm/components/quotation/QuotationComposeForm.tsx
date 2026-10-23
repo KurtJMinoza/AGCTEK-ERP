@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -9,15 +9,14 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { updateQuotationDraft, type Quotation } from '@/modules/sd/services/quotationService'
 import { apiCreateOpportunityQuotation } from '../../services/crmApi'
-import ProductLinesEditor, {
-    chosenProductLines,
-    emptyProductLine,
-    productLinesFrom,
-    productLinesValid,
-    toProductLineInputs,
-    useSdCatalog,
-    type ProductLineForm,
-} from '../ProductLinesEditor'
+import { useQuotationStock } from '../../hooks/useQuotationStock'
+import { useSdCatalog } from '../ProductLinesEditor'
+import QuotationItemsEditor, {
+    itemsFromQuotation,
+    itemsProblem,
+    itemsToInput,
+    type QuoteItem,
+} from './QuotationItemsEditor'
 import type { Opportunity } from '../../types'
 
 type QuotationComposeFormProps = {
@@ -29,19 +28,18 @@ type QuotationComposeFormProps = {
     onDirtyChange?: (dirty: boolean) => void
 }
 
-function linesEqual(a: ProductLineForm[], b: ProductLineForm[]) {
-    if (a.length !== b.length) return false
-    return a.every((line, i) => {
-        const other = b[i]
-        return (
-            line.productId === other.productId &&
-            line.quantity === other.quantity &&
-            line.sku === other.sku
-        )
-    })
-}
+/** Comparable snapshot of the rows (keys excluded; blank product rows count). */
+const snapshot = (items: QuoteItem[]) =>
+    JSON.stringify(
+        items.map((item) =>
+            item.kind === 'SECTION' ? ['S', item.title] : ['L', item.productId, item.quantity, item.sku ?? null],
+        ),
+    )
 
-/** Compose / edit a DRAFT on the quotation page. SD prices every line from its catalog on each save. */
+/**
+ * Compose / edit a DRAFT on the quotation page: product lines grouped under optional free-text
+ * section headings. SD prices every line from its catalog on each save; stock chips are indicative.
+ */
 export default function QuotationComposeForm({
     opportunity,
     initialQuotation,
@@ -49,16 +47,14 @@ export default function QuotationComposeForm({
     onDirtyChange,
 }: QuotationComposeFormProps) {
     const editing = initialQuotation
-    const [lines, setLines] = useState<ProductLineForm[]>(() =>
-        editing ? productLinesFrom(editing.lines) : [emptyProductLine()],
-    )
+    const [items, setItems] = useState<QuoteItem[]>(() => itemsFromQuotation(editing))
     const [notes, setNotes] = useState(editing?.notes ?? '')
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const catalog = useSdCatalog(true)
 
     useEffect(() => {
-        setLines(editing ? productLinesFrom(editing.lines) : [emptyProductLine()])
+        setItems(itemsFromQuotation(editing))
         setNotes(editing?.notes ?? '')
         setError(null)
     }, [editing])
@@ -76,28 +72,26 @@ export default function QuotationComposeForm({
         )
     }, [editing])
 
-    const valid = productLinesValid(lines)
-    const dirty =
-        !linesEqual(lines, editing ? productLinesFrom(editing.lines) : [emptyProductLine()]) ||
-        notes !== (editing?.notes ?? '')
+    const input = useMemo(() => itemsToInput(items), [items])
+    const stock = useQuotationStock(input.lines)
+    const problem = itemsProblem(items)
+    const initialSnapshot = useMemo(() => snapshot(itemsFromQuotation(editing)), [editing])
+    const dirty = snapshot(items) !== initialSnapshot || notes !== (editing?.notes ?? '')
 
     useEffect(() => {
         onDirtyChange?.(dirty)
     }, [dirty, onDirtyChange])
 
     const save = async () => {
-        if (!valid) return
+        if (problem) return
         setSaving(true)
         setError(null)
         try {
-            const body = { lines: toProductLineInputs(lines), notes: notes.trim() }
+            const body = { lines: input.lines, sections: input.sections, notes: notes.trim() }
             onSaved(
                 editing
                     ? await updateQuotationDraft(editing.id, body)
-                    : await apiCreateOpportunityQuotation(opportunity.id, {
-                          lines: body.lines,
-                          notes: body.notes || undefined,
-                      }),
+                    : await apiCreateOpportunityQuotation(opportunity.id, { ...body, notes: body.notes || undefined }),
             )
         } catch (err) {
             setError(getApiErrorMessage(err, 'Could not save the quotation'))
@@ -114,24 +108,21 @@ export default function QuotationComposeForm({
                 </Alert>
             ) : null}
             <h6 className="mb-2">Lines (SD products)</h6>
-            {chosenProductLines(lines).length === 0 ? (
-                <p className="mb-2 text-xs text-gray-500">
-                    Add a product line to draft the quotation.
-                </p>
-            ) : null}
-            <ProductLinesEditor
+            <QuotationItemsEditor
                 products={catalog.products}
                 loading={catalog.loading}
-                lines={lines}
-                onChange={setLines}
+                items={items}
+                onChange={setItems}
                 highlights={highlights}
-                estimateNote="SD sets the quoted prices and totals."
+                stock={stock.stock}
+                stockLoading={stock.loading}
             />
             <FormItem label="Notes" className="mt-4">
                 <Input textArea maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </FormItem>
-            <div className="mt-4 flex justify-end gap-2">
-                <Button type="button" variant="solid" disabled={!valid} loading={saving} onClick={() => void save()}>
+            <div className="mt-4 flex items-center justify-end gap-3">
+                {problem && dirty ? <span className="text-xs text-amber-700 dark:text-amber-300">{problem}</span> : null}
+                <Button type="button" variant="solid" disabled={Boolean(problem)} loading={saving} onClick={() => void save()}>
                     {editing ? 'Save draft' : 'Create draft'}
                 </Button>
             </div>

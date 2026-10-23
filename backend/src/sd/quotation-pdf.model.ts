@@ -40,6 +40,8 @@ export type QuotationPdfInput = {
     subtotal: DecimalLike
     totalAmount: DecimalLike
     lines: QuotationPdfLineInput[]
+    /** Free-text headings printed above `beforeLineNumber`; never priced. */
+    sections?: { title: string; beforeLineNumber: number }[]
     customer: QuotationPdfCustomerInput
     /** Present when the quotation is linked to a CRM opportunity. */
     opportunityName?: string | null
@@ -47,6 +49,8 @@ export type QuotationPdfInput = {
 }
 
 export type QuotationPdfLine = {
+    /** Section heading printed above this line, if one starts here. */
+    section: string | null
     lineNumber: number
     sku: string
     description: string
@@ -135,7 +139,9 @@ function trimmed(value: string | null | undefined): string | null {
 
 /** Maps a loaded SD quotation into the printable model. Pure; performs no I/O. */
 export function buildQuotationPdfModel(input: QuotationPdfInput): QuotationPdfModel {
+    const sectionAbove = new Map((input.sections ?? []).map((s) => [s.beforeLineNumber, s.title]))
     const lines: QuotationPdfLine[] = input.lines.map((line) => ({
+        section: sectionAbove.get(line.lineNumber) ?? null,
         lineNumber: line.lineNumber,
         sku: line.sku,
         description: line.description,

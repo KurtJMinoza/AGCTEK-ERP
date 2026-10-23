@@ -9,10 +9,46 @@ import {
     isQuotationExpired,
     manilaDate,
     nextQuotationStatus,
+    normalizeQuotationSections,
     resolveValidUntil,
     type QuotationAction,
     type QuotationStatus,
 } from './quotation.rules'
+
+describe('normalizeQuotationSections', () => {
+    it('trims titles and sorts headings by the line they sit above', () => {
+        expect(
+            normalizeQuotationSections(
+                [
+                    { title: '  Accessories ', beforeLineNumber: 3 },
+                    { title: 'Main units', beforeLineNumber: 1 },
+                ],
+                4,
+            ),
+        ).toEqual([
+            { title: 'Main units', beforeLineNumber: 1 },
+            { title: 'Accessories', beforeLineNumber: 3 },
+        ])
+        expect(normalizeQuotationSections(undefined, 2)).toEqual([])
+    })
+
+    it.each([
+        [[{ title: '   ', beforeLineNumber: 1 }], 'Section titles cannot be blank'],
+        [[{ title: 'x'.repeat(121), beforeLineNumber: 1 }], 'at most 120 characters'],
+        [[{ title: 'Trailing', beforeLineNumber: 3 }], 'at least one product line after it'],
+        [[{ title: 'Zero', beforeLineNumber: 0 }], 'at least one product line after it'],
+        [
+            [
+                { title: 'A', beforeLineNumber: 1 },
+                { title: 'B', beforeLineNumber: 1 },
+            ],
+            'Only one section heading can sit above a line',
+        ],
+    ])('rejects %j', (sections, message) => {
+        expect(() => normalizeQuotationSections(sections, 2)).toThrow(BadRequestException)
+        expect(() => normalizeQuotationSections(sections, 2)).toThrow(message)
+    })
+})
 
 const ALLOWED: Record<QuotationStatus, Partial<Record<QuotationAction, QuotationStatus>>> = {
     DRAFT: { EDIT: 'DRAFT', SEND: 'SENT', CANCEL: 'CANCELLED' },

@@ -4,6 +4,7 @@ import {
     ArrayMinSize,
     IsArray,
     IsIn,
+    IsInt,
     IsNotEmpty,
     IsNumber,
     IsOptional,
@@ -15,20 +16,36 @@ import {
     ValidateNested,
 } from 'class-validator'
 import type { CatalogLineInput } from '../sd-catalog-pricing'
-import { QUOTATION_STATUSES, REVISION_REASONS, type RevisionReason } from '../quotation.rules'
+import {
+    QUOTATION_SECTION_TITLE_MAX,
+    QUOTATION_STATUSES,
+    REVISION_REASONS,
+    type RevisionReason,
+} from '../quotation.rules'
+
+/** Free-text heading shown above product line `beforeLineNumber` (1-based); never priced. */
+export interface QuotationSectionInput {
+    title: string
+    beforeLineNumber: number
+}
 
 /** New DRAFT quotation (revision 1) for a CRM opportunity; CRM resolves the customer. */
 export interface CreateQuotationInput {
     crmOpportunityId: string
     customerId: string
     lines: CatalogLineInput[]
+    sections?: QuotationSectionInput[]
     notes?: string
     createdBy: string
 }
 
-/** DRAFT edit; omitted `lines` keep the current products and quantities (still re-priced). */
+/**
+ * DRAFT edit; omitted `lines` keep the current products and quantities (still re-priced).
+ * Sending `lines` replaces the section headings too (omitted `sections` = none).
+ */
 export interface UpdateQuotationDraftInput {
     lines?: CatalogLineInput[]
+    sections?: QuotationSectionInput[]
     /** Empty string clears the notes. */
     notes?: string
 }
@@ -56,6 +73,27 @@ export class QuotationLineDto {
     quantity!: number
 }
 
+/** Lines to check for indicative stock (same shape as quotation lines). */
+export class QuotationStockCheckDto {
+    @IsArray()
+    @ArrayMinSize(1)
+    @ArrayMaxSize(100)
+    @ValidateNested({ each: true })
+    @Type(() => QuotationLineDto)
+    lines!: QuotationLineDto[]
+}
+
+export class QuotationSectionDto implements QuotationSectionInput {
+    @IsString()
+    @MaxLength(QUOTATION_SECTION_TITLE_MAX)
+    title!: string
+
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    beforeLineNumber!: number
+}
+
 export class UpdateQuotationDraftDto implements UpdateQuotationDraftInput {
     @IsOptional()
     @IsArray()
@@ -64,6 +102,13 @@ export class UpdateQuotationDraftDto implements UpdateQuotationDraftInput {
     @ValidateNested({ each: true })
     @Type(() => QuotationLineDto)
     lines?: QuotationLineDto[]
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(100)
+    @ValidateNested({ each: true })
+    @Type(() => QuotationSectionDto)
+    sections?: QuotationSectionDto[]
 
     @IsOptional()
     @IsString()

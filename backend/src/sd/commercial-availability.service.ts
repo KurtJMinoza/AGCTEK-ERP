@@ -28,6 +28,19 @@ export type CompanyMaterialLedger = {
 }
 
 /**
+ * Indicative stock for one quotation line: company-wide pickable quantity (MM on hand − reserved)
+ * against the line quantity, both in the material base UOM. Never reserves and never blocks.
+ * NOT_TRACKED = service product or no material linked; UNKNOWN = the read failed.
+ */
+export type QuotationLineStock = {
+    productId: string
+    quantity: number
+    state: 'OK' | 'LOW' | 'NONE' | 'NOT_TRACKED' | 'UNKNOWN'
+    availableBaseQty: number | null
+    requiredBaseQty: number | null
+}
+
+/**
  * Live MM ledger quantities for one material at one warehouse. The values are
  * in the material base UOM; callers that present sales quantities must convert
  * them through UomConversionsService.
@@ -481,6 +494,104 @@ export class CommercialAvailabilityService {
                             ? 'NON_INVENTORY'
                             : 'NOT_MAPPED',
                 }
+            }
+            throw err
+        }
+    }
+
+    /**
+     * Soft stock signal for quotation lines (CRM compose / view). Stock is the checkout company's,
+     * all active warehouses combined — the figure Product Catalog shows as stock available. Each
+     * line is read independently; a failed read is UNKNOWN, never NONE.
+     */
+    async getQuotationLineStock(
+        lines: ReadonlyArray<{ productId: string; quantity: number }>,
+    ): Promise<QuotationLineStock[]> {
+        let companyId: string | null = null
+        try {
+            companyId = await this.fulfillmentDetermination.defaultCompanyId()
+        } catch {
+            companyId = null
+        }
+        const out: QuotationLineStock[] = []
+        for (const line of lines) {
+            const base = { productId: line.productId, quantity: line.quantity }
+            try {
+                if (!companyId) throw new Error('No checkout company configured')
+                const item = await this.quotationStockItem(line.productId, companyId)
+                if (!item) {
+                    out.push({ ...base, state: 'NOT_TRACKED', availableBaseQty: null, requiredBaseQty: null })
+                    continue
+                }
+                const [ledger, required] = await Promise.all([
+                    this.getCompanyMaterialLedger(item.materialId, item.companyId),
+                    this.toBaseQuantity(item.materialId, item.salesUomId, line.quantity),
+                ])
+                const available = ledger.availableQty
+                out.push({
+                    ...base,
+                    state: available <= 0 ? 'NONE' : required.gt(available) ? 'LOW' : 'OK',
+                    availableBaseQty: available,
+                    requiredBaseQty: required.toNumber(),
+                })
+            } catch {
+                out.push({ ...base, state: 'UNKNOWN', availableBaseQty: null, requiredBaseQty: null })
+            }
+        }
+        return out
+    }
+
+    /** Stock item behind a catalog product (default variant first, then the legacy assignment). */
+    private async quotationStockItem(productId: string, companyId: string) {
+        const variant = await this.prisma.sdProductVariant.findFirst({
+            where: { productId, isActive: true },
+            orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+            select: { materialId: true, companyId: true, salesUomId: true, materialUomId: true },
+        })
+        const material = async (materialId: string) =>
+            (
+                await this.prisma.mmMaterial.findUniqueOrThrow({
+                    where: { id: materialId },
+                    select: { baseUomId: true },
+                })
+            ).baseUomId
+        if (variant) {
+            if (!variant.materialId) return null
+            return {
+                materialId: variant.materialId,
+                companyId: variant.companyId ?? companyId,
+                salesUomId: variant.salesUomId ?? variant.materialUomId ?? (await material(variant.materialId)),
+            }
+        }
+        const product = await this.prisma.sdProduct.findUnique({
+            where: { id: productId },
+            select: { productType: true, divisionId: true },
+        })
+        if (!product || product.productType !== 'STOCK_ITEM') return null
+        try {
+            const resolved = await this.materialResolution.resolveMaterialForProduct({
+                productId,
+                companyId,
+                divisionId: product.divisionId,
+                channel: 'ECOMMERCE',
+            })
+            if (!resolved.atpRelevant) return null
+            return {
+                materialId: resolved.materialId,
+                companyId: resolved.companyId ?? companyId,
+                salesUomId:
+                    resolved.salesUomId ??
+                    resolved.materialUomId ??
+                    resolved.baseUomId ??
+                    (await material(resolved.materialId)),
+            }
+        } catch (err) {
+            if (
+                err instanceof SdMmIntegrationException &&
+                (err.code === SD_MM_ERROR.PRODUCT_MATERIAL_MAPPING_MISSING ||
+                    err.code === SD_MM_ERROR.NON_INVENTORY_PRODUCT)
+            ) {
+                return null
             }
             throw err
         }

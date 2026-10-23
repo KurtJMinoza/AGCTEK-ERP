@@ -4246,6 +4246,7 @@ model SdQuotation {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   lines              SdQuotationLine[]
+  sections           SdQuotationSection[]
   salesOrder         SdSalesOrder?
 
   @@unique([quotationNumber, revision])
@@ -4274,6 +4275,20 @@ model SdQuotationLine {
   @@unique([quotationId, lineNumber])
   @@index([productId])
   @@map("sd_quotation_lines")
+}
+
+/// Free-text heading that groups the quotation lines after it; never priced and not copied to the
+/// sales order. Product lines stay numbered 1..n; a heading sits above `beforeLineNumber`.
+model SdQuotationSection {
+  id               String      @id @default(cuid())
+  quotationId      String
+  quotation        SdQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  title            String
+  beforeLineNumber Int
+  createdAt        DateTime    @default(now())
+
+  @@unique([quotationId, beforeLineNumber])
+  @@map("sd_quotation_sections")
 }
 
 model SdFulfillment {

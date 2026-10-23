@@ -214,6 +214,7 @@ export class QuotationPdfService {
         const left = this.left(doc)
         const c = this.columns(doc)
         for (const line of model.lines) {
+            if (line.section) this.drawSectionHeading(doc, model, line.section)
             const skuHeight = doc.font('Helvetica').fontSize(9).heightOfString(line.sku || '', {
                 width: c.skuW - 4,
             })
@@ -247,6 +248,34 @@ export class QuotationPdfService {
                 .stroke()
         }
         doc.y += 8
+    }
+
+    /** Unpriced heading row spanning the table; keeps at least one line below it on the page. */
+    private drawSectionHeading(doc: PDFKit.PDFDocument, model: QuotationPdfModel, title: string) {
+        const left = this.left(doc)
+        const c = this.columns(doc)
+        const height = Math.max(
+            18,
+            doc.font('Helvetica-Bold').fontSize(9.5).heightOfString(title, { width: c.width - 8 }) + 8,
+        )
+        if (doc.y + height + 18 > this.pageBottom(doc) - 12) {
+            doc.addPage()
+            doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR.muted)
+            doc.text(model.company.name, left, doc.y)
+            doc.font('Helvetica-Bold').fontSize(11).fillColor(COLOR.text)
+            doc.text(`${model.quotation.number} · Rev ${model.quotation.revision} (continued)`, left, doc.y)
+            doc.y += 6
+            this.drawTableHeader(doc, model)
+        }
+        const y = doc.y + 2
+        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLOR.text)
+        doc.text(title, left + 4, y, { width: c.width - 8 })
+        doc.y = y + height - 2
+        doc.moveTo(left, doc.y - 4)
+            .lineTo(left + c.width, doc.y - 4)
+            .strokeColor(COLOR.line)
+            .lineWidth(0.5)
+            .stroke()
     }
 
     private drawTotals(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {

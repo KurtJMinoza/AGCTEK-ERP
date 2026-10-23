@@ -24,6 +24,7 @@ import {
     isQuotationExpired,
     manilaDate,
     nextQuotationStatus,
+    normalizeQuotationSections,
     resolveValidUntil,
     type QuotationAction,
 } from './quotation.rules'
@@ -33,6 +34,10 @@ type Client = Prisma.TransactionClient
 
 const QUOTATION_INCLUDE = {
     lines: { orderBy: { lineNumber: 'asc' as const } },
+    sections: {
+        orderBy: { beforeLineNumber: 'asc' as const },
+        select: { id: true, title: true, beforeLineNumber: true },
+    },
 } satisfies Prisma.SdQuotationInclude
 
 type QuotationRow = Prisma.SdQuotationGetPayload<{ include: typeof QUOTATION_INCLUDE }>
@@ -112,6 +117,7 @@ export class QuotationService {
                 unitPrice: line.unitPrice,
                 lineTotal: line.lineTotal,
             })),
+            sections: view.sections.map(({ title, beforeLineNumber }) => ({ title, beforeLineNumber })),
             customer: customer ?? { companyName: 'Unknown customer' },
             opportunityName: opportunity?.name ?? null,
             company,
@@ -139,6 +145,7 @@ export class QuotationService {
     /** New DRAFT, revision 1, priced from the catalog. 409 if the opportunity already has an active quotation. */
     async create(input: CreateQuotationInput, options: { tx?: Client } = {}) {
         assertCatalogLineInput(input.lines)
+        normalizeQuotationSections(input.sections, input.lines.length)
         try {
             const client = options.tx ?? this.prisma
             const row = options.tx
@@ -154,14 +161,22 @@ export class QuotationService {
         }
     }
 
-    /** Edits a DRAFT; every edit re-prices all lines from the current catalog. */
+    /**
+     * Edits a DRAFT; every edit re-prices all lines from the current catalog. Sending `lines` (or
+     * `sections`) replaces the section headings; a notes-only edit keeps them.
+     */
     async updateDraft(id: string, input: UpdateQuotationDraftInput, userId: string) {
         if (input.lines) assertCatalogLineInput(input.lines)
         const row = await this.prisma.$transaction(async (tx) => {
             await this.lock(tx, id)
             const current = await this.load(tx, id)
             nextQuotationStatus(current.status, 'EDIT')
-            const pricing = await priceCatalogLines(tx, input.lines ?? catalogLines(current.lines))
+            const lineInput = input.lines ?? catalogLines(current.lines)
+            const sections =
+                input.lines || input.sections
+                    ? normalizeQuotationSections(input.sections, lineInput.length)
+                    : null
+            const pricing = await priceCatalogLines(tx, lineInput)
             const { divisionId } = assertSellable(pricing)
 
             await tx.sdQuotation.update({
@@ -178,6 +193,12 @@ export class QuotationService {
             await tx.sdQuotationLine.createMany({
                 data: pricing.lines.map((l) => ({ quotationId: id, ...lineData(l) })),
             })
+            if (sections) {
+                await tx.sdQuotationSection.deleteMany({ where: { quotationId: id } })
+                await tx.sdQuotationSection.createMany({
+                    data: sections.map((s) => ({ quotationId: id, ...s })),
+                })
+            }
             return this.load(tx, id)
         })
         return (await this.views(this.prisma, [row]))[0]
@@ -329,6 +350,12 @@ export class QuotationService {
                         createdBy: userId,
                         updatedBy: userId,
                         lines: { create: lines },
+                        sections: {
+                            create: current.sections.map(({ title, beforeLineNumber }) => ({
+                                title,
+                                beforeLineNumber,
+                            })),
+                        },
                     },
                     include: QUOTATION_INCLUDE,
                 })
@@ -513,6 +540,7 @@ export class QuotationService {
                 createdBy: input.createdBy,
                 updatedBy: input.createdBy,
                 lines: { create: pricing.lines.map(lineData) },
+                sections: { create: normalizeQuotationSections(input.sections, pricing.lines.length) },
             },
             include: QUOTATION_INCLUDE,
         })

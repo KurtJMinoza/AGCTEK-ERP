@@ -51,6 +51,7 @@ describe('buildQuotationPdfModel', () => {
             validUntil: null,
         })
         expect(model.lines[0]).toEqual({
+            section: null,
             lineNumber: 1,
             sku: 'SKU-1',
             description: 'A long product description that must wrap across several lines in the PDF table.',
@@ -63,6 +64,19 @@ describe('buildQuotationPdfModel', () => {
         expect(model.hasLines).toBe(true)
         expect(model.customer.companyName).toBe('Acme Corp')
         expect(model.opportunityName).toBe('Big Deal')
+    })
+
+    it('puts each section heading on the first line below it (headings carry no price)', () => {
+        const input = baseInput()
+        const model = buildQuotationPdfModel({
+            ...input,
+            lines: [...input.lines, { ...input.lines[0], lineNumber: 2, sku: 'SKU-2' }],
+            sections: [{ title: 'Accessories', beforeLineNumber: 2 }],
+        })
+        expect(model.lines.map((l) => [l.lineNumber, l.section])).toEqual([
+            [1, null],
+            [2, 'Accessories'],
+        ])
     })
 
     it('falls back to the default company and nulls blank fields', () => {

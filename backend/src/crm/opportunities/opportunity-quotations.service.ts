@@ -45,6 +45,7 @@ export class CrmOpportunityQuotationsService {
                     crmOpportunityId: id,
                     customerId: opp.customerId,
                     lines: dto.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+                    sections: dto.sections?.map((s) => ({ title: s.title, beforeLineNumber: s.beforeLineNumber })),
                     notes: dto.notes,
                     createdBy: user.id,
                 },
