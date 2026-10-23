@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-    HiOutlineBell,
     HiOutlineClipboardList,
     HiOutlineRefresh,
 } from 'react-icons/hi'
@@ -10,8 +9,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
@@ -22,24 +21,25 @@ import toast from '@/components/ui/toast'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { productDivisionLabel } from '../catalogs/productDivisions'
 import {
+    BoCustomerCell,
+    BoEtaCell,
+    BoNotifyActionCell,
+    BoOpenQtyCell,
+    BoOrderCell,
+    BoOrderDateCell,
+    BoOrderedQtyCell,
+    BoProductCell,
+    formatBackorderDate,
+} from '../components/BackorderReportTableCells'
+import {
     listBackorders,
     type Backorder,
     type BackorderListResult,
-    type BackorderReason,
 } from '../services/backorderService'
 
 const ROUTE_PATH = '/modules/sd/backorder-report'
 const AGING_DAYS = 3
 const NOTIFY_SIMULATION_MS = 800
-
-const REASON_META: Record<
-    BackorderReason,
-    { label: string; tone: StatusTone }
-> = {
-    STOCK_SHORTAGE: { label: 'Stock shortage', tone: 'danger' },
-    AWAITING_RESERVATION: { label: 'Awaiting reservation', tone: 'warning' },
-    NO_MATERIAL: { label: 'No MM material', tone: 'default' },
-}
 
 type Option = { value: string; label: string }
 
@@ -47,14 +47,6 @@ const formatPhp = (amount: number, currency = 'PHP') =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency }).format(
         amount,
     )
-
-const formatDate = (value: string | null) =>
-    value
-        ? new Date(value).toLocaleDateString('en-PH', { dateStyle: 'medium' })
-        : null
-
-const formatQty = (qty: number, uom: string | null) =>
-    `${qty.toLocaleString('en-PH', { maximumFractionDigits: 3 })}${uom ? ` ${uom}` : ''}`
 
 /** Red tint past the critical age, yellow while aging. */
 const rowTint = (row: Backorder) =>
@@ -76,12 +68,16 @@ const StatCard = ({
     label,
     value,
     hint,
+    delayMs = 0,
 }: {
     label: string
     value: string | number
     hint?: string
+    delayMs?: number
 }) => (
-    <Card>
+    <Card
+        className={`animate-mm-row-in motion-reduce:animate-none opacity-0 ${delayMs ? `[animation-delay:${delayMs}ms]` : ''}`}
+    >
         <div className="text-sm text-gray-500">{label}</div>
         <div className="mt-1 text-xl font-bold sm:text-2xl">{value}</div>
         {hint ? <div className="mt-1 text-xs text-gray-400">{hint}</div> : null}
@@ -166,7 +162,7 @@ const BackorderReportDashboard = () => {
             'Delay update sent (simulated)',
             `${notifyTarget.orderNumber}: ${contact} was told ${notifyTarget.productName} is delayed${
                 notifyTarget.expectedRestockDate
-                    ? ` until about ${formatDate(notifyTarget.expectedRestockDate)}`
+                    ? ` until about ${formatBackorderDate(notifyTarget.expectedRestockDate)}`
                     : ''
             }.`,
         )
@@ -177,120 +173,70 @@ const BackorderReportDashboard = () => {
     const columns = useMemo<ColumnDef<Backorder>[]>(
         () => [
             {
-                header: 'Sales Order #',
-                id: 'orderNumber',
-                cell: ({ row }) => (
-                    <div>
-                        <div className="font-mono font-semibold">
-                            {row.original.orderNumber}
-                        </div>
-                        {row.original.critical ? (
-                            <div className="text-xs font-semibold text-red-600 dark:text-red-400">
-                                {row.original.ageDays} days open
-                            </div>
-                        ) : null}
-                    </div>
-                ),
+                id: 'order',
+                header: 'Sales order',
+                size: 168,
+                minSize: 140,
+                cell: ({ row }) => <BoOrderCell row={row.original} />,
             },
             {
-                header: 'Customer Name',
                 id: 'customer',
-                cell: ({ row }) => (
-                    <div className="min-w-[8rem]">
-                        <div className="font-semibold">
-                            {row.original.customerName ?? '—'}
-                        </div>
-                        {row.original.customerCode ? (
-                            <div className="font-mono text-xs text-gray-500">
-                                {row.original.customerCode}
-                            </div>
-                        ) : null}
-                    </div>
-                ),
+                header: 'Customer',
+                size: 160,
+                minSize: 120,
+                meta: { className: 'hidden sm:table-cell' },
+                cell: ({ row }) => <BoCustomerCell row={row.original} />,
             },
             {
-                header: 'SKU / Product',
                 id: 'product',
-                cell: ({ row }) => (
-                    <div className="min-w-[10rem]">
-                        <div className="font-mono text-xs text-gray-500">
-                            {row.original.sku ?? '—'}
-                        </div>
-                        <div>{row.original.productName}</div>
-                        {row.original.divisionId ? (
-                            <div className="text-xs text-gray-400">
-                                {productDivisionLabel(row.original.divisionId)}
-                            </div>
-                        ) : null}
-                    </div>
-                ),
+                header: 'SKU / product',
+                size: 200,
+                minSize: 160,
+                cell: ({ row }) => <BoProductCell row={row.original} />,
             },
             {
-                header: 'Ordered Qty',
                 id: 'orderedQty',
-                cell: ({ row }) =>
-                    formatQty(row.original.orderedQty, row.original.uom),
+                header: 'Ordered',
+                size: 100,
+                minSize: 88,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => <BoOrderedQtyCell row={row.original} />,
             },
             {
-                header: 'Missing / Open Qty',
                 id: 'openQty',
-                cell: ({ row }) => (
-                    <div className="flex flex-col items-start gap-1">
-                        <span className="font-semibold">
-                            {formatQty(row.original.openQty, row.original.uom)}
-                        </span>
-                        <StatusBadge
-                            tone={REASON_META[row.original.reason].tone}
-                        >
-                            {REASON_META[row.original.reason].label}
-                        </StatusBadge>
-                    </div>
-                ),
+                header: 'Open / reason',
+                size: 140,
+                minSize: 120,
+                cell: ({ row }) => <BoOpenQtyCell row={row.original} />,
             },
             {
-                header: 'Order Date',
                 id: 'orderDate',
-                cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {formatDate(row.original.orderDate)}
-                    </span>
-                ),
+                header: 'Order date',
+                size: 128,
+                minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => <BoOrderDateCell row={row.original} />,
             },
             {
-                header: 'Expected Restock (ETA)',
                 id: 'eta',
-                cell: ({ row }) =>
-                    row.original.expectedRestockDate ? (
-                        <span className="whitespace-nowrap">
-                            {formatDate(row.original.expectedRestockDate)}
-                        </span>
-                    ) : (
-                        <span className="text-xs text-gray-400">
-                            {row.original.reason === 'NO_MATERIAL'
-                                ? 'Link an MM material'
-                                : 'No incoming PO'}
-                        </span>
-                    ),
+                header: 'Restock ETA',
+                size: 140,
+                minSize: 120,
+                meta: { className: 'hidden xl:table-cell' },
+                cell: ({ row }) => <BoEtaCell row={row.original} />,
             },
             {
-                header: '',
                 id: 'actions',
-                cell: ({ row }) =>
-                    notifiedIds.has(row.original.id) ? (
-                        <span className="whitespace-nowrap text-xs text-emerald-600">
-                            Notified
-                        </span>
-                    ) : (
-                        <Button
-                            size="xs"
-                            variant="plain"
-                            icon={<HiOutlineBell />}
-                            className="whitespace-nowrap"
-                            onClick={() => setNotifyTarget(row.original)}
-                        >
-                            Notify Customer
-                        </Button>
-                    ),
+                header: '',
+                size: 120,
+                minSize: 88,
+                cell: ({ row }) => (
+                    <BoNotifyActionCell
+                        row={row.original}
+                        notified={notifiedIds.has(row.original.id)}
+                        onNotify={() => setNotifyTarget(row.original)}
+                    />
+                ),
             },
         ],
         [notifiedIds],
@@ -331,15 +277,18 @@ const BackorderReportDashboard = () => {
                         summary?.totalBackorderedValue ?? 0,
                         summary?.currency,
                     )}
+                    delayMs={40}
                 />
                 <StatCard
                     label="Total Affected Orders"
                     value={summary?.affectedOrders ?? 0}
+                    delayMs={90}
                 />
                 <StatCard
                     label="Critical Shortages"
                     value={summary?.criticalShortages ?? 0}
                     hint="Items missing for more than 7 days"
+                    delayMs={140}
                 />
             </div>
 
@@ -378,13 +327,13 @@ const BackorderReportDashboard = () => {
                     </p>
                 </div>
 
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={result?.data ?? []}
                     loading={loading && !result}
                     noData={!loading && !result?.data.length}
                     getRowId={(row) => row.id}
-                    rowClassName={rowTint}
+                    rowClassName={(row) => rowTint(row)}
                     pagingData={{
                         total: result?.total ?? 0,
                         pageIndex: page,

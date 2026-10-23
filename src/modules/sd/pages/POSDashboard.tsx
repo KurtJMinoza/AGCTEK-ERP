@@ -16,7 +16,8 @@ import {
     HiOutlineTrash,
 } from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Loading from '@/components/shared/Loading'
 import Input from '@/components/ui/Input'
@@ -505,7 +506,7 @@ const POSDashboard = () => {
                                 </span>
                             ) : null}
                         </div>
-                        <DataTable
+                        <SdDataTable
                             columns={columns}
                             data={items}
                             noData={items.length === 0}

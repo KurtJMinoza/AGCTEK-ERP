@@ -16,7 +16,9 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
+import { SdDocCell, SdMoneyCell } from '../components/SdDataTableCells'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Card from '@/components/ui/Card'
@@ -412,22 +414,22 @@ const SalesOrdersDashboard = () => {
     const columns = useMemo<ColumnDef<SalesOrderRecord>[]>(
         () => [
             {
-                header: 'Order ID',
+                header: 'Order',
                 id: 'orderId',
+                size: 168,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap">
-                        <div className="font-mono font-semibold">
-                            {row.original.orderId}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                            {formatDateTime(row.original.createdAt)}
-                        </div>
-                    </div>
+                    <SdDocCell
+                        primary={row.original.orderId}
+                        secondary={formatDateTime(row.original.createdAt)}
+                    />
                 ),
             },
             {
                 header: 'Channel',
                 id: 'channel',
+                size: 96,
+                meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => (
                     <ChannelBadge channel={row.original.channel} />
                 ),
@@ -435,18 +437,21 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Company',
                 id: 'company',
+                size: 120,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
+                    <span className="truncate whitespace-nowrap text-sm">
                         {row.original.company?.name ?? '—'}
                     </span>
                 ),
             },
             {
-                // Organization / MM branch master (created per company).
                 header: 'Branch',
                 id: 'branch',
+                size: 120,
+                meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
+                    <span className="truncate whitespace-nowrap text-sm">
                         {branchNameOf(row.original.branchId)}
                     </span>
                 ),
@@ -454,6 +459,8 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Customer',
                 id: 'customer',
+                size: 160,
+                minSize: 120,
                 cell: ({ row }) => {
                     const { channel: orderChannel, customer } = row.original
                     const name =
@@ -473,22 +480,25 @@ const SalesOrdersDashboard = () => {
                 },
             },
             {
-                header: 'Total Amount',
+                header: 'Total',
                 id: 'totalAmount',
+                size: 110,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap font-semibold">
-                        {formatPrice(row.original.totalAmount)}
-                    </span>
+                    <SdMoneyCell amount={row.original.totalAmount} emphasize />
                 ),
             },
             {
-                header: 'Order Status',
+                header: 'Status',
                 id: 'orderStatus',
+                size: 108,
                 cell: ({ row }) => <StatusCell status={row.original.status} />,
             },
             {
-                header: 'Payment Method',
+                header: 'Payment',
                 id: 'paymentMethod',
+                size: 120,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => {
                     const payment = row.original.payment
                     if (!payment)
@@ -513,8 +523,10 @@ const SalesOrdersDashboard = () => {
                 },
             },
             {
-                header: 'Payment Status',
+                header: 'Paid',
                 id: 'paymentStatus',
+                size: 96,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const payment = row.original.payment
                     if (!payment)
@@ -704,7 +716,7 @@ const SalesOrdersDashboard = () => {
             </div>
 
             <Card>
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={visibleOrders}
                     loading={loading && orders.length === 0}
@@ -751,7 +763,7 @@ const SalesOrdersDashboard = () => {
                             </div>
                         </div>
                         <div className="sm:max-h-[40vh] sm:overflow-y-auto">
-                            <DataTable
+                            <SdDataTable
                                 columns={lineColumns}
                                 data={selected.lines}
                                 hidePagination

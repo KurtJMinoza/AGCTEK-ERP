@@ -13,7 +13,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Loading from '@/components/shared/Loading'
 import ErpBackLink from '@/components/erp/ErpBackLink'
@@ -307,7 +308,7 @@ const SalesInvoiceDocument = () => {
                             </div>
                         </div>
 
-                        <DataTable
+                        <SdDataTable
                             columns={lineColumns}
                             data={invoice.lines ?? []}
                             compact

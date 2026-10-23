@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import {
     HiOutlineDocumentText,
     HiOutlineMail,
@@ -13,8 +12,15 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
+import {
+    SdCompanyIdentityCell,
+    SdDateCell,
+    SdDocCell,
+    SdMoneyCell,
+    SdStatusBadgeCell,
+} from '../components/SdDataTableCells'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -34,7 +40,6 @@ import {
 import {
     BILLING_ROUTE as ROUTE_PATH,
     BILLING_STATUS_META as STATUS_META,
-    formatDate,
     formatMoney,
     invoiceDocumentHref,
 } from '../utils/invoiceDisplay'
@@ -158,61 +163,81 @@ const BillingDashboard = () => {
     const columns = useMemo<ColumnDef<Invoice>[]>(
         () => [
             {
-                header: 'Invoice #',
+                header: 'Invoice',
                 id: 'invoiceNumber',
+                size: 168,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <Link
+                    <SdDocCell
+                        icon="invoice"
+                        primary={row.original.invoiceNumber}
+                        secondary={row.original.salesOrderReference}
                         href={invoiceDocumentHref(row.original.id)}
-                        className="font-mono font-semibold text-primary hover:underline"
-                    >
-                        {row.original.invoiceNumber}
-                    </Link>
+                    />
                 ),
             },
             {
-                header: 'Sales Order',
+                header: 'Sales order',
                 id: 'salesOrderReference',
+                size: 120,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
-                    <span className="font-mono text-xs">{row.original.salesOrderReference}</span>
+                    <span className="font-mono text-xs text-gray-600">
+                        {row.original.salesOrderReference}
+                    </span>
                 ),
             },
             {
                 header: 'Customer',
                 id: 'customerName',
-                cell: ({ row }) => row.original.customerName ?? '—',
+                size: 160,
+                minSize: 120,
+                meta: { className: 'hidden sm:table-cell' },
+                cell: ({ row }) => (
+                    <SdCompanyIdentityCell
+                        title={row.original.customerName ?? '—'}
+                        narrowHint={row.original.salesOrderReference}
+                    />
+                ),
             },
             {
                 header: 'Amount',
                 id: 'totalAmount',
+                size: 120,
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap">
-                        <div className="font-semibold">
-                            {formatMoney(row.original.totalAmount, row.original.currency)}
-                        </div>
-                        {row.original.refundedAmount > 0 ? (
-                            <div className="text-xs text-gray-500">
-                                Refunded{' '}
-                                {formatMoney(row.original.refundedAmount, row.original.currency)}
-                            </div>
-                        ) : null}
-                    </div>
+                    <SdMoneyCell
+                        amount={row.original.totalAmount}
+                        currency={row.original.currency}
+                        emphasize
+                        subline={
+                            row.original.refundedAmount > 0
+                                ? `Refunded ${formatMoney(row.original.refundedAmount, row.original.currency)}`
+                                : undefined
+                        }
+                    />
                 ),
             },
             {
-                header: 'Due Date',
+                header: 'Due date',
                 id: 'dueDate',
+                size: 128,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap">
-                        {formatDate(row.original.dueDate) ?? '—'}
-                    </span>
+                    <SdDateCell value={row.original.dueDate} />
                 ),
             },
             {
                 header: 'Status',
                 id: 'billingStatus',
+                size: 100,
                 cell: ({ row }) => {
                     const meta = STATUS_META[row.original.billingStatus]
-                    return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
+                    return (
+                        <SdStatusBadgeCell
+                            label={meta.label}
+                            tone={meta.tone}
+                        />
+                    )
                 },
             },
             {
@@ -321,7 +346,7 @@ const BillingDashboard = () => {
             </div>
 
             <Card>
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={rows}
                     loading={loading && rows.length === 0}

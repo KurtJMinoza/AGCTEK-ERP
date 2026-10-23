@@ -8,7 +8,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
@@ -354,7 +355,7 @@ const SalesReturns = () => {
                     />
                 </div>
 
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={rows}
                     loading={loading}
@@ -516,7 +517,7 @@ const SalesReturns = () => {
                             <h6 className="mb-3 text-sm font-semibold heading-text">
                                 Return lines
                             </h6>
-                            <DataTable
+                            <SdDataTable
                                 columns={lineColumns}
                                 data={detail.lines ?? []}
                                 compact

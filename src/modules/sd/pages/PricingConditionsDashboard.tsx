@@ -11,7 +11,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Card from '@/components/ui/Card'
@@ -593,7 +594,7 @@ const PricingConditionsDashboard = () => {
                     )}
                 </div>
 
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={rows}
                     loading={loading && rows.length === 0}

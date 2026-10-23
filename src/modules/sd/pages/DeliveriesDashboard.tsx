@@ -12,7 +12,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Card from '@/components/ui/Card'
@@ -537,7 +538,7 @@ const DeliveriesDashboard = () => {
             </div>
 
             <Card>
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={rows}
                     loading={loading && rows.length === 0}
@@ -662,7 +663,7 @@ const DeliveriesDashboard = () => {
                             <h6 className="mb-2 text-sm font-semibold heading-text">
                                 Line items
                             </h6>
-                            <DataTable
+                            <SdDataTable
                                 columns={lineColumns}
                                 data={detail.lines}
                                 compact

@@ -12,7 +12,8 @@ import {
 } from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import ProductVariantsSubRow from './ProductVariantsSubRow'
-import DataTable, { type ColumnDef, type OnSortParam } from '@/components/shared/DataTable'
+import { type ColumnDef, type OnSortParam } from '@/components/shared/DataTable'
+import SdDataTable from './SdDataTable'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -35,7 +36,6 @@ import {
     PcStockCell,
     PcVariantsCell,
     PcVisibilityCell,
-    pcTableRowEnterClass,
 } from './ProductCatalogTableCells'
 
 type FilterOption = { value: string; label: string }
@@ -469,13 +469,9 @@ const ProductCatalogTableSection = ({
                 </div>
             ) : null}
 
-            <div className="min-w-0 overflow-x-auto">
-                <DataTable<SdProductRecord>
+            <SdDataTable
                     columns={columns}
                     data={pagedProducts}
-                    compact
-                    fit
-                    hoverable
                     loading={(loading || stockLoading || refreshing) && products.length === 0}
                     noData={!loading && products.length === 0}
                     selectable
@@ -492,7 +488,6 @@ const ProductCatalogTableSection = ({
                     }}
                     onSort={handleSort}
                     getRowId={(row) => row.id}
-                    rowClassName={(_, index) => pcTableRowEnterClass(index)}
                     renderSubRow={(row) => (
                         <div className="animate-mm-row-in motion-reduce:animate-none">
                             <ProductVariantsSubRow
@@ -508,7 +503,6 @@ const ProductCatalogTableSection = ({
                         </div>
                     )}
                 />
-            </div>
         </AdaptiveCard>
     )
 }

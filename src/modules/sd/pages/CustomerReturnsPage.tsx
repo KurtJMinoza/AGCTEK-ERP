@@ -6,7 +6,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Dialog from '@/components/ui/Dialog'
@@ -700,7 +701,7 @@ const CustomerReturnsPage = () => {
             </AdaptiveCard>
 
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <SdDataTable columns={columns} data={rows} loading={loading} />
             </AdaptiveCard>
 
             {confirm && (

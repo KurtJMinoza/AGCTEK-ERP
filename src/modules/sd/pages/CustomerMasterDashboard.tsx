@@ -12,8 +12,15 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
+import {
+    SdCompanyIdentityCell,
+    SdContactCell,
+    SdEmailCell,
+    SdMoneyCell,
+    SdStatusBadgeCell,
+} from '../components/SdDataTableCells'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -144,88 +151,88 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Customer',
                 id: 'company',
+                size: 180,
+                minSize: 140,
                 cell: ({ row }) => (
-                    <div className="min-w-[10rem]">
-                        <div className="font-semibold">{row.original.companyName}</div>
-                        <div className="font-mono text-xs text-gray-500">
-                            {row.original.customerNumber}
-                        </div>
-                    </div>
+                    <SdCompanyIdentityCell
+                        title={row.original.companyName}
+                        subtitle={row.original.customerNumber}
+                        narrowHint={row.original.contactName}
+                    />
                 ),
             },
             {
                 header: 'Type',
                 id: 'customerType',
+                size: 88,
+                meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerType === 'RETAIL' ? (
-                        <StatusBadge tone="info">Retail</StatusBadge>
+                        <SdStatusBadgeCell label="Retail" tone="info" />
                     ) : (
-                        <StatusBadge>B2B</StatusBadge>
+                        <SdStatusBadgeCell label="B2B" />
                     ),
             },
             {
                 header: 'Contact',
                 id: 'contact',
+                size: 180,
+                minSize: 140,
+                meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
-                    <div className="min-w-[12rem]">
-                        <div>{row.original.contactName}</div>
-                        <div className="text-xs text-gray-500">
-                            {row.original.email}
-                            {row.original.phone ? ` · ${row.original.phone}` : ''}
-                        </div>
-                    </div>
+                    <SdContactCell
+                        name={row.original.contactName}
+                        email={row.original.email}
+                        phone={row.original.phone}
+                    />
                 ),
             },
             {
                 header: 'Credit Limit',
                 id: 'creditLimit',
+                size: 120,
+                meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerType === 'RETAIL' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
-                        <span className="whitespace-nowrap">
-                            {formatPrice(row.original.creditLimit)}
-                        </span>
+                        <SdMoneyCell amount={row.original.creditLimit} />
                     ),
             },
             {
                 header: 'Available Credit',
                 id: 'availableCredit',
+                size: 130,
+                meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerType === 'RETAIL' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
-                        <span
-                            className={
-                                row.original.availableCredit < 0
-                                    ? 'whitespace-nowrap font-semibold text-red-600'
-                                    : 'whitespace-nowrap font-semibold'
-                            }
-                        >
-                            {formatPrice(row.original.availableCredit)}
-                        </span>
+                        <SdMoneyCell
+                            amount={row.original.availableCredit}
+                            emphasize
+                            negative={row.original.availableCredit < 0}
+                        />
                     ),
             },
             {
                 header: 'Shop Account',
                 id: 'shopAccount',
-                cell: ({ row }) =>
-                    row.original.retailClient ? (
-                        <span className="whitespace-nowrap">
-                            {row.original.retailClient.email}
-                        </span>
-                    ) : (
-                        <span className="text-gray-400">—</span>
-                    ),
+                size: 160,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => (
+                    <SdEmailCell email={row.original.retailClient?.email} />
+                ),
             },
             {
                 header: 'Status',
                 id: 'status',
+                size: 96,
                 cell: ({ row }) =>
                     row.original.status === 'BLOCKED' ? (
-                        <StatusBadge tone="danger">Blocked</StatusBadge>
+                        <SdStatusBadgeCell label="Blocked" tone="danger" />
                     ) : (
-                        <StatusBadge tone="success">Active</StatusBadge>
+                        <SdStatusBadgeCell label="Active" tone="success" />
                     ),
             },
             {
@@ -322,7 +329,7 @@ const CustomerMasterDashboard = () => {
             </div>
 
             <Card>
-                <DataTable
+                <SdDataTable
                     columns={columns}
                     data={customers}
                     loading={loading && customers.length === 0}

@@ -6,7 +6,8 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SdDataTable from '../components/SdDataTable'
 import Chart from '@/components/shared/Chart'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
@@ -332,7 +333,7 @@ const SalesAnalysisDashboard = () => {
                         ))}
                     </div>
                 ) : (
-                    <DataTable
+                    <SdDataTable
                         columns={productColumns}
                         data={data?.topProducts ?? []}
                         noData={!data?.topProducts.length}
