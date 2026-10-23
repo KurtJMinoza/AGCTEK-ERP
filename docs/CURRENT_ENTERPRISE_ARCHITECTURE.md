@@ -415,6 +415,15 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
   - Closed Lost cancels the active quotation in the same transaction.
   - Revise is refused with `QUOTATION_OPPORTUNITY_ORDERED` once the opportunity has an SD order.
   - New quotations are refused once an order is linked, even after reopening.
+- **Section headings:** free-text, unpriced headings (`SdQuotationSection { title, beforeLineNumber }`, migration `20261109120000_sd_quotation_sections`) group the product lines.
+  - Product lines stay numbered 1..n, so pricing, send, revise and conversion are unchanged.
+  - A heading must sit above an existing line; blank titles, a trailing heading and two headings above one line are rejected.
+  - Sending `lines` replaces the headings; a notes-only edit keeps them.
+  - Revise copies them, the PDF prints them as plain rows, and conversion to the sales order ignores them.
+- **Stock signal:** `POST /sd/quotations/stock-check` (sd.quotations read) uses `CommercialAvailabilityService.getQuotationLineStock`.
+  - Each line gets OK / LOW / NONE / NOT_TRACKED / UNKNOWN.
+  - The figure is the checkout company's MM pickable stock (on hand − reserved, all active warehouses), compared with the line quantity in the material base UOM.
+  - It is indicative only: it reserves nothing, never blocks draft or send, and is never printed on the customer PDF. A failed read is UNKNOWN, never NONE.
 - **Permissions:**
   - Creating from CRM needs crm:update and sd:create.
   - SD endpoints use sd:read and sd:update.

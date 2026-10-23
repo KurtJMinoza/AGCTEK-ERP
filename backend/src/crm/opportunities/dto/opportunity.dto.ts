@@ -18,6 +18,7 @@ import {
 import { Transform, Type } from 'class-transformer'
 import { ACTIVITY_FILTERS, type ActivityFilter } from '../../activities/activity-status'
 import { LOST_REASONS, type LostReason } from '../opportunity-stages'
+import { QuotationSectionDto } from '../../../sd/dto/quotation.dto'
 
 export const OPPORTUNITY_OPEN_STAGES = [
     'PROSPECTING',
@@ -277,6 +278,14 @@ export class CreateOpportunityQuotationDto {
     @ValidateNested({ each: true })
     @Type(() => HandoffLineDto)
     lines!: HandoffLineDto[]
+
+    /** Free-text headings above product lines (`beforeLineNumber` is 1-based); SD validates them. */
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(100)
+    @ValidateNested({ each: true })
+    @Type(() => QuotationSectionDto)
+    sections?: QuotationSectionDto[]
 
     @IsOptional()
     @IsString()

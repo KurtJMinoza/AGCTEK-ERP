@@ -306,4 +306,40 @@ describe('SD quotations on PostgreSQL', () => {
             if (movedActive) expect(movedActive.customerId).toBe(movedRow.customerId)
         }
     })
+
+    it('keeps section headings and line order across reload and revision; headings never price', async () => {
+        const opp = await newOpp('sections')
+        const draft = await oppQuotes.create(
+            opp,
+            {
+                lines,
+                sections: [
+                    { title: 'Accessories', beforeLineNumber: 2 },
+                    { title: '  Main units ', beforeLineNumber: 1 },
+                ],
+            },
+            user,
+        )
+        const reloaded = await quotations.findOne(draft.id)
+        expect(reloaded.sections.map((s) => [s.beforeLineNumber, s.title])).toEqual([
+            [1, 'Main units'],
+            [2, 'Accessories'],
+        ])
+        expect(reloaded.lines.map((l) => l.productId)).toEqual(productIds)
+        expect(reloaded.totalAmount.toFixed(2)).toBe('2800.97')
+
+        await expect(
+            prisma.sdQuotationSection.create({
+                data: { quotationId: draft.id, title: 'Duplicate', beforeLineNumber: 1 },
+            }),
+        ).rejects.toMatchObject({ code: 'P2002' })
+
+        await quotations.send(draft.id, {}, user.id)
+        const rev2 = await quotations.revise(draft.id, { reason: 'CUSTOMER_REQUEST' }, user.id)
+        expect(rev2.sections.map((s) => [s.beforeLineNumber, s.title])).toEqual([
+            [1, 'Main units'],
+            [2, 'Accessories'],
+        ])
+        await quotations.cancel(rev2.id, { reason: 'test cleanup' }, user.id)
+    })
 })

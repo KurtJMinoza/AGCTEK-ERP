@@ -65,10 +65,30 @@ export type Quotation = {
     createdAt: string
     updatedAt: string
     lines: QuotationLine[]
+    /** Free-text headings above product lines (never priced), ordered by `beforeLineNumber`. */
+    sections: QuotationSection[]
     lineIssues: QuotationLineIssue[]
 }
 
-export type QuotationLinesInput = { lines: ProductLineInput[]; notes?: string }
+export type QuotationSection = { id: string; title: string; beforeLineNumber: number }
+export type QuotationSectionInput = { title: string; beforeLineNumber: number }
+
+export type QuotationLinesInput = {
+    lines: ProductLineInput[]
+    /** Sending `lines` replaces the headings (omitted = none). */
+    sections?: QuotationSectionInput[]
+    notes?: string
+}
+
+/** Indicative stock per line (checkout company, all warehouses); never reserves or blocks. */
+export type QuotationLineStockState = 'OK' | 'LOW' | 'NONE' | 'NOT_TRACKED' | 'UNKNOWN'
+export type QuotationLineStock = {
+    productId: string
+    quantity: number
+    state: QuotationLineStockState
+    availableBaseQty: number | null
+    requiredBaseQty: number | null
+}
 
 /** 409 QUOTATION_PRICES_CHANGED: the draft was re-priced and saved; nothing was sent. */
 export type QuotationPriceChange = {
@@ -79,6 +99,12 @@ export type QuotationPriceChange = {
 }
 
 const path = (id: string, action = '') => `/sd/quotations/${encodeURIComponent(id)}${action}`
+
+/** Soft stock signal for quotation lines (OK / LOW / NONE / NOT_TRACKED / UNKNOWN). */
+export async function checkQuotationStock(lines: ProductLineInput[]) {
+    const { data } = await ErpAxiosBase.post<QuotationLineStock[]>('/sd/quotations/stock-check', { lines })
+    return data
+}
 
 /** One SD-owned quotation by id. */
 export async function getQuotation(id: string) {

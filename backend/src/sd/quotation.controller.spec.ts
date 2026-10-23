@@ -1,3 +1,4 @@
+import type { CommercialAvailabilityService } from './commercial-availability.service'
 import 'reflect-metadata'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { PERMISSION_KEY } from '../permissions/permission.guard'
@@ -38,6 +39,7 @@ describe('QuotationController', () => {
         const controller = new QuotationController(
             quotations as unknown as QuotationService,
             {} as QuotationPdfService,
+            {} as CommercialAvailabilityService,
         )
         const user = { id: 'user-7' } as never
 
@@ -76,6 +78,7 @@ describe('QuotationController.downloadPdf', () => {
         const controller = new QuotationController(
             quotations as unknown as QuotationService,
             pdf as unknown as QuotationPdfService,
+            {} as CommercialAvailabilityService,
         )
         const headers: Record<string, string> = {}
         const res: { header: (key: string, value: string) => void; send: (body: unknown) => unknown } = {

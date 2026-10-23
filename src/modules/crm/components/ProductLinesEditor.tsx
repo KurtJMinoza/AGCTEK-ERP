@@ -61,6 +61,36 @@ export function useSdCatalog(enabled: boolean) {
     return { products, loading, error }
 }
 
+/** Product picker options for one line: one sales division per document, each product once. */
+export function productOptionsFor(
+    products: SdProductRecord[],
+    lines: ProductLineForm[],
+    line: ProductLineForm,
+    loading?: boolean,
+) {
+    const byId = new Map(products.map((p) => [p.id, p]))
+    const division = lines
+        .map((l) => (l.productId ? byId.get(l.productId)?.divisionId : undefined))
+        .find(Boolean)
+    const options = products
+        .filter((p) => !division || p.divisionId === division)
+        .filter((p) => p.id === line.productId || !lines.some((l) => l.productId === p.id))
+        .map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))
+    return line.productId && !byId.has(line.productId) && !loading
+        ? [{ value: line.productId, label: `${line.sku ?? line.productId} (no longer sold)` }, ...options]
+        : options
+}
+
+/** Display-only catalog estimate; SD prices the document. */
+export function catalogEstimate(products: SdProductRecord[], lines: ProductLineForm[]) {
+    const byId = new Map(products.map((p) => [p.id, p]))
+    return lines.reduce((sum, l) => {
+        const product = l.productId ? byId.get(l.productId) : undefined
+        const qty = Number(l.quantity)
+        return product && qty > 0 ? sum + product.price * qty : sum
+    }, 0)
+}
+
 type ProductLinesEditorProps = {
     products: SdProductRecord[]
     loading?: boolean
@@ -91,24 +121,12 @@ export default function ProductLinesEditor({
         .map((l) => (l.productId ? byId.get(l.productId)?.divisionId : undefined))
         .find(Boolean)
 
-    const optionsFor = (line: ProductLineForm) => {
-        const options = products
-            .filter((p) => !division || p.divisionId === division)
-            .filter((p) => p.id === line.productId || !lines.some((l) => l.productId === p.id))
-            .map((p) => ({ value: p.id, label: `${p.sku} · ${p.name}` }))
-        return line.productId && !byId.has(line.productId) && !loading
-            ? [{ value: line.productId, label: `${line.sku ?? line.productId} (no longer sold)` }, ...options]
-            : options
-    }
+    const optionsFor = (line: ProductLineForm) => productOptionsFor(products, lines, line, loading)
 
     const setLine = (key: number, patch: Partial<ProductLineForm>) =>
         onChange(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)))
 
-    const estimate = lines.reduce((sum, l) => {
-        const product = l.productId ? byId.get(l.productId) : undefined
-        const qty = Number(l.quantity)
-        return product && qty > 0 ? sum + product.price * qty : sum
-    }, 0)
+    const estimate = catalogEstimate(products, lines)
 
     return (
         <>

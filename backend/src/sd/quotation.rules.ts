@@ -86,6 +86,35 @@ export function nextQuotationStatus(status: string, action: QuotationAction): Qu
 export const REVISION_REASONS = ['CUSTOMER_REQUEST', 'ERROR_CORRECTION', 'OTHER'] as const
 export type RevisionReason = (typeof REVISION_REASONS)[number]
 
+export const QUOTATION_SECTION_TITLE_MAX = 120
+
+/**
+ * Section headings: trimmed non-blank titles, each above an existing product line (1..lineCount),
+ * at most one heading per line. Returns them sorted by position.
+ */
+export function normalizeQuotationSections(
+    sections: ReadonlyArray<{ title: string; beforeLineNumber: number }> | undefined,
+    lineCount: number,
+) {
+    const normalized = (sections ?? []).map((s) => ({
+        title: s.title.trim(),
+        beforeLineNumber: s.beforeLineNumber,
+    }))
+    if (normalized.some((s) => !s.title)) {
+        throw new BadRequestException('Section titles cannot be blank')
+    }
+    if (normalized.some((s) => s.title.length > QUOTATION_SECTION_TITLE_MAX)) {
+        throw new BadRequestException(`Section titles are at most ${QUOTATION_SECTION_TITLE_MAX} characters`)
+    }
+    if (normalized.some((s) => !Number.isInteger(s.beforeLineNumber) || s.beforeLineNumber < 1 || s.beforeLineNumber > lineCount)) {
+        throw new BadRequestException('Each section needs at least one product line after it')
+    }
+    if (new Set(normalized.map((s) => s.beforeLineNumber)).size !== normalized.length) {
+        throw new BadRequestException('Only one section heading can sit above a line')
+    }
+    return normalized.sort((a, b) => a.beforeLineNumber - b.beforeLineNumber)
+}
+
 export function formatQuotationNumber(value: bigint | number) {
     return `Q-${String(value).padStart(6, '0')}`
 }

@@ -57,7 +57,8 @@ function setup() {
     }
     let lineSeq = 0
     const toLine = (data: Row) => ({ id: `line-${++lineSeq}`, ...data })
-    const copy = (row: Row | undefined) => (row ? { ...row, lines: [...row.lines] } : null)
+    const copy = (row: Row | undefined) =>
+        row ? { ...row, lines: [...row.lines], sections: [...(row.sections ?? [])] } : null
     const rowOfLine = (lineId: string) => rows.find((r) => r.lines.some((l: Row) => l.id === lineId))!
 
     const prisma = {
@@ -103,8 +104,14 @@ function setup() {
                 ),
             ),
             create: jest.fn(({ data }: { data: Row }) => {
-                const { lines, ...rest } = data
-                const row = { id: `q-${rows.length + 1}`, validUntil: null, ...rest, lines: lines.create.map(toLine) }
+                const { lines, sections, ...rest } = data
+                const row = {
+                    id: `q-${rows.length + 1}`,
+                    validUntil: null,
+                    ...rest,
+                    lines: lines.create.map(toLine),
+                    sections: (sections?.create ?? []).map((s: Row, i: number) => ({ id: `sec-${i + 1}`, ...s })),
+                }
                 rows.push(row)
                 return Promise.resolve(row)
             }),
@@ -129,6 +136,19 @@ function setup() {
                 const line = rowOfLine(where.id).lines.find((l: Row) => l.id === where.id)
                 Object.assign(line, data)
                 return Promise.resolve(line)
+            }),
+        },
+        sdQuotationSection: {
+            deleteMany: jest.fn(({ where }: { where: { quotationId: string } }) => {
+                state.byId(where.quotationId)!.sections = []
+                return Promise.resolve({ count: 0 })
+            }),
+            createMany: jest.fn(({ data }: { data: Row[] }) => {
+                if (data.length) {
+                    const row = state.byId(data[0].quotationId)!
+                    row.sections = data.map(({ quotationId: _q, ...s }, i) => ({ id: `sec-${i + 1}`, ...s }))
+                }
+                return Promise.resolve({ count: data.length })
             }),
         },
     }
@@ -284,6 +304,96 @@ describe('QuotationService.create', () => {
         await expect(ctx.service.create(input)).rejects.toThrow('CUST-000001 is BLOCKED')
         ctx.state.customer = customer({ currency: 'USD' })
         await expect(ctx.service.create(input)).rejects.toThrow(/billed in USD.*does not convert/)
+    })
+})
+
+describe('QuotationService section headings', () => {
+    const sections = [
+        { title: ' Main units ', beforeLineNumber: 1 },
+        { title: 'Accessories', beforeLineNumber: 2 },
+    ]
+    const titles = (quote: Row) => quote.sections.map((s: Row) => [s.beforeLineNumber, s.title])
+
+    it('stores trimmed headings with the draft; totals come from product lines only', async () => {
+        const { service } = setup()
+
+        const quote = await service.create({ ...input, sections })
+
+        expect(titles(quote)).toEqual([
+            [1, 'Main units'],
+            [2, 'Accessories'],
+        ])
+        expect(quote.lines.map((l: Row) => l.lineNumber)).toEqual([1, 2])
+        expect(quote.totalAmount.toFixed(2)).toBe('2800.97')
+    })
+
+    it('rejects blank or trailing headings before any write', async () => {
+        const { prisma, service } = setup()
+        await expect(service.create({ ...input, sections: [{ title: '  ', beforeLineNumber: 1 }] })).rejects.toThrow(
+            'Section titles cannot be blank',
+        )
+        await expect(service.create({ ...input, sections: [{ title: 'End', beforeLineNumber: 3 }] })).rejects.toThrow(
+            'at least one product line after it',
+        )
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('replaces headings with the lines and keeps them on a notes-only edit', async () => {
+        const ctx = setup()
+        await ctx.service.create({ ...input, sections })
+
+        const notesOnly = await ctx.service.updateDraft('q-1', { notes: 'call first' }, 'user-1')
+        expect(titles(notesOnly)).toEqual([
+            [1, 'Main units'],
+            [2, 'Accessories'],
+        ])
+        expect(ctx.prisma.sdQuotationSection.deleteMany).not.toHaveBeenCalled()
+
+        const relined = await ctx.service.updateDraft(
+            'q-1',
+            {
+                lines: [
+                    { productId: 'p2', quantity: 1 },
+                    { productId: 'p1', quantity: 1 },
+                ],
+                sections: [{ title: 'Bundle', beforeLineNumber: 1 }],
+            },
+            'user-1',
+        )
+        expect(titles(relined)).toEqual([[1, 'Bundle']])
+
+        const linesOnly = await ctx.service.updateDraft('q-1', { lines: [{ productId: 'p1', quantity: 1 }] }, 'user-1')
+        expect(linesOnly.sections).toEqual([])
+    })
+
+    it('rejects a heading below the last line when lines shrink', async () => {
+        const ctx = setup()
+        await ctx.service.create({ ...input, sections })
+        await expect(
+            ctx.service.updateDraft('q-1', { lines: [{ productId: 'p1', quantity: 1 }], sections }, 'user-1'),
+        ).rejects.toThrow('at least one product line after it')
+    })
+
+    it('copies headings into a revision and prints them in the PDF input', async () => {
+        const ctx = setup()
+        await ctx.service.create({ ...input, sections })
+        await ctx.service.send('q-1', {}, 'user-1')
+
+        const rev2 = await ctx.service.revise('q-1', { reason: 'CUSTOMER_REQUEST' }, 'user-1')
+        expect(titles(rev2)).toEqual([
+            [1, 'Main units'],
+            [2, 'Accessories'],
+        ])
+
+        Object.assign(ctx.prisma, {
+            crmOpportunity: { findUnique: jest.fn().mockResolvedValue({ name: 'Big deal' }) },
+            company: { findFirst: jest.fn().mockResolvedValue(null) },
+        })
+        const pdf = await ctx.service.pdfInput('q-1')
+        expect(pdf.sections).toEqual([
+            { title: 'Main units', beforeLineNumber: 1 },
+            { title: 'Accessories', beforeLineNumber: 2 },
+        ])
     })
 })
 

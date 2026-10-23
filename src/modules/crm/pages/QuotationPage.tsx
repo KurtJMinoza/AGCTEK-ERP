@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter, useParams } from 'next/navigation'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
@@ -12,6 +12,7 @@ import usePermissions from '@/utils/hooks/usePermissions'
 import { useOpportunity } from '../hooks/useOpportunity'
 import { useQuotation } from '../hooks/useQuotation'
 import { useOpportunityQuotations } from '../hooks/useOpportunityQuotations'
+import { useQuotationStock } from '../hooks/useQuotationStock'
 import QuotationComposeForm from '../components/quotation/QuotationComposeForm'
 import QuotationStatusActions from '../components/quotation/QuotationStatusActions'
 import DownloadQuotationPdfButton from '../components/quotation/DownloadQuotationPdfButton'
@@ -303,7 +304,16 @@ export default function QuotationPage({
     )
 }
 
+/** Live quotations show indicative stock; closed ones (converted, cancelled, …) do not. */
+const STOCK_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'SENT', 'ACCEPTED'])
+
 function QuotationBody({ quotation }: { quotation: Quotation }) {
+    const showStock = STOCK_STATUSES.has(quotation.effectiveStatus)
+    const lineInputs = useMemo(
+        () => quotation.lines.map((l) => ({ productId: l.productId, quantity: Number(l.quantity) })),
+        [quotation.lines],
+    )
+    const stock = useQuotationStock(lineInputs, showStock)
     return (
         <AdaptiveCard>
             <div className="mb-4">
@@ -326,7 +336,17 @@ function QuotationBody({ quotation }: { quotation: Quotation }) {
             {quotation.cancelReason ? (
                 <p className="mb-2 text-xs text-gray-500">Cancelled: {quotation.cancelReason}.</p>
             ) : null}
-            <QuotationLinesTable quotation={quotation} />
+            <QuotationLinesTable
+                quotation={quotation}
+                stock={showStock ? stock.stock : undefined}
+                stockLoading={stock.loading}
+            />
+            {showStock ? (
+                <p className="mt-2 text-xs text-gray-500">
+                    Stock is indicative and internal: it reserves nothing, never blocks the quotation, and is
+                    not printed on the customer PDF.
+                </p>
+            ) : null}
             {quotation.notes ? <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">Notes: {quotation.notes}</p> : null}
         </AdaptiveCard>
     )
