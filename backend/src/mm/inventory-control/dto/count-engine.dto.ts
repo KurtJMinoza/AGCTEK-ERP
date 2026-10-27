@@ -151,3 +151,23 @@ export class AdjustmentRequestQueryDto {
     @IsOptional() @IsString() warehouseId?: string
     @IsOptional() @IsIn([...ADJUSTMENT_REQUEST_STATUSES]) status?: string
 }
+
+export class CountVarianceQueryDto {
+    @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number
+    @IsOptional() @Type(() => Number) @IsInt() @Min(1) pageSize?: number
+    @IsOptional() @IsString() sessionId?: string
+    @IsOptional() @IsString() companyId?: string
+    @IsOptional() @IsString() warehouseId?: string
+    @IsOptional() @IsString() status?: string
+}
+
+export class InvestigateVarianceDto {
+    @IsString() @IsNotEmpty() rootCause!: string
+    @IsOptional() @IsString() correctiveAction?: string
+    @IsOptional() @IsString() investigatedBy?: string
+}
+
+export class SubmitVarianceReportDto {
+    @IsOptional() @IsString() summary?: string
+    @IsOptional() @IsString() submittedBy?: string
+}

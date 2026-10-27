@@ -197,6 +197,8 @@ export const MM_FEATURES = {
         ['storage-shelves', 'Storage Shelves'],
         ['storage-bins', 'Storage Bins'],
         ['bin-capacity', 'Bin Capacity'],
+        ['putaway-rules', 'Putaway Rules'],
+        ['picking-rules', 'Picking Rules'],
         ['picking', 'Picking'],
         ['packing', 'Packing'],
         ['transfer-orders', 'Transfer Orders'],
@@ -216,6 +218,9 @@ export const MM_FEATURES = {
         ['variance-analysis', 'Variance Analysis'],
         ['adjustment-approval', 'Adjustment Approval'],
         ['count-history', 'Count History'],
+        ['inventory-control-dashboard', 'Inventory Control Dashboard'],
+        ['count-configuration', 'Count Configuration'],
+        ['posted-adjustments', 'Posted Adjustments'],
     ],
     'planning-mrp': [
         ['demand', 'Demand'],
@@ -245,12 +250,23 @@ export const MM_FEATURES = {
         ['disposal', 'Disposal'],
     ],
     'barcode-rfid': [
+        ['barcode-registry', 'Barcode Registry'],
+        ['rfid-tags', 'RFID Tags'],
         ['barcode-scanning', 'Barcode Scanning'],
         ['batch-scanning', 'Batch Scanning'],
         ['serial-scanning', 'Serial Scanning'],
         ['mobile-receiving', 'Mobile Receiving'],
+        ['mobile-putaway', 'Mobile Putaway'],
         ['mobile-picking', 'Mobile Picking'],
         ['mobile-counting', 'Mobile Counting'],
+        ['mobile-packing', 'Mobile Packing'],
+        ['warehouse-devices', 'Warehouse Devices'],
+    ],
+    'supporting-operations': [
+        ['document-management', 'Document Management'],
+        ['audit-trail', 'Audit Trail'],
+        ['workflow-admin', 'Workflow & Approvals'],
+        ['compliance-dashboard', 'Compliance Dashboard'],
     ],
     'reports-analytics': [
         ['stock-reports', 'Stock Reports'],
@@ -366,6 +382,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Charts and reports across Materials Management.',
         ],
         [
+            'foundation-setup',
+            'MM Foundation (ISO 9001)',
+            'Master data readiness before operational MM flows.',
+        ],
+        [
             'exception-center',
             'Exception Center',
             'Operational exceptions across MM domains.',
@@ -434,6 +455,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'reports-analytics',
             'MM Reports & Analytics',
             'Stock, valuation, procurement, and warehouse analytics.',
+        ],
+        [
+            'supporting-operations',
+            'Supporting Operations',
+            'Controlled documents, audit trail, and compliance monitoring.',
         ],
     ]),
     ...group('fico', [

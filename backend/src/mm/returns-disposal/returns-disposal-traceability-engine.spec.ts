@@ -60,7 +60,11 @@ function mockPrisma() {
             findUnique: jest.fn(),
         },
         mmCustomerReturnAudit: { create: jest.fn() },
-        mmCustomerReturnIntake: { upsert: jest.fn().mockResolvedValue({}) },
+        mmCustomerReturnIntake: {
+            upsert: jest.fn().mockResolvedValue({}),
+            count: jest.fn().mockResolvedValue(0),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
         mmReturnInspection: {
             create: jest.fn().mockResolvedValue({}),
             findFirst: jest.fn(),
@@ -245,7 +249,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
         expect(prisma.mmSupplierReturn.create).toHaveBeenCalled()
     })
 
-    it('3) customer restock posts RETURN_IN UNRESTRICTED', async () => {
+    it('3) customer restock transfers QI → UNRESTRICTED after intake', async () => {
         const base = {
             id: 'crt-1',
             returnNumber: 'CRT-1',
@@ -258,6 +262,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
                 makeLine({
                     id: 'crl-1',
                     quantity: new Decimal(2),
+                    intakeTxnId: 'intake-txn',
                     disposition: 'RESTOCK',
                     dispositionStatus: 'PENDING',
                 }),
@@ -270,7 +275,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
         await customerReturnService.complete('crt-1')
         expect(postingService.postTransaction).toHaveBeenCalledWith(
             expect.objectContaining({
-                movementType: 'RETURN_IN',
+                movementType: 'TRANSFER_IN',
                 stockStatus: 'UNRESTRICTED',
                 reasonCode: 'RESTOCK',
             }),
@@ -291,6 +296,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
                     id: 'crl-2',
                     quantity: new Decimal(1),
                     unitCost: new Decimal(100),
+                    intakeTxnId: 'intake-txn-2',
                     disposition: 'SCRAP',
                     dispositionStatus: 'PENDING',
                 }),
@@ -339,12 +345,16 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
         await customerReturnService.complete('crt-2')
 
         expect(postingService.postTransaction).toHaveBeenCalledWith(
-            expect.objectContaining({ movementType: 'RETURN_IN', reasonCode: 'SCRAP' }),
+            expect.objectContaining({
+                movementType: 'TRANSFER_IN',
+                stockStatus: 'BLOCKED',
+                reasonCode: 'SCRAP',
+            }),
         )
-        expect(postingService.postTransaction).toHaveBeenCalledWith(
+        expect(postingService.postTransaction).not.toHaveBeenCalledWith(
             expect.objectContaining({ movementType: 'SCRAP' }),
         )
-        expect(prisma.mmScrapTransaction.upsert).toHaveBeenCalled()
+        expect(prisma.mmDisposal.create).toHaveBeenCalled()
     })
 
     it('5) expired stock auto-block path', async () => {

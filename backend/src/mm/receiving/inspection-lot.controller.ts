@@ -12,6 +12,7 @@ import { InspectionLotService } from './inspection-lot.service'
 import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
 import {
     RecordInspectionResultsDto,
+    PartialUsageDecisionDto,
     UsageDecisionDto,
     ReceivingQueryDto,
 } from './dto/receiving.dto'
@@ -63,5 +64,14 @@ export class InspectionLotController {
     @MmMutation(mmFeatures('receiving', 'usage-decisions', 'inspection-queue', 'receiving-inspection'))
     usageDecision(@Param('id') id: string, @Body() dto: UsageDecisionDto) {
         return this.lots.usageDecision(id, dto)
+    }
+
+    @Post(':id/partial-usage-decision')
+    @MmMutation(mmFeatures('receiving', 'usage-decisions', 'inspection-queue', 'receiving-inspection'))
+    partialUsageDecision(
+        @Param('id') id: string,
+        @Body() dto: PartialUsageDecisionDto,
+    ) {
+        return this.lots.partialUsageDecision(id, dto)
     }
 }

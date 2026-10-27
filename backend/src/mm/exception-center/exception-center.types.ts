@@ -8,6 +8,8 @@ export const MM_EXCEPTION_DOMAINS = [
     'transfers',
     'mrp',
     'integration',
+    'returns_disposal',
+    'supporting_ops',
 ] as const
 
 export type MmExceptionDomain = (typeof MM_EXCEPTION_DOMAINS)[number]

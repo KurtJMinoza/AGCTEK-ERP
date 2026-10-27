@@ -311,6 +311,15 @@ export class InspectionLotService {
         return this.qualityDecision.applyDecision(lot, dto)
     }
 
+    async partialUsageDecision(id: string, dto: import('./dto/receiving.dto').PartialUsageDecisionDto) {
+        const lot = await this.findOne(id)
+        const terminal = ['CLOSED', 'CANCELLED']
+        if (terminal.includes(lot.status)) {
+            throw new BadRequestException(`Lot is ${lot.status}`)
+        }
+        return this.qualityDecision.applyPartialPass(lot, dto)
+    }
+
     async findByLegacyQiId(legacyId: string) {
         return this.prisma.mmInspectionLot.findFirst({
             where: { legacyQualityInspectionId: legacyId },

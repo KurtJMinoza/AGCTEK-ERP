@@ -1,0 +1,35 @@
+# Document AI Microservice for AGCTEK ERP IDV Module
+# Python 3.10+
+
+# Web framework
+fastapi>=0.104.0,<1.0
+uvicorn[standard]>=0.24.0,<1.0
+python-multipart>=0.0.6
+
+# OCR
+paddlepaddle>=2.5.0     # PaddlePaddle deep learning framework
+paddleocr>=2.7.0        # PaddleOCR text detection + recognition
+
+# Computer vision
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Signature verification
+torch>=2.1.0            # PyTorch for Siamese network signature model
+torchvision>=0.16.0
+scikit-image>=0.21.0
+
+# PDF digital signature verification
+pyhanko>=0.21.0
+pyhanko-certvalidator>=0.26.0
+cryptography>=41.0.0
+
+# QR / Barcode
+pyzbar>=0.1.9
+
+# Utilities
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+httpx>=0.25.0
+structlog>=23.0.0

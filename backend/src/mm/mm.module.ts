@@ -57,6 +57,7 @@ import { StockStatusService } from './inventory/stock-status.service'
 import { InventoryEventsService } from './inventory/inventory-events.service'
 import { GoodsReceiptController } from './stock-ops/goods-receipt.controller'
 import { GoodsReceiptService } from './stock-ops/goods-receipt.service'
+import { GoodsReceiptGrIsoService } from './stock-ops/goods-receipt-gr-iso.service'
 import { GoodsIssueController } from './stock-ops/goods-issue.controller'
 import { GoodsIssueService } from './stock-ops/goods-issue.service'
 import { BinTransferController } from './stock-ops/bin-transfer.controller'
@@ -105,6 +106,9 @@ import { CountEntryService } from './inventory-control/count-entry.service'
 import { CountVarianceService } from './inventory-control/count-variance.service'
 import { CountRecountService } from './inventory-control/count-recount.service'
 import { CountAdjustmentRequestService } from './inventory-control/count-adjustment-request.service'
+import { CountConfigurationService } from './inventory-control/count-configuration.service'
+import { MovementControlService } from './inventory-control/movement-control.service'
+import { InventoryCountDashboardService } from './inventory-control/inventory-count-dashboard.service'
 import { CountGenerationService } from './inventory-control/count-generation.service'
 import { ValuationController } from './valuation/valuation.controller'
 import { MaterialValuationService } from './valuation/material-valuation.service'
@@ -201,6 +205,10 @@ import { QualityWorkflowService } from './quality/quality-workflow.service'
 import { QualityReportingService } from './quality/quality-reporting.service'
 import { QualityMetricsService } from './quality/quality-metrics.service'
 import { QualityRuleService } from './quality/quality-rule.service'
+import { WarehouseRulesController } from './warehouse/warehouse-rules.controller'
+import { WarehouseRulesService } from './warehouse/warehouse-rules.service'
+import { FoundationController } from './foundation/foundation.controller'
+import { FoundationReadinessService } from './foundation/foundation-readiness.service'
 import { WarehouseTaskController } from './warehouse/tasks/warehouse-task.controller'
 import { WarehouseTaskService } from './warehouse/tasks/warehouse-task.service'
 import { TaskAssignmentService } from './warehouse/tasks/task-assignment.service'
@@ -234,6 +242,17 @@ import { ExceptionCenterModule } from './exception-center/exception-center.modul
 import { FicoModule } from '../fico/fico.module'
 import { PpModule } from '../pp/pp.module'
 import { ProductionBomProvider } from '../pp/production-bom.provider'
+import { SupportingOpsController } from './supporting-ops/supporting-ops.controller'
+import { BarcodeRegistryService } from './supporting-ops/barcode-registry.service'
+import { RfidTagService } from './supporting-ops/rfid-tag.service'
+import { ScanSessionService } from './supporting-ops/scan-session.service'
+import { ScanOverrideService } from './supporting-ops/scan-override.service'
+import { ControlledDocumentService } from './supporting-ops/controlled-document.service'
+import { ComplianceAuditService } from './supporting-ops/compliance-audit.service'
+import { ComplianceDashboardService } from './supporting-ops/compliance-dashboard.service'
+import { PutawayService } from './warehouse/putaway/putaway.service'
+import { PutawayStrategyRegistry } from './warehouse/tasks/strategies/putaway-strategy.registry'
+import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capacity-based-putaway.strategy'
 
 @Module({
     imports: [
@@ -265,6 +284,8 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StorageSectionsController,
         StorageShelvesController,
         StorageBinsController,
+        WarehouseRulesController,
+        FoundationController,
         InventoryBalanceController,
         PickingController,
         PickWaveController,
@@ -316,6 +337,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         DashboardController,
         ReportsController,
         AnalyticsController,
+        SupportingOpsController,
     ],
     providers: [
         MaterialsService,
@@ -332,9 +354,14 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StorageSectionsService,
         StorageShelvesService,
         StorageBinsService,
+        WarehouseRulesService,
+        FoundationReadinessService,
         InventoryBalanceService,
         PickingService,
         PickWaveService,
+        CapacityBasedPutawayStrategy,
+        PutawayStrategyRegistry,
+        PutawayService,
         PackingService,
         WarehouseTaskService,
         TaskAssignmentService,
@@ -372,6 +399,7 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StockStatusService,
         InventoryEventsService,
         GoodsReceiptService,
+        GoodsReceiptGrIsoService,
         GoodsIssueService,
         BinTransferService,
         WarehouseTransferOrderService,
@@ -421,6 +449,9 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         CountVarianceService,
         CountRecountService,
         CountAdjustmentRequestService,
+        CountConfigurationService,
+        MovementControlService,
+        InventoryCountDashboardService,
         CountGenerationService,
         MaterialValuationService,
         CostLayerService,
@@ -477,6 +508,13 @@ import { ProductionBomProvider } from '../pp/production-bom.provider'
         StockVarianceReportService,
         WarehousePerformanceReportService,
         AnalyticsService,
+        BarcodeRegistryService,
+        RfidTagService,
+        ScanSessionService,
+        ScanOverrideService,
+        ControlledDocumentService,
+        ComplianceAuditService,
+        ComplianceDashboardService,
     ],
     exports: [
         SdIntegrationModule,

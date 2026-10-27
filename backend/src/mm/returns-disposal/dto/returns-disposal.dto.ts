@@ -152,6 +152,13 @@ export class ActionDto {
     @IsOptional() @IsString() reason?: string
 }
 
+export class ExecuteDisposalDto extends ActionDto {
+    @IsString() @IsNotEmpty() witnessName!: string
+    @IsString() @IsNotEmpty() disposalMethod!: string
+    @IsOptional() @IsString() wasteManifestRef?: string
+    @IsOptional() @IsString() executionNotes?: string
+}
+
 // ─── Customer Return ───────────────────────────────────────────────
 
 const DISPOSITIONS = ['RESTOCK', 'REPAIR', 'BLOCK', 'SCRAP'] as const

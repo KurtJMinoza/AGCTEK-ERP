@@ -131,9 +131,33 @@ export type CountSession = {
     blindMode: boolean
     startedAt?: string | null
     closedAt?: string | null
+    varianceReportNumber?: string | null
+    varianceReportSummary?: string | null
+    varianceReportSubmittedBy?: string | null
+    varianceReportSubmittedAt?: string | null
     createdAt: string
     _count?: { tasks: number }
     tasks?: CountTask[]
+}
+
+export type CountVariance = {
+    id: string
+    taskId: string
+    systemQuantity: number | string
+    countQuantity: number | string
+    varianceQuantity: number | string
+    variancePercentage: number | string
+    estimatedValue: number | string
+    status: string
+    rootCause?: string | null
+    correctiveAction?: string | null
+    investigatedBy?: string | null
+    investigatedAt?: string | null
+    task?: CountTask & {
+        material?: { materialCode?: string; materialName?: string }
+        storageBin?: { code?: string }
+        session?: CountSession
+    }
 }
 
 export type CountTask = {

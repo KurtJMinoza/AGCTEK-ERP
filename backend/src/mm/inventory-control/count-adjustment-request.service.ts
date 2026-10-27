@@ -15,6 +15,7 @@ import {
     AdjustmentRequestQueryDto,
 } from './dto/count-engine.dto'
 import { CountPlanService } from './count-plan.service'
+import { CountConfigurationService } from './count-configuration.service'
 
 @Injectable()
 export class CountAdjustmentRequestService {
@@ -23,6 +24,7 @@ export class CountAdjustmentRequestService {
         @Inject(forwardRef(() => AdjustmentService))
         private adjustments: AdjustmentService,
         private plans: CountPlanService,
+        private countConfig: CountConfigurationService,
     ) {}
 
     async findAll(query: AdjustmentRequestQueryDto) {
@@ -110,6 +112,26 @@ export class CountAdjustmentRequestService {
             }
         }
 
+        if (!session.varianceReportSubmittedAt) {
+            throw new BadRequestException(
+                'ISO control: submit a formal variance report before creating an adjustment request',
+            )
+        }
+
+        const tasksForValue = await this.prisma.mmCountTask.findMany({
+            where: { id: { in: lines.map((l) => l.taskId) } },
+        })
+        const taskMapVal = new Map(tasksForValue.map((t) => [t.id, t]))
+        let totalValue = new Decimal(0)
+        for (const l of lines) {
+            const t = taskMapVal.get(l.taskId)
+            if (t) {
+                totalValue = totalValue.plus(
+                    new Decimal(Math.abs(l.quantity)).times(t.unitCost),
+                )
+            }
+        }
+
         const requestNumber = await this.nextRequestNumber()
         const created = await this.prisma.mmCountAdjustmentRequest.create({
             data: {
@@ -119,16 +141,31 @@ export class CountAdjustmentRequestService {
                 warehouseId: session.warehouseId,
                 status: 'PENDING_APPROVAL',
                 submittedBy: dto.submittedBy ?? null,
+                totalAdjustmentValue: totalValue,
                 lines: {
-                    create: lines.map((l) => ({
-                        taskId: l.taskId,
-                        varianceId: l.varianceId ?? null,
-                        quantity: new Decimal(l.quantity),
-                        reasonCodeId: l.reasonCodeId ?? null,
-                        rootCause: l.rootCause ?? null,
-                        correctiveAction: l.correctiveAction ?? null,
-                        managerRemarks: l.managerRemarks ?? null,
-                    })),
+                    create: await Promise.all(
+                        lines.map(async (l) => {
+                            let rootCause = l.rootCause ?? null
+                            let correctiveAction = l.correctiveAction ?? null
+                            if (l.varianceId && (!rootCause || !correctiveAction)) {
+                                const v = await this.prisma.mmCountVariance.findUnique({
+                                    where: { id: l.varianceId },
+                                })
+                                rootCause = rootCause ?? v?.rootCause ?? null
+                                correctiveAction =
+                                    correctiveAction ?? v?.correctiveAction ?? null
+                            }
+                            return {
+                                taskId: l.taskId,
+                                varianceId: l.varianceId ?? null,
+                                quantity: new Decimal(l.quantity),
+                                reasonCodeId: l.reasonCodeId ?? null,
+                                rootCause,
+                                correctiveAction,
+                                managerRemarks: l.managerRemarks ?? null,
+                            }
+                        }),
+                    ),
                 },
             },
             include: { lines: true },
@@ -148,12 +185,112 @@ export class CountAdjustmentRequestService {
             throw new BadRequestException(`Cannot approve: request is ${req.status}`)
         }
 
+        const config = await this.countConfig.getForCompany(req.companyId)
+        const approver = dto.approvedBy ?? null
+        if (config.separationOfDutiesEnabled && approver) {
+            if (req.submittedBy && approver === req.submittedBy) {
+                throw new BadRequestException(
+                    'Separation of duties: submitter cannot approve their own adjustment request',
+                )
+            }
+            const counterHit = await this.prisma.mmCountEntry.findFirst({
+                where: {
+                    counterId: approver,
+                    task: { sessionId: req.sessionId },
+                },
+            })
+            if (counterHit) {
+                throw new BadRequestException(
+                    'Separation of duties: counter cannot approve adjustments for the same count session',
+                )
+            }
+        }
+
+        const total = new Decimal(req.totalAdjustmentValue ?? 0)
+        const financeThreshold = new Decimal(config.financeApprovalValueThreshold ?? 0)
+        const needsFinance =
+            financeThreshold.gt(0) && total.abs().gte(financeThreshold)
+        const nextStatus = needsFinance ? 'PENDING_FINANCE_APPROVAL' : 'APPROVED'
+
         const claimed = await this.prisma.mmCountAdjustmentRequest.updateMany({
             where: { id, status: { in: ['PENDING_APPROVAL', 'DRAFT'] } },
-            data: { status: 'APPROVED', approvedBy: dto.approvedBy ?? null },
+            data: {
+                status: nextStatus,
+                approvedBy: needsFinance ? null : approver,
+                warehouseApprovedBy: approver,
+                warehouseApprovedAt: new Date(),
+            },
         })
         if (claimed.count === 0) {
             throw new BadRequestException('Concurrent approve failed')
+        }
+
+        if (!needsFinance) {
+            await this.prisma.mmCountSession.update({
+                where: { id: req.sessionId },
+                data: { status: 'APPROVED' },
+            })
+            await this.plans.syncLegacyStatus(req.session.planId, 'APPROVED')
+        }
+
+        return this.findOne(id)
+    }
+
+    async approveFinance(id: string, dto: ApproveAdjustmentRequestDto = {}) {
+        const req = await this.findOne(id)
+        if (req.status !== 'PENDING_FINANCE_APPROVAL') {
+            throw new BadRequestException(
+                `Finance approval requires PENDING_FINANCE_APPROVAL (current: ${req.status})`,
+            )
+        }
+        const config = await this.countConfig.getForCompany(req.companyId)
+        const approver = dto.approvedBy ?? null
+        if (config.separationOfDutiesEnabled && approver) {
+            if (req.submittedBy && approver === req.submittedBy) {
+                throw new BadRequestException(
+                    'Separation of duties: submitter cannot provide finance approval',
+                )
+            }
+            if (req.warehouseApprovedBy && approver === req.warehouseApprovedBy) {
+                throw new BadRequestException(
+                    'Separation of duties: warehouse approver cannot provide finance approval',
+                )
+            }
+        }
+        const claimed = await this.prisma.mmCountAdjustmentRequest.updateMany({
+            where: { id, status: 'PENDING_FINANCE_APPROVAL' },
+            data: {
+                status: 'APPROVED',
+                approvedBy: approver,
+                financeApprovedBy: approver,
+                financeApprovedAt: new Date(),
+            },
+        })
+        if (claimed.count === 0) {
+            throw new BadRequestException('Concurrent finance approve failed')
+        }
+        await this.prisma.mmCountSession.update({
+            where: { id: req.sessionId },
+            data: { status: 'APPROVED' },
+        })
+        await this.plans.syncLegacyStatus(req.session.planId, 'APPROVED')
+        return this.findOne(id)
+    }
+
+    async post(id: string, dto: ApproveAdjustmentRequestDto = {}) {
+        const req = await this.findOne(id)
+        if (req.status !== 'APPROVED') {
+            throw new BadRequestException(
+                `Cannot post: request must be APPROVED (current: ${req.status})`,
+            )
+        }
+
+        const claimed = await this.prisma.mmCountAdjustmentRequest.updateMany({
+            where: { id, status: 'APPROVED' },
+            data: { approvedBy: dto.approvedBy ?? req.approvedBy ?? null },
+        })
+        if (claimed.count === 0) {
+            throw new BadRequestException('Concurrent post failed')
         }
 
         const tasks = await this.prisma.mmCountTask.findMany({
@@ -225,6 +362,12 @@ export class CountAdjustmentRequestService {
         await this.plans.syncLegacyStatus(req.session.planId, 'CLOSED')
 
         return this.findOne(id)
+    }
+
+    /** @deprecated Use approve() then post() for ISO 9001 separation of duties */
+    async approveAndPost(id: string, dto: ApproveAdjustmentRequestDto = {}) {
+        await this.approve(id, dto)
+        return this.post(id, dto)
     }
 
     async reject(id: string, dto: RejectAdjustmentRequestDto = {}) {

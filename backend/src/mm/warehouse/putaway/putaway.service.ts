@@ -9,6 +9,7 @@ import { PrismaService } from '../../../prisma/prisma.service'
 import { InventoryPostingService } from '../../inventory/inventory-posting.service'
 import { WarehouseTaskService } from '../tasks/warehouse-task.service'
 import { PutawayStrategyRegistry } from '../tasks/strategies/putaway-strategy.registry'
+import { WarehouseRulesService } from '../warehouse-rules.service'
 import { CreatePutawayDto } from './dto/create-putaway.dto'
 import { PutawayQueryDto } from './dto/putaway-query.dto'
 import { ConfirmPutawayDto } from './dto/confirm-putaway.dto'
@@ -38,6 +39,7 @@ export class PutawayService {
         @Inject(forwardRef(() => WarehouseTaskService))
         private warehouseTasks: WarehouseTaskService,
         private putawayStrategy: PutawayStrategyRegistry,
+        private warehouseRules: WarehouseRulesService,
     ) {}
 
     private readonly includes = {
@@ -408,7 +410,8 @@ export class PutawayService {
         quantity: number,
         stockStatus = 'UNRESTRICTED',
     ): Promise<string | null> {
-        return this.putawayStrategy.recommend('CAPACITY_BASED', {
+        const strategy = await this.warehouseRules.resolvePutawayStrategy(warehouseId)
+        return this.putawayStrategy.recommend(strategy, {
             warehouseId,
             materialId,
             quantity,

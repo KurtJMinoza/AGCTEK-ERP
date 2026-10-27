@@ -53,9 +53,21 @@ export const scannerService = {
             payload,
         ).then((r) => r.data),
 
+    putawayScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/putaway/scan`,
+            payload,
+        ).then((r) => r.data),
+
     countingScan: (payload: ScannerEventPayload) =>
         ErpAxiosBase.post<ScannerEventResult>(
             `${MOBILE}/counting/scan`,
+            payload,
+        ).then((r) => r.data),
+
+    packingScan: (payload: ScannerEventPayload) =>
+        ErpAxiosBase.post<ScannerEventResult>(
+            `${MOBILE}/packing/scan`,
             payload,
         ).then((r) => r.data),
 

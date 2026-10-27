@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common'
 import { GoodsReceiptService } from './goods-receipt.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
+import {
+    SubmitGoodsReceiptDto,
+    VerifyGoodsReceiptDto,
+} from './dto/goods-receipt-workflow.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
@@ -23,6 +27,18 @@ export class GoodsReceiptController {
     @Post()
     create(@Body() dto: CreateGoodsReceiptDto) {
         return this.service.create(dto)
+    }
+
+    @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')])
+    @Post(':id/submit')
+    submit(@Param('id') id: string, @Body() dto: SubmitGoodsReceiptDto) {
+        return this.service.submit(id, dto)
+    }
+
+    @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')])
+    @Post(':id/verify')
+    verify(@Param('id') id: string, @Body() dto: VerifyGoodsReceiptDto) {
+        return this.service.verify(id, dto)
     }
 
     @MmMutation([...mmFeatures('inventory-management', 'goods-receipt'), ...mmFeatures('receiving', 'goods-receipt')])

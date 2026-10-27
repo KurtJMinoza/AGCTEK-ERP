@@ -251,6 +251,7 @@ model Company {
   countSessions           MmCountSession[]
   countReasonCodes        MmCountReasonCode[]
   countAdjustmentRequests MmCountAdjustmentRequest[]
+  countCompanyConfig      MmCountCompanyConfig?
 
   suppliers MmSupplier[]
 
@@ -300,6 +301,12 @@ model Company {
   customerReturns              MmCustomerReturn[]
   scannerEvents                MmScannerEvent[]
   mobileDevices                MmMobileDevice[]
+  barcodesRegistry             MmBarcode[]
+  scanSessions                 MmScanSession[]
+  rfidTags                     MmRfidTag[]
+  scanOverrides                MmScanOverride[]
+  controlledDocuments          MmControlledDocument[]
+  complianceAuditEntries       MmComplianceAuditEntry[]
   dashboardAnalyticsCaches     MmDashboardAnalyticsCache[]
   sdSalesOrders                SdSalesOrder[]
   sdShipments                  SdShipment[]
@@ -405,6 +412,8 @@ model Warehouse {
   warehouseTasks  WmWarehouseTask[]
   packingSessions WmPackingSession[]
   pickWaves       WmPickWave[]
+  putawayRules    WmPutawayRule[]
+  pickingRules    WmPickingRule[]
   pickingTasks    WmPickingTask[]
   packages        WmPackage[]
   transfersOut    WmWarehouseTransfer[] @relation("TransferSource")
@@ -459,6 +468,8 @@ model Warehouse {
   disposals              MmDisposal[]                      @relation("DisposalWarehouse")
   customerReturns        MmCustomerReturn[]                @relation("CustomerReturnWarehouse")
   scannerEvents          MmScannerEvent[]
+  mobileDevices          MmMobileDevice[]                  @relation("MobileDeviceWarehouse")
+  scanSessions           MmScanSession[]                   @relation("ScanSessionWarehouse")
   serialNumbersCurrent   MmSerialNumber[]                  @relation("SerialCurrentWarehouse")
   sdSalesOrders          SdSalesOrder[]
   sdShipments            SdShipment[]
@@ -499,6 +510,7 @@ model WmStorageType {
   updatedAt             DateTime           @updatedAt
   deletedAt             DateTime?
   sections              WmStorageSection[]
+  putawayRules          WmPutawayRule[]
 
   @@unique([warehouseId, code])
   @@map("wm_storage_types")
@@ -757,6 +769,49 @@ model WmPutawayTask {
   @@map("wm_putaway_tasks")
 }
 
+/// ISO 9001 — documented putaway rule master (MM-03)
+model WmPutawayRule {
+  id                 String        @id @default(cuid())
+  warehouseId        String
+  warehouse          Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  code               String
+  name               String
+  /// CAPACITY_BASED | FIXED_BIN | NEAREST_BIN | MATERIAL_ZONE | TEMPERATURE_ZONE | FIFO_ZONE | FEFO_ZONE
+  strategyCode       String        @default("CAPACITY_BASED")
+  priority           Int           @default(100)
+  storageTypeId      String?
+  storageType        WmStorageType? @relation(fields: [storageTypeId], references: [id])
+  enforceBinCapacity Boolean       @default(true)
+  isActive           Boolean       @default(true)
+  notes              String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId, isActive, priority])
+  @@map("wm_putaway_rules")
+}
+
+/// ISO 9001 — documented picking rule master (MM-03)
+model WmPickingRule {
+  id           String    @id @default(cuid())
+  warehouseId  String
+  warehouse    Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  /// FIFO | FEFO | ZONE | PRIORITY | BIN_PATH
+  strategyCode String    @default("FIFO")
+  priority     Int       @default(100)
+  isActive     Boolean   @default(true)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId, isActive, priority])
+  @@map("wm_picking_rules")
+}
+
 // ΓöÇΓöÇΓöÇ Picking ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmPickWave {
@@ -858,6 +913,10 @@ model WmPackage {
   height           Decimal?
   carrier          String?
   trackingNumber   String?
+  /// Formal packing list issued when packing is completed (ISO 9001 step 2)
+  packingListNumber String?                  @unique
+  /// Timestamp when shipping labels / barcodes were applied to the carton
+  labelsAppliedAt  DateTime?
   /// Customer ship-to for SCM auto-release (required before READY_FOR_DISPATCH → shipment)
   shipToName       String?
   shipToAddress    String?
@@ -1165,6 +1224,15 @@ model MmMaterial {
   /// When true, past-expiry UNRESTRICTED stock may be auto-blocked to EXPIRED
   autoBlockExpired          Boolean @default(false)
   qualityInspectionRequired Boolean @default(false)
+  receivingTolerancePct       Decimal?
+  overReceiptTolerancePct     Decimal?
+  underReceiptTolerancePct    Decimal?
+  requiresCoa                 Boolean @default(false)
+  requiresSupplierCertificate Boolean @default(false)
+  damagePhotoRequired         Boolean @default(false)
+  nonconformanceOnRejection   Boolean @default(true)
+  defaultQuarantineWarehouseId String?
+  defaultQuarantineBinId      String?
   /// A | B | C ΓÇö cycle-count classification
   abcClass                  String?
   /// FAST | MEDIUM | SLOW ΓÇö cycle-count velocity
@@ -1213,6 +1281,7 @@ model MmMaterial {
   deletedAt DateTime?
 
   barcodes          MmBarcode[]
+  rfidTags          MmRfidTag[]
   batches           MmBatch[]
   serialNumbers     MmSerialNumber[]
   audits            MmMaterialAudit[]
@@ -1292,16 +1361,35 @@ model MmMaterial {
 // ΓöÇΓöÇΓöÇ Material dependents ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmBarcode {
-  id           String     @id @default(cuid())
-  materialId   String
-  material     MmMaterial @relation(fields: [materialId], references: [id])
-  barcodeType  String
-  barcodeValue String     @unique
-  isPrimary    Boolean    @default(false)
-  createdAt    DateTime   @default(now())
-  deletedAt    DateTime?
+  id                String     @id @default(cuid())
+  companyId         String?
+  company           Company?   @relation(fields: [companyId], references: [id])
+  materialId        String
+  material          MmMaterial @relation(fields: [materialId], references: [id])
+  /// MATERIAL | BATCH | SERIAL | BIN | PACKAGE | PO | GR | etc.
+  entityType        String     @default("MATERIAL")
+  entityId          String?
+  barcodeType       String
+  barcodeValue      String
+  uomId             String?
+  packagingQuantity Decimal?
+  batchId           String?
+  serialNumberId    String?
+  isPrimary         Boolean    @default(false)
+  /// ACTIVE | ARCHIVED
+  status            String     @default("ACTIVE")
+  effectiveFrom     DateTime?
+  effectiveTo       DateTime?
+  archivedAt        DateTime?
+  createdBy         String?
+  createdAt         DateTime   @default(now())
+  deletedAt         DateTime?
 
+  @@unique([companyId, barcodeValue])
   @@index([materialId])
+  @@index([companyId])
+  @@index([entityType, entityId])
+  @@index([status])
   @@map("mm_barcodes")
 }
 
@@ -1372,6 +1460,7 @@ model MmSerialNumber {
   adjLines       MmInventoryAdjustmentLine[]    @relation("AdjLineSerial")
   stoLines       MmStockTransferOrderLine[]     @relation("StoLineSerial")
   inspectionLots MmInspectionLot[]
+  rfidTag        MmRfidTag?
 
   @@unique([materialId, serialNumber])
   @@index([materialId])
@@ -1724,6 +1813,11 @@ model MmGoodsReceipt {
   /// PROCUREMENT | PRODUCTION_OUTPUT | OTHER
   receiptPurpose      String                @default("PROCUREMENT")
   status              String                @default("DRAFT")
+  submittedAt         DateTime?
+  submittedBy         String?
+  verifiedAt          DateTime?
+  verifiedBy          String?
+  verificationNotes   String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   lines               MmGoodsReceiptLine[]
@@ -1731,6 +1825,8 @@ model MmGoodsReceipt {
   inspectionLots      MmInspectionLot[]
   putawayTasks        WmPutawayTask[]
   supplierReturns     MmSupplierReturn[]
+  receivingVariances  MmReceivingVariance[] @relation("GrVariances")
+  audits              MmGoodsReceiptAudit[]
 
   @@index([status])
   @@index([warehouseId])
@@ -1773,6 +1869,7 @@ model MmGoodsReceiptLine {
   qualityInspectionLines MmQualityInspectionLine[]
   invoiceLineReceipts    MmSupplierInvoiceLineReceipt[]
   supplierReturnLines    MmSupplierReturnLine[]
+  receivingVariances     MmReceivingVariance[]
 
   @@index([receiptId])
   @@index([purchaseOrderLineId])
@@ -1799,6 +1896,11 @@ model MmGoodsIssue {
   issuePurpose        String                        @default("INTERNAL")
   remarks             String?
   createdBy           String?
+  /// ISO 9001: warehouse supervisor verified physical issue vs SO/DO before posting
+  supervisorVerifiedAt        DateTime?
+  supervisorVerifiedBy        String?
+  verifiedSourceReference     String?
+  supervisorVerificationNotes String?
   status              String                        @default("DRAFT")
   createdAt           DateTime                      @default(now())
   updatedAt           DateTime                      @updatedAt
@@ -3246,25 +3348,49 @@ model MmReceivingLine {
 }
 
 model MmReceivingVariance {
-  id                  String              @id @default(cuid())
-  receivingDocumentId String
-  receivingDocument   MmReceivingDocument @relation(fields: [receivingDocumentId], references: [id], onDelete: Cascade)
+  id                  String               @id @default(cuid())
+  varianceNumber      String?              @unique
+  companyId           String?
+  receivingDocumentId String?
+  receivingDocument   MmReceivingDocument? @relation(fields: [receivingDocumentId], references: [id], onDelete: Cascade)
   receivingLineId     String?
-  receivingLine       MmReceivingLine?    @relation(fields: [receivingLineId], references: [id], onDelete: SetNull)
+  receivingLine       MmReceivingLine?     @relation(fields: [receivingLineId], references: [id], onDelete: SetNull)
+  goodsReceiptId      String?
+  goodsReceipt        MmGoodsReceipt?      @relation("GrVariances", fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  goodsReceiptLineId  String?
+  goodsReceiptLine    MmGoodsReceiptLine?  @relation(fields: [goodsReceiptLineId], references: [id], onDelete: SetNull)
   /// UNDER_RECEIPT | OVER_RECEIPT | DAMAGED | UNEXPECTED_ITEM | BATCH_MISMATCH | SERIAL_MISMATCH | UOM_MISMATCH
   varianceType        String
-  quantity            Decimal             @default(0)
+  quantity            Decimal              @default(0)
   description         String?
-  /// OPEN | ACKNOWLEDGED | RESOLVED
-  status              String              @default("OPEN")
-  detectedAt          DateTime            @default(now())
+  severity            String               @default("MEDIUM")
+  /// OPEN | UNDER_REVIEW | APPROVED | RESOLVED | CLOSED
+  status              String               @default("OPEN")
+  detectedAt          DateTime             @default(now())
   resolvedAt          DateTime?
   resolvedBy          String?
 
   @@index([receivingDocumentId])
+  @@index([goodsReceiptId])
   @@index([varianceType])
   @@index([status])
   @@map("mm_receiving_variances")
+}
+
+model MmGoodsReceiptAudit {
+  id             String         @id @default(cuid())
+  goodsReceiptId String
+  goodsReceipt   MmGoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  action         String
+  performedBy    String?
+  performedAt    DateTime       @default(now())
+  previousValue  Json?
+  newValue       Json?
+  reason         String?
+  companyId      String?
+
+  @@index([goodsReceiptId, performedAt])
+  @@map("mm_goods_receipt_audits")
 }
 
 // ─── Inspection lots + quality holds (MM-07 Phase 3) ───
@@ -5028,6 +5154,14 @@ model MmCountSession {
   blindMode          Boolean                    @default(false)
   startedAt          DateTime?
   closedAt           DateTime?
+  /// ISO 9001 formal variance report (step 3 — Inventory Controller)
+  varianceReportNumber       String?   @unique
+  varianceReportSummary      String?
+  varianceReportSubmittedBy  String?
+  varianceReportSubmittedAt  DateTime?
+  inventorySnapshotAt        DateTime?
+  /// HARD | SOFT | NONE — copied from company config at session start
+  movementControlMode        String?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
   tasks              MmCountTask[]
@@ -5105,8 +5239,12 @@ model MmCountVariance {
   variancePercentage Decimal                        @default(0)
   estimatedValue     Decimal                        @default(0)
   unitCost           Decimal                        @default(0)
-  /// OPEN | RECOUNT_REQUIRED | CLEARED | PENDING_ADJUSTMENT | ADJUSTED
+  /// OPEN | RECOUNT_REQUIRED | CLEARED | PENDING_ADJUSTMENT | INVESTIGATED | ADJUSTED
   status             String                         @default("OPEN")
+  rootCause          String?
+  correctiveAction   String?
+  investigatedBy     String?
+  investigatedAt     DateTime?
   createdAt          DateTime                       @default(now())
   updatedAt          DateTime                       @updatedAt
   recounts           MmCountRecount[]
@@ -5144,10 +5282,15 @@ model MmCountAdjustmentRequest {
   company            Company                        @relation(fields: [companyId], references: [id])
   warehouseId        String
   warehouse          Warehouse                      @relation(fields: [warehouseId], references: [id])
-  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | POSTED
+  /// DRAFT | PENDING_APPROVAL | PENDING_FINANCE_APPROVAL | APPROVED | REJECTED | POSTED
   status             String                         @default("DRAFT")
   submittedBy        String?
   approvedBy         String?
+  warehouseApprovedBy  String?
+  warehouseApprovedAt  DateTime?
+  financeApprovedBy    String?
+  financeApprovedAt    DateTime?
+  totalAdjustmentValue Decimal?
   rejectedBy         String?
   rejectionReason    String?
   legacyAdjustmentId String?                        @unique
@@ -5181,6 +5324,35 @@ model MmCountAdjustmentRequestLine {
   @@index([requestId])
   @@index([taskId])
   @@map("mm_count_adjustment_request_lines")
+}
+
+model MmCountCompanyConfig {
+  id                             String   @id @default(cuid())
+  companyId                      String   @unique
+  company                        Company  @relation(fields: [companyId], references: [id])
+  blindCountingEnabled           Boolean  @default(true)
+  separationOfDutiesEnabled      Boolean  @default(true)
+  recountOnEveryDiscrepancy      Boolean  @default(false)
+  recountOnToleranceExceeded     Boolean  @default(true)
+  absoluteQtyTolerance           Decimal  @default(0)
+  percentTolerance               Decimal  @default(0)
+  financialValueTolerance        Decimal  @default(0)
+  maxRecounts                    Int      @default(2)
+  differentRecountWorkerRequired Boolean  @default(true)
+  /// HARD | SOFT | NONE
+  movementControlPolicy          String   @default("SOFT")
+  adjustmentApprovalValueThreshold Decimal @default(0)
+  financeApprovalValueThreshold  Decimal  @default(0)
+  requireVarianceEvidence        Boolean  @default(false)
+  requireRootCauseAnalysis       Boolean  @default(true)
+  allowZeroCountConfirmation     Boolean  @default(true)
+  mobileBarcodeScanningAllowed   Boolean  @default(true)
+  requireBatchLevelCounting      Boolean  @default(false)
+  requireSerialLevelCounting     Boolean  @default(false)
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  @@map("mm_count_company_configs")
 }
 
 // ΓöÇΓöÇΓöÇ Inventory Valuation (MM-12) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -6162,7 +6334,7 @@ model MmDisposal {
   disposalType              String
   reason                    String
   remarks                   String?
-  /// DRAFT | SUBMITTED | PENDING_APPROVAL | APPROVED | REJECTED | POSTED | CLOSED | CANCELLED | REVERSED
+  /// DRAFT | SUBMITTED | PENDING_APPROVAL | APPROVED | EXECUTED | REJECTED | POSTED | CLOSED | CANCELLED | REVERSED
   status                    String    @default("DRAFT")
   estimatedValue            Decimal   @default(0)
   totalQuantity             Decimal   @default(0)
@@ -6175,6 +6347,12 @@ model MmDisposal {
   rejectedAt                DateTime?
   postedBy                  String?
   postedAt                  DateTime?
+  executedAt                DateTime?
+  executedBy                String?
+  witnessName               String?
+  disposalMethod            String?
+  wasteManifestRef          String?
+  executionNotes            String?
   closedAt                  DateTime?
   createdBy                 String?
   createdAt                 DateTime  @default(now())
@@ -6298,6 +6476,8 @@ model MmCustomerReturnLine {
   disposition       String?
   /// PENDING | POSTED | LINKED_DISPOSAL
   dispositionStatus String           @default("PENDING")
+  /// RETURN_IN to quality inspection at physical intake (never sellable until disposition).
+  intakeTxnId       String?
   inventoryTxnId    String?
   disposalId        String?
   remarks           String?
@@ -6332,6 +6512,8 @@ model MmCustomerReturnIntake {
   warehouseId            String
   receivedAt             DateTime         @default(now())
   receivedBy             String?
+  returnReceiptNumber    String?          @unique
+  intakePostedAt         DateTime?
   carrierRef             String?
   packageCount           Int?
   notes                  String?
@@ -6411,28 +6593,36 @@ model MmScrapTransaction {
 // Scanner MUST NOT update balances or create ledger rows directly.
 
 model MmMobileDevice {
-  id               String    @id @default(cuid())
-  deviceCode       String    @unique
+  id               String     @id @default(cuid())
+  deviceCode       String     @unique
   companyId        String
-  company          Company   @relation(fields: [companyId], references: [id])
+  company          Company    @relation(fields: [companyId], references: [id])
+  warehouseId      String?
+  warehouse        Warehouse? @relation("MobileDeviceWarehouse", fields: [warehouseId], references: [id])
   userId           String?
-  user             User?     @relation(fields: [userId], references: [id])
+  user             User?      @relation(fields: [userId], references: [id])
   name             String?
+  /// MOBILE_PHONE | TABLET | HANDHELD_SCANNER | FIXED_READER | RFID_READER | LABEL_PRINTER
+  deviceType       String     @default("MOBILE_PHONE")
   /// WEB | ANDROID | IOS | HANDHELD | RFID
-  platform         String    @default("WEB")
+  platform         String     @default("WEB")
+  osInfo           String?
   /// ACTIVE | REVOKED | DISABLED
-  status           String    @default("ACTIVE")
+  status           String     @default("ACTIVE")
   sessionToken     String?
   sessionExpiresAt DateTime?
   lastSeenAt       DateTime?
   revokedAt        DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  revokedBy        String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   scannerEvents MmScannerEvent[]
   syncQueue     MmMobileSyncQueue[]
+  scanSessions  MmScanSession[]
 
   @@index([companyId])
+  @@index([warehouseId])
   @@index([userId])
   @@index([status])
   @@index([sessionToken])
@@ -6446,6 +6636,9 @@ model MmScannerEvent {
   deviceId        String
   mobileDeviceId  String?
   mobileDevice    MmMobileDevice? @relation(fields: [mobileDeviceId], references: [id])
+  scanSessionId   String?
+  scanSession     MmScanSession?  @relation(fields: [scanSessionId], references: [id])
+  sequenceNumber  Int?
   userId          String
   operation       String
   barcode         String
@@ -6479,8 +6672,177 @@ model MmScannerEvent {
   @@index([status])
   @@index([createdAt])
   @@index([mobileDeviceId])
+  @@index([scanSessionId])
   @@index([conflictCode])
   @@map("mm_scanner_events")
+}
+
+model MmScanSession {
+  id                 String          @id @default(cuid())
+  sessionNumber      String          @unique
+  companyId          String
+  company            Company         @relation(fields: [companyId], references: [id])
+  userId             String
+  userRole           String?
+  mobileDeviceId     String?
+  mobileDevice       MmMobileDevice? @relation(fields: [mobileDeviceId], references: [id])
+  warehouseId        String?
+  warehouse          Warehouse?      @relation("ScanSessionWarehouse", fields: [warehouseId], references: [id])
+  businessProcess    String
+  sourceDocumentType String?
+  sourceDocumentId   String?
+  sourceTaskId       String?
+  /// OPEN | COMPLETED | CANCELLED
+  status             String          @default("OPEN")
+  offlineMode        Boolean         @default(false)
+  syncStatus         String?
+  startedAt          DateTime        @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  events MmScannerEvent[]
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([status])
+  @@map("mm_scan_sessions")
+}
+
+model MmRfidTag {
+  id               String     @id @default(cuid())
+  tagValue         String
+  companyId        String
+  company          Company    @relation(fields: [companyId], references: [id])
+  entityType       String?
+  entityId         String?
+  materialId       String?
+  material         MmMaterial? @relation(fields: [materialId], references: [id])
+  batchId          String?
+  serialNumberId   String?    @unique
+  serialNumber     MmSerialNumber? @relation(fields: [serialNumberId], references: [id])
+  /// UNASSIGNED | ASSIGNED | ACTIVE | IN_TRANSIT | ... | ARCHIVED
+  status           String     @default("UNASSIGNED")
+  assignedAt       DateTime?
+  lastReadAt       DateTime?
+  lastWarehouseId  String?
+  lastStorageBinId String?
+  lastReaderId     String?
+  archivedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([companyId, tagValue])
+  @@index([materialId])
+  @@index([status])
+  @@map("mm_rfid_tags")
+}
+
+model MmScanOverride {
+  id                 String   @id @default(cuid())
+  overrideNumber     String   @unique
+  companyId          String
+  company            Company  @relation(fields: [companyId], references: [id])
+  warehouseId        String?
+  businessProcess    String
+  sourceDocumentType String?
+  sourceDocumentId   String?
+  materialId         String?
+  batchId            String?
+  serialNumberId     String?
+  reasonCode         String
+  explanation        String
+  requestedBy        String
+  approvedBy         String?
+  supervisorRequired Boolean  @default(false)
+  /// PENDING | APPROVED | REJECTED | USED
+  status             String   @default("PENDING")
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@map("mm_scan_overrides")
+}
+
+model MmControlledDocument {
+  id                  String   @id @default(cuid())
+  documentNumber      String   @unique
+  title               String
+  documentType        String
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id])
+  department          String?
+  processArea         String?
+  ownerUserId         String?
+  currentRevision     String?
+  /// DRAFT | UNDER_REVIEW | APPROVED | EFFECTIVE | SUPERSEDED | OBSOLETE | ARCHIVED
+  status              String   @default("DRAFT")
+  effectiveDate       DateTime?
+  reviewDate          DateTime?
+  expirationDate      DateTime?
+  confidentialityLevel String?
+  retentionPeriodDays Int?
+  createdBy           String?
+  approvedBy          String?
+  archivedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  versions MmControlledDocumentVersion[]
+
+  @@index([companyId, status])
+  @@map("mm_controlled_documents")
+}
+
+model MmControlledDocumentVersion {
+  id             String               @id @default(cuid())
+  documentId     String
+  document       MmControlledDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  revisionNumber String
+  fileName       String
+  storageKey     String
+  mimeType       String?
+  fileSize       Int
+  fileChecksum   String
+  changeSummary  String?
+  authorUserId   String?
+  reviewerUserId String?
+  approverUserId String?
+  status         String               @default("DRAFT")
+  approvedAt     DateTime?
+  effectiveDate  DateTime?
+  obsoleteDate   DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([documentId, revisionNumber])
+  @@index([documentId])
+  @@map("mm_controlled_document_versions")
+}
+
+/// Append-only compliance audit read model (no update/delete from application)
+model MmComplianceAuditEntry {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  domain          String
+  action          String
+  entityType      String?
+  entityId        String?
+  entityNumber    String?
+  performedBy     String?
+  performedByRole String?
+  previousValue   String?
+  newValue        String?
+  reason          String?
+  metadata        Json?
+  performedAt     DateTime @default(now())
+
+  @@index([companyId, performedAt])
+  @@index([domain])
+  @@map("mm_compliance_audit_entries")
 }
 
 /// Offline foundation — local queue replay validated server-side (never blind overwrite)

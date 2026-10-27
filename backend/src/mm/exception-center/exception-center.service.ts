@@ -173,6 +173,8 @@ export class ExceptionCenterService {
             this.collectTransfers(ctx),
             this.collectMrp(ctx),
             this.collectIntegration(ctx),
+            this.collectReturnsDisposal(ctx),
+            this.collectSupportingOps(ctx),
         ])
 
         return batches.flat()
@@ -375,14 +377,33 @@ export class ExceptionCenterService {
         const items: MmExceptionItem[] = []
         const variances = await this.prisma.mmReceivingVariance.findMany({
             where: {
-                status: { in: ['OPEN', 'ACKNOWLEDGED'] },
-                receivingDocument: {
-                    companyId: ctx.companyId,
-                    ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
-                },
+                status: { in: ['OPEN', 'ACKNOWLEDGED', 'UNDER_REVIEW'] },
+                OR: [
+                    {
+                        receivingDocument: {
+                            companyId: ctx.companyId,
+                            ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+                        },
+                    },
+                    {
+                        goodsReceipt: {
+                            companyId: ctx.companyId,
+                            ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+                        },
+                    },
+                    { companyId: ctx.companyId },
+                ],
             },
             include: {
                 receivingDocument: {
+                    select: {
+                        id: true,
+                        documentNumber: true,
+                        companyId: true,
+                        warehouseId: true,
+                    },
+                },
+                goodsReceipt: {
                     select: {
                         id: true,
                         documentNumber: true,
@@ -406,25 +427,34 @@ export class ExceptionCenterService {
                 type: 'RECEIVING_VARIANCE',
                 severity: 'MEDIUM' as MmExceptionSeverity,
             }
+            const gr = v.goodsReceipt
+            const rd = v.receivingDocument
+            const companyId =
+                v.companyId ?? gr?.companyId ?? rd?.companyId ?? ctx.companyId
+            const warehouseId = gr?.warehouseId ?? rd?.warehouseId ?? ctx.warehouseId
+            const docNumber =
+                gr?.documentNumber ?? rd?.documentNumber ?? v.varianceNumber ?? v.id
+            const docType = gr ? 'GOODS_RECEIPT' : 'RECEIVING_DOCUMENT'
+            const docId = gr?.id ?? rd?.id ?? v.goodsReceiptId ?? v.receivingDocumentId ?? v.id
             items.push(
                 this.item(
                     {
                         sourceId: v.id,
                         type: mapped.type,
                         domain: 'receiving',
-                        severity: mapped.severity,
+                        severity: (v.severity as MmExceptionSeverity) ?? mapped.severity,
                         status: v.status,
-                        title: `${v.varianceType.replace(/_/g, ' ')} on ${v.receivingDocument.documentNumber}`,
+                        title: `${v.varianceType.replace(/_/g, ' ')} on ${docNumber}`,
                         message: v.description ?? undefined,
                         source: 'MmReceivingVariance',
                         detectedAt: v.detectedAt.toISOString(),
-                        companyId: v.receivingDocument.companyId,
-                        warehouseId: v.receivingDocument.warehouseId,
+                        companyId,
+                        warehouseId,
                         recommendedAction: 'Review receiving variance in receiving module',
                         document: {
-                            type: 'RECEIVING_DOCUMENT',
-                            id: v.receivingDocumentId,
-                            number: v.receivingDocument.documentNumber,
+                            type: docType,
+                            id: docId,
+                            number: docNumber,
                         },
                         href: '/modules/mm/receiving/receiving-variances',
                         metadata: { varianceType: v.varianceType, quantity: Number(v.quantity) },
@@ -746,6 +776,264 @@ export class ExceptionCenterService {
         return items
     }
 
+    // ── Returns & disposal (ISO traceability) ──
+
+    private async collectReturnsDisposal(ctx: CollectorContext): Promise<MmExceptionItem[]> {
+        const items: MmExceptionItem[] = []
+        const overdueDays = 7
+        const cutoff = new Date(ctx.now.getTime() - overdueDays * 86400000)
+
+        const pendingReturns = await this.prisma.mmCustomerReturn.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: { in: ['DRAFT', 'PENDING_APPROVAL', 'INTAKE', 'INSPECTION'] },
+                ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+            },
+            take: 50,
+            orderBy: { updatedAt: 'asc' },
+        })
+        for (const r of pendingReturns) {
+            const type =
+                r.status === 'PENDING_APPROVAL'
+                    ? 'CUSTOMER_RETURN_AWAITING_APPROVAL'
+                    : r.status === 'INSPECTION'
+                      ? 'CUSTOMER_RETURN_AWAITING_INSPECTION'
+                      : r.status === 'INTAKE'
+                        ? 'CUSTOMER_RETURN_INTAKE_OPEN'
+                        : 'CUSTOMER_RETURN_DRAFT'
+            items.push(
+                this.item(
+                    {
+                        sourceId: r.id,
+                        type,
+                        domain: 'returns_disposal',
+                        severity: r.status === 'PENDING_APPROVAL' ? 'HIGH' : 'MEDIUM',
+                        status: r.status,
+                        title: `Customer return ${r.returnNumber}`,
+                        source: 'MmCustomerReturn',
+                        detectedAt: r.updatedAt.toISOString(),
+                        companyId: r.companyId,
+                        warehouseId: r.warehouseId,
+                        recommendedAction: 'Complete return workflow step',
+                        href: '/modules/mm/returns-disposal/customer-return-intake',
+                        document: {
+                            type: 'CUSTOMER_RETURN',
+                            id: r.id,
+                            number: r.returnNumber,
+                        },
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const approvedNotExecuted = await this.prisma.mmDisposal.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: 'APPROVED',
+                approvedAt: { lt: cutoff },
+                ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+            },
+            take: 50,
+        })
+        for (const d of approvedNotExecuted) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: d.id,
+                        type: 'DISPOSAL_APPROVED_NOT_EXECUTED',
+                        domain: 'returns_disposal',
+                        severity: 'HIGH',
+                        status: d.status,
+                        title: `Approved disposal not executed: ${d.disposalNumber}`,
+                        source: 'MmDisposal',
+                        detectedAt: (d.approvedAt ?? d.updatedAt).toISOString(),
+                        companyId: d.companyId,
+                        warehouseId: d.warehouseId,
+                        recommendedAction: 'Record physical execution and witness evidence',
+                        href:
+                            d.disposalType === 'SCRAP'
+                                ? '/modules/mm/returns-disposal/scrap'
+                                : '/modules/mm/returns-disposal/disposal',
+                        document: {
+                            type: 'DISPOSAL',
+                            id: d.id,
+                            number: d.disposalNumber,
+                        },
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const supplierReturnsPending = await this.prisma.mmSupplierReturn.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: { in: ['PENDING_APPROVAL', 'APPROVED', 'READY_FOR_PICKING'] },
+                ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+            },
+            take: 50,
+        })
+        for (const sr of supplierReturnsPending) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: sr.id,
+                        type: 'SUPPLIER_RETURN_WORKFLOW_OPEN',
+                        domain: 'returns_disposal',
+                        severity: sr.status === 'PENDING_APPROVAL' ? 'HIGH' : 'MEDIUM',
+                        status: sr.status,
+                        title: `Supplier return ${sr.returnNumber}`,
+                        source: 'MmSupplierReturn',
+                        detectedAt: sr.updatedAt.toISOString(),
+                        companyId: sr.companyId,
+                        warehouseId: sr.warehouseId,
+                        recommendedAction: 'Approve, pick, ship, and post return GI',
+                        href: '/modules/mm/returns-disposal/supplier-returns',
+                        document: {
+                            type: 'SUPPLIER_RETURN',
+                            id: sr.id,
+                            number: sr.returnNumber,
+                        },
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const expiredStillUnrestricted = await this.prisma.mmInventoryBalance.findMany({
+            where: {
+                companyId: ctx.companyId,
+                stockStatus: 'UNRESTRICTED',
+                quantity: { gt: 0 },
+                batch: { expiryDate: { lt: ctx.now } },
+                ...(ctx.warehouseId ? { warehouseId: ctx.warehouseId } : {}),
+            },
+            include: { material: { select: { materialCode: true } } },
+            take: 30,
+        })
+        for (const bal of expiredStillUnrestricted) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: bal.id,
+                        type: 'EXPIRED_STOCK_STILL_AVAILABLE',
+                        domain: 'returns_disposal',
+                        severity: 'CRITICAL',
+                        status: 'OPEN',
+                        title: `Expired batch still unrestricted: ${bal.material?.materialCode ?? bal.materialId}`,
+                        source: 'MmInventoryBalance',
+                        detectedAt: ctx.now.toISOString(),
+                        companyId: bal.companyId,
+                        warehouseId: bal.warehouseId,
+                        materialId: bal.materialId,
+                        recommendedAction: 'Block and quarantine expired quantity',
+                        href: '/modules/mm/returns-disposal/expired-stock',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        return items
+    }
+
+    // ── Supporting operations (scan / documents / compliance) ──
+
+    private async collectSupportingOps(ctx: CollectorContext): Promise<MmExceptionItem[]> {
+        const items: MmExceptionItem[] = []
+
+        const pendingOverrides = await this.prisma.mmScanOverride.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: 'PENDING',
+            },
+            take: 50,
+        })
+        for (const o of pendingOverrides) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: o.id,
+                        type: 'SCAN_OVERRIDE_PENDING',
+                        domain: 'supporting_ops',
+                        severity: 'MEDIUM',
+                        status: o.status,
+                        title: `Scan override awaiting approval: ${o.overrideNumber}`,
+                        source: 'MmScanOverride',
+                        detectedAt: o.createdAt.toISOString(),
+                        companyId: o.companyId,
+                        warehouseId: o.warehouseId ?? undefined,
+                        recommendedAction: 'Supervisor must approve or reject override',
+                        href: '/modules/mm/barcode-rfid/barcode-scanning',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const docsReview = await this.prisma.mmControlledDocument.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: { in: ['UNDER_REVIEW', 'DRAFT'] },
+                archivedAt: null,
+            },
+            take: 30,
+        })
+        for (const d of docsReview) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: d.id,
+                        type: 'CONTROLLED_DOCUMENT_REVIEW',
+                        domain: 'supporting_ops',
+                        severity: 'MEDIUM',
+                        status: d.status,
+                        title: `Controlled document: ${d.documentNumber}`,
+                        source: 'MmControlledDocument',
+                        detectedAt: d.updatedAt.toISOString(),
+                        companyId: d.companyId,
+                        recommendedAction: 'Complete document review and approval',
+                        href: '/modules/mm/supporting-operations/document-management',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const expiredDocs = await this.prisma.mmControlledDocument.findMany({
+            where: {
+                companyId: ctx.companyId,
+                expirationDate: { lt: ctx.now },
+                archivedAt: null,
+                status: { not: 'ARCHIVED' },
+            },
+            take: 20,
+        })
+        for (const d of expiredDocs) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: d.id,
+                        type: 'CONTROLLED_DOCUMENT_EXPIRED',
+                        domain: 'supporting_ops',
+                        severity: 'HIGH',
+                        status: d.status,
+                        title: `Expired controlled document: ${d.documentNumber}`,
+                        source: 'MmControlledDocument',
+                        detectedAt: (d.expirationDate ?? d.updatedAt).toISOString(),
+                        companyId: d.companyId,
+                        recommendedAction: 'Review, revise, or mark obsolete',
+                        href: '/modules/mm/supporting-operations/document-management',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        return items
+    }
+
     // ── Warehouse ──
 
     private async collectWarehouse(ctx: CollectorContext): Promise<MmExceptionItem[]> {
@@ -924,6 +1212,69 @@ export class ExceptionCenterService {
                 ),
             )
         }
+
+        const pendingAdj = await this.prisma.mmCountAdjustmentRequest.findMany({
+            where: {
+                companyId: ctx.companyId,
+                status: { in: ['PENDING_APPROVAL', 'PENDING_FINANCE_APPROVAL'] },
+            },
+            take: 40,
+        })
+        for (const a of pendingAdj) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: a.id,
+                        type:
+                            a.status === 'PENDING_FINANCE_APPROVAL'
+                                ? 'ADJUSTMENT_FINANCE_PENDING'
+                                : 'ADJUSTMENT_APPROVAL_PENDING',
+                        domain: 'inventory_control',
+                        severity: 'HIGH',
+                        status: a.status,
+                        title: `Count adjustment ${a.requestNumber}`,
+                        source: 'MmCountAdjustmentRequest',
+                        detectedAt: a.updatedAt.toISOString(),
+                        companyId: a.companyId,
+                        warehouseId: a.warehouseId,
+                        recommendedAction: 'Complete warehouse or finance approval',
+                        href: '/modules/mm/inventory-control/adjustment-approval',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
+        const freezes = await this.prisma.mmCountSession.findMany({
+            where: {
+                companyId: ctx.companyId,
+                movementControlMode: 'HARD',
+                status: { in: ['IN_PROGRESS', 'RECOUNT_REQUIRED', 'VARIANCE'] },
+            },
+            take: 20,
+        })
+        for (const f of freezes) {
+            items.push(
+                this.item(
+                    {
+                        sourceId: f.id,
+                        type: 'COUNT_MOVEMENT_FREEZE',
+                        domain: 'inventory_control',
+                        severity: 'MEDIUM',
+                        status: f.status,
+                        title: `Hard movement freeze: ${f.sessionNumber}`,
+                        source: 'MmCountSession',
+                        detectedAt: (f.startedAt ?? f.updatedAt).toISOString(),
+                        companyId: f.companyId,
+                        warehouseId: f.warehouseId,
+                        recommendedAction: 'Complete count or release freeze per procedure',
+                        href: '/modules/mm/inventory-control/count-sessions',
+                    },
+                    ctx,
+                ),
+            )
+        }
+
         return items
     }
 

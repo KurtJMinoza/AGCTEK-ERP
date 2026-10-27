@@ -48,6 +48,7 @@ import type {
     StorageBin,
 } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
 import {
     WmAnimatedStatus,
     WmBinChip,
@@ -1088,6 +1089,7 @@ const PickingPage = () => {
                     </div>
                 }
             />
+            <Iso9001OutboundWorkflowStrip activeStep={1} />
 
             <AdaptiveCard className="mt-4">
                 <Tabs

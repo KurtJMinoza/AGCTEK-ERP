@@ -28,6 +28,7 @@ import {
     HiOutlineX,
     HiOutlineRewind,
     HiOutlineLogout,
+    HiOutlineShieldCheck,
 } from 'react-icons/hi'
 import {
     inventoryService,
@@ -37,6 +38,7 @@ import { goodsIssueService } from '../services/goodsIssueService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsIssue, StockOpsQueryParams } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import InfoCard from '../../shared/InfoCard'
@@ -297,6 +299,13 @@ const GoodsIssuePage = () => {
         action: string
         fn: () => void
     } | null>(null)
+    const [verifyOpen, setVerifyOpen] = useState(false)
+    const [verifyForm, setVerifyForm] = useState({
+        verifiedBy: '',
+        sourceDocumentReference: '',
+        verificationNotes: '',
+    })
+    const [verifyBusy, setVerifyBusy] = useState(false)
 
     const detailLineColumns = useMemo<ColumnDef<GoodsIssue['lines'][number]>[]>(
         () => [
@@ -359,6 +368,16 @@ const GoodsIssuePage = () => {
                                 >
                                     <HiOutlineEye className="mr-2" /> View
                                 </Dropdown.Item>
+                                {row.original.status === 'DRAFT' &&
+                                    !row.original.supervisorVerifiedAt && (
+                                        <Dropdown.Item
+                                            eventKey="verify"
+                                            onClick={() => openDetail(row.original.id)}
+                                        >
+                                            <HiOutlineShieldCheck className="mr-2" />{' '}
+                                            Verify (supervisor)
+                                        </Dropdown.Item>
+                                    )}
                                 {row.original.status === 'DRAFT' && (
                                     <Dropdown.Item
                                         eventKey="post"
@@ -463,6 +482,7 @@ const GoodsIssuePage = () => {
                     </Button>
                 }
             />
+            <Iso9001OutboundWorkflowStrip activeStep={3} />
 
             <FilterBar
                 className="mb-4"
@@ -648,11 +668,32 @@ const GoodsIssuePage = () => {
                     detail ? (
                         <>
                             <div className="flex flex-wrap items-center gap-2">
+                                {detail.status === 'DRAFT' &&
+                                    !detail.supervisorVerifiedAt && (
+                                        <Button
+                                            variant="solid"
+                                            size="sm"
+                                            icon={<HiOutlineShieldCheck />}
+                                            onClick={() => setVerifyOpen(true)}
+                                        >
+                                            Verify
+                                        </Button>
+                                    )}
                                 {detail.status === 'DRAFT' && (
                                     <Button
                                         variant="solid"
                                         size="sm"
                                         onClick={() => handleAction('post')}
+                                        disabled={
+                                            !detail.supervisorVerifiedAt &&
+                                            !detail.packageId
+                                        }
+                                        title={
+                                            !detail.supervisorVerifiedAt &&
+                                            !detail.packageId
+                                                ? 'Supervisor verification required'
+                                                : undefined
+                                        }
                                     >
                                         Post
                                     </Button>
@@ -690,6 +731,20 @@ const GoodsIssuePage = () => {
                             <InfoCard label="Purpose" value={detail.issuePurpose} />
                             <InfoCard label="Posting Date" value={fmtDate(detail.postingDate)} />
                             <InfoCard label="Created" value={fmtDate(detail.createdAt)} />
+                            <InfoCard
+                                label="Supervisor verified"
+                                value={
+                                    detail.supervisorVerifiedAt
+                                        ? `${detail.supervisorVerifiedBy ?? '—'} · ${fmtDate(detail.supervisorVerifiedAt)}`
+                                        : 'Pending'
+                                }
+                            />
+                            {detail.verifiedSourceReference ? (
+                                <InfoCard
+                                    label="Verified reference"
+                                    value={detail.verifiedSourceReference}
+                                />
+                            ) : null}
                         </div>
                         {detail.remarks ? (
                             <AdaptiveCard className="!p-3">
@@ -738,6 +793,73 @@ const GoodsIssuePage = () => {
                         </div>
                     </div>
                 )}
+            </FormDialog>
+
+            <FormDialog
+                isOpen={verifyOpen}
+                onClose={() => setVerifyOpen(false)}
+                title="Supervisor verification (ISO 9001)"
+                icon={<HiOutlineShieldCheck />}
+                confirmText="Confirm verification"
+                confirmLoading={verifyBusy}
+                onSubmit={async () => {
+                    if (!detail) return
+                    setVerifyBusy(true)
+                    try {
+                        await goodsIssueService.verifySupervisor(detail.id, verifyForm)
+                        pushToast('success', 'Verified', 'Goods issue ready to post.')
+                        setVerifyOpen(false)
+                        await refreshDetail()
+                        fetchList()
+                    } catch (err: any) {
+                        pushToast(
+                            'danger',
+                            'Verification failed',
+                            err?.response?.data?.message ?? 'Could not verify',
+                        )
+                    } finally {
+                        setVerifyBusy(false)
+                    }
+                }}
+            >
+                <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
+                    Confirm physical goods match the sales order, delivery order, or
+                    internal reference before posting to the inventory ledger.
+                </p>
+                <FormItem label="Supervisor name">
+                    <Input
+                        value={verifyForm.verifiedBy}
+                        onChange={(e: any) =>
+                            setVerifyForm((p) => ({
+                                ...p,
+                                verifiedBy: e.target.value,
+                            }))
+                        }
+                    />
+                </FormItem>
+                <FormItem label="Source document reference (SO / DO / order #)">
+                    <Input
+                        value={verifyForm.sourceDocumentReference}
+                        onChange={(e: any) =>
+                            setVerifyForm((p) => ({
+                                ...p,
+                                sourceDocumentReference: e.target.value,
+                            }))
+                        }
+                    />
+                </FormItem>
+                <FormItem label="Notes (optional)">
+                    <Input
+                        textArea
+                        value={verifyForm.verificationNotes}
+                        onChange={(e: any) =>
+                            setVerifyForm((p) => ({
+                                ...p,
+                                verificationNotes: e.target.value,
+                            }))
+                        }
+                    />
+                </FormItem>
             </FormDialog>
 
             <ConfirmDialog

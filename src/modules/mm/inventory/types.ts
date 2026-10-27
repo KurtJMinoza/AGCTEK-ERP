@@ -60,6 +60,11 @@ export interface GoodsReceipt {
     stockStatus: string
     remarks?: string | null
     createdBy?: string | null
+    submittedAt?: string | null
+    submittedBy?: string | null
+    verifiedAt?: string | null
+    verifiedBy?: string | null
+    verificationNotes?: string | null
     status: string
     createdAt: string
     updatedAt: string
@@ -99,11 +104,18 @@ export interface GoodsIssue {
     companyId: string
     warehouseId: string
     warehouse?: { id: string; name: string }
+    packageId?: string | null
+    sourceDocumentType?: string | null
+    sourceDocumentId?: string | null
     postingDate: string
     documentDate: string
     issuePurpose: string
     remarks?: string | null
     createdBy?: string | null
+    supervisorVerifiedAt?: string | null
+    supervisorVerifiedBy?: string | null
+    verifiedSourceReference?: string | null
+    supervisorVerificationNotes?: string | null
     status: string
     createdAt: string
     updatedAt: string

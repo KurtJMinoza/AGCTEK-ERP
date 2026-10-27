@@ -192,6 +192,7 @@ export interface Material {
     volumeUom?: string | null
 
     inventoryManaged: boolean
+    negativeStockAllowed?: boolean
     purchasable: boolean
     sellable: boolean
     batchManaged: boolean
@@ -307,6 +308,7 @@ export interface CreateMaterialPayload {
     volume?: number
     volumeUom?: string
     inventoryManaged?: boolean
+    negativeStockAllowed?: boolean
     purchasable?: boolean
     sellable?: boolean
     batchManaged?: boolean

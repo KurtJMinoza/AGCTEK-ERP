@@ -1,0 +1,50 @@
+---
+description: FICO Phase 1 validation requirements - exact commands and the FICO-specific test matrix every FICO agent and the QA agent must satisfy
+globs: backend/src/fico/**/*.spec.ts,backend/src/mm/integration/fico/**/*.spec.ts,backend/src/fico/**/*.ts,backend/src/mm/integration/fico/**/*.ts
+alwaysApply: false
+---
+
+# FICO Phase 1 — Validation Requirements
+
+## Commands (run them; never paraphrase results)
+
+```bash
+cd backend
+npx jest src/fico --runInBand --forceExit --no-coverage     # FICO unit suites
+npx jest src/mm/integration/fico --runInBand --forceExit --no-coverage
+npm run test:architecture                                    # MM guardrails
+npm run test:pg                                             # real-Postgres concurrency
+npm test                                                     # full backend regression
+npm run build                                               # backend typecheck/build
+npm run lint
+
+cd ..
+npm run build                                               # frontend typecheck/build
+npm run lint
+```
+
+No CI workflows exist in this repo — validation is local and must actually be executed.
+
+## FICO test matrix (each rule needs a test)
+
+| Rule | Where it must be proven |
+| --- | --- |
+| Company isolation | `fico-company-access.service.spec.ts` + service specs |
+| Debit/credit balancing | `fico-journal.validation.spec.ts` |
+| Period restrictions & closed-period message | fiscal-year spec + posting-period spec |
+| Reopen requires reason, is audited | posting-period spec |
+| Account determination rejects invalid mappings | account-determination spec |
+| COA hierarchy / duplicate codes / circular parents | `fico-chart-of-accounts.service.spec.ts` |
+| Company settings lifecycle (DRAFT→ACTIVE→INACTIVE) | `fico-company-settings.service.spec.ts` |
+| MM → FICO posting, no duplicate entries | `mm-fico-accounting.spec.ts` |
+| Concurrency (idempotency, period close vs posting) | `*.pg-spec.ts` via `npm run test:pg` |
+
+## Rules
+
+- Report the **exact command** and the **real result**. Never state "tests passed"
+  without executing them.
+- Report failures with file location, reproduction steps, expected vs. actual.
+- Do not weaken, skip, or delete a test to make a suite green.
+- Do not mark Phase 1 complete until the matrix above passes for the touched areas.
+- MM backend changes additionally require `npm run test:architecture`.
+- New business rules require new tests.

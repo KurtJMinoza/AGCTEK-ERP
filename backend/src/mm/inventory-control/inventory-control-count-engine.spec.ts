@@ -15,6 +15,7 @@ import { CountVarianceService } from './count-variance.service'
 import { CountRecountService } from './count-recount.service'
 import { CountAdjustmentRequestService } from './count-adjustment-request.service'
 import { CountGenerationService } from './count-generation.service'
+import { CountConfigurationService } from './count-configuration.service'
 
 describe('Inventory Control Count Engine (Phase 7)', () => {
     let policies: CountPolicyService
@@ -332,6 +333,18 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
                 }),
             },
             mmCountEntry: {
+                findFirst: jest.fn(({ where }: any) => {
+                    const taskSessionId = where?.task?.sessionId
+                    const counterId = where?.counterId
+                    const hit = [...store.entries.values()].find((e) => {
+                        const task = store.tasks.get(e.taskId)
+                        if (!task) return false
+                        if (taskSessionId && task.sessionId !== taskSessionId) return false
+                        if (counterId && e.counterId !== counterId) return false
+                        return true
+                    })
+                    return Promise.resolve(hit ?? null)
+                }),
                 findUnique: jest.fn(({ where }: any) => {
                     if (where.idempotencyKey) {
                         return Promise.resolve(
@@ -563,6 +576,17 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
                 CountGenerationService,
                 { provide: PrismaService, useValue: mockPrisma },
                 { provide: AdjustmentService, useValue: mockAdjustments },
+                {
+                    provide: CountConfigurationService,
+                    useValue: {
+                        getForCompany: jest.fn().mockResolvedValue({
+                            separationOfDutiesEnabled: true,
+                            financeApprovalValueThreshold: new Decimal(0),
+                            movementControlPolicy: 'SOFT',
+                            blindCountingEnabled: true,
+                        }),
+                    },
+                },
             ],
         }).compile()
 
@@ -573,6 +597,14 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
         recounts = module.get(CountRecountService)
         adjReqs = module.get(CountAdjustmentRequestService)
     })
+
+    function markIsoVarianceReport(sessionId: string) {
+        const s = store.sessions.get(sessionId)
+        if (s) {
+            s.varianceReportSubmittedAt = new Date()
+            s.varianceReportNumber = 'VR-TEST-00001'
+        }
+    }
 
     async function seedSession(opts?: {
         systemQty?: number
@@ -656,10 +688,12 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
             v.status = 'PENDING_ADJUSTMENT'
             v.varianceQuantity = new Decimal(10)
         }
+        markIsoVarianceReport(session.id)
         const req: any = await adjReqs.create({ sessionId: session.id })
         if (req.zeroVariance) return
-        const approved = await adjReqs.approve(req.id, { approvedBy: 'mgr' })
-        expect(approved.status).toBe('POSTED')
+        await adjReqs.approve(req.id, { approvedBy: 'mgr' })
+        const posted = await adjReqs.post(req.id, { approvedBy: 'mgr' })
+        expect(posted.status).toBe('POSTED')
         expect(postings.some((p) => p.movementType === 'COUNT_GAIN')).toBe(true)
     })
 
@@ -674,6 +708,7 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
             v.varianceQuantity = new Decimal(5)
         }
         postings.length = 0
+        markIsoVarianceReport(session.id)
         const req: any = await adjReqs.create({ sessionId: session.id })
         if (req.zeroVariance) return
         await adjReqs.reject(req.id, { rejectedBy: 'mgr', rejectionReason: 'no' })
@@ -741,11 +776,34 @@ describe('Inventory Control Count Engine (Phase 7)', () => {
             v.status = 'PENDING_ADJUSTMENT'
             v.varianceQuantity = new Decimal(10)
         }
+        markIsoVarianceReport(session.id)
         const req: any = await adjReqs.create({ sessionId: session.id })
         if (req.zeroVariance) return
         await adjReqs.approve(req.id, { approvedBy: 'a' })
-        await expect(adjReqs.approve(req.id, { approvedBy: 'b' })).rejects.toThrow(
+        await adjReqs.post(req.id, { approvedBy: 'a' })
+        await expect(adjReqs.post(req.id, { approvedBy: 'b' })).rejects.toThrow(
             BadRequestException,
         )
+    })
+
+    it('12) rejects self-approval when separation of duties enabled', async () => {
+        const { session } = await seedSession({ qtyTolerance: 0 })
+        const task = session.tasks[0]
+        await entries.create({ taskId: task.id, countQuantity: 110, counterId: 'clerk-1' })
+        store.tasks.get(task.id).status = 'VARIANCE'
+        const v = [...store.variances.values()].find((x) => x.taskId === task.id)
+        if (v) {
+            v.status = 'PENDING_ADJUSTMENT'
+            v.varianceQuantity = new Decimal(10)
+        }
+        markIsoVarianceReport(session.id)
+        const req: any = await adjReqs.create({
+            sessionId: session.id,
+            submittedBy: 'clerk-1',
+        })
+        if (req.zeroVariance) return
+        await expect(
+            adjReqs.approve(req.id, { approvedBy: 'clerk-1' }),
+        ).rejects.toThrow(/Separation of duties/)
     })
 })

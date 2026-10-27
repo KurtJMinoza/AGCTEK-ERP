@@ -10,6 +10,8 @@ import { PickingService } from '../warehouse/picking/picking.service'
 import { PackingService } from '../warehouse/packing/packing.service'
 import { InventoryCountService } from '../inventory-control/inventory-count.service'
 import { BinTransferService } from '../stock-ops/bin-transfer.service'
+import { PutawayService } from '../warehouse/putaway/putaway.service'
+import { ScanSessionService } from '../supporting-ops/scan-session.service'
 import { ScannerEventDto, ScannerEventsQueryDto } from './dto/scanner.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 
@@ -55,7 +57,15 @@ export class ScannerEventService {
         private packingService: PackingService,
         private countService: InventoryCountService,
         private binTransferService: BinTransferService,
+        private putawayService: PutawayService,
+        private scanSessions: ScanSessionService,
     ) {}
+
+    private async sessionEventMeta(dto: ScannerEventDto) {
+        if (!dto.scanSessionId) return {}
+        const seq = await this.scanSessions.nextEventSequence(dto.scanSessionId)
+        return { scanSessionId: dto.scanSessionId, sequenceNumber: seq }
+    }
 
     async processEvent(dto: ScannerEventDto) {
         const existing = await this.prisma.mmScannerEvent.findUnique({
@@ -72,6 +82,7 @@ export class ScannerEventService {
 
         try {
             await this.validateUser(dto.userId)
+            const sessionMeta = await this.sessionEventMeta(dto)
             const result = await this.dispatch(dto)
             const event = await this.prisma.mmScannerEvent.create({
                 data: {
@@ -93,6 +104,7 @@ export class ScannerEventService {
                     documentId: result.documentId ?? null,
                     status: 'SUCCESS',
                     result: result.payload as any,
+                    ...sessionMeta,
                 },
             })
             return { ...event, duplicate: false }
@@ -100,6 +112,7 @@ export class ScannerEventService {
             const message = errorMessage(err)
             const errorCode = extractErrorCode(err)
             try {
+                const sessionMeta = await this.sessionEventMeta(dto).catch(() => ({}))
                 await this.prisma.mmScannerEvent.create({
                     data: {
                         idempotencyKey: `${dto.idempotencyKey}:fail:${Date.now()}`,
@@ -116,6 +129,7 @@ export class ScannerEventService {
                         status: 'FAILED',
                         errorCode,
                         errorMessage: message.slice(0, 500),
+                        ...sessionMeta,
                         result: { error: message, errorCode } as any,
                     },
                 })
@@ -202,6 +216,8 @@ export class ScannerEventService {
         switch (dto.operation) {
             case 'RECEIVING':
                 return this.opReceiving(dto)
+            case 'PUTAWAY':
+                return this.opPutaway(dto)
             case 'PICKING':
                 return this.opPicking(dto)
             case 'PACKING':
@@ -526,6 +542,41 @@ export class ScannerEventService {
             documentType: 'PICKING',
             documentId: task.id,
             payload: { pickingTaskId: task.id, status: task.status },
+        }
+    }
+
+    private async opPutaway(dto: ScannerEventDto) {
+        if (!dto.putawayTaskId) {
+            throw new BadRequestException('putawayTaskId is required for PUTAWAY')
+        }
+        if (dto.quantity == null || dto.quantity <= 0) {
+            throw new BadRequestException('quantity is required for PUTAWAY')
+        }
+        const ctx = await this.resolveMaterialContext(dto, { requireMaterial: true })
+        const binId =
+            ctx.storageBinId ||
+            (dto.bin ? (await this.resolveService.resolveBin(dto.bin)).id : undefined)
+        if (!binId) {
+            throw new BadRequestException(
+                'WRONG_BIN: destination storage bin is required for putaway',
+            )
+        }
+        const task = await this.putawayService.confirm(dto.putawayTaskId, {
+            actualBinId: binId,
+            quantity: dto.quantity,
+            scannedBinCode: dto.bin,
+            idempotencyKey: dto.idempotencyKey,
+        })
+        return {
+            companyId: (task as any).companyId,
+            warehouseId: (task as any).warehouseId,
+            materialId: ctx.materialId,
+            storageBinId: binId,
+            batchId: ctx.batchId,
+            serialNumberId: ctx.serialNumberId,
+            documentType: 'PUTAWAY',
+            documentId: dto.putawayTaskId,
+            payload: { putawayTaskId: dto.putawayTaskId, status: (task as any).status },
         }
     }
 

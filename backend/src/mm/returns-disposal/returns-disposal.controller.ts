@@ -31,6 +31,7 @@ import {
     IdentifyDamageDto,
     MarkExpiredDto,
     CreateFromBalancesDto,
+    ExecuteDisposalDto,
 } from './dto/returns-disposal.dto'
 
 /** Read access: the pages that load these endpoints. */
@@ -265,6 +266,12 @@ export class ReturnsDisposalController {
     @Post('disposals/:id/reject')
     rejectDisposal(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.reject(id, dto)
+    }
+
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
+    @Post('disposals/:id/execute')
+    executeDisposal(@Param('id') id: string, @Body() dto: ExecuteDisposalDto) {
+        return this.disposalService.execute(id, dto)
     }
 
     @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))

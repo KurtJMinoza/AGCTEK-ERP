@@ -26,6 +26,7 @@ import type { Material } from '../../material-master/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import type { CustomerReturnLine } from '../types'
+import Iso9001ReturnsDisposalWorkflowStrip from '../components/Iso9001ReturnsDisposalWorkflowStrip'
 
 const ROUTE = '/modules/mm/returns-disposal/customer-return-intake'
 
@@ -306,7 +307,7 @@ const CustomerReturnIntakePage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Customer Return Intake"
-                description="Intake → inspection → disposition (RESTOCK / REPAIR / BLOCK / SCRAP)."
+                description="Intake posts to return inspection stock; sellable only after quality disposition and transfer."
                 icon={<HiOutlineReply />}
                 actions={
                     <Button
@@ -318,6 +319,8 @@ const CustomerReturnIntakePage = () => {
                     </Button>
                 }
             />
+
+            <Iso9001ReturnsDisposalWorkflowStrip activeStep={1} />
 
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">

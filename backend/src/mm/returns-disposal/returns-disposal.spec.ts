@@ -50,7 +50,11 @@ function mockPrisma() {
             findUnique: jest.fn(),
         },
         mmCustomerReturnAudit: { create: jest.fn() },
-        mmCustomerReturnIntake: { upsert: jest.fn().mockResolvedValue({}) },
+        mmCustomerReturnIntake: {
+            upsert: jest.fn().mockResolvedValue({}),
+            count: jest.fn().mockResolvedValue(0),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
         mmReturnInspection: {
             create: jest.fn().mockResolvedValue({}),
             findFirst: jest.fn(),
@@ -234,7 +238,7 @@ describe('MM-11 Returns & Disposal', () => {
     })
 
     describe('customer return + restock', () => {
-        it('intake → inspection → disposition → complete RESTOCK posts RETURN_IN', async () => {
+        it('intake posts RETURN_IN to QI; complete RESTOCK transfers to UNRESTRICTED', async () => {
             const base = {
                 id: 'crt-1',
                 returnNumber: 'CRT-000001',
@@ -254,25 +258,33 @@ describe('MM-11 Returns & Disposal', () => {
                 ],
             }
 
+            const lineWithIntake = {
+                ...base.lines[0],
+                intakeTxnId: 'intake-txn-1',
+            }
             prisma.mmCustomerReturn.findUnique
-                .mockResolvedValueOnce({ ...base, status: 'DRAFT' })
-                .mockResolvedValueOnce({ ...base, status: 'INTAKE' })
+                .mockResolvedValueOnce({ ...base, status: 'DRAFT', lines: [base.lines[0]] })
+                .mockResolvedValueOnce({
+                    ...base,
+                    status: 'INTAKE',
+                    lines: [{ ...lineWithIntake }],
+                })
+                .mockResolvedValueOnce({
+                    ...base,
+                    status: 'INTAKE',
+                    lines: [{ ...lineWithIntake }],
+                })
                 .mockResolvedValueOnce({
                     ...base,
                     status: 'INSPECTION',
-                    lines: [
-                        {
-                            ...base.lines[0],
-                            disposition: 'RESTOCK',
-                        },
-                    ],
+                    lines: [{ ...lineWithIntake, disposition: 'RESTOCK' }],
                 })
                 .mockResolvedValueOnce({
                     ...base,
                     status: 'APPROVED',
                     lines: [
                         {
-                            ...base.lines[0],
+                            ...lineWithIntake,
                             disposition: 'RESTOCK',
                             dispositionStatus: 'PENDING',
                         },
@@ -289,6 +301,13 @@ describe('MM-11 Returns & Disposal', () => {
             })
 
             await customerReturnService.startIntake('crt-1')
+            expect(postingService.postTransaction).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    movementType: 'RETURN_IN',
+                    stockStatus: 'QUALITY_INSPECTION',
+                    reasonCode: 'RETURN_INTAKE',
+                }),
+            )
             await customerReturnService.startInspection('crt-1')
 
             prisma.mmCustomerReturnLine.findUnique.mockResolvedValue({
@@ -309,7 +328,7 @@ describe('MM-11 Returns & Disposal', () => {
 
             expect(postingService.postTransaction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    movementType: 'RETURN_IN',
+                    movementType: 'TRANSFER_IN',
                     stockStatus: 'UNRESTRICTED',
                     reasonCode: 'RESTOCK',
                 }),
@@ -325,7 +344,7 @@ describe('MM-11 Returns & Disposal', () => {
     })
 
     describe('scrap', () => {
-        it('posts SCRAP + scrapPosted domain event', async () => {
+        it('approval alone does not post inventory; execute then post SCRAP once', async () => {
             const doc = {
                 id: 'dsp-1',
                 disposalNumber: 'DSP-001',
@@ -336,10 +355,24 @@ describe('MM-11 Returns & Disposal', () => {
                 totalQuantity: new Decimal(5),
                 status: 'APPROVED',
                 lines: [makeLine({ quantity: new Decimal(5) })],
+                warehouse: {},
+                audits: [],
             }
             prisma.mmDisposal.findUnique.mockResolvedValue(doc)
+            await expect(disposalService.post('dsp-1')).rejects.toThrow(/execution/)
+            expect(postingService.postTransaction).not.toHaveBeenCalled()
+
+            prisma.mmDisposal.findUnique.mockResolvedValue(doc)
+            prisma.mmDisposal.update.mockResolvedValue({ ...doc, status: 'EXECUTED' })
+            await disposalService.execute('dsp-1', {
+                witnessName: 'Jane Witness',
+                disposalMethod: 'Certified waste disposal',
+            })
+
+            const executed = { ...doc, status: 'EXECUTED', warehouse: {}, audits: [] }
+            prisma.mmDisposal.findUnique.mockResolvedValue(executed)
             prisma.mmDisposal.updateMany.mockResolvedValue({ count: 1 })
-            prisma.mmDisposal.update.mockResolvedValue({ ...doc, status: 'CLOSED' })
+            prisma.mmDisposal.update.mockResolvedValue({ ...executed, status: 'CLOSED' })
 
             await disposalService.post('dsp-1')
 

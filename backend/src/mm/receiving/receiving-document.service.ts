@@ -335,6 +335,12 @@ export class ReceivingDocumentService {
             data: { receivingDocumentId: id },
         })
 
+        const actor = dto?.performedBy ?? doc.createdBy ?? doc.receiverId ?? 'RECEIVING_WORKBENCH'
+        await this.goodsReceiptService.submit(gr.id, { submittedBy: actor })
+        await this.goodsReceiptService.verify(gr.id, {
+            verifiedBy: actor,
+            verificationNotes: `Receiving document ${doc.documentNumber ?? id} validated`,
+        })
         const posted = await this.goodsReceiptService.post(gr.id)
 
         const updated = await this.prisma.mmReceivingDocument.update({

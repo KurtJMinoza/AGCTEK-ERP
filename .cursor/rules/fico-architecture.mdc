@@ -1,0 +1,87 @@
+---
+description: Mandatory FICO Phase 1 rules for every FICO agent (architectural, accounting, database, security, and UI constraints)
+globs: backend/src/fico/**/*,backend/src/mm/integration/fico/**/*,backend/prisma/**/*,src/modules/fico/**/*,src/app/(protected-pages)/modules/fico/**/*,backend/src/permissions/**/*
+alwaysApply: false
+---
+
+# FICO Phase 1 — Shared Agent Rules
+
+These rules bind **every** FICO agent (architect, component agents, QA). They are
+non-negotiable; an agent that cannot satisfy one must report the conflict instead of
+working around it.
+
+Read first: `AGENTS.md` (root), `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`,
+`docs/FICO_PHASE1_ARCHITECTURE.md`.
+
+## 1. Ownership and reuse
+
+1. Inspect existing code before modifying it. Search services, controllers, models,
+   migrations, routes, and tests first.
+2. Reuse existing entities and services whenever appropriate — FICO extends the ERP,
+   it does not fork it. One company table, one posting engine, one account resolver.
+3. Follow the project's actual framework conventions: NestJS + Fastify + Prisma
+   (backend), Next.js App Router + ECME (frontend), `@RequirePermission` guards,
+   `FicoCompanyAccessService` for company scope, `FicoAuditService` for audit writes.
+
+## 2. Preservation
+
+4. Preserve existing operational functionality. MM, SD, SCM, CRM, SD→MM fulfillment,
+   and warehouse execution must keep working unchanged.
+5. Respect company-specific accounting boundaries: every accounting document carries
+   `companyId`; every FICO query is company-scoped and membership-authorized.
+6. Use database transactions for financial postings — header, lines, document number,
+   and audit entry commit together or not at all.
+
+## 3. Accounting invariants
+
+7. Never use floating-point arithmetic for monetary amounts. Use `Decimal` /
+   `numeric(18,4)`.
+8. Never create an unbalanced accounting entry. Debits must equal credits.
+9. Never directly edit a posted accounting document. Corrections are reversals.
+10. Never silently change historical accounting records.
+11. Never automatically create G/L accounts for individual SKUs or materials.
+12. Never automatically create Material Master SKUs from product variants.
+13. Never bypass accounting period restrictions — the period check must happen
+    inside the posting transaction.
+14. Never expose unauthorized company financial data.
+
+## 4. Module boundaries
+
+- FICO owns the **financial effect** only. MM owns physical stock; FICO never posts
+  inventory. MM never computes financial postings — it calls the FICO services.
+- Physical stock changes go through `InventoryPostingService` only.
+- One journal posting engine: `FicoJournalService`. One account resolver:
+  `FicoAccountDeterminationService.resolve`. One period service:
+  `FicoFinancialPeriodService`. Never add a parallel path.
+- Cross-module writes go through domain services and typed events, never direct
+  table writes from another module.
+
+## 5. Database
+
+15. Migrations are additive by default. Never reset, truncate, or delete existing
+    production data. Never edit an applied migration — add a new one.
+16. Never execute destructive migrations without explicit approval.
+17. Money columns: `Decimal @db.Decimal(18, 4)`. Dates: `@db.Date`, normalized with
+    `startOfUtcDay`.
+18. Enforce business invariants with unique indexes where possible (idempotency keys,
+    company-scoped codes, document numbers).
+
+## 6. Security and audit
+
+19. All authorization is enforced by backend services. The React layer is display
+    only and is never the security boundary.
+20. Reuse the existing authentication and permission model — no second auth path.
+21. Audit every configuration change, mapping change, period state change, journal
+    posting, and journal reversal (`FicoAuditService`; the trail is append-only).
+
+## 7. Quality and reporting
+
+22. Write tests for implemented business rules (jest, `backend/src/**/*.spec.ts`;
+    real-Postgres concurrency via `*.pg-spec.ts` and `npm run test:pg`).
+23. Document changes and unresolved issues (`docs/FICO_PHASE1_ARCHITECTURE.md`).
+24. Avoid modifying unrelated ERP modules.
+25. Never claim functionality is complete without verification — run the commands and
+    report the real output.
+26. Report per agent: component name, implementation status, files created, files
+    modified, database changes, API changes, frontend changes, tests executed, test
+    results, integration dependencies, known issues.

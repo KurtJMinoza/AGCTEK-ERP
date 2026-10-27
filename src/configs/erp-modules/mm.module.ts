@@ -59,6 +59,12 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'barChart',
             ),
             mmPage(
+                'foundation-setup',
+                'MM Foundation (ISO 9001)',
+                'Readiness checklist for material, supplier, warehouse, and valuation master data.',
+                'clipboard',
+            ),
+            mmPage(
                 'exception-center',
                 'Exception Center',
                 'Centralized read-only MM operational exceptions across all domains.',
@@ -444,6 +450,16 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'Bin Capacity',
                         icon: 'calculator',
                     },
+                    {
+                        code: 'putaway-rules',
+                        title: 'Putaway Rules',
+                        icon: 'settings',
+                    },
+                    {
+                        code: 'picking-rules',
+                        title: 'Picking Rules',
+                        icon: 'settings',
+                    },
                     { code: 'picking', title: 'Picking', icon: 'clipboard' },
                     { code: 'packing', title: 'Packing', icon: 'package' },
                     {
@@ -486,6 +502,16 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'Inventory Control',
                 [
                     {
+                        code: 'inventory-control-dashboard',
+                        title: 'Dashboard',
+                        icon: 'barChart',
+                    },
+                    {
+                        code: 'count-configuration',
+                        title: 'Count Configuration',
+                        icon: 'settings',
+                    },
+                    {
                         code: 'count-planning',
                         title: 'Count Planning',
                         icon: 'clipboard',
@@ -520,6 +546,11 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'adjustment-approval',
                         title: 'Adjustment Approval',
                         icon: 'fileText',
+                    },
+                    {
+                        code: 'posted-adjustments',
+                        title: 'Posted Adjustments',
+                        icon: 'fileSpreadsheet',
                     },
                     {
                         code: 'count-history',
@@ -654,6 +685,16 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'Barcode / RFID Operations',
                 [
                     {
+                        code: 'barcode-registry',
+                        title: 'Barcode Registry',
+                        icon: 'clipboard',
+                    },
+                    {
+                        code: 'rfid-tags',
+                        title: 'RFID Tags',
+                        icon: 'layers',
+                    },
+                    {
                         code: 'barcode-scanning',
                         title: 'Barcode Scanning',
                         icon: 'fileText',
@@ -674,14 +715,53 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         icon: 'truck',
                     },
                     {
+                        code: 'mobile-putaway',
+                        title: 'Mobile Putaway',
+                        icon: 'boxes',
+                    },
+                    {
                         code: 'mobile-picking',
                         title: 'Mobile Picking',
                         icon: 'clipboard',
                     },
                     {
+                        code: 'mobile-packing',
+                        title: 'Mobile Packing',
+                        icon: 'boxes',
+                    },
+                    {
+                        code: 'warehouse-devices',
+                        title: 'Warehouse Devices',
+                        icon: 'settings',
+                    },
+                    {
                         code: 'mobile-counting',
                         title: 'Mobile Counting',
                         icon: 'calculator',
+                    },
+                ],
+            ),
+            mmHub(
+                'supporting-operations',
+                'Supporting Operations',
+                'Controlled documents, audit trail, and compliance monitoring.',
+                'clipboard',
+                'Supporting Operations',
+                [
+                    {
+                        code: 'document-management',
+                        title: 'Document Management',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'audit-trail',
+                        title: 'Audit Trail',
+                        icon: 'search',
+                    },
+                    {
+                        code: 'compliance-dashboard',
+                        title: 'Compliance Dashboard',
+                        icon: 'barChart',
                     },
                 ],
             ),

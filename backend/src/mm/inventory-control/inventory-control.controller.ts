@@ -20,6 +20,9 @@ import { CountEntryService } from './count-entry.service'
 import { CountRecountService } from './count-recount.service'
 import { CountAdjustmentRequestService } from './count-adjustment-request.service'
 import { CountVarianceService } from './count-variance.service'
+import { CountConfigurationService } from './count-configuration.service'
+import { InventoryCountDashboardService } from './inventory-count-dashboard.service'
+import { MovementControlService } from './movement-control.service'
 import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { mmFeatures } from '../../permissions/permissions.constants'
 import {
@@ -51,6 +54,9 @@ import {
     ApproveAdjustmentRequestDto,
     RejectAdjustmentRequestDto,
     AdjustmentRequestQueryDto,
+    CountVarianceQueryDto,
+    InvestigateVarianceDto,
+    SubmitVarianceReportDto,
 } from './dto/count-engine.dto'
 
 /** Read access: the pages that load these endpoints. */
@@ -70,7 +76,43 @@ export class InventoryControlController {
         private recounts: CountRecountService,
         private adjustmentRequests: CountAdjustmentRequestService,
         private variances: CountVarianceService,
+        private countConfiguration: CountConfigurationService,
+        private dashboard: InventoryCountDashboardService,
+        private movementControl: MovementControlService,
     ) {}
+
+    @Get('count-configuration')
+    @MmRead(READERS)
+    getCountConfiguration(@Query('companyId') companyId: string) {
+        return this.countConfiguration.getForCompany(companyId)
+    }
+
+    @MmMutation(mmFeatures('inventory-control', 'count-configuration'))
+    @Post('count-configuration')
+    upsertCountConfiguration(
+        @Body() body: { companyId: string } & Record<string, unknown>,
+    ) {
+        const { companyId, ...rest } = body
+        return this.countConfiguration.upsert(companyId, rest as any)
+    }
+
+    @Get('dashboard')
+    @MmRead(READERS)
+    dashboardMetrics(
+        @Query('companyId') companyId: string,
+        @Query('warehouseId') warehouseId?: string,
+    ) {
+        return this.dashboard.metrics(companyId, warehouseId)
+    }
+
+    @Get('movement-freezes')
+    @MmRead(READERS)
+    listMovementFreezes(
+        @Query('companyId') companyId: string,
+        @Query('warehouseId') warehouseId?: string,
+    ) {
+        return this.movementControl.listActiveFreezes(companyId, warehouseId)
+    }
 
     // ── Phase 7: Count policies ────────────────────────────────────
 
@@ -217,15 +259,54 @@ export class InventoryControlController {
     }
 
     @MmMutation(mmFeatures('inventory-control', 'adjustment-approval'))
+    @Post('adjustment-requests/:id/approve-finance')
+    approveFinanceAdjRequest(
+        @Param('id') id: string,
+        @Body() dto: ApproveAdjustmentRequestDto,
+    ) {
+        return this.adjustmentRequests.approveFinance(id, dto ?? {})
+    }
+
+    @MmMutation(mmFeatures('inventory-control', 'adjustment-approval'))
     @Post('adjustment-requests/:id/reject')
     rejectAdjRequest(@Param('id') id: string, @Body() dto: RejectAdjustmentRequestDto) {
         return this.adjustmentRequests.reject(id, dto ?? {})
+    }
+
+    @Get('variances')
+    @MmRead(READERS)
+    listAllVariances(@Query() query: CountVarianceQueryDto) {
+        return this.variances.findAll(query)
     }
 
     @Get('count-sessions/:id/variances')
     @MmRead(READERS)
     listVariances(@Param('id') id: string) {
         return this.variances.listBySession(id)
+    }
+
+    @MmMutation(mmFeatures('inventory-control', 'variance-analysis'))
+    @Patch('variances/:id/investigation')
+    investigateVariance(
+        @Param('id') id: string,
+        @Body() dto: InvestigateVarianceDto,
+    ) {
+        return this.variances.investigate(id, dto)
+    }
+
+    @MmMutation(mmFeatures('inventory-control', 'variance-analysis'))
+    @Post('count-sessions/:id/submit-variance-report')
+    submitVarianceReport(
+        @Param('id') id: string,
+        @Body() dto: SubmitVarianceReportDto,
+    ) {
+        return this.variances.submitSessionReport(id, dto ?? {})
+    }
+
+    @MmMutation(mmFeatures('inventory-control', 'adjustment-approval'))
+    @Post('adjustment-requests/:id/post')
+    postAdjRequest(@Param('id') id: string, @Body() dto: ApproveAdjustmentRequestDto) {
+        return this.adjustmentRequests.post(id, dto ?? {})
     }
 
     // ── Legacy: Count rules ────────────────────────────────────────

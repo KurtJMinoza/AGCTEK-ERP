@@ -115,12 +115,20 @@ export class BarcodeResolveService {
         }
 
         const matBc = await this.prisma.mmBarcode.findFirst({
-            where: { barcodeValue: value, deletedAt: null },
+            where: {
+                barcodeValue: value,
+                deletedAt: null,
+                status: 'ACTIVE',
+                archivedAt: null,
+                ...(companyId ? { companyId } : {}),
+            },
             include: { material: { select: MAT_SELECT } },
         })
         if (matBc) {
             return {
                 type: 'MATERIAL_BARCODE',
+                entityType: 'MATERIAL',
+                entityId: matBc.materialId,
                 barcode: value,
                 materialId: matBc.materialId,
                 material: matBc.material,

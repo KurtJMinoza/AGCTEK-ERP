@@ -16,6 +16,7 @@ import { Type, Transform } from 'class-transformer'
 
 const OPERATIONS = [
     'RECEIVING',
+    'PUTAWAY',
     'PICKING',
     'PACKING',
     'COUNTING',
@@ -121,6 +122,11 @@ export class ScannerEventDto {
     @IsOptional()
     @IsString()
     uomId?: string
+
+    @Transform(({ obj }) => pickAlias(obj, 'scanSessionId', 'scan_session_id'))
+    @IsOptional()
+    @IsString()
+    scanSessionId?: string
 }
 
 export class ScannerEventBatchDto {

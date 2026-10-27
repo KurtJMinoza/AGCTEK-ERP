@@ -112,6 +112,10 @@ export class CreateMaterialDto {
 
     @IsOptional()
     @IsBoolean()
+    negativeStockAllowed?: boolean
+
+    @IsOptional()
+    @IsBoolean()
     inventoryManaged?: boolean
 
     @IsOptional()

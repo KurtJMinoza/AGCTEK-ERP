@@ -14,6 +14,7 @@ import {
     UpdateDisposalDto,
     DisposalQueryDto,
     ActionDto,
+    ExecuteDisposalDto,
 } from './dto/returns-disposal.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 
@@ -198,6 +199,43 @@ export class DisposalService {
         return updated
     }
 
+    /**
+     * Physical disposal / scrap execution with witness evidence.
+     * Approval alone must not reduce inventory — posting happens only after execute.
+     */
+    async execute(id: string, dto?: ExecuteDisposalDto) {
+        const doc = await this.findOneOrFail(id)
+        if (doc.status !== 'APPROVED') {
+            throw new BadRequestException(`Cannot execute: status is ${doc.status}`)
+        }
+        if (!dto?.witnessName?.trim()) {
+            throw new BadRequestException('Witness name is required for disposal execution')
+        }
+        if (!dto?.disposalMethod?.trim()) {
+            throw new BadRequestException('Disposal method is required')
+        }
+
+        const updated = await this.prisma.mmDisposal.update({
+            where: { id },
+            data: {
+                status: 'EXECUTED',
+                executedAt: new Date(),
+                executedBy: dto?.performedBy ?? null,
+                witnessName: dto.witnessName.trim(),
+                disposalMethod: dto.disposalMethod.trim(),
+                wasteManifestRef: dto.wasteManifestRef?.trim() ?? null,
+                executionNotes: dto.executionNotes?.trim() ?? null,
+            },
+            include: DETAIL_INCLUDE,
+        })
+
+        await this.audit(id, 'EXECUTED', 'status', 'APPROVED', 'EXECUTED', dto?.performedBy, {
+            witnessName: dto.witnessName,
+            disposalMethod: dto.disposalMethod,
+        })
+        return updated
+    }
+
     async reject(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'PENDING_APPROVAL') {
@@ -222,15 +260,20 @@ export class DisposalService {
 
     async post(id: string, dto?: ActionDto) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'APPROVED') {
+        if (doc.status !== 'EXECUTED') {
             if (['POSTED', 'CLOSED'].includes(doc.status)) {
                 throw new BadRequestException('Duplicate disposal posting blocked')
+            }
+            if (doc.status === 'APPROVED') {
+                throw new BadRequestException(
+                    'Record physical disposal execution with witness evidence before posting',
+                )
             }
             throw new BadRequestException(`Cannot post: status is ${doc.status}`)
         }
 
         const claimed = await this.prisma.mmDisposal.updateMany({
-            where: { id, status: 'APPROVED' },
+            where: { id, status: 'EXECUTED' },
             data: {
                 status: 'POSTED',
                 postedBy: dto?.performedBy ?? null,
@@ -340,7 +383,7 @@ export class DisposalService {
             include: DETAIL_INCLUDE,
         })
 
-        await this.audit(id, 'POSTED', 'status', 'APPROVED', 'CLOSED', dto?.performedBy)
+        await this.audit(id, 'POSTED', 'status', 'EXECUTED', 'CLOSED', dto?.performedBy)
         return updated
     }
 

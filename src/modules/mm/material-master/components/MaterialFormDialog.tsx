@@ -72,6 +72,7 @@ const baseMaterialSchema = z
         qualityInspectionRequired: z.boolean(),
         expiryManaged: z.boolean(),
         inventoryManaged: z.boolean(),
+        negativeStockAllowed: z.boolean(),
         purchasable: z.boolean(),
         sellable: z.boolean(),
         onHandQty: z.number().min(0),
@@ -153,6 +154,7 @@ const blankValues: FormShape = {
     qualityInspectionRequired: false,
     expiryManaged: false,
     inventoryManaged: true,
+    negativeStockAllowed: false,
     purchasable: true,
     sellable: true,
     onHandQty: 0,
@@ -202,6 +204,7 @@ function toFormValues(material?: Material | null): FormShape {
         qualityInspectionRequired: material.qualityInspectionRequired,
         expiryManaged: material.expiryManaged,
         inventoryManaged: material.inventoryManaged,
+        negativeStockAllowed: material.negativeStockAllowed ?? false,
         purchasable: material.purchasable,
         sellable: material.sellable,
         // On-hand / reserved are owned by the MM inventory ledger, never typed
@@ -236,7 +239,7 @@ const TABS: TabDef[] = [
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
     { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'storageBinId', 'maximumStock', 'safetyStock'] },
-    { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
+    { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'negativeStockAllowed', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
 ]
 
 const FORM_ID = 'material-master-form'
@@ -840,6 +843,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             qualityInspectionRequired: values.qualityInspectionRequired,
             expiryManaged: values.expiryManaged,
             inventoryManaged: values.inventoryManaged,
+            negativeStockAllowed: values.negativeStockAllowed,
             purchasable: values.purchasable,
             sellable: values.sellable,
             onHandQty: values.onHandQty,
@@ -1281,6 +1285,22 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                             </FormItem>
                             <FormItem label="Standard cost">
                                 <Controller name="standardCost" control={control} render={({ field }) => <NumericInput placeholder="0.00" thousandSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
+                            </FormItem>
+                            <FormItem label="Negative stock allowed (ISO 9001)">
+                                <Controller
+                                    name="negativeStockAllowed"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <Switcher
+                                                checked={field.value}
+                                                onChange={field.onChange}
+                                            />
+                                            Allow issues below zero on-hand (Finance
+                                            Controller approval required)
+                                        </label>
+                                    )}
+                                />
                             </FormItem>
                             <FormItem label="Valuation class">
                                 <Controller name="valuationClassId" control={control} render={({ field }) => (

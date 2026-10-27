@@ -11,7 +11,7 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { MM_DOMAIN_EVENTS } from '../common/mm-domain-events.types'
 import { SupplierReturnService } from '../returns-disposal/supplier-return.service'
-import { UsageDecisionDto } from './dto/receiving.dto'
+import { PartialUsageDecisionDto, UsageDecisionDto } from './dto/receiving.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { postingKey } from '../common/idempotency.util'
 import { DECISION_STOCK_TARGETS } from '../quality/quality.constants'
@@ -31,6 +31,61 @@ export class QualityDecisionService {
         private nonconformance: NonconformanceService,
         private qualityWorkflow: QualityWorkflowService,
     ) {}
+
+    async applyPartialPass(
+        lot: Parameters<QualityDecisionService['applyDecision']>[0],
+        dto: PartialUsageDecisionDto,
+    ) {
+        const accepted = Number(dto.acceptedQuantity)
+        const rejected = Number(dto.rejectedQuantity)
+        const rework = Number(dto.reworkQuantity ?? 0)
+        const total = accepted + rejected + rework
+        const lotQty = Number(lot.quantity)
+        const already = Number(lot.decidedQuantity ?? 0)
+        if (total <= 0) {
+            throw new BadRequestException('Partial pass requires positive quantities')
+        }
+        if (already + total > lotQty) {
+            throw new BadRequestException(
+                'Accepted + rejected + rework exceeds remaining inspection quantity',
+            )
+        }
+        const baseKey = dto.idempotencyKey ?? `partial-${Date.now()}`
+        let last: Awaited<ReturnType<QualityDecisionService['applyDecision']>> | null = null
+        if (accepted > 0) {
+            last = await this.applyDecision(lot, {
+                decisionCode: 'ACCEPT',
+                quantity: accepted,
+                reason: dto.reason,
+                decidedBy: dto.decidedBy,
+                notes: dto.notes,
+                idempotencyKey: `${baseKey}-accept`,
+            })
+            lot = { ...lot, decidedQuantity: already + accepted }
+        }
+        if (rejected > 0) {
+            last = await this.applyDecision(lot, {
+                decisionCode: 'BLOCK',
+                quantity: rejected,
+                reason: dto.reason ?? 'Partial pass rejection',
+                decidedBy: dto.decidedBy,
+                notes: dto.notes,
+                idempotencyKey: `${baseKey}-reject`,
+            })
+            lot = { ...lot, decidedQuantity: already + accepted + rejected }
+        }
+        if (rework > 0) {
+            last = await this.applyDecision(lot, {
+                decisionCode: 'REWORK',
+                quantity: rework,
+                reason: dto.reason ?? 'Partial pass rework',
+                decidedBy: dto.decidedBy,
+                notes: dto.notes,
+                idempotencyKey: `${baseKey}-rework`,
+            })
+        }
+        return last
+    }
 
     async applyDecision(
         lot: {

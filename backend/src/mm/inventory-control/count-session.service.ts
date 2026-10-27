@@ -11,6 +11,7 @@ import {
     CountSessionQueryDto,
 } from './dto/count-engine.dto'
 import { CountPlanService } from './count-plan.service'
+import { CountConfigurationService } from './count-configuration.service'
 
 @Injectable()
 export class CountSessionService {
@@ -18,6 +19,7 @@ export class CountSessionService {
         private prisma: PrismaService,
         @Inject(forwardRef(() => CountPlanService))
         private plans: CountPlanService,
+        private countConfig: CountConfigurationService,
     ) {}
 
     async findAll(query: CountSessionQueryDto) {
@@ -110,9 +112,20 @@ export class CountSessionService {
         if (!session.tasks.length) {
             throw new BadRequestException('Generate tasks before starting')
         }
+        const config = await this.countConfig.getForCompany(session.companyId)
+        const now = new Date()
         const claimed = await this.prisma.mmCountSession.updateMany({
             where: { id, status: 'OPEN' },
-            data: { status: 'IN_PROGRESS', startedAt: new Date() },
+            data: {
+                status: 'IN_PROGRESS',
+                startedAt: now,
+                inventorySnapshotAt: now,
+                movementControlMode: config.movementControlPolicy ?? 'SOFT',
+                blindMode:
+                    session.blindMode ||
+                    config.blindCountingEnabled ||
+                    session.countType === 'BLIND_COUNT',
+            },
         })
         if (claimed.count === 0) {
             throw new BadRequestException('Concurrent start failed')

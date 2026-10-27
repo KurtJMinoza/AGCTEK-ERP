@@ -18,6 +18,12 @@ export const goodsReceiptService = {
     create: (data: CreateGoodsReceiptPayload) =>
         ErpAxiosBase.post<GoodsReceipt>(BASE, data).then((r) => r.data),
 
+    submit: (id: string, data: { submittedBy: string }) =>
+        ErpAxiosBase.post<GoodsReceipt>(`${BASE}/${id}/submit`, data).then((r) => r.data),
+
+    verify: (id: string, data: { verifiedBy: string; verificationNotes?: string }) =>
+        ErpAxiosBase.post<GoodsReceipt>(`${BASE}/${id}/verify`, data).then((r) => r.data),
+
     post: (id: string) =>
         ErpAxiosBase.post<GoodsReceipt>(`${BASE}/${id}/post`).then((r) => r.data),
 

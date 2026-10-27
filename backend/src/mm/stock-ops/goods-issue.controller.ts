@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common'
 import { GoodsIssueService } from './goods-issue.service'
 import { CreateGoodsIssueDto } from './dto/create-goods-issue.dto'
+import { VerifyGoodsIssueSupervisorDto } from './dto/verify-goods-issue.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import {
     IsString,
@@ -59,6 +60,15 @@ export class GoodsIssueController {
         @Body() dto: CreateGiFromPackageDto,
     ) {
         return this.service.createFromPackage(packageId, dto)
+    }
+
+    @MmMutation(mmFeatures('inventory-management', 'goods-issue'))
+    @Post(':id/verify-supervisor')
+    verifySupervisor(
+        @Param('id') id: string,
+        @Body() dto: VerifyGoodsIssueSupervisorDto,
+    ) {
+        return this.service.verifySupervisor(id, dto)
     }
 
     @MmMutation(mmFeatures('inventory-management', 'goods-issue'))

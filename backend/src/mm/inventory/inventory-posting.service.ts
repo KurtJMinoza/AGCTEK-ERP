@@ -21,6 +21,7 @@ import {
 import { reversalKey } from '../common/idempotency.util'
 import { MmScopeService } from '../common/mm-scope.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MovementControlService } from '../inventory-control/movement-control.service'
 
 const ALLOWED_STOCK_STATUSES = new Set<string>(MM_STOCK_STATUSES)
 
@@ -47,6 +48,7 @@ export class InventoryPostingService {
         private uomConversions: UomConversionsService,
         private scope: MmScopeService,
         private domainEvents: MmDomainEventsService,
+        private movementControl: MovementControlService,
     ) {}
 
     async postTransaction(dto: PostTransactionDto) {
@@ -465,6 +467,14 @@ export class InventoryPostingService {
             materialId: dto.materialId,
             storageBinId: effectiveBinId,
             plantId: dto.plantId ?? warehouse.plantId,
+        })
+        await this.movementControl.assertMovementAllowed({
+            companyId: dto.companyId,
+            warehouseId: dto.warehouseId,
+            materialId: dto.materialId,
+            storageBinId: effectiveBinId,
+            movementType: dto.movementType,
+            sourceDocumentType: dto.sourceDocumentType ?? null,
         })
         if (effectiveBinId) await this.validateBin(effectiveBinId, dto.warehouseId)
         if (dto.sourceBinId) await this.validateBin(dto.sourceBinId, dto.warehouseId)

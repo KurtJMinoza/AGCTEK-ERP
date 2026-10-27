@@ -18,6 +18,7 @@ import {
     UpdateDisposalDto,
     DisposalQueryDto,
     ActionDto,
+    ExecuteDisposalDto,
     CreateFromBalancesDto,
 } from './dto/returns-disposal.dto'
 
@@ -78,6 +79,12 @@ export class DisposalsController {
     @Post(':id/reject')
     reject(@Param('id') id: string, @Body() dto: ActionDto) {
         return this.disposalService.reject(id, dto)
+    }
+
+    @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))
+    @Post(':id/execute')
+    execute(@Param('id') id: string, @Body() dto: ExecuteDisposalDto) {
+        return this.disposalService.execute(id, dto)
     }
 
     @MmMutation(mmFeatures('returns-disposal', 'disposal', 'scrap'))

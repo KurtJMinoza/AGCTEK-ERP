@@ -39,6 +39,7 @@ import { goodsReceiptService } from '../services/goodsReceiptService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsReceipt, StockOpsQueryParams } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001ReceivingWorkflowStrip from '@/modules/mm/shared/components/Iso9001ReceivingWorkflowStrip'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import { DocStatusBadge, StockStatusTag } from '../utils/inventoryUi'
@@ -52,6 +53,8 @@ type FilterOption = { value: string; label: string }
 const STATUS_FILTER_OPTIONS: FilterOption[] = [
     { value: '', label: 'All statuses' },
     { value: 'DRAFT', label: 'Draft' },
+    { value: 'SUBMITTED', label: 'Submitted' },
+    { value: 'VERIFIED', label: 'Verified' },
     { value: 'POSTED', label: 'Posted' },
     { value: 'CANCELLED', label: 'Cancelled' },
     { value: 'REVERSED', label: 'Reversed' },
@@ -259,16 +262,25 @@ const GoodsReceiptPage = () => {
     }, [detail])
 
     const handleAction = useCallback(
-        async (action: 'post' | 'cancel' | 'reverse') => {
+        async (action: 'submit' | 'verify' | 'post' | 'cancel' | 'reverse') => {
             if (!detail) return
+            const actor = workflowActor.trim()
+            if (['submit', 'verify'].includes(action) && !actor) {
+                pushToast('danger', 'Required', 'Enter clerk / supervisor name first.')
+                return
+            }
             try {
-                const fn =
-                    action === 'post'
-                        ? goodsReceiptService.post
-                        : action === 'cancel'
-                          ? goodsReceiptService.cancel
-                          : goodsReceiptService.reverse
-                await fn(detail.id)
+                if (action === 'submit') {
+                    await goodsReceiptService.submit(detail.id, { submittedBy: actor })
+                } else if (action === 'verify') {
+                    await goodsReceiptService.verify(detail.id, { verifiedBy: actor })
+                } else if (action === 'post') {
+                    await goodsReceiptService.post(detail.id)
+                } else if (action === 'cancel') {
+                    await goodsReceiptService.cancel(detail.id)
+                } else {
+                    await goodsReceiptService.reverse(detail.id)
+                }
                 pushToast(
                     'success',
                     action.charAt(0).toUpperCase() + action.slice(1),
@@ -284,7 +296,7 @@ const GoodsReceiptPage = () => {
                 )
             }
         },
-        [detail, refreshDetail, fetchList],
+        [detail, refreshDetail, fetchList, workflowActor],
     )
 
     /* ── Confirm dialog ── */
@@ -292,6 +304,7 @@ const GoodsReceiptPage = () => {
         action: string
         fn: () => void
     } | null>(null)
+    const [workflowActor, setWorkflowActor] = useState('')
 
     const detailLineColumns = useMemo<ColumnDef<GoodsReceipt['lines'][number]>[]>(
         () => [
@@ -399,7 +412,7 @@ const GoodsReceiptPage = () => {
                                 >
                                     <HiOutlinePrinter className="mr-2" /> Print receipt
                                 </Dropdown.Item>
-                                {row.original.status === 'DRAFT' && (
+                                {row.original.status === 'VERIFIED' && (
                                     <Dropdown.Item
                                         eventKey="post"
                                         onClick={() =>
@@ -521,6 +534,7 @@ const GoodsReceiptPage = () => {
                     </Button>
                 }
             />
+            <Iso9001ReceivingWorkflowStrip activeStep={1} />
 
             <FilterBar
                 className="mb-4"
@@ -715,7 +729,29 @@ const GoodsReceiptPage = () => {
                     detail ? (
                         <>
                             <div className="flex flex-wrap items-center gap-2">
+                                {['DRAFT', 'SUBMITTED', 'VERIFIED'].includes(detail.status) && (
+                                    <Input
+                                        className="max-w-[180px]"
+                                        placeholder="Your name (ISO audit)"
+                                        value={workflowActor}
+                                        onChange={(e: any) => setWorkflowActor(e.target.value)}
+                                    />
+                                )}
                                 {detail.status === 'DRAFT' && (
+                                    <Button size="sm" onClick={() => handleAction('submit')}>
+                                        Submit
+                                    </Button>
+                                )}
+                                {detail.status === 'SUBMITTED' && (
+                                    <Button
+                                        variant="solid"
+                                        size="sm"
+                                        onClick={() => handleAction('verify')}
+                                    >
+                                        Verify
+                                    </Button>
+                                )}
+                                {detail.status === 'VERIFIED' && (
                                     <Button
                                         variant="solid"
                                         size="sm"
@@ -724,7 +760,7 @@ const GoodsReceiptPage = () => {
                                         Post
                                     </Button>
                                 )}
-                                {detail.status === 'DRAFT' && (
+                                {['DRAFT', 'SUBMITTED'].includes(detail.status) && (
                                     <Button size="sm" onClick={() => handleAction('cancel')}>
                                         Cancel
                                     </Button>

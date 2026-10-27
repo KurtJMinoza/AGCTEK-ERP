@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { GoodsReceiptService } from './goods-receipt.service'
+import { GoodsReceiptGrIsoService } from './goods-receipt-gr-iso.service'
 import { GoodsIssueService } from './goods-issue.service'
 import { BinTransferService } from './bin-transfer.service'
 import { WarehouseTransferOrderService } from './warehouse-transfer-order.service'
@@ -269,6 +270,13 @@ beforeEach(async () => {
                     assertCanPost: jest.fn().mockResolvedValue(undefined),
                 },
             },
+            {
+                provide: GoodsReceiptGrIsoService,
+                useValue: {
+                    writeAudit: jest.fn(),
+                    syncVariancesAndHoldsFromPostedGr: jest.fn(),
+                },
+            },
         ],
     }).compile()
 
@@ -282,9 +290,16 @@ beforeEach(async () => {
 /* ────────── Goods Receipt ────────── */
 
 describe('GoodsReceiptService', () => {
+    it('post without VERIFIED status is rejected', async () => {
+        const grLine = makeGrLine()
+        const doc = makeDoc({ id: 'gr-draft', status: 'DRAFT', lines: [grLine] })
+        mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
+        await expect(grService.post('gr-draft')).rejects.toThrow('VERIFIED')
+    })
+
     it('create + post: DRAFT -> POSTED, ledger RECEIPT created, balance incremented', async () => {
         const grLine = makeGrLine()
-        const doc = makeDoc({ id: 'gr-1', status: 'DRAFT', lines: [grLine] })
+        const doc = makeDoc({ id: 'gr-1', status: 'VERIFIED', lines: [grLine] })
 
         mockPrisma.mmGoodsReceipt.findFirst.mockResolvedValue(null)
         mockPrisma.mmGoodsReceipt.create.mockResolvedValue(doc)
@@ -308,7 +323,7 @@ describe('GoodsReceiptService', () => {
 
     it('a receipt line without a storage bin lands in the warehouse receiving bin (pickable, not warehouse limbo)', async () => {
         const grLine = makeGrLine({ storageBinId: null })
-        const doc = makeDoc({ id: 'gr-1b', status: 'DRAFT', lines: [grLine] })
+        const doc = makeDoc({ id: 'gr-1b', status: 'VERIFIED', lines: [grLine] })
 
         mockPrisma.mmGoodsReceipt.findFirst.mockResolvedValue(null)
         mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
@@ -340,7 +355,7 @@ describe('GoodsReceiptService', () => {
 
     it('a receipt line carries its scanned storage bin when one is given', async () => {
         const grLine = makeGrLine({ storageBinId: 'bin-scan' })
-        const doc = makeDoc({ id: 'gr-1c', status: 'DRAFT', lines: [grLine] })
+        const doc = makeDoc({ id: 'gr-1c', status: 'VERIFIED', lines: [grLine] })
 
         mockPrisma.mmGoodsReceipt.findFirst.mockResolvedValue(null)
         mockPrisma.mmGoodsReceipt.findUnique.mockResolvedValue(doc)
@@ -428,7 +443,17 @@ describe('GoodsReceiptService', () => {
 describe('GoodsIssueService', () => {
     it('create + post: DRAFT -> POSTED, ledger ISSUE, balance decremented', async () => {
         const giLine = makeGrLine({ issueId: 'gi-1', storageBinId: 'bin-1' })
-        const doc = makeDoc({ id: 'gi-1', status: 'DRAFT', lines: [giLine], reservationId: null, packageId: null, issuePurpose: 'INTERNAL' })
+        const doc = makeDoc({
+            id: 'gi-1',
+            status: 'DRAFT',
+            lines: [giLine],
+            reservationId: null,
+            packageId: null,
+            issuePurpose: 'INTERNAL',
+            supervisorVerifiedAt: new Date(),
+            supervisorVerifiedBy: 'Supervisor',
+            verifiedSourceReference: 'DOC-1',
+        })
 
         mockPrisma.mmGoodsIssue.findFirst.mockResolvedValue(null)
         mockPrisma.mmGoodsIssue.findUnique.mockResolvedValue(doc)
@@ -445,9 +470,32 @@ describe('GoodsIssueService', () => {
         expect(mockDomainEvents.goodsIssuePosted).toHaveBeenCalled()
     })
 
+    it('post without supervisor verification is rejected', async () => {
+        const giLine = makeGrLine({ issueId: 'gi-x', storageBinId: 'bin-1' })
+        const doc = makeDoc({
+            id: 'gi-x',
+            status: 'DRAFT',
+            lines: [giLine],
+            reservationId: null,
+            packageId: null,
+            supervisorVerifiedAt: null,
+        })
+        mockPrisma.mmGoodsIssue.findUnique.mockResolvedValue(doc)
+        await expect(giService.post('gi-x')).rejects.toThrow(
+            'Supervisor verification required',
+        )
+    })
+
     it('GI insufficient stock: rejects when posting service throws', async () => {
         const giLine = makeGrLine({ issueId: 'gi-2', storageBinId: 'bin-1' })
-        const doc = makeDoc({ id: 'gi-2', status: 'DRAFT', lines: [giLine], reservationId: null, packageId: null })
+        const doc = makeDoc({
+            id: 'gi-2',
+            status: 'DRAFT',
+            lines: [giLine],
+            reservationId: null,
+            packageId: null,
+            supervisorVerifiedAt: new Date(),
+        })
 
         mockPrisma.mmGoodsIssue.findUnique.mockResolvedValue(doc)
         mockPrisma.mmMaterial.findUnique.mockResolvedValue({ batchManaged: false, serialManaged: false })
@@ -465,8 +513,10 @@ describe('GoodsIssueService', () => {
             warehouseId: 'wh-1',
             companyId: 'co-1',
             reservationId: 'res-1',
+            packingListNumber: 'PL-20260101-00001',
+            orderNumber: 'SO-100',
             pickingTaskId: null,
-            pickingTask: { sourceBinId: 'bin-1' },
+            pickingTask: { sourceBinId: 'bin-1', status: 'COMPLETED' },
             items: [
                 {
                     materialId: 'mat-1',

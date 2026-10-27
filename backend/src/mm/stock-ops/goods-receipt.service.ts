@@ -18,7 +18,12 @@ import { InspectionLotService } from '../receiving/inspection-lot.service'
 import { InspectionLotLifecycleService } from '../quality/inspection-lot-lifecycle.service'
 import { InspectionRequirementService } from '../receiving/inspection-requirement.service'
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto'
+import {
+    SubmitGoodsReceiptDto,
+    VerifyGoodsReceiptDto,
+} from './dto/goods-receipt-workflow.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
+import { GoodsReceiptGrIsoService } from './goods-receipt-gr-iso.service'
 import { Decimal } from '@prisma/client/runtime/library'
 
 @Injectable()
@@ -35,7 +40,68 @@ export class GoodsReceiptService {
         private lotLifecycle: InspectionLotLifecycleService,
         private inspectionRequirement: InspectionRequirementService,
         private periodGuard: MmPostingPeriodGuard,
+        private grIso: GoodsReceiptGrIsoService,
     ) {}
+
+    async submit(id: string, dto: SubmitGoodsReceiptDto) {
+        const doc = await this.findOneOrFail(id)
+        if (doc.status !== 'DRAFT') {
+            throw new BadRequestException(`Cannot submit: document is ${doc.status}`)
+        }
+        const updated = await this.prisma.mmGoodsReceipt.update({
+            where: { id },
+            data: {
+                status: 'SUBMITTED',
+                submittedAt: new Date(),
+                submittedBy: dto.submittedBy.trim(),
+            },
+            include: { lines: { include: { material: true, uom: true } }, warehouse: true, supplier: true },
+        })
+        await this.grIso.writeAudit(id, 'SUBMIT', dto.submittedBy, doc.companyId, {
+            newValue: { status: 'SUBMITTED' },
+        })
+        return updated
+    }
+
+    async verify(id: string, dto: VerifyGoodsReceiptDto) {
+        const doc = await this.findOneOrFail(id)
+        if (doc.status !== 'SUBMITTED') {
+            throw new BadRequestException(
+                `Cannot verify: document must be SUBMITTED (current: ${doc.status})`,
+            )
+        }
+        for (const line of doc.lines) {
+            const material = line.material ?? (await this.prisma.mmMaterial.findUnique({
+                where: { id: line.materialId },
+            }))
+            if (!material) throw new BadRequestException('Material not found on line')
+            if (material.batchManaged && !line.batchId) {
+                throw new BadRequestException(
+                    `Batch required for material ${material.materialCode ?? line.materialId}`,
+                )
+            }
+            if (material.serialManaged && !line.serialNumberId) {
+                throw new BadRequestException(
+                    `Serial required for material ${material.materialCode ?? line.materialId}`,
+                )
+            }
+        }
+        const updated = await this.prisma.mmGoodsReceipt.update({
+            where: { id },
+            data: {
+                status: 'VERIFIED',
+                verifiedAt: new Date(),
+                verifiedBy: dto.verifiedBy.trim(),
+                verificationNotes: dto.verificationNotes?.trim() ?? null,
+            },
+            include: { lines: { include: { material: true, uom: true } }, warehouse: true, supplier: true },
+        })
+        await this.grIso.writeAudit(id, 'VERIFY', dto.verifiedBy, doc.companyId, {
+            previousValue: { status: 'SUBMITTED' },
+            newValue: { status: 'VERIFIED', notes: dto.verificationNotes ?? null },
+        })
+        return updated
+    }
 
     async create(dto: CreateGoodsReceiptDto) {
         this.assertProductionReceiptContract(dto)
@@ -113,8 +179,10 @@ export class GoodsReceiptService {
         opts?: { productionOrderId?: string; outputId?: string },
     ) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'DRAFT') {
-            throw new BadRequestException(`Cannot post: document is ${doc.status}`)
+        if (doc.status !== 'VERIFIED') {
+            throw new BadRequestException(
+                `Cannot post: goods receipt must be VERIFIED (current: ${doc.status}). Submit and verify receiving first.`,
+            )
         }
 
         if (doc.purchaseOrderId) {
@@ -246,6 +314,33 @@ export class GoodsReceiptService {
         if (qiLines.length) {
             await this.inspectionLotService.createFromGoodsReceipt(doc.id, qiLines)
         }
+
+        await this.grIso.syncVariancesAndHoldsFromPostedGr({
+            id: doc.id,
+            companyId: doc.companyId,
+            warehouseId: doc.warehouseId,
+            supplierId: doc.supplierId,
+            createdBy: doc.createdBy,
+            lines: doc.lines.map((l) => ({
+                id: l.id,
+                materialId: l.materialId,
+                uomId: l.uomId,
+                quantity: l.quantity,
+                expectedQuantity: l.expectedQuantity,
+                shortageQuantity: l.shortageQuantity ?? new Decimal(0),
+                overageQuantity: l.overageQuantity ?? new Decimal(0),
+                damagedQuantity: l.damagedQuantity ?? new Decimal(0),
+                purchaseOrderLineId: l.purchaseOrderLineId,
+                material: {
+                    materialCode: l.material?.materialCode,
+                    batchManaged: l.material?.batchManaged ?? false,
+                    serialManaged: l.material?.serialManaged ?? false,
+                },
+            })),
+        })
+        await this.grIso.writeAudit(id, 'POST', doc.createdBy ?? undefined, doc.companyId, {
+            newValue: { status: 'POSTED' },
+        })
         const productionOrderId =
             opts?.productionOrderId ??
             (doc.sourceDocumentType === 'PRODUCTION_ORDER'
@@ -301,7 +396,7 @@ export class GoodsReceiptService {
 
     async cancel(id: string) {
         const doc = await this.findOneOrFail(id)
-        if (doc.status !== 'DRAFT') {
+        if (!['DRAFT', 'SUBMITTED'].includes(doc.status)) {
             throw new BadRequestException(`Cannot cancel: document is ${doc.status}`)
         }
         return this.prisma.mmGoodsReceipt.update({

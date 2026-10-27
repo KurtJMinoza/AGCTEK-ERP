@@ -175,4 +175,49 @@ export const inventoryControlService = {
             `${BASE}/adjustment-requests/${id}/reject`,
             data ?? {},
         ).then((r) => r.data),
+
+    postAdjustmentRequest: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/adjustment-requests/${id}/post`, data ?? {}).then(
+            (r) => r.data,
+        ),
+
+    listVariances: (params?: Record<string, unknown>) =>
+        ErpAxiosBase.get<{ data: unknown[]; total: number }>(`${BASE}/variances`, {
+            params,
+        }).then((r) => r.data),
+
+    listSessionVariances: (sessionId: string) =>
+        ErpAxiosBase.get<unknown[]>(`${BASE}/count-sessions/${sessionId}/variances`).then(
+            (r) => r.data,
+        ),
+
+    investigateVariance: (id: string, data: Record<string, unknown>) =>
+        ErpAxiosBase.patch(`${BASE}/variances/${id}/investigation`, data).then(
+            (r) => r.data,
+        ),
+
+    submitVarianceReport: (sessionId: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(
+            `${BASE}/count-sessions/${sessionId}/submit-variance-report`,
+            data ?? {},
+        ).then((r) => r.data),
+
+    getDashboard: (companyId: string, warehouseId?: string) =>
+        ErpAxiosBase.get(`${BASE}/dashboard`, {
+            params: { companyId, warehouseId },
+        }).then((r) => r.data),
+
+    getCountConfiguration: (companyId: string) =>
+        ErpAxiosBase.get(`${BASE}/count-configuration`, {
+            params: { companyId },
+        }).then((r) => r.data),
+
+    saveCountConfiguration: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${BASE}/count-configuration`, data).then((r) => r.data),
+
+    approveFinanceAdjustmentRequest: (id: string, data?: Record<string, unknown>) =>
+        ErpAxiosBase.post(
+            `${BASE}/adjustment-requests/${id}/approve-finance`,
+            data ?? {},
+        ).then((r) => r.data),
 }

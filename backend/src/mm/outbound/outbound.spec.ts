@@ -480,6 +480,10 @@ describe('MM-10 Outbound', () => {
                 documentDate: new Date(),
                 issuePurpose: 'SALES',
                 createdBy: null,
+                supervisorVerifiedAt: new Date(),
+                supervisorVerifiedBy: 'Supervisor',
+                verifiedSourceReference: 'SO-1',
+                packageId: null,
                 lines: [
                     {
                         id: 'gil-1',

@@ -17,6 +17,7 @@ import { adjustmentService } from '../../inventory/services/adjustmentService'
 import type { InventoryCount, CountAdjustmentRequest } from '../types'
 import type { InventoryAdjustment } from '../../inventory/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/adjustment-approval'
 type ApprovalTab = 'counts' | 'requests' | 'adjustments'
@@ -235,62 +236,125 @@ const AdjustmentApprovalPage = () => {
                 id: 'req-act',
                 cell: ({ row }) => {
                     const req = row.original
+                    const pending = req.status === 'PENDING_APPROVAL' || req.status === 'DRAFT'
+                    const pendingFinance = req.status === 'PENDING_FINANCE_APPROVAL'
+                    const approved = req.status === 'APPROVED'
                     return (
-                        <div className="flex gap-1">
-                            <Button
-                                size="xs"
-                                variant="solid"
-                                onClick={async () => {
-                                    try {
-                                        await inventoryControlService.approveAdjustmentRequest(
-                                            req.id,
-                                            { approvedBy: 'approver' },
-                                        )
-                                        pushToast(
-                                            'success',
-                                            'Posted',
-                                            'COUNT_GAIN/LOSS posted',
-                                        )
-                                        load()
-                                    } catch (e: any) {
-                                        pushToast(
-                                            'danger',
-                                            'Failed',
-                                            e?.response?.data?.message ?? e.message,
-                                        )
-                                    }
-                                }}
-                            >
-                                Approve
-                            </Button>
-                            <Button
-                                size="xs"
-                                onClick={async () => {
-                                    try {
-                                        await inventoryControlService.rejectAdjustmentRequest(
-                                            req.id,
-                                            {
-                                                rejectedBy: 'approver',
-                                                rejectionReason: 'Rejected',
-                                            },
-                                        )
-                                        pushToast(
-                                            'success',
-                                            'Rejected',
-                                            'No ledger change',
-                                        )
-                                        load()
-                                    } catch (e: any) {
-                                        pushToast(
-                                            'danger',
-                                            'Failed',
-                                            e?.response?.data?.message ?? e.message,
-                                        )
-                                    }
-                                }}
-                            >
-                                Reject
-                            </Button>
+                        <div className="flex flex-wrap gap-1">
+                            {pendingFinance ? (
+                                <Button
+                                    size="xs"
+                                    variant="solid"
+                                    onClick={async () => {
+                                        try {
+                                            await inventoryControlService.approveFinanceAdjustmentRequest(
+                                                req.id,
+                                                { approvedBy: 'finance-controller' },
+                                            )
+                                            pushToast(
+                                                'success',
+                                                'Finance approved',
+                                                'Ready for inventory posting',
+                                            )
+                                            load()
+                                        } catch (e: any) {
+                                            pushToast(
+                                                'danger',
+                                                'Failed',
+                                                e?.response?.data?.message ?? e.message,
+                                            )
+                                        }
+                                    }}
+                                >
+                                    Finance approve
+                                </Button>
+                            ) : null}
+                            {pending ? (
+                                <>
+                                    <Button
+                                        size="xs"
+                                        variant="solid"
+                                        onClick={async () => {
+                                            try {
+                                                await inventoryControlService.approveAdjustmentRequest(
+                                                    req.id,
+                                                    { approvedBy: 'finance-controller' },
+                                                )
+                                                pushToast(
+                                                    'success',
+                                                    'Approved',
+                                                    'Management approval recorded (no ledger change yet)',
+                                                )
+                                                load()
+                                            } catch (e: any) {
+                                                pushToast(
+                                                    'danger',
+                                                    'Failed',
+                                                    e?.response?.data?.message ?? e.message,
+                                                )
+                                            }
+                                        }}
+                                    >
+                                        Approve
+                                    </Button>
+                                    <Button
+                                        size="xs"
+                                        onClick={async () => {
+                                            try {
+                                                await inventoryControlService.rejectAdjustmentRequest(
+                                                    req.id,
+                                                    {
+                                                        rejectedBy: 'finance-controller',
+                                                        rejectionReason: 'Rejected',
+                                                    },
+                                                )
+                                                pushToast(
+                                                    'success',
+                                                    'Rejected',
+                                                    'No ledger change',
+                                                )
+                                                load()
+                                            } catch (e: any) {
+                                                pushToast(
+                                                    'danger',
+                                                    'Failed',
+                                                    e?.response?.data?.message ?? e.message,
+                                                )
+                                            }
+                                        }}
+                                    >
+                                        Reject
+                                    </Button>
+                                </>
+                            ) : null}
+                            {approved ? (
+                                <Button
+                                    size="xs"
+                                    variant="solid"
+                                    onClick={async () => {
+                                        try {
+                                            await inventoryControlService.postAdjustmentRequest(
+                                                req.id,
+                                                { approvedBy: 'warehouse-manager' },
+                                            )
+                                            pushToast(
+                                                'success',
+                                                'Posted',
+                                                'COUNT_GAIN/LOSS posted to inventory ledger',
+                                            )
+                                            load()
+                                        } catch (e: any) {
+                                            pushToast(
+                                                'danger',
+                                                'Failed',
+                                                e?.response?.data?.message ?? e.message,
+                                            )
+                                        }
+                                    }}
+                                >
+                                    Post to ledger
+                                </Button>
+                            ) : null}
                         </div>
                     )
                 },
@@ -304,9 +368,10 @@ const AdjustmentApprovalPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Adjustment Approval"
-                description="Approve or reject count sessions and count-sourced inventory adjustments."
+                description="ISO 9001 step 4: management approval before posting count variances to the inventory ledger."
                 actions={<Button onClick={load}>Refresh</Button>}
             />
+            <Iso9001WorkflowStrip activeStep={4} />
 
             <AdaptiveCard>
                 <Tabs

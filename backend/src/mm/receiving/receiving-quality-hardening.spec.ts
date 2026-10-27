@@ -77,6 +77,8 @@ const mockPrisma: any = {
 
 const mockGrService: any = {
     create: jest.fn(),
+    submit: jest.fn().mockResolvedValue({ status: 'SUBMITTED' }),
+    verify: jest.fn().mockResolvedValue({ status: 'VERIFIED' }),
     post: jest.fn(),
 }
 
@@ -389,6 +391,8 @@ describe('Receiving + Quality hardening (Phase 3)', () => {
 
             const posted = await svc.post('rcv-1')
             expect(mockGrService.create).toHaveBeenCalled()
+            expect(mockGrService.submit).toHaveBeenCalled()
+            expect(mockGrService.verify).toHaveBeenCalled()
             expect(mockGrService.post).toHaveBeenCalledWith('gr-1')
             expect(posted.goodsReceipt.status).toBe('POSTED')
             expect(mockDomainEvents.emit).toHaveBeenCalledWith(

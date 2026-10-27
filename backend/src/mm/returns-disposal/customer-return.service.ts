@@ -43,12 +43,16 @@ const DETAIL_INCLUDE = {
     },
 }
 
+/** Target stock after disposition (transfers from return inspection stock). */
 const DISPOSITION_STOCK: Record<string, string> = {
     RESTOCK: 'UNRESTRICTED',
     REPAIR: 'QUALITY_INSPECTION',
     BLOCK: 'BLOCKED',
     SCRAP: 'BLOCKED',
 }
+
+/** ISO: returned goods enter inspection stock — never unrestricted at intake. */
+const RETURN_INTAKE_STOCK = 'QUALITY_INSPECTION'
 
 /** SD → MM handoff input (Phase 4): references + expected quantities only, never full SD records. */
 export type CreateCustomerReturnFromSalesReturnInput = {
@@ -300,11 +304,11 @@ export class CustomerReturnService {
         if (doc.status !== 'DRAFT') {
             throw new BadRequestException(`Cannot start intake: status is ${doc.status}`)
         }
-        const updated = await this.prisma.mmCustomerReturn.update({
+        await this.prisma.mmCustomerReturn.update({
             where: { id },
             data: { status: 'INTAKE' },
-            include: DETAIL_INCLUDE,
         })
+        const receiptNumber = await this.generateReturnReceiptNumber()
         await this.prisma.mmCustomerReturnIntake.upsert({
             where: { legacyCustomerReturnId: id },
             create: {
@@ -312,14 +316,19 @@ export class CustomerReturnService {
                 companyId: doc.companyId,
                 warehouseId: doc.warehouseId,
                 receivedBy: actor ?? null,
+                returnReceiptNumber: receiptNumber,
             },
             update: {
                 receivedBy: actor ?? null,
                 receivedAt: new Date(),
+                returnReceiptNumber: receiptNumber,
             },
         })
-        await this.audit(id, 'INTAKE', 'status', 'DRAFT', 'INTAKE', actor)
-        return updated
+        await this.postIntakeToInspectionStock(doc, actor)
+        await this.audit(id, 'INTAKE', 'status', 'DRAFT', 'INTAKE', actor, {
+            returnReceiptNumber: receiptNumber,
+        })
+        return this.findOneOrFail(id)
     }
 
     async startInspection(id: string, actor?: string) {
@@ -327,6 +336,11 @@ export class CustomerReturnService {
         if (doc.status !== 'INTAKE') {
             throw new BadRequestException(
                 `Cannot start inspection: status is ${doc.status}`,
+            )
+        }
+        if (doc.lines.some((l) => !l.intakeTxnId)) {
+            throw new BadRequestException(
+                'Physical intake must post to return inspection stock before quality inspection',
             )
         }
         const updated = await this.prisma.mmCustomerReturn.update({
@@ -601,33 +615,19 @@ export class CustomerReturnService {
                 continue
             }
 
-            const stockStatus = DISPOSITION_STOCK[disposition]
-            if (!stockStatus) {
+            const targetStock = DISPOSITION_STOCK[disposition]
+            if (!targetStock) {
                 throw new BadRequestException(`Unknown disposition ${disposition}`)
             }
 
-            const txn = await this.postingService.postTransaction({
-                companyId: doc.companyId,
-                warehouseId: doc.warehouseId,
-                storageBinId: line.storageBinId ?? undefined,
-                materialId: line.materialId,
-                batchId: line.batchId ?? undefined,
-                serialNumberId: line.serialNumberId ?? undefined,
-                stockStatus,
-                movementType: 'RETURN_IN',
-                quantity: Number(line.quantity),
-                uomId: line.uomId,
-                unitCost: Number(line.unitCost),
-                postingDate: now,
-                documentDate: now,
-                sourceModule: 'RETURNS_DISPOSAL',
-                sourceDocumentType: 'CUSTOMER_RETURN',
-                sourceDocumentId: doc.id,
-                sourceDocumentLineId: line.id,
-                reasonCode: disposition,
-                idempotencyKey: postingKey('cust-ret', doc.id, line.id),
-                createdBy: dto?.performedBy ?? undefined,
-            })
+            const txnId = await this.postDispositionStockMovement(
+                doc,
+                line,
+                targetStock,
+                disposition,
+                now,
+                dto?.performedBy,
+            )
 
             if (disposition === 'SCRAP') {
                 const disposal = await this.disposalService.create({
@@ -651,17 +651,11 @@ export class CustomerReturnService {
                         },
                     ],
                 })
-                const submitted = await this.disposalService.submit(
-                    disposal.id,
-                    dto?.performedBy,
-                )
-                if (submitted.status === 'APPROVED') {
-                    await this.disposalService.post(disposal.id, dto)
-                }
+                await this.disposalService.submit(disposal.id, dto?.performedBy)
                 await this.prisma.mmCustomerReturnLine.update({
                     where: { id: line.id },
                     data: {
-                        inventoryTxnId: txn.id,
+                        inventoryTxnId: txnId,
                         disposalId: disposal.id,
                         dispositionStatus: 'LINKED_DISPOSAL',
                     },
@@ -669,24 +663,24 @@ export class CustomerReturnService {
                 await this.prisma.mmReturnDisposition.updateMany({
                     where: { customerReturnLineId: line.id },
                     data: {
-                        inventoryTxnId: txn.id,
+                        inventoryTxnId: txnId,
                         disposalId: disposal.id,
-                        stockStatus,
+                        stockStatus: targetStock,
                     },
                 })
             } else {
                 await this.prisma.mmCustomerReturnLine.update({
                     where: { id: line.id },
                     data: {
-                        inventoryTxnId: txn.id,
+                        inventoryTxnId: txnId,
                         dispositionStatus: 'POSTED',
                     },
                 })
                 await this.prisma.mmReturnDisposition.updateMany({
                     where: { customerReturnLineId: line.id },
                     data: {
-                        inventoryTxnId: txn.id,
-                        stockStatus,
+                        inventoryTxnId: txnId,
+                        stockStatus: targetStock,
                     },
                 })
             }
@@ -874,6 +868,111 @@ export class CustomerReturnService {
     private async generateDocNumber(prefix: string) {
         const count = await this.prisma.mmCustomerReturn.count()
         return `${prefix}-${String(count + 1).padStart(6, '0')}`
+    }
+
+    private async generateReturnReceiptNumber() {
+        const year = new Date().getFullYear()
+        const count = await this.prisma.mmCustomerReturnIntake.count({
+            where: { returnReceiptNumber: { not: null } },
+        })
+        return `RRC-${year}-${String(count + 1).padStart(6, '0')}`
+    }
+
+    /** Post RETURN_IN to quality inspection at physical intake (idempotent per line). */
+    private async postIntakeToInspectionStock(
+        doc: Awaited<ReturnType<CustomerReturnService['findOneOrFail']>>,
+        actor?: string,
+    ) {
+        const now = new Date().toISOString()
+        for (const line of doc.lines) {
+            if (line.intakeTxnId) continue
+            const txn = await this.postingService.postTransaction({
+                companyId: doc.companyId,
+                warehouseId: doc.warehouseId,
+                storageBinId: line.storageBinId ?? undefined,
+                materialId: line.materialId,
+                batchId: line.batchId ?? undefined,
+                serialNumberId: line.serialNumberId ?? undefined,
+                stockStatus: RETURN_INTAKE_STOCK,
+                movementType: 'RETURN_IN',
+                quantity: Number(line.quantity),
+                uomId: line.uomId,
+                unitCost: Number(line.unitCost),
+                postingDate: now,
+                documentDate: now,
+                sourceModule: 'RETURNS_DISPOSAL',
+                sourceDocumentType: 'CUSTOMER_RETURN_INTAKE',
+                sourceDocumentId: doc.id,
+                sourceDocumentLineId: line.id,
+                reasonCode: 'RETURN_INTAKE',
+                idempotencyKey: postingKey('cust-ret-intake', doc.id, line.id),
+                createdBy: actor ?? undefined,
+            })
+            await this.prisma.mmCustomerReturnLine.update({
+                where: { id: line.id },
+                data: { intakeTxnId: txn.id },
+            })
+        }
+        await this.prisma.mmCustomerReturnIntake.updateMany({
+            where: { legacyCustomerReturnId: doc.id },
+            data: { intakePostedAt: new Date() },
+        })
+    }
+
+    /**
+     * Move stock from return inspection to disposition target.
+     * REPAIR with stock already in QI requires no further movement.
+     */
+    private async postDispositionStockMovement(
+        doc: Awaited<ReturnType<CustomerReturnService['findOneOrFail']>>,
+        line: (typeof doc.lines)[number],
+        targetStock: string,
+        disposition: string,
+        postingDate: string,
+        actor?: string,
+    ): Promise<string> {
+        const base = {
+            companyId: doc.companyId,
+            warehouseId: doc.warehouseId,
+            storageBinId: line.storageBinId ?? undefined,
+            materialId: line.materialId,
+            batchId: line.batchId ?? undefined,
+            serialNumberId: line.serialNumberId ?? undefined,
+            quantity: Number(line.quantity),
+            uomId: line.uomId,
+            unitCost: Number(line.unitCost),
+            postingDate,
+            documentDate: postingDate,
+            sourceModule: 'RETURNS_DISPOSAL' as const,
+            sourceDocumentType: 'CUSTOMER_RETURN' as const,
+            sourceDocumentId: doc.id,
+            sourceDocumentLineId: line.id,
+            reasonCode: disposition,
+            createdBy: actor ?? undefined,
+        }
+
+        if (line.intakeTxnId) {
+            if (targetStock === RETURN_INTAKE_STOCK) {
+                return line.intakeTxnId
+            }
+            await this.postingService.postTransaction({
+                ...base,
+                stockStatus: RETURN_INTAKE_STOCK,
+                movementType: 'TRANSFER_OUT',
+                idempotencyKey: postingKey('cust-ret-disp', doc.id, line.id, 'qi-out'),
+            })
+            const txnIn = await this.postingService.postTransaction({
+                ...base,
+                stockStatus: targetStock,
+                movementType: 'TRANSFER_IN',
+                idempotencyKey: postingKey('cust-ret-disp', doc.id, line.id, `${targetStock}-in`),
+            })
+            return txnIn.id
+        }
+
+        throw new BadRequestException(
+            `Line ${line.lineNumber} missing intake posting; receive goods before completing disposition`,
+        )
     }
 
     private async audit(

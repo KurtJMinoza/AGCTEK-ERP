@@ -17,6 +17,18 @@ export const goodsIssueService = {
     create: (data: any) =>
         ErpAxiosBase.post<GoodsIssue>(BASE, data).then((r) => r.data),
 
+    verifySupervisor: (
+        id: string,
+        data: {
+            verifiedBy: string
+            sourceDocumentReference: string
+            verificationNotes?: string
+        },
+    ) =>
+        ErpAxiosBase.post<GoodsIssue>(`${BASE}/${id}/verify-supervisor`, data).then(
+            (r) => r.data,
+        ),
+
     post: (id: string) =>
         ErpAxiosBase.post<GoodsIssue>(`${BASE}/${id}/post`).then((r) => r.data),
 

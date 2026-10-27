@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { InventoryPostingService } from './inventory-posting.service'
+import { MovementControlService } from '../inventory-control/movement-control.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ValuationEngineService } from '../valuation/valuation-engine.service'
 import { UomConversionsService } from '../uom-conversions/uom-conversions.service'
@@ -134,6 +135,10 @@ describe('Inventory Ledger Engine', () => {
                         inventoryTransactionPosted: jest.fn(),
                         inventoryTransactionReversed: jest.fn(),
                     },
+                },
+                {
+                    provide: MovementControlService,
+                    useValue: { assertMovementAllowed: jest.fn().mockResolvedValue(undefined) },
                 },
             ],
         }).compile()

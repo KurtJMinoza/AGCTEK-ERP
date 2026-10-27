@@ -21,6 +21,7 @@ import { inventoryControlService } from '../services/inventoryControlService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { CountRule, InventoryCount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/cycle-counting'
 
@@ -286,6 +287,7 @@ const CycleCountingPage = () => {
                     )
                 }
             />
+            <Iso9001WorkflowStrip activeStep={1} />
 
             <AdaptiveCard>
                 <Tabs value={tab} onChange={setTab}>

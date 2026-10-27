@@ -7,12 +7,14 @@ import { PrismaService } from '../../../prisma/prisma.service'
 import { CreatePickWaveDto } from './dto/create-pick-wave.dto'
 import { PickWaveQueryDto } from './dto/pick-wave-query.dto'
 import { PickingService } from './picking.service'
+import { WarehouseRulesService } from '../warehouse-rules.service'
 
 @Injectable()
 export class PickWaveService {
     constructor(
         private prisma: PrismaService,
         private picking: PickingService,
+        private warehouseRules: WarehouseRulesService,
     ) {}
 
     private readonly includes = {
@@ -69,7 +71,10 @@ export class PickWaveService {
 
     async create(dto: CreatePickWaveDto) {
         const waveNumber = await this.generateNextCode()
-        const strategy = (dto.strategy ?? 'FIFO').toUpperCase()
+        const strategy = (
+            dto.strategy ??
+            (await this.warehouseRules.resolvePickingStrategy(dto.warehouseId))
+        ).toUpperCase()
         const priority = dto.priority ?? 5
         const zoneCode = dto.zoneCode ?? null
 

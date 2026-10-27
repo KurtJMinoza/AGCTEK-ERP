@@ -92,6 +92,17 @@ export class UsageDecisionDto {
     @IsOptional() @IsString() idempotencyKey?: string
 }
 
+/** ISO partial pass: accepted → unrestricted, rejected → blocked/quarantine */
+export class PartialUsageDecisionDto {
+    @IsNumber() @Min(0.000001) acceptedQuantity!: number
+    @IsNumber() @Min(0) rejectedQuantity!: number
+    @IsOptional() @IsNumber() @Min(0) reworkQuantity?: number
+    @IsOptional() @IsString() reason?: string
+    @IsOptional() @IsString() decidedBy?: string
+    @IsOptional() @IsString() notes?: string
+    @IsOptional() @IsString() idempotencyKey?: string
+}
+
 export class CreateQualityHoldDto {
     @IsString() @IsNotEmpty() companyId!: string
     @IsString() @IsNotEmpty() reason!: string

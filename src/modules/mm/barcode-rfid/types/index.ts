@@ -1,5 +1,6 @@
 export type ScannerOperation =
     | 'RECEIVING'
+    | 'PUTAWAY'
     | 'PICKING'
     | 'PACKING'
     | 'COUNTING'
@@ -71,6 +72,7 @@ export interface ScannerEventPayload {
     destinationBin?: string
     companyId?: string
     uomId?: string
+    scanSessionId?: string
 }
 
 export interface ScannerEventResult {

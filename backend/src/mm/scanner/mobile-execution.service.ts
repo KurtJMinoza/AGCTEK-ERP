@@ -64,6 +64,14 @@ export class MobileExecutionService {
         return this.execute('COUNTING', input)
     }
 
+    async putawayScan(input: MobileScanInput) {
+        return this.execute('PUTAWAY', input)
+    }
+
+    async packingScan(input: MobileScanInput) {
+        return this.execute('PACKING', input)
+    }
+
     /**
      * Offline sync: enqueue then validate+post via domain services.
      * Never blindly overwrites inventory — each item goes through processEvent.

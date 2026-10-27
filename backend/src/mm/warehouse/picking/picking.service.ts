@@ -611,6 +611,18 @@ export class PickingService {
             )
         }
 
+        if (task.waveId) {
+            const wave = await this.prisma.wmPickWave.findUnique({
+                where: { id: task.waveId },
+                select: { status: true },
+            })
+            if (wave?.status === 'DRAFT') {
+                throw new BadRequestException(
+                    'Pick wave must be started before scan & confirm picking',
+                )
+            }
+        }
+
         if (dto.scannedBinId !== task.sourceBinId) {
             throw new BadRequestException(
                 'WRONG_BIN: Scanned bin does not match source bin',

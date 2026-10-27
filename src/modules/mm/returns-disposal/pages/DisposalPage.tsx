@@ -38,6 +38,7 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
 import type { DisposalLine, AuditEntry } from '../types'
+import Iso9001ReturnsDisposalWorkflowStrip from '../components/Iso9001ReturnsDisposalWorkflowStrip'
 
 const ROUTE = '/modules/mm/returns-disposal/disposal'
 const DISPOSAL_TYPE = 'DISPOSAL'
@@ -47,6 +48,7 @@ const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> 
     SUBMITTED: 'warning',
     PENDING_APPROVAL: 'warning',
     APPROVED: 'success',
+    EXECUTED: 'info',
     REJECTED: 'danger',
     POSTED: 'success',
     CANCELLED: 'danger',
@@ -229,6 +231,31 @@ const DisposalPage = () => {
 
     const [confirmAction, setConfirmAction] = useState<{ action: string; fn: () => void } | null>(null)
 
+    const [executeOpen, setExecuteOpen] = useState(false)
+    const [executeSaving, setExecuteSaving] = useState(false)
+    const [executeForm, setExecuteForm] = useState({
+        witnessName: '',
+        disposalMethod: 'Controlled destruction',
+        wasteManifestRef: '',
+        executionNotes: '',
+    })
+
+    const submitExecute = useCallback(async () => {
+        if (!detail) return
+        setExecuteSaving(true)
+        try {
+            await returnsDisposalService.executeDisposal(detail.id, executeForm)
+            pushToast('success', 'Executed', 'Physical disposal recorded.')
+            setExecuteOpen(false)
+            await refreshDetail()
+            fetchList()
+        } catch (err: any) {
+            pushToast('danger', 'Error', err?.response?.data?.message || 'Execution failed')
+        } finally {
+            setExecuteSaving(false)
+        }
+    }, [detail, executeForm, refreshDetail, fetchList])
+
     const detailLineColumns = useMemo<ColumnDef<DisposalLine>[]>(() => [
         {
             header: 'Material',
@@ -268,7 +295,18 @@ const DisposalPage = () => {
                     <Dropdown.Item eventKey="view" onClick={() => openDetail(row.original.id)}><HiOutlineEye className="mr-2" /> View</Dropdown.Item>
                     {row.original.status === 'DRAFT' && <Dropdown.Item eventKey="submit" onClick={() => setConfirmAction({ action: 'Submit', fn: async () => { await returnsDisposalService.submitDisposal(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Submit</Dropdown.Item>}
                     {row.original.status === 'PENDING_APPROVAL' && <Dropdown.Item eventKey="approve" onClick={() => setConfirmAction({ action: 'Approve', fn: async () => { await returnsDisposalService.approveDisposal(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Approve</Dropdown.Item>}
-                    {row.original.status === 'APPROVED' && <Dropdown.Item eventKey="post" onClick={() => setConfirmAction({ action: 'Post', fn: async () => { await returnsDisposalService.postDisposal(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Post</Dropdown.Item>}
+                    {row.original.status === 'APPROVED' && (
+                        <Dropdown.Item
+                            eventKey="execute"
+                            onClick={async () => {
+                                await openDetail(row.original.id)
+                                setExecuteOpen(true)
+                            }}
+                        >
+                            <HiOutlineCheck className="mr-2" /> Record execution
+                        </Dropdown.Item>
+                    )}
+                    {row.original.status === 'EXECUTED' && <Dropdown.Item eventKey="post" onClick={() => setConfirmAction({ action: 'Post', fn: async () => { await returnsDisposalService.postDisposal(row.original.id); fetchList() } })}><HiOutlineCheck className="mr-2" /> Post</Dropdown.Item>}
                     {['DRAFT', 'REJECTED'].includes(row.original.status) && <Dropdown.Item eventKey="cancel" onClick={() => setConfirmAction({ action: 'Cancel', fn: async () => { await returnsDisposalService.cancelDisposal(row.original.id); fetchList() } })}><HiOutlineX className="mr-2" /> Cancel</Dropdown.Item>}
                 </Dropdown>
             ),
@@ -288,6 +326,8 @@ const DisposalPage = () => {
                     </div>
                 }
             />
+
+            <Iso9001ReturnsDisposalWorkflowStrip activeStep={3} />
 
             <AdaptiveCard>
                 <div className="flex flex-wrap items-center gap-4 mb-4">
@@ -331,6 +371,33 @@ const DisposalPage = () => {
                 <Button size="sm" variant="plain" onClick={() => setCreateLines((p) => [...p, { materialId: '', uomId: '', quantity: 0, unitCost: 0, reason: 'OBSOLETE', stockStatus: 'BLOCKED' }])}>+ Add Line</Button>
             </FormDialog>
 
+            <FormDialog
+                isOpen={executeOpen}
+                onClose={() => setExecuteOpen(false)}
+                title="Physical disposal execution"
+                footer={
+                    <>
+                        <Button size="sm" onClick={() => setExecuteOpen(false)}>Cancel</Button>
+                        <Button size="sm" variant="solid" loading={executeSaving} onClick={submitExecute}>
+                            Confirm execution
+                        </Button>
+                    </>
+                }
+            >
+                <FormItem label="Witness name" asterisk>
+                    <Input value={executeForm.witnessName} onChange={(e: any) => setExecuteForm((p) => ({ ...p, witnessName: e.target.value }))} />
+                </FormItem>
+                <FormItem label="Disposal method" asterisk className="mt-2">
+                    <Input value={executeForm.disposalMethod} onChange={(e: any) => setExecuteForm((p) => ({ ...p, disposalMethod: e.target.value }))} />
+                </FormItem>
+                <FormItem label="Waste manifest #" className="mt-2">
+                    <Input value={executeForm.wasteManifestRef} onChange={(e: any) => setExecuteForm((p) => ({ ...p, wasteManifestRef: e.target.value }))} />
+                </FormItem>
+                <FormItem label="Notes" className="mt-2">
+                    <Input textArea value={executeForm.executionNotes} onChange={(e: any) => setExecuteForm((p) => ({ ...p, executionNotes: e.target.value }))} />
+                </FormItem>
+            </FormDialog>
+
             {/* Detail */}
             <FormDialog
                 isOpen={detailOpen}
@@ -346,7 +413,16 @@ const DisposalPage = () => {
                             {detail.status === 'DRAFT' && <Button variant="solid" size="sm" onClick={() => doAction('Submitted', () => returnsDisposalService.submitDisposal(detail.id))}>Submit</Button>}
                             {detail.status === 'PENDING_APPROVAL' && <Button variant="solid" size="sm" onClick={() => doAction('Approved', () => returnsDisposalService.approveDisposal(detail.id))}>Approve</Button>}
                             {detail.status === 'PENDING_APPROVAL' && <Button size="sm" onClick={() => doAction('Rejected', () => returnsDisposalService.rejectDisposal(detail.id))}>Reject</Button>}
-                            {detail.status === 'APPROVED' && <Button variant="solid" size="sm" onClick={() => doAction('Posted', () => returnsDisposalService.postDisposal(detail.id))}>Post</Button>}
+                            {detail.status === 'APPROVED' && (
+                                <Button variant="solid" size="sm" onClick={() => setExecuteOpen(true)}>
+                                    Record execution
+                                </Button>
+                            )}
+                            {detail.status === 'EXECUTED' && (
+                                <Button variant="solid" size="sm" onClick={() => doAction('Posted', () => returnsDisposalService.postDisposal(detail.id))}>
+                                    Post to ledger
+                                </Button>
+                            )}
                             {['DRAFT', 'REJECTED'].includes(detail.status) && <Button size="sm" onClick={() => doAction('Cancelled', () => returnsDisposalService.cancelDisposal(detail.id))}>Cancel</Button>}
                             {detail.status === 'POSTED' && (
                                 <Button size="sm" variant="plain" onClick={() => doAction('Reversed', () => returnsDisposalService.reverseDisposal(detail.id))}>

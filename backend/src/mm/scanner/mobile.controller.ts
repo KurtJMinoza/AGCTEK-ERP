@@ -84,10 +84,22 @@ export class MobileController {
         return this.mobile.pickingScan(await toEventDto(body, 'PICKING'))
     }
 
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-putaway'))
+    @Post('putaway/scan')
+    async putawayScan(@Body() body: Record<string, any>) {
+        return this.mobile.putawayScan(await toEventDto(body, 'PUTAWAY'))
+    }
+
     @MmMutation(mmFeatures('barcode-rfid', 'mobile-counting'))
     @Post('counting/scan')
     async countingScan(@Body() body: Record<string, any>) {
         return this.mobile.countingScan(await toEventDto(body, 'COUNTING'))
+    }
+
+    @MmMutation(mmFeatures('barcode-rfid', 'mobile-picking'))
+    @Post('packing/scan')
+    async packingScan(@Body() body: Record<string, any>) {
+        return this.mobile.packingScan(await toEventDto(body, 'PACKING'))
     }
 
     @MmMutation(mmFeatures('barcode-rfid', 'mobile-receiving', 'mobile-picking', 'mobile-counting'))

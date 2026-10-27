@@ -1,23 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import StatCard from '@/components/shared/StatCard'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import { HiOutlineRefresh, HiOutlineExternalLink } from 'react-icons/hi'
+import { HiOutlineRefresh } from 'react-icons/hi'
 import { exceptionCenterService } from '../services/exceptionCenterService'
-import type { MmExceptionItem, MmExceptionSeverity } from '../types'
+import type { MmExceptionItem } from '../types'
+import {
+    ExceptionActionCell,
+    ExceptionAgeCell,
+    ExceptionDocumentCell,
+    ExceptionDomainChip,
+    ExceptionIssueCell,
+    ExceptionOwnerCell,
+    ExceptionSeverityCell,
+    excTableRowClass,
+} from '../components/ExceptionTableCells'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -44,18 +52,6 @@ const DOMAIN_OPTS: Opt[] = [
     { value: 'mrp', label: 'MRP' },
     { value: 'integration', label: 'Integration' },
 ]
-
-const SEVERITY_TONE: Record<MmExceptionSeverity, 'danger' | 'warning' | 'info' | 'default'> = {
-    CRITICAL: 'danger',
-    HIGH: 'warning',
-    MEDIUM: 'info',
-    LOW: 'default',
-}
-
-function fmtAge(hours: number) {
-    if (hours < 24) return `${hours}h`
-    return `${Math.floor(hours / 24)}d`
-}
 
 const ExceptionCenterPage = () => {
     const searchParams = useSearchParams()
@@ -123,44 +119,73 @@ const ExceptionCenterPage = () => {
     const columns: ColumnDef<MmExceptionItem>[] = useMemo(
         () => [
             {
+                header: 'Exception',
+                id: 'issue',
+                size: 260,
+                minSize: 200,
+                cell: ({ row }) => <ExceptionIssueCell item={row.original} />,
+            },
+            {
                 header: 'Severity',
+                accessorKey: 'severity',
+                size: 108,
+                minSize: 92,
                 cell: ({ row }) => (
-                    <StatusBadge tone={SEVERITY_TONE[row.original.severity]}>
-                        {row.original.severity}
-                    </StatusBadge>
+                    <ExceptionSeverityCell severity={row.original.severity} />
                 ),
             },
-            { header: 'Type', accessorKey: 'type' },
-            { header: 'Domain', accessorKey: 'domain' },
-            { header: 'Title', accessorKey: 'title' },
+            {
+                header: 'Domain',
+                accessorKey: 'domain',
+                size: 120,
+                minSize: 100,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => (
+                    <ExceptionDomainChip domain={row.original.domain} />
+                ),
+            },
             {
                 header: 'Document',
-                cell: ({ row }) =>
-                    row.original.document?.number ?? row.original.document?.id ?? '—',
+                id: 'document',
+                size: 132,
+                minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => (
+                    <ExceptionDocumentCell document={row.original.document} />
+                ),
             },
             {
                 header: 'Age',
+                id: 'age',
+                size: 88,
+                minSize: 72,
                 cell: ({ row }) => (
-                    <span className={row.original.stale ? 'text-amber-600' : undefined}>
-                        {fmtAge(row.original.ageHours)}
-                        {row.original.stale ? ' (stale)' : ''}
-                    </span>
+                    <ExceptionAgeCell
+                        ageHours={row.original.ageHours}
+                        stale={row.original.stale}
+                    />
                 ),
             },
             {
                 header: 'Owner',
-                cell: ({ row }) => row.original.owner ?? '—',
+                id: 'owner',
+                size: 140,
+                minSize: 120,
+                meta: { className: 'hidden xl:table-cell' },
+                cell: ({ row }) => (
+                    <ExceptionOwnerCell owner={row.original.owner} />
+                ),
             },
             {
-                header: 'Action',
+                header: 'Resolve',
+                id: 'action',
+                size: 148,
+                minSize: 120,
                 cell: ({ row }) => (
-                    <Link
+                    <ExceptionActionCell
                         href={row.original.href}
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
-                    >
-                        {row.original.recommendedAction.slice(0, 40)}
-                        <HiOutlineExternalLink className="text-sm" />
-                    </Link>
+                        recommendedAction={row.original.recommendedAction}
+                    />
                 ),
             },
         ],
@@ -263,8 +288,9 @@ const ExceptionCenterPage = () => {
                     columns={columns}
                     data={rows}
                     loading={loading}
-                    compact
                     fit
+                    getRowId={(row) => row.id}
+                    rowClassName={(row, index) => excTableRowClass(row, index)}
                     noData={!loading && rows.length === 0}
                 />
             </AdaptiveCard>

@@ -12,6 +12,7 @@ import { ReservationService } from '../outbound/reservation.service'
 import { AllocationEngineService } from '../inventory/reservation-allocation/allocation-engine.service'
 import { ReservationEngineService } from '../inventory/reservation-allocation/reservation-engine.service'
 import { CreateGoodsIssueDto } from './dto/create-goods-issue.dto'
+import { VerifyGoodsIssueSupervisorDto } from './dto/verify-goods-issue.dto'
 import { StockOpsQueryDto } from './dto/stock-ops-query.dto'
 import { Decimal } from '@prisma/client/runtime/library'
 import { postingKey } from '../common/idempotency.util'
@@ -183,15 +184,60 @@ export class GoodsIssueService {
         })
     }
 
+    async verifySupervisor(id: string, dto: VerifyGoodsIssueSupervisorDto) {
+        const doc = await this.findOneOrFail(id)
+        if (doc.status !== 'DRAFT') {
+            throw new BadRequestException(
+                `Cannot verify: document is ${doc.status}`,
+            )
+        }
+        const expected = await this.resolveExpectedSourceReference(doc)
+        const provided = dto.sourceDocumentReference.trim()
+        if (expected) {
+            const norm = (s: string) => s.trim().toLowerCase()
+            if (norm(provided) !== norm(expected)) {
+                throw new BadRequestException(
+                    `Source reference mismatch. Expected "${expected}", received "${provided}"`,
+                )
+            }
+        }
+
+        return this.prisma.mmGoodsIssue.update({
+            where: { id },
+            data: {
+                supervisorVerifiedAt: new Date(),
+                supervisorVerifiedBy: dto.verifiedBy.trim(),
+                verifiedSourceReference: provided,
+                supervisorVerificationNotes: dto.verificationNotes?.trim() ?? null,
+            },
+            include: {
+                lines: {
+                    include: {
+                        material: true,
+                        uom: true,
+                        storageBin: true,
+                    },
+                },
+                warehouse: true,
+                package: true,
+            },
+        })
+    }
+
     async post(id: string) {
         const doc = await this.findOneOrFail(id)
         if (doc.status !== 'DRAFT') {
             throw new BadRequestException(`Cannot post: document is ${doc.status}`)
         }
 
+        let validatedPackage: Awaited<
+            ReturnType<typeof this.validatePackageForIssue>
+        > | null = null
         if (doc.packageId) {
-            await this.validatePackageForIssue(doc.packageId)
+            validatedPackage = await this.validatePackageForIssue(doc.packageId)
         }
+
+        await this.ensureSupervisorVerified(doc, validatedPackage)
 
         await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
 
@@ -481,6 +527,11 @@ export class GoodsIssueService {
                 `Package must be READY_FOR_DISPATCH (or SEALED). Current: ${pkg.status}`,
             )
         }
+        if (!pkg.packingListNumber?.trim()) {
+            throw new BadRequestException(
+                'Package must have a formal packing list before goods issue',
+            )
+        }
         const mismatch = pkg.items.some(
             (item) => !new Decimal(item.scannedQty).eq(item.expectedQty),
         )
@@ -489,7 +540,75 @@ export class GoodsIssueService {
                 'Package contents do not match expected order — cannot goods-issue',
             )
         }
+        if (pkg.pickingTaskId && pkg.pickingTask) {
+            if (pkg.pickingTask.status !== 'COMPLETED') {
+                throw new BadRequestException(
+                    'Linked picking task must be COMPLETED before goods issue',
+                )
+            }
+        }
         return pkg
+    }
+
+    private async ensureSupervisorVerified(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+        validatedPackage: Awaited<
+            ReturnType<typeof this.validatePackageForIssue>
+        > | null,
+    ) {
+        if (doc.supervisorVerifiedAt) return
+
+        if (validatedPackage) {
+            const ref =
+                validatedPackage.orderNumber?.trim() ??
+                (await this.resolveExpectedSourceReference(doc))
+            await this.prisma.mmGoodsIssue.update({
+                where: { id: doc.id },
+                data: {
+                    supervisorVerifiedAt: new Date(),
+                    supervisorVerifiedBy:
+                        doc.createdBy?.trim() || 'SYSTEM_PACKAGE_VERIFIED',
+                    verifiedSourceReference: ref ?? validatedPackage.packageNumber,
+                    supervisorVerificationNotes:
+                        'Auto-verified: package READY_FOR_DISPATCH with scan-complete packing list',
+                },
+            })
+            return
+        }
+
+        throw new BadRequestException(
+            'Supervisor verification required before posting goods issue',
+        )
+    }
+
+    private async resolveExpectedSourceReference(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ): Promise<string | null> {
+        if (doc.sourceDocumentType === 'SALES_ORDER' && doc.sourceDocumentId) {
+            const order = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: doc.sourceDocumentId },
+                select: { orderNumber: true },
+            })
+            return order?.orderNumber ?? null
+        }
+        if (doc.sourceDocumentType === 'PRODUCTION_ORDER' && doc.sourceDocumentId) {
+            const order = await this.prisma.ppProductionOrder.findUnique({
+                where: { id: doc.sourceDocumentId },
+                select: { orderNumber: true },
+            })
+            return order?.orderNumber ?? null
+        }
+        if (doc.packageId && doc.package) {
+            return (
+                doc.package.orderNumber?.trim() ??
+                doc.package.packingListNumber?.trim() ??
+                doc.package.packageNumber
+            )
+        }
+        if (doc.issuePurpose === 'INTERNAL') {
+            return doc.documentNumber
+        }
+        return null
     }
 
     private assertSalesIssueContract(dto: CreateGoodsIssueDto) {

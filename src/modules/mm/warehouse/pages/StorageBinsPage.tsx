@@ -25,6 +25,7 @@ import UomCodeSelect from '@/modules/mm/shared/UomCodeSelect'
 import { useUoms } from '@/modules/mm/shared/useUoms'
 import type { StorageBin, StorageShelf, StorageSection } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001FoundationWorkflowStrip from '@/modules/mm/shared/components/Iso9001FoundationWorkflowStrip'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 import {
     WmBinCapacityCell,
@@ -271,6 +272,7 @@ const StorageBinsPage = () => {
         <PageContainer>
             <Breadcrumb items={breadcrumbs} />
             <PageHeader title="Storage Bins" description="Manage individual storage bin locations and their capacity." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add bin</Button>} />
+            <Iso9001FoundationWorkflowStrip activeStep={3} />
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 sm:max-w-xl">
                     <Input

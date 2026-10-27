@@ -21,6 +21,7 @@ import { inventoryControlService } from '../services/inventoryControlService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryCount } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/physical-inventory'
 
@@ -175,13 +176,14 @@ const PhysicalInventoryPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Physical Inventory"
-                description="Full stock-take sessions: OPEN → COUNTING → RECOUNT → APPROVAL → POSTED → CLOSED."
+                description="ISO 9001 step 2: scheduled full warehouse count. Any first-pass discrepancy triggers a mandatory recount before variance analysis."
                 actions={
                     <Button variant="solid" icon={<HiOutlinePlus />} onClick={openCreate}>
                         New Stock-Take
                     </Button>
                 }
             />
+            <Iso9001WorkflowStrip activeStep={2} />
 
             <AdaptiveCard>
                 <Tabs value={status} onChange={setStatus}>

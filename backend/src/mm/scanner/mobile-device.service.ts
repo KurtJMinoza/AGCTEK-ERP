@@ -160,4 +160,82 @@ export class MobileDeviceService {
 
         return device
     }
+
+    async list(query: { companyId?: string; status?: string }) {
+        const where: any = {}
+        if (query.companyId) where.companyId = query.companyId
+        if (query.status) where.status = query.status
+        return this.prisma.mmMobileDevice.findMany({
+            where,
+            orderBy: { updatedAt: 'desc' },
+            include: {
+                warehouse: { select: { id: true, code: true, name: true } },
+                user: { select: { id: true, email: true } },
+            },
+        })
+    }
+
+    async registerAdmin(input: {
+        deviceCode: string
+        companyId: string
+        warehouseId?: string
+        name?: string
+        deviceType?: string
+        platform?: string
+        osInfo?: string
+    }) {
+        const existing = await this.prisma.mmMobileDevice.findUnique({
+            where: { deviceCode: input.deviceCode },
+        })
+        if (existing) {
+            return this.prisma.mmMobileDevice.update({
+                where: { id: existing.id },
+                data: {
+                    warehouseId: input.warehouseId ?? existing.warehouseId,
+                    name: input.name ?? existing.name,
+                    deviceType: input.deviceType ?? existing.deviceType,
+                    platform: input.platform ?? existing.platform,
+                    osInfo: input.osInfo ?? existing.osInfo,
+                    status: 'ACTIVE',
+                    revokedAt: null,
+                    revokedBy: null,
+                },
+            })
+        }
+        const sessionToken = randomBytes(24).toString('hex')
+        const sessionExpiresAt = new Date()
+        sessionExpiresAt.setHours(sessionExpiresAt.getHours() + SESSION_HOURS)
+        return this.prisma.mmMobileDevice.create({
+            data: {
+                deviceCode: input.deviceCode,
+                companyId: input.companyId,
+                warehouseId: input.warehouseId ?? null,
+                name: input.name ?? null,
+                deviceType: input.deviceType ?? 'MOBILE_PHONE',
+                platform: input.platform ?? 'WEB',
+                osInfo: input.osInfo ?? null,
+                status: 'ACTIVE',
+                sessionToken,
+                sessionExpiresAt,
+                lastSeenAt: new Date(),
+            },
+        })
+    }
+
+    async revokeWithAudit(deviceCode: string, revokedBy?: string) {
+        const device = await this.prisma.mmMobileDevice.findUnique({
+            where: { deviceCode },
+        })
+        if (!device) throw new BadRequestException('Device not found')
+        return this.prisma.mmMobileDevice.update({
+            where: { id: device.id },
+            data: {
+                status: 'REVOKED',
+                revokedAt: new Date(),
+                revokedBy: revokedBy ?? null,
+                sessionToken: null,
+                sessionExpiresAt: null,
+            },
+        })
+    }
 }

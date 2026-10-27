@@ -1,4 +1,4 @@
-import { IsOptional, IsNumber, Min } from 'class-validator'
+import { IsOptional, IsNumber, Min, IsString, IsBoolean } from 'class-validator'
 
 /** Optional package measurements captured when sealing (Weight kg / L × W × H cm). */
 export class SealPackageDto {
@@ -21,4 +21,12 @@ export class SealPackageDto {
     @IsNumber()
     @Min(0)
     height?: number
+
+    @IsOptional()
+    @IsString()
+    trackingNumber?: string
+
+    @IsOptional()
+    @IsBoolean()
+    labelsApplied?: boolean
 }

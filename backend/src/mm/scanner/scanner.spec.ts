@@ -70,6 +70,10 @@ function buildService(prisma: any, domain: Partial<Record<string, any>> = {}) {
         domain.packing ?? { scanItem: jest.fn() },
         domain.count ?? { blindCount: jest.fn() },
         domain.binTransfer ?? { create: jest.fn(), post: jest.fn() },
+        domain.putaway ?? { confirm: jest.fn().mockResolvedValue({ id: 'put-1', status: 'COMPLETED' }) },
+        domain.scanSessions ?? {
+            nextEventSequence: jest.fn().mockResolvedValue(1),
+        },
     )
 }
 

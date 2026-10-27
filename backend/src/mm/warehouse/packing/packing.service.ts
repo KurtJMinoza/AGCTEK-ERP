@@ -1177,9 +1177,10 @@ export class PackingService {
                     reason: `SHORT_PACK: ${e.remainingQuantity} unit(s) not packed — ${partialReason}`,
                 })),
             })
+            const packingListNumber = await this.generatePackingListNumber()
             const partial = await this.prisma.wmPackage.update({
                 where: { id: packageId },
-                data: { status: 'VERIFIED' },
+                data: { status: 'VERIFIED', packingListNumber },
                 include: this.detailIncludes,
             })
             return this.withScanProgress(packageId, null, partial, {
@@ -1189,9 +1190,10 @@ export class PackingService {
             })
         }
 
+        const packingListNumber = await this.generatePackingListNumber()
         const verified = await this.prisma.wmPackage.update({
             where: { id: packageId },
-            data: { status: 'VERIFIED' },
+            data: { status: 'VERIFIED', packingListNumber },
             include: this.detailIncludes,
         })
         return this.withScanProgress(packageId, null, verified, {
@@ -1447,6 +1449,8 @@ export class PackingService {
             length?: number
             width?: number
             height?: number
+            trackingNumber?: string
+            labelsApplied?: boolean
         },
     ) {
         const pkg = await this.findOne(id)
@@ -1467,6 +1471,9 @@ export class PackingService {
                 'Cannot seal: package contents do not match expected order',
             )
         }
+        const labelsApplied =
+            measurements?.labelsApplied === true ||
+            Boolean(measurements?.trackingNumber?.trim())
         return this.prisma.wmPackage.update({
             where: { id },
             data: {
@@ -1483,6 +1490,13 @@ export class PackingService {
                 ...(measurements?.height !== undefined
                     ? { height: measurements.height }
                     : {}),
+                ...(measurements?.trackingNumber !== undefined
+                    ? {
+                          trackingNumber:
+                              measurements.trackingNumber?.trim() || null,
+                      }
+                    : {}),
+                ...(labelsApplied ? { labelsAppliedAt: new Date() } : {}),
             },
             include: this.detailIncludes,
         })
@@ -1599,6 +1613,20 @@ export class PackingService {
                 'shipToAddress is required before Ready for Dispatch (SCM release)',
             )
         }
+        if (!currentWithPin.packingListNumber?.trim()) {
+            throw new BadRequestException(
+                'Formal packing list required — complete packing first',
+            )
+        }
+        this.assertLogisticsRecorded(currentWithPin)
+        if (
+            !currentWithPin.labelsAppliedAt &&
+            !currentWithPin.trackingNumber?.trim()
+        ) {
+            throw new BadRequestException(
+                'Shipping labels or tracking number required before Ready for Dispatch',
+            )
+        }
 
         const updated = await this.prisma.wmPackage.update({
             where: { id },
@@ -1704,6 +1732,40 @@ export class PackingService {
 
     /** Auto numbers: PKG-000001, PKG-000002, … (ignores PKG-SCM-*, PKG-DEBUG-*, etc.) */
     private static readonly PKG_NUMERIC = /^PKG-(\d+)$/
+
+    private assertLogisticsRecorded(pkg: {
+        weight?: Decimal | null
+        length?: Decimal | null
+        width?: Decimal | null
+        height?: Decimal | null
+    }) {
+        const w = pkg.weight != null ? Number(pkg.weight) : 0
+        const l = pkg.length != null ? Number(pkg.length) : 0
+        const wd = pkg.width != null ? Number(pkg.width) : 0
+        const h = pkg.height != null ? Number(pkg.height) : 0
+        if (w <= 0 || l <= 0 || wd <= 0 || h <= 0) {
+            throw new BadRequestException(
+                'Weight and dimensions (L×W×H) must be recorded when sealing the package',
+            )
+        }
+    }
+
+    /** PL-YYYYMMDD-##### */
+    private async generatePackingListNumber(): Promise<string> {
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+        const prefix = `PL-${dateStr}-`
+        const last = await this.prisma.wmPackage.findFirst({
+            where: { packingListNumber: { startsWith: prefix } },
+            orderBy: { packingListNumber: 'desc' },
+            select: { packingListNumber: true },
+        })
+        let seq = 1
+        if (last?.packingListNumber) {
+            const num = parseInt(last.packingListNumber.slice(prefix.length), 10)
+            if (!isNaN(num)) seq = num + 1
+        }
+        return `${prefix}${String(seq).padStart(5, '0')}`
+    }
 
     private async generateNextCode(
         tx: Prisma.TransactionClient,

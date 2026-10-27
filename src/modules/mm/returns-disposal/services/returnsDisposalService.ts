@@ -234,6 +234,20 @@ export const returnsDisposalService = {
             reason,
         }).then((r) => r.data),
 
+    executeDisposal: (
+        id: string,
+        data: {
+            witnessName: string
+            disposalMethod: string
+            wasteManifestRef?: string
+            executionNotes?: string
+            performedBy?: string
+        },
+    ) =>
+        ErpAxiosBase.post<Disposal>(`/mm/disposals/${id}/execute`, data).then(
+            (r) => r.data,
+        ),
+
     postDisposal: (id: string, performedBy?: string) =>
         ErpAxiosBase.post<Disposal>(`/mm/disposals/${id}/post`, {
             performedBy,
