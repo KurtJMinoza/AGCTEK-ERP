@@ -191,6 +191,20 @@ export class CreateTicketCommentDto {
     body!: string
 }
 
+export const OVERRIDE_TICKET_STATUSES = ['RESOLVED', 'CLOSED', 'CANCELLED'] as const satisfies readonly TicketStatus[]
+
+/** Ends a return case before SD / finance settle the return; the reason is kept on the case. */
+export class OverrideTicketStatusDto {
+    @IsIn(OVERRIDE_TICKET_STATUSES)
+    status!: (typeof OVERRIDE_TICKET_STATUSES)[number]
+
+    @Transform(trim)
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(500)
+    reason!: string
+}
+
 export class RejectReturnCaseDto {
     @Transform(trim)
     @IsString()

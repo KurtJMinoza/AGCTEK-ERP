@@ -36,6 +36,7 @@ const sdReturn = (overrides: Record<string, unknown> = {}) => ({
             salesOrderLine: { productSkuSnapshot: 'LPG-11', productNameSnapshot: 'LPG 11kg', sku: 'LPG-11' },
         },
     ],
+    refunds: [] as unknown[],
     mmCustomerReturn: null,
     replacementOrder: null,
     ...overrides,
@@ -211,8 +212,51 @@ describe('CrmReturnCasesService.returnForTicket', () => {
             ],
             mmCustomerReturn: { id: 'cr-1', returnNumber: 'CR-RET-20261021-0001', status: 'DRAFT' },
             replacementOrder: { id: 'so-2', orderNumber: 'SO-101', status: 'CONFIRMED' },
+            refund: null,
+            settlement: { settled: false, blocker: 'the returned goods have not been received yet' },
         })
         expect(returnRequests.findForCase).toHaveBeenCalledWith('rr-1')
+    })
+
+    it('shows the SD refund and credit memo and flags a refund awaiting finance', async () => {
+        const { prisma, returnRequests, service } = setup()
+        prisma.crmTicket.findUnique.mockResolvedValue(linkedTicket())
+        returnRequests.findForCase.mockResolvedValue(
+            sdReturn({
+                status: 'RESTOCKED',
+                preferredResolution: 'REFUND',
+                refundStatus: 'APPROVED',
+                refunds: [
+                    {
+                        refundNumber: 'RF-0001',
+                        status: 'APPROVED',
+                        amount: new Decimal('1250'),
+                        currency: 'PHP',
+                        refundMethod: 'BANK_TRANSFER',
+                        isDemo: false,
+                        approvedAt: new Date('2026-10-22T01:00:00Z'),
+                        paidAt: null,
+                        failReason: null,
+                        creditMemo: { creditMemoNumber: 'CM-0001', amount: new Decimal('1250'), status: 'ISSUED' },
+                    },
+                ],
+            }),
+        )
+
+        const view = await service.returnForTicket('t-1')
+
+        expect(view.refund).toEqual(
+            expect.objectContaining({
+                refundNumber: 'RF-0001',
+                status: 'APPROVED',
+                amount: '1250',
+                creditMemo: { creditMemoNumber: 'CM-0001', amount: '1250', status: 'ISSUED' },
+            }),
+        )
+        expect(view.settlement).toEqual({
+            settled: false,
+            blocker: 'the refund is approved and waiting for payment by finance',
+        })
     })
 
     it('404s for unknown tickets and 400s for tickets without a return', async () => {

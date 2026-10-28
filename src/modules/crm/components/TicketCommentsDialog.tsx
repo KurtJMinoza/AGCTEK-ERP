@@ -9,9 +9,8 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import { useTicketComments } from '../hooks/useTickets'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { crmTone, formatEnumLabel } from '../utils/format'
-import { isTerminalTicket } from './TicketFormDialog'
 import TicketReturnPanel from './TicketReturnPanel'
-import type { Ticket, TicketComment } from '../types'
+import type { Ticket, TicketComment, TicketStatus } from '../types'
 
 const authorName = (comment: TicketComment) => {
     if (!comment.author) return 'Unknown user'
@@ -40,7 +39,10 @@ export default function TicketCommentsDialog({
     const [body, setBody] = useState('')
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
-    const closed = isTerminalTicket(ticket)
+    /** Status set by a return-case override while the dialog is open (the caller's row is a snapshot). */
+    const [changed, setChanged] = useState<{ ticketId: string; status: TicketStatus } | null>(null)
+    const status = ticket && changed?.ticketId === ticket.id ? changed.status : ticket?.status
+    const closed = status === 'CLOSED' || status === 'CANCELLED'
 
     const submit = async () => {
         if (!body.trim()) return
@@ -67,8 +69,8 @@ export default function TicketCommentsDialog({
             headerExtra={
                 ticket ? (
                     <div className="flex flex-wrap gap-2">
-                        <StatusBadge tone={crmTone(ticket.status)}>
-                            {formatEnumLabel(ticket.status)}
+                        <StatusBadge tone={crmTone(status ?? ticket.status)}>
+                            {formatEnumLabel(status ?? ticket.status)}
                         </StatusBadge>
                         <StatusBadge tone={crmTone(ticket.priority)}>
                             {formatEnumLabel(ticket.priority)}
@@ -83,8 +85,10 @@ export default function TicketCommentsDialog({
                 <TicketReturnPanel
                     key={ticket.id}
                     ticketId={ticket.id}
+                    ticketStatus={ticket.status}
                     canDecide={canDecideReturn}
                     readOnly={closed}
+                    onStatusChanged={(next) => setChanged({ ticketId: ticket.id, status: next })}
                     onDecided={() => {
                         void reload()
                         onCommented?.()

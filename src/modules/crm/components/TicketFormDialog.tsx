@@ -117,7 +117,13 @@ export default function TicketFormDialog({
             onClose={onClose}
             size="lg"
             title={ticket ? 'Edit ticket' : 'New ticket'}
-            description={readOnly ? 'Closed and cancelled tickets are read-only.' : undefined}
+            description={
+                readOnly
+                    ? 'Closed and cancelled tickets are read-only.'
+                    : ticket?.sdReturnRequestId
+                      ? 'Return case: resolving, closing or cancelling waits until SD / finance settle the return (see the return panel on the case).'
+                      : undefined
+            }
             onSubmit={readOnly ? undefined : onSubmit}
             confirmText={ticket ? 'Save' : 'Create'}
             confirmLoading={saving}

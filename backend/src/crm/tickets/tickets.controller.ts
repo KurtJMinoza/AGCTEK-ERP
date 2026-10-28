@@ -5,6 +5,7 @@ import {
     CreateTicketCommentDto,
     CreateTicketDto,
     ListTicketsQueryDto,
+    OverrideTicketStatusDto,
     RejectReturnCaseDto,
     UpdateTicketDto,
 } from './dto/ticket.dto'
@@ -79,6 +80,17 @@ export class CrmTicketsController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.tickets.update(id, dto, user.id)
+    }
+
+    /** Resolve / close / cancel a return case before its SD return is settled; reason required. */
+    @Post(':id/status-override')
+    @RequirePermission('crm.ticket-overrides', 'update')
+    overrideStatus(
+        @Param('id') id: string,
+        @Body() dto: OverrideTicketStatusDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.tickets.overrideStatus(id, dto, user.id)
     }
 
     @Get(':id/comments')

@@ -32,6 +32,7 @@ import type {
     Ticket,
     TicketComment,
     TicketListParams,
+    TicketOverrideStatus,
     TicketReturnCase,
     UpdateLeadInput,
     UpdateOpportunityInput,
@@ -338,6 +339,19 @@ export async function apiRejectTicketReturn(ticketId: string, reason: string) {
     const { data } = await ErpAxiosBase.post<TicketReturnCase>(
         `/crm/tickets/${encodeURIComponent(ticketId)}/return/reject`,
         { reason },
+    )
+    return data
+}
+
+/** Ends a return case before SD / finance settle the return (crm.ticket-overrides; reason kept on the case). */
+export async function apiOverrideTicketStatus(
+    ticketId: string,
+    status: TicketOverrideStatus,
+    reason: string,
+) {
+    const { data } = await ErpAxiosBase.post<Ticket>(
+        `/crm/tickets/${encodeURIComponent(ticketId)}/status-override`,
+        { status, reason },
     )
     return data
 }

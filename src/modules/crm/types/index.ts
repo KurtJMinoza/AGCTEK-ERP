@@ -454,7 +454,27 @@ export type TicketReturnCase = {
     }[]
     mmCustomerReturn: { id: string; returnNumber: string; status: string } | null
     replacementOrder: { id: string; orderNumber: string; status: string | null } | null
+    /** Latest SD refund record (finance pays it); null until SD records one. */
+    refund: {
+        refundNumber: string
+        /** PENDING_REFUND | APPROVED | PAID | FAILED */
+        status: string
+        amount: string
+        currency: string
+        refundMethod: string | null
+        isDemo: boolean
+        approvedAt: string | null
+        paidAt: string | null
+        failReason: string | null
+        creditMemo: { creditMemoNumber: string; amount: string; status: string } | null
+    } | null
+    /** Physical + financial resolution (RMA close gate); computed by the server. */
+    settlement: { settled: true; blocker: null } | { settled: false; blocker: string }
 }
+
+/** Statuses that end a return case; the server allows them only once the return is settled. */
+export const TICKET_OVERRIDE_STATUSES = ['RESOLVED', 'CLOSED', 'CANCELLED'] as const
+export type TicketOverrideStatus = (typeof TICKET_OVERRIDE_STATUSES)[number]
 
 /** Ticket statuses where activities may still be scheduled (CLOSED / CANCELLED are read-only). */
 export const TICKET_ACTIVITY_STATUSES: readonly TicketStatus[] = [

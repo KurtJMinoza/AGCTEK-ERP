@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { findCustomerMasterId } from '../../sd/customer-master'
 import { ReturnRequestService } from '../../sd/return-request.service'
 import { ticketInclude } from './tickets.service'
+import { returnSettlement } from './return-settlement'
 
 type CaseUser = { id: string; role: string }
 type SdReturnCase = Awaited<ReturnType<ReturnRequestService['findForCase']>>
@@ -29,6 +30,7 @@ const label = (code: string | null | undefined) =>
 
 /** Read-only view of the SD return shown on the CRM case; SD stays the owner. */
 export function toReturnCaseView(request: SdReturnCase) {
+    const refund = request.refunds[0]
     return {
         id: request.id,
         requestNumber: request.requestNumber,
@@ -56,6 +58,27 @@ export function toReturnCaseView(request: SdReturnCase) {
         })),
         mmCustomerReturn: request.mmCustomerReturn,
         replacementOrder: request.replacementOrder,
+        refund: refund
+            ? {
+                  refundNumber: refund.refundNumber,
+                  status: refund.status,
+                  amount: refund.amount.toString(),
+                  currency: refund.currency,
+                  refundMethod: refund.refundMethod,
+                  isDemo: refund.isDemo,
+                  approvedAt: refund.approvedAt,
+                  paidAt: refund.paidAt,
+                  failReason: refund.failReason,
+                  creditMemo: refund.creditMemo
+                      ? {
+                            creditMemoNumber: refund.creditMemo.creditMemoNumber,
+                            amount: refund.creditMemo.amount.toString(),
+                            status: refund.creditMemo.status,
+                        }
+                      : null,
+              }
+            : null,
+        settlement: returnSettlement(request),
     }
 }
 

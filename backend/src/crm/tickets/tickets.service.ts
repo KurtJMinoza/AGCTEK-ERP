@@ -15,12 +15,15 @@ import {
     CreateTicketCommentDto,
     CreateTicketDto,
     ListTicketsQueryDto,
+    OverrideTicketStatusDto,
     TICKET_DEFAULT_QUEUE_STATUSES,
     TICKET_PRIORITY_ORDER,
     TicketStatus,
     UpdateTicketDto,
 } from './dto/ticket.dto'
 import { CrmActivitiesService, overdueTicketWhere } from '../activities/activities.service'
+import { ReturnRequestService } from '../../sd/return-request.service'
+import { RETURN_GATED_TICKET_STATUSES, returnSettlement } from './return-settlement'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -55,6 +58,7 @@ export class CrmTicketsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly activities: CrmActivitiesService,
+        private readonly returnRequests: ReturnRequestService,
     ) {}
 
     async list(query: ListTicketsQueryDto) {
@@ -194,10 +198,12 @@ export class CrmTicketsService {
             data.assignedTo = dto.assignedTo
         }
         if (dto.status !== undefined && dto.status !== current.status) {
-            const from = current.status as TicketStatus
-            if (!TICKET_TRANSITIONS[from]?.includes(dto.status)) {
-                throw new BadRequestException(
-                    `Cannot move ticket from ${current.status} to ${dto.status}`,
+            this.assertTransition(current.status, dto.status)
+            const settlement = await this.returnSettlementFor(current, dto.status)
+            if (settlement && !settlement.settled) {
+                throw new ConflictException(
+                    `Return ${current.returnRequestNumber ?? ''} is not settled: ${settlement.blocker}. ` +
+                        'Wait for SD / finance, or use the override (reason required).',
                 )
             }
             data.status = dto.status
@@ -215,6 +221,65 @@ export class CrmTicketsService {
             throw new ConflictException('Ticket changed concurrently, reload and retry')
         }
         return this.findOne(id)
+    }
+
+    /**
+     * Resolves, closes or cancels a return case whose SD return is not settled yet. The override,
+     * its reason and what was still open are kept on the case as a comment.
+     */
+    async overrideStatus(id: string, dto: OverrideTicketStatusDto, userId: string) {
+        const current = await this.findOne(id)
+        if (TERMINAL_STATUSES.has(current.status)) {
+            throw new ConflictException(`${current.status} tickets are read-only`)
+        }
+        if (!current.sdReturnRequestId) {
+            throw new BadRequestException(
+                'Overrides apply only to return cases; change the status normally',
+            )
+        }
+        this.assertTransition(current.status, dto.status)
+        const settlement = await this.returnSettlementFor(current, dto.status)
+        if (!settlement || settlement.settled) {
+            throw new BadRequestException(
+                `Return ${current.returnRequestNumber ?? ''} is settled; change the status normally`,
+            )
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            const result = await tx.crmTicket.updateMany({
+                where: { id, status: current.status, updatedAt: current.updatedAt },
+                data: { status: dto.status, updatedBy: userId },
+            })
+            if (result.count === 0) {
+                throw new ConflictException('Ticket changed concurrently, reload and retry')
+            }
+            await tx.crmTicketComment.create({
+                data: {
+                    ticketId: id,
+                    authorId: userId,
+                    body:
+                        `Status override ${current.status} → ${dto.status}. ` +
+                        `Return ${current.returnRequestNumber ?? ''} was not settled: ${settlement.blocker}. ` +
+                        `Reason: ${dto.reason}`,
+                },
+            })
+        })
+        return this.findOne(id)
+    }
+
+    private assertTransition(from: string, to: TicketStatus) {
+        if (!TICKET_TRANSITIONS[from as TicketStatus]?.includes(to)) {
+            throw new BadRequestException(`Cannot move ticket from ${from} to ${to}`)
+        }
+    }
+
+    /** Settlement of the linked SD return when `to` ends a return case; null when no gate applies. */
+    private async returnSettlementFor(
+        ticket: { sdReturnRequestId: string | null },
+        to: TicketStatus,
+    ) {
+        if (!ticket.sdReturnRequestId || !RETURN_GATED_TICKET_STATUSES.has(to)) return null
+        return returnSettlement(await this.returnRequests.findForCase(ticket.sdReturnRequestId))
     }
 
     async listComments(ticketId: string) {

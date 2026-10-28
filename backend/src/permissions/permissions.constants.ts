@@ -552,6 +552,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Calls, meetings, and tasks on leads and opportunities.',
         ],
         ['tickets', 'Tickets', 'Customer service cases.'],
+        [
+            'ticket-overrides',
+            'Ticket Overrides',
+            'Resolve, close or cancel a return case before SD / finance settle the return (reason required).',
+        ],
         ['loyalty', 'Loyalty', 'Customer loyalty points and tiers.'],
     ]),
     ...group('hcm', [['hris', 'HRIS Access', 'Link to the external HRIS.']]),
