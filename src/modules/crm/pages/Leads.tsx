@@ -171,7 +171,7 @@ export default function LeadsPage() {
             <PageHeader
                 title="Leads"
                 description="Prospects before they become opportunities. Converting creates an opportunity for an SD customer."
-                breadcrumbs={crmPageBreadcrumbs('Leads')}
+                breadcrumbs={crmPageBreadcrumbs('/crm/leads')}
                 actions={
                     canCreate ? (
                         <Button variant="solid" onClick={() => openDialog(null)}>

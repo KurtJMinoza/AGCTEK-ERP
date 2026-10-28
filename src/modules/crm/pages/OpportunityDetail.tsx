@@ -74,7 +74,7 @@ export default function OpportunityDetailPage() {
             <PageContainer>
                 <PageHeader
                     title="Opportunity"
-                    breadcrumbs={crmPageBreadcrumbs('Opportunities')}
+                    breadcrumbs={crmPageBreadcrumbs('/crm/opportunities')}
                 />
                 {notFound ? (
                     <Alert

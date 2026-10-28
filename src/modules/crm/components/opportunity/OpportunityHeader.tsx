@@ -35,7 +35,7 @@ export default function OpportunityHeader({
     return (
         <>
             <PageHeader
-                breadcrumbs={crmOpportunityBreadcrumbs(opportunity.name)}
+                breadcrumbs={crmOpportunityBreadcrumbs(opportunity.name, opportunity.id)}
                 title={
                     <span className="flex flex-wrap items-center gap-2">
                         {opportunity.name}

@@ -262,7 +262,7 @@ export default function CustomerDetailPage() {
     if (!data) {
         return (
             <PageContainer>
-                <PageHeader title="Customer" breadcrumbs={crmPageBreadcrumbs('Customers')} />
+                <PageHeader title="Customer" breadcrumbs={crmPageBreadcrumbs('/crm/customers')} />
                 {error ? (
                     <Alert showIcon type="danger" title="Unable to load customer">
                         {error}{' '}
@@ -286,7 +286,7 @@ export default function CustomerDetailPage() {
             <PageHeader
                 title={customer.companyName}
                 description={`${customer.customerNumber} · ${customer.contactName}`}
-                breadcrumbs={crmCustomerBreadcrumbs(customer.companyName)}
+                breadcrumbs={crmCustomerBreadcrumbs(customer.companyName, customer.id)}
                 actions={
                     canCreate ? (
                         <div className="flex gap-2">
