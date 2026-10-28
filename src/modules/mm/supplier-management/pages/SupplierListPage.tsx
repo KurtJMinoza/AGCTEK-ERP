@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Iso9001FoundationWorkflowStrip from '@/modules/mm/shared/components/Iso9001FoundationWorkflowStrip'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
@@ -454,7 +453,6 @@ const SupplierListPage = () => {
                     </Button>
                 }
             />
-            <Iso9001FoundationWorkflowStrip activeStep={2} />
 
             <AdaptiveCard className="mt-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">

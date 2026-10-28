@@ -18,7 +18,6 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001FoundationWorkflowStrip from '@/modules/mm/shared/components/Iso9001FoundationWorkflowStrip'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import {
     warehouseRulesService,
@@ -181,7 +180,6 @@ const PickingRulesPage = () => {
                     </Button>
                 }
             />
-            <Iso9001FoundationWorkflowStrip activeStep={3} />
             <AdaptiveCard>
                 <DataTable columns={columns} data={rows} loading={loading} />
             </AdaptiveCard>

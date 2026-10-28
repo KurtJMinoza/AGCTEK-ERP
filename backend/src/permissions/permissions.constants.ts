@@ -382,11 +382,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Charts and reports across Materials Management.',
         ],
         [
-            'foundation-setup',
-            'MM Foundation (ISO 9001)',
-            'Master data readiness before operational MM flows.',
-        ],
-        [
             'exception-center',
             'Exception Center',
             'Operational exceptions across MM domains.',

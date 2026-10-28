@@ -207,8 +207,6 @@ import { QualityMetricsService } from './quality/quality-metrics.service'
 import { QualityRuleService } from './quality/quality-rule.service'
 import { WarehouseRulesController } from './warehouse/warehouse-rules.controller'
 import { WarehouseRulesService } from './warehouse/warehouse-rules.service'
-import { FoundationController } from './foundation/foundation.controller'
-import { FoundationReadinessService } from './foundation/foundation-readiness.service'
 import { WarehouseTaskController } from './warehouse/tasks/warehouse-task.controller'
 import { WarehouseTaskService } from './warehouse/tasks/warehouse-task.service'
 import { TaskAssignmentService } from './warehouse/tasks/task-assignment.service'
@@ -285,7 +283,6 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         StorageShelvesController,
         StorageBinsController,
         WarehouseRulesController,
-        FoundationController,
         InventoryBalanceController,
         PickingController,
         PickWaveController,
@@ -355,7 +352,6 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         StorageShelvesService,
         StorageBinsService,
         WarehouseRulesService,
-        FoundationReadinessService,
         InventoryBalanceService,
         PickingService,
         PickWaveService,

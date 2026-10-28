@@ -15,7 +15,6 @@ import { valuationService } from '../services/valuationService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryValueRow } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001FoundationWorkflowStrip from '@/modules/mm/shared/components/Iso9001FoundationWorkflowStrip'
 
 const ROUTE = '/modules/mm/valuation/inventory-valuation'
 type Opt = { value: string; label: string }
@@ -84,7 +83,6 @@ const InventoryValuationPage = () => {
                 description="Quantity × applicable cost by material and warehouse"
                 
             />
-            <Iso9001FoundationWorkflowStrip activeStep={4} />
             <AdaptiveCard className="mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                     <FormItem label="Company">

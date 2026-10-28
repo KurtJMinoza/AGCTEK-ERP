@@ -378,5 +378,6 @@ Before reporting completion, verify applicable items:
 | [.cursor/skills/quality/SKILL.md](.cursor/skills/quality/SKILL.md) | Quality / inspection |
 | [.cursor/skills/mrp/SKILL.md](.cursor/skills/mrp/SKILL.md) | Planning / MRP |
 | [.cursor/skills/integration/SKILL.md](.cursor/skills/integration/SKILL.md) | Cross-module events |
+| [.cursor/skills/implement-iso9001-inventory-control/SKILL.md](.cursor/skills/implement-iso9001-inventory-control/SKILL.md) | ISO 9001 inventory control (counts, variance, adjustments) |
 
 **UI catalog:** `docs/COMPONENT_CATALOG.md`

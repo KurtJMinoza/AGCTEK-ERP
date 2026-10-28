@@ -11,12 +11,9 @@ This document maps AGCTEK Materials Management **foundation master data** to the
 | 3 | Warehouse structure setup | Warehouse Manager | Storage types/sections/bins, **Putaway Rules**, **Picking Rules** | Bins with defined capacity; active putaway & picking rules per warehouse |
 | 4 | Inventory & valuation configuration | Finance Controller | Inventory valuation, FIFO/MAP/standard, cost layers, landed cost | Active valuation profiles; inventory-managed materials have valuation method; **negative stock** only when explicitly allowed on material |
 
-## Readiness dashboard
+## Navigation
 
-**Path:** `/modules/mm/foundation-setup`  
-**API:** `GET /api/v1/mm/foundation/readiness`
-
-Each step exposes metrics and a **Ready / Gap** flag derived from data in the database (not manual sign-off).
+Use the existing MM hubs listed in the process overview table (Material Master, Supplier Management, Warehouse Management, Valuation). There is no separate foundation checklist page; validate readiness using each hub’s data and reports.
 
 ## Warehouse rules (step 3)
 

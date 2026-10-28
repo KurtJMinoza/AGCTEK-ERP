@@ -59,12 +59,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 'barChart',
             ),
             mmPage(
-                'foundation-setup',
-                'MM Foundation (ISO 9001)',
-                'Readiness checklist for material, supplier, warehouse, and valuation master data.',
-                'clipboard',
-            ),
-            mmPage(
                 'exception-center',
                 'Exception Center',
                 'Centralized read-only MM operational exceptions across all domains.',

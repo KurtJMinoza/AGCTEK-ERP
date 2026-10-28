@@ -1,0 +1,4 @@
+interface:
+  display_name: "ISO 9001 Inventory Control"
+  short_description: "Implement controlled inventory counts and adjustments"
+  default_prompt: "Use $implement-iso9001-inventory-control to implement or repair the cycle counting, physical inventory, variance, approval, inventory posting, and accounting flow in this enterprise resource planning codebase."

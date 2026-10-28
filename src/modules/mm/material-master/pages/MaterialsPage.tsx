@@ -36,7 +36,6 @@ import { useReferenceData } from '../hooks/useReferenceData'
 import { materialService } from '../services/materialService'
 import type { Material, MaterialStatus } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001FoundationWorkflowStrip from '@/modules/mm/shared/components/Iso9001FoundationWorkflowStrip'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -445,7 +444,6 @@ const MaterialsPage = () => {
                     canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button> : undefined
                 }
             />
-            <Iso9001FoundationWorkflowStrip activeStep={1} />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard label="Total materials" value={stats.total} icon={<HiOutlineCube className="text-lg" />} />
