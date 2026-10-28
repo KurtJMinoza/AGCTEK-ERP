@@ -444,6 +444,24 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
 - **Case view:** `GET :id/return` also returns the latest SD refund (number, amount, method, status, credit memo) and the settlement. The case panel shows them, plus an "Override & end case" action.
 - Until FICO pays refunds, refund returns stay unsettled at "approved, waiting for payment by finance", so ending those cases needs the override.
 
+**Pipeline controls (ISO):**
+- **Mandatory owner:** every opportunity has an active owner (`assignedTo`).
+  - Create requires one.
+  - Update can reassign it but never clear it, and an unowned row must get an owner before any other change.
+  - Winning requires one.
+  - Lead conversion uses the chosen owner, else the lead's owner, else the converting user.
+  - Owner pickers read `GET /crm/users?search=` (any CRM read access; active users, display fields only).
+- **Lead activity log:** `/crm/leads/:leadId/activities` (list, create, complete; `crm.activities`).
+  - A lead accepts activities in every status from intake (NEW) on, except CONVERTED, whose activities move to the opportunity and keep `leadId` as history.
+  - The leads list carries the next-activity badge.
+- **After Closed Won:** `GET /crm/opportunities/:id/sales-order` adds read-only `signals`, read live from SD:
+  - payment status and method;
+  - shipped, delivered, POD on file, courier;
+  - SD invoice billing status (through `SalesInvoiceService.statusForSalesOrder`);
+  - credit, always `NOT_CHECKED` (no credit check exists in SD or FICO).
+  The opportunity page shows them in an "Order to cash" card with links only.
+- **Handoff failures:** when SD refuses the Closed Won order (HTTP 4xx, e.g. an inactive customer), the win rolls back and a SYSTEM feed entry "Closed Won hand-off to SD failed: <reason>" is kept on the opportunity. Internal errors are not copied to the feed.
+
 **Opportunity workspace:** `/crm/opportunities/[id]` is the canonical place to work a deal (table name / Open, board card click, Customer 360 and "New opportunity" all land there). It reuses the existing APIs only: `GET /crm/opportunities/:id` (also returns `owner` display fields and the source lead's `source`), `PATCH` for stage moves and details (server gates, transitions and lost reason apply; the stage bar adds the no-activity and reopen advisories), `POST :id/win`, the opportunity activity endpoints, and the read-only `GET :id/sales-order`. A **Quotations** panel (`#quotations`) lists the opportunity's SD quotations newest first.
 - Each shows number and revision, status, total, validity and dates, with the lines on demand.
 - Actions follow the quotation status: Edit / Send / Cancel for a DRAFT, Accept / Reject / Revise / Cancel for SENT, Revise / Cancel for ACCEPTED, and Revise for REJECTED or EXPIRED while the deal is open and has no order.

@@ -91,7 +91,7 @@ export class CrmLeadsService {
             }),
             this.prisma.crmLead.count({ where }),
         ])
-        return { data, total, page, pageSize }
+        return { data: await this.activities.withNextActivityFor('lead', data), total, page, pageSize }
     }
 
     async findOne(id: string) {
@@ -246,7 +246,8 @@ export class CrmLeadsService {
                     currency: opportunity.currency,
                     stage: opportunity.stage,
                     expectedCloseDate: opportunity.expectedCloseDate,
-                    assignedTo: lead.assignedTo ?? undefined,
+                    // Every opportunity has an owner: the chosen one, the lead's, or whoever converts it.
+                    assignedTo: opportunity.assignedTo ?? lead.assignedTo ?? user.id,
                 },
                 user.id,
                 tx,

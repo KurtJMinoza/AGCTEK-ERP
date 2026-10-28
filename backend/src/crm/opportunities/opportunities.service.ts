@@ -17,7 +17,6 @@ import {
 } from '../messages/crm-messages.service'
 import {
     assertCustomerExists,
-    assertUserExists,
     CRM_CUSTOMER_SUMMARY_SELECT,
     CRM_USER_SUMMARY_SELECT,
     type CrmPrismaClient,
@@ -42,6 +41,20 @@ import {
 const DEFAULT_PAGE_SIZE = 20
 
 const OPEN_STAGES: ReadonlySet<string> = new Set(OPPORTUNITY_OPEN_STAGES)
+
+export const OWNER_REQUIRED = 'Every opportunity needs an owner; assign one (assignedTo)'
+
+/** An opportunity owner must be an existing, active user. */
+async function assertOwnerAssignable(client: CrmPrismaClient, userId: string) {
+    const user = await client.user.findUnique({
+        where: { id: userId },
+        select: { isActive: true, userName: true },
+    })
+    if (!user) throw new NotFoundException('Assigned user not found')
+    if (!user.isActive) {
+        throw new BadRequestException(`${user.userName} is inactive and cannot own opportunities`)
+    }
+}
 
 export const opportunityInclude = {
     customer: { select: CRM_CUSTOMER_SUMMARY_SELECT },
@@ -252,7 +265,8 @@ export class CrmOpportunitiesService {
     /** `client` lets lead conversion create the opportunity inside its transaction. */
     async create(dto: CreateOpportunityDto, userId: string, client: CrmPrismaClient = this.prisma) {
         await assertCustomerExists(client, dto.customerId)
-        if (dto.assignedTo) await assertUserExists(client, dto.assignedTo)
+        if (!dto.assignedTo) throw new BadRequestException(OWNER_REQUIRED)
+        await assertOwnerAssignable(client, dto.assignedTo)
         if (dto.leadId) await this.assertLeadMatchesCustomer(dto.leadId, dto.customerId, client)
 
         const stage = dto.stage ?? 'PROSPECTING'
@@ -278,7 +292,7 @@ export class CrmOpportunitiesService {
                 stage,
                 probability: dto.probability ?? stageMeta(stage).defaultProbability,
                 expectedCloseDate: dto.expectedCloseDate ?? null,
-                assignedTo: dto.assignedTo ?? null,
+                assignedTo: dto.assignedTo,
                 createdBy: userId,
                 updatedBy: userId,
             },
@@ -296,7 +310,9 @@ export class CrmOpportunitiesService {
         amount: Decimal | null
         expectedCloseDate: Date | null
         customerId: string
+        assignedTo: string | null
     }) {
+        if (!current.assignedTo) throw new BadRequestException(OWNER_REQUIRED)
         if (!canMoveStage(current.stage, 'CLOSED_WON')) {
             throw new BadRequestException(
                 `Cannot move opportunity from ${current.stage} to CLOSED_WON`,
@@ -338,9 +354,16 @@ export class CrmOpportunitiesService {
             await assertCustomerExists(this.prisma, dto.customerId)
             data.customerId = dto.customerId
         }
+        if ((dto.assignedTo as string | null | undefined) === null) {
+            throw new BadRequestException('The owner cannot be removed; assign another user instead')
+        }
         if (dto.assignedTo !== undefined) {
-            if (dto.assignedTo) await assertUserExists(this.prisma, dto.assignedTo)
+            if (dto.assignedTo !== current.assignedTo) {
+                await assertOwnerAssignable(this.prisma, dto.assignedTo)
+            }
             data.assignedTo = dto.assignedTo
+        } else if (!current.assignedTo) {
+            throw new BadRequestException(OWNER_REQUIRED)
         }
 
         const customerId = dto.customerId ?? current.customerId

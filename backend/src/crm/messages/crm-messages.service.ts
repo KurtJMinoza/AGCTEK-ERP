@@ -61,11 +61,12 @@ export function formatSystemLabel(value: string) {
 
 /** Human-readable summary for a tracked change; `metadata` always stays `{ field, from, to }`. */
 export function systemSummary(change: SystemChange): string {
+    if (change.summary) return change.summary
     const from = change.from === null || change.from === undefined ? 'none' : String(change.from)
     const to = change.to === null || change.to === undefined ? 'none' : String(change.to)
     switch (change.field) {
         case 'stage':
-            return change.summary ?? `Stage changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
+            return `Stage changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
         case 'assignedTo':
             if (to === 'none') return 'Owner was removed'
             return from === 'none'

@@ -57,7 +57,10 @@ function mockDeps() {
             create: jest.fn().mockResolvedValue({ id: 'opp-1' }),
             findOne: jest.fn().mockResolvedValue({ id: 'opp-1', nextActivityStatus: 'UPCOMING' }),
         },
-        activities: { reparentLeadActivities: jest.fn().mockResolvedValue(2) },
+        activities: {
+            reparentLeadActivities: jest.fn().mockResolvedValue(2),
+            withNextActivityFor: jest.fn(async (_kind: string, rows: unknown[]) => rows),
+        },
         customers: { create: jest.fn().mockResolvedValue({ id: 'cust-new' }) },
         permissions: { assertPermission: jest.fn().mockResolvedValue(undefined) },
     }
@@ -205,6 +208,28 @@ describe('CrmLeadsService.convert', () => {
                 opportunity: expect.objectContaining({ id: 'opp-1', nextActivityStatus: 'UPCOMING' }),
             }),
         )
+    })
+
+    it('gives the opportunity an owner: chosen, else the lead owner, else the converting user', async () => {
+        const unassigned = mockDeps()
+        await service(mockPrisma(), unassigned).convert('lead-1', { customerId: 'cust-1' }, admin)
+        expect(unassigned.opportunities.create.mock.calls[0][0].assignedTo).toBe('user-1')
+
+        const chosen = mockDeps()
+        await service(mockPrisma({ lead: lead({ assignedTo: 'user-2' }) }), chosen).convert(
+            'lead-1',
+            { customerId: 'cust-1', opportunity: { assignedTo: 'user-3' } },
+            admin,
+        )
+        expect(chosen.opportunities.create.mock.calls[0][0].assignedTo).toBe('user-3')
+    })
+
+    it('lists leads with their next-activity badge', async () => {
+        const prisma = mockPrisma()
+        prisma.crmLead.findMany.mockResolvedValue([lead()])
+        const deps = mockDeps()
+        await service(prisma, deps).list({})
+        expect(deps.activities.withNextActivityFor).toHaveBeenCalledWith('lead', [lead()])
     })
 
     it('links an existing SD customer supplied at conversion', async () => {

@@ -10,6 +10,7 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import usePermissions from '@/utils/hooks/usePermissions'
 import OpportunitySalesOrderDialog, {
+    OrderSignals,
     SalesOrderOriginBadges,
     SD_SALES_ORDERS_PATH,
     type SalesOrderDialogMode,
@@ -216,6 +217,17 @@ export default function OpportunityDetailPage() {
                     salesOrderError={salesOrderError}
                 />
             </div>
+
+            {salesOrder?.signals ? (
+                <AdaptiveCard className="mb-4">
+                    <h5 className="mb-1">Order to cash</h5>
+                    <p className="text-xs text-gray-500">
+                        Read-only status of {salesOrder.orderNumber} from SD, SCM and finance; CRM
+                        never changes it.
+                    </p>
+                    <OrderSignals signals={salesOrder.signals} />
+                </AdaptiveCard>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
                 <div className="flex flex-col gap-4 lg:col-span-3">

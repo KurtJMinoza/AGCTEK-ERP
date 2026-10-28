@@ -18,15 +18,21 @@ import { CompleteActivityDto, CreateActivityDto } from './dto/activity.dto'
 const OPEN_STAGES: ReadonlySet<string> = new Set(OPPORTUNITY_OPEN_STAGES)
 /** Matches the ticket rule: CLOSED / CANCELLED are read-only; RESOLVED may still get follow-ups. */
 const TICKET_TERMINAL_STATUSES: ReadonlySet<string> = new Set(['CLOSED', 'CANCELLED'])
+/**
+ * A lead accepts activities in every status from intake (NEW) on; once CONVERTED its activities
+ * move to the opportunity and follow-ups are logged there.
+ */
+const LEAD_CLOSED_STATUSES: ReadonlySet<string> = new Set(['CONVERTED'])
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient
 
-export type ActivityParentKind = 'opportunity' | 'ticket'
+export type ActivityParentKind = 'opportunity' | 'ticket' | 'lead'
 type ActivityParent = { kind: ActivityParentKind; id: string }
 
 const PARENT_COLUMN = {
     opportunity: 'opportunityId',
     ticket: 'ticketId',
+    lead: 'leadId',
 } as const satisfies Record<ActivityParentKind, keyof CrmActivity>
 
 const parentWhere = (parent: ActivityParent) => ({ [PARENT_COLUMN[parent.kind]]: parent.id })
@@ -54,7 +60,9 @@ export const overdueActivitiesWhere = (
 ): Prisma.CrmActivityWhereInput =>
     kind === 'opportunity'
         ? { ...overdueActivity(now), opportunity: { stage: { in: [...OPPORTUNITY_OPEN_STAGES] } } }
-        : { ...overdueActivity(now), ticket: { status: { notIn: [...TICKET_TERMINAL_STATUSES] } } }
+        : kind === 'ticket'
+          ? { ...overdueActivity(now), ticket: { status: { notIn: [...TICKET_TERMINAL_STATUSES] } } }
+          : { ...overdueActivity(now), lead: { status: { notIn: [...LEAD_CLOSED_STATUSES] } } }
 
 @Injectable()
 export class CrmActivitiesService {
@@ -82,6 +90,19 @@ export class CrmActivitiesService {
 
     completeForTicket(ticketId: string, activityId: string, dto: CompleteActivityDto, userId: string) {
         return this.completeFor({ kind: 'ticket', id: ticketId }, activityId, dto, userId)
+    }
+
+    /** A converted lead keeps listing its history (activities keep `leadId` when moved). */
+    listForLead(leadId: string, now = new Date()) {
+        return this.list({ kind: 'lead', id: leadId }, now)
+    }
+
+    createForLead(leadId: string, dto: CreateActivityDto, userId: string) {
+        return this.create({ kind: 'lead', id: leadId }, dto, userId)
+    }
+
+    completeForLead(leadId: string, activityId: string, dto: CompleteActivityDto, userId: string) {
+        return this.completeFor({ kind: 'lead', id: leadId }, activityId, dto, userId)
     }
 
     /** Open activities first (earliest due first), then completed ones. */
@@ -237,6 +258,14 @@ export class CrmActivitiesService {
             })
             if (!opportunity) throw new NotFoundException('Opportunity not found')
             return { open: OPEN_STAGES.has(opportunity.stage), state: opportunity.stage }
+        }
+        if (parent.kind === 'lead') {
+            const lead = await this.prisma.crmLead.findUnique({
+                where: { id: parent.id },
+                select: { id: true, status: true },
+            })
+            if (!lead) throw new NotFoundException('Lead not found')
+            return { open: !LEAD_CLOSED_STATUSES.has(lead.status), state: lead.status }
         }
         const ticket = await this.prisma.crmTicket.findUnique({
             where: { id: parent.id },

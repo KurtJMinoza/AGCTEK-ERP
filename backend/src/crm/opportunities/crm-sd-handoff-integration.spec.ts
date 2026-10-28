@@ -250,6 +250,7 @@ function setup() {
         permissions as unknown as PermissionsService,
         quotations,
         messages,
+        { statusForSalesOrder: async () => null } as never,
     )
 
     const addOpportunity = (id: string, overrides: Row = {}) => {

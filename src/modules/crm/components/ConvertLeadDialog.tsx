@@ -6,8 +6,10 @@ import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import { FormItem } from '@/components/ui/Form'
 import FormDialog from '@/components/shared/FormDialog'
+import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import CrmSelect from './CrmSelect'
 import CustomerSelect from './CustomerSelect'
+import OwnerSelect from './OwnerSelect'
 import { requirementHint } from './OpportunityFormDialog'
 import { useOpportunityStages } from '../hooks/useOpportunityPipeline'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
@@ -34,9 +36,11 @@ type ConvertForm = {
     currency: string
     stage: OpenStage
     expectedCloseDate: string
+    assignedTo: string | null
 }
 
-const toForm = (lead: Lead | null): ConvertForm => ({
+const toForm = (lead: Lead | null, currentUserId?: string): ConvertForm => ({
+    assignedTo: lead?.assignedTo ?? currentUserId ?? null,
     mode: 'existing',
     customerId: lead?.customerId ?? null,
     companyName: '',
@@ -67,16 +71,18 @@ export default function ConvertLeadDialog({
     onConverted,
 }: ConvertLeadDialogProps) {
     const { meta } = useOpportunityStages()
-    const [form, setForm] = useState<ConvertForm>(() => toForm(lead))
+    const { session } = useCurrentSession()
+    const currentUserId = session?.user?.id
+    const [form, setForm] = useState<ConvertForm>(() => toForm(lead, currentUserId))
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
     const linked = Boolean(lead?.customerId)
     const stageMeta = meta(form.stage)
 
     useEffect(() => {
-        setForm(toForm(lead))
+        setForm(toForm(lead, currentUserId))
         setFormError(null)
-    }, [lead])
+    }, [lead, currentUserId])
 
     const set = <K extends keyof ConvertForm>(key: K, value: ConvertForm[K]) =>
         setForm((f) => ({ ...f, [key]: value }))
@@ -85,6 +91,10 @@ export default function ConvertLeadDialog({
         if (!lead) return
         if (!linked && form.mode === 'existing' && !form.customerId) {
             setFormError('Select the SD customer to link')
+            return
+        }
+        if (!form.assignedTo) {
+            setFormError('Select the opportunity owner')
             return
         }
         if (form.mode === 'new' && (!form.companyName.trim() || !form.email.trim())) {
@@ -110,6 +120,7 @@ export default function ConvertLeadDialog({
                 currency: form.currency.trim().toUpperCase() || undefined,
                 stage: form.stage,
                 expectedCloseDate: form.expectedCloseDate || undefined,
+                assignedTo: form.assignedTo ?? undefined,
             },
         }
         setSaving(true)
@@ -216,12 +227,15 @@ export default function ConvertLeadDialog({
                 <p className="mb-2 text-xs text-gray-500">{requirementHint(stageMeta)}</p>
             ) : null}
             <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-                <FormItem label="Name" className="md:col-span-2">
+                <FormItem label="Name">
                     <Input
                         maxLength={200}
                         value={form.opportunityName}
                         onChange={(e) => set('opportunityName', e.target.value)}
                     />
+                </FormItem>
+                <FormItem label="Owner" asterisk>
+                    <OwnerSelect value={form.assignedTo} onChange={(id) => set('assignedTo', id)} />
                 </FormItem>
                 <FormItem label="Stage">
                     <CrmSelect

@@ -1,7 +1,11 @@
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
-import { CrmActivitiesController, CrmTicketActivitiesController } from './activities.controller'
+import {
+    CrmActivitiesController,
+    CrmLeadActivitiesController,
+    CrmTicketActivitiesController,
+} from './activities.controller'
 import { CrmActivitiesService } from './activities.service'
 import { activityDueStatus, classifyDueAt, summarizeNextActivity } from './activity-status'
 
@@ -294,13 +298,56 @@ describe('CrmActivitiesService on tickets', () => {
     })
 })
 
+describe('CrmActivitiesService on leads (activity log from intake)', () => {
+    const withLead = (status: string | null) => {
+        const prisma = mockPrisma()
+        return Object.assign(prisma, {
+            crmLead: {
+                findUnique: jest
+                    .fn()
+                    .mockResolvedValue(status === null ? null : { id: 'lead-1', status }),
+            },
+        })
+    }
+
+    it.each(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED'])(
+        'logs activities on a %s lead, scoped to leadId',
+        async (status) => {
+            const prisma = withLead(status)
+            await service(prisma).createForLead('lead-1', dto, 'user-1')
+            expect(prisma.crmActivity.create.mock.calls[0][0].data).toEqual(
+                expect.objectContaining({ leadId: 'lead-1', type: 'CALL', assignedTo: 'user-1' }),
+            )
+        },
+    )
+
+    it('refuses new activities on a converted lead (they belong to the opportunity)', async () => {
+        await expect(
+            service(withLead('CONVERTED')).createForLead('lead-1', dto, 'user-1'),
+        ).rejects.toThrow('Cannot schedule activities on a CONVERTED lead')
+    })
+
+    it('lists the lead history and completes scoped to the lead; 404 for a missing lead', async () => {
+        const prisma = withLead('CONVERTED')
+        await service(prisma).listForLead('lead-1')
+        expect(prisma.crmActivity.findMany.mock.calls[0][0].where).toEqual({ leadId: 'lead-1' })
+        await service(prisma).completeForLead('lead-1', 'act-1', {}, 'user-1')
+        expect(prisma.crmActivity.updateMany.mock.calls[0][0].where).toEqual({
+            id: 'act-1',
+            leadId: 'lead-1',
+            doneAt: null,
+        })
+        await expect(service(withLead(null)).listForLead('nope')).rejects.toThrow('Lead not found')
+    })
+})
+
 describe('Activities controllers RBAC metadata', () => {
     it.each([
         ['list', 'read'],
         ['create', 'create'],
         ['complete', 'update'],
-    ])('%s requires crm.activities:%s on opportunities and tickets', (handler, action) => {
-        for (const ctrl of [CrmActivitiesController, CrmTicketActivitiesController]) {
+    ])('%s requires crm.activities:%s on opportunities, tickets and leads', (handler, action) => {
+        for (const ctrl of [CrmActivitiesController, CrmTicketActivitiesController, CrmLeadActivitiesController]) {
             const fn = ctrl.prototype[handler as 'list' | 'create' | 'complete']
             expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.activities', action })
         }

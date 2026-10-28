@@ -16,6 +16,7 @@ import { CrmOpportunityHandoffService } from '../crm/opportunities/opportunity-h
 import { CrmOpportunityQuotationsService } from '../crm/opportunities/opportunity-quotations.service'
 import { QuotationService } from './quotation.service'
 import { SalesOrderService } from './sales-order.service'
+import { SalesInvoiceService } from './sales-invoice.service'
 
 jest.setTimeout(180_000)
 
@@ -46,7 +47,14 @@ describe('SD quotations on PostgreSQL', () => {
 
     const newOpp = async (name: string, stage: 'PROSPECTING' | 'PROPOSAL' = 'PROPOSAL') => {
         const opp = await opps.create(
-            { customerId: customer, name: `${tag} ${name}`, amount: 5000, expectedCloseDate: new Date('2030-12-31'), stage },
+            {
+                customerId: customer,
+                name: `${tag} ${name}`,
+                amount: 5000,
+                expectedCloseDate: new Date('2030-12-31'),
+                stage,
+                assignedTo: user.id,
+            },
             user.id,
         )
         oppIds.push(opp.id)
@@ -102,7 +110,15 @@ describe('SD quotations on PostgreSQL', () => {
             {} as never,
             {} as never,
         )
-        handoff = new CrmOpportunityHandoffService(prisma as never, opps, salesOrders, allow as never, quotations, messages)
+        handoff = new CrmOpportunityHandoffService(
+            prisma as never,
+            opps,
+            salesOrders,
+            allow as never,
+            quotations,
+            messages,
+            new SalesInvoiceService(prisma as never),
+        )
         oppQuotes = new CrmOpportunityQuotationsService(prisma as never, quotations, allow as never)
     })
 

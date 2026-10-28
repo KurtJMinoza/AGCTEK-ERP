@@ -34,6 +34,7 @@ function opportunity(overrides: Record<string, unknown> = {}) {
         lostReason: null as string | null,
         lostNotes: null as string | null,
         sdSalesOrderId: null as string | null,
+        assignedTo: 'user-1' as string | null,
         updatedAt,
         customer: { id: 'cust-1' },
         lead: null,
@@ -57,7 +58,9 @@ function mockPrisma(
                     opts.customer === false ? null : { id: 'cust-1', status: opts.customerStatus ?? 'ACTIVE' },
                 ),
         },
-        user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-2' }) },
+        user: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'user-2', isActive: true, userName: 'rep2' }),
+        },
         crmLead: {
             findUnique: jest.fn().mockResolvedValue(opts.lead === undefined ? { customerId: null } : opts.lead),
         },
@@ -113,7 +116,7 @@ describe('CrmOpportunitiesService', () => {
     it('requires an existing SdCustomer on create and never creates one', async () => {
         const prisma = mockPrisma({ customer: false })
         await expect(
-            service(prisma).create({ customerId: 'missing', name: 'X' }, 'user-1'),
+            service(prisma).create({ customerId: 'missing', name: 'X', assignedTo: 'user-2' }, 'user-1'),
         ).rejects.toBeInstanceOf(NotFoundException)
         expect(prisma.crmOpportunity.create).not.toHaveBeenCalled()
     })
@@ -121,11 +124,13 @@ describe('CrmOpportunitiesService', () => {
     it('creates in PROSPECTING by default and returns amount as a 2-decimal string', async () => {
         const prisma = mockPrisma()
         const created = await service(prisma).create(
-            { customerId: 'cust-1', name: 'Deal', amount: 1234.5 },
+            { customerId: 'cust-1', name: 'Deal', amount: 1234.5, assignedTo: 'user-2' },
             'user-1',
         )
         const data = prisma.crmOpportunity.create.mock.calls[0][0].data
-        expect(data).toEqual(expect.objectContaining({ stage: 'PROSPECTING', currency: 'PHP' }))
+        expect(data).toEqual(
+            expect.objectContaining({ stage: 'PROSPECTING', currency: 'PHP', assignedTo: 'user-2' }),
+        )
         expect(data).not.toHaveProperty('sdSalesOrderId')
         expect(created.amount).toBe('1234.50')
     })
@@ -133,8 +138,54 @@ describe('CrmOpportunitiesService', () => {
     it('rejects a lead that belongs to another customer', async () => {
         const prisma = mockPrisma({ lead: { customerId: 'cust-other' } })
         await expect(
-            service(prisma).create({ customerId: 'cust-1', name: 'X', leadId: 'lead-1' }, 'user-1'),
+            service(prisma).create(
+                { customerId: 'cust-1', name: 'X', leadId: 'lead-1', assignedTo: 'user-2' },
+                'user-1',
+            ),
         ).rejects.toThrow('Lead belongs to a different customer')
+    })
+
+    describe('mandatory owner', () => {
+        it('refuses to create without an owner or with an inactive one', async () => {
+            const prisma = mockPrisma()
+            await expect(
+                service(prisma).create({ customerId: 'cust-1', name: 'X' } as never, 'user-1'),
+            ).rejects.toThrow(/needs an owner/)
+
+            prisma.user.findUnique.mockResolvedValue({ id: 'user-9', isActive: false, userName: 'gone' })
+            await expect(
+                service(prisma).create({ customerId: 'cust-1', name: 'X', assignedTo: 'user-9' }, 'user-1'),
+            ).rejects.toThrow('gone is inactive and cannot own opportunities')
+            expect(prisma.crmOpportunity.create).not.toHaveBeenCalled()
+        })
+
+        it('never clears the owner on update', async () => {
+            const prisma = mockPrisma()
+            await expect(
+                service(prisma).update('opp-1', { assignedTo: null } as never, 'user-1'),
+            ).rejects.toThrow(/owner cannot be removed/)
+            expect(prisma.crmOpportunity.updateMany).not.toHaveBeenCalled()
+        })
+
+        it('makes an unowned opportunity get an owner before any other change', async () => {
+            const prisma = mockPrisma({ opportunity: opportunity({ assignedTo: null }) })
+            await expect(
+                service(prisma).update('opp-1', { name: 'Renamed' }, 'user-1'),
+            ).rejects.toThrow(/needs an owner/)
+
+            await service(prisma).update('opp-1', { name: 'Renamed', assignedTo: 'user-2' }, 'user-1')
+            expect(updateData(prisma)).toEqual(expect.objectContaining({ assignedTo: 'user-2' }))
+        })
+
+        it('reassigns to an active user and refuses to win without an owner', async () => {
+            const prisma = mockPrisma()
+            await service(prisma).update('opp-1', { assignedTo: 'user-2' }, 'user-1')
+            expect(updateData(prisma)).toEqual(expect.objectContaining({ assignedTo: 'user-2' }))
+
+            await expect(
+                service(mockPrisma()).assertCanWin(opportunity({ assignedTo: null })),
+            ).rejects.toThrow(/needs an owner/)
+        })
     })
 
     it('refuses Closed Won through update; winning goes through POST :id/win', async () => {
@@ -503,10 +554,13 @@ describe('Phase 2 pipeline quality', () => {
 
     it('creates with the stage default probability and gates the starting stage', async () => {
         const prisma = mockPrisma()
-        await service(prisma).create({ customerId: 'cust-1', name: 'Deal' }, 'user-1')
+        await service(prisma).create({ customerId: 'cust-1', name: 'Deal', assignedTo: 'user-2' }, 'user-1')
         expect(prisma.crmOpportunity.create.mock.calls[0][0].data.probability).toBe(10)
         await expect(
-            service(prisma).create({ customerId: 'cust-1', name: 'Deal', stage: 'NEGOTIATION' }, 'user-1'),
+            service(prisma).create(
+                { customerId: 'cust-1', name: 'Deal', stage: 'NEGOTIATION', assignedTo: 'user-2' },
+                'user-1',
+            ),
         ).rejects.toThrow('Moving to Negotiation requires an amount and an expected close date')
     })
 
@@ -683,7 +737,7 @@ describe('audit SYSTEM messages (opportunity chatter feed)', () => {
         const metadata = (committed.messages as { metadata: Record<string, unknown> }[]).map(
             (m) => m.metadata,
         )
-        expect(metadata).toContainEqual({ field: 'assignedTo', from: null, to: 'user-2' })
+        expect(metadata).toContainEqual({ field: 'assignedTo', from: 'user-1', to: 'user-2' })
         expect(metadata).toContainEqual({ field: 'amount', from: '1500.00', to: '2000.00' })
         expect(metadata).toContainEqual({
             field: 'expectedCloseDate',

@@ -246,6 +246,33 @@ export class SalesInvoiceService {
         }
     }
 
+    /** Billing status of an order's invoice for read-only displays (CRM); null before dispatch. */
+    async statusForSalesOrder(salesOrderId: string, now = new Date()) {
+        const invoice = await this.prisma.sdSalesInvoice.findUnique({
+            where: { salesOrderId },
+            select: {
+                id: true,
+                invoiceNumber: true,
+                status: true,
+                issuedAt: true,
+                paidAt: true,
+                currency: true,
+                totalAmount: true,
+            },
+        })
+        if (!invoice) return null
+        return {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            billingStatus: billingStatusOf(invoice, now),
+            issuedAt: invoice.issuedAt,
+            paidAt: invoice.paidAt,
+            dueDate: dueDateFor(invoice.issuedAt),
+            currency: invoice.currency,
+            totalAmount: invoice.totalAmount.toFixed(2),
+        }
+    }
+
     /** Invoice document (`GET /sd/invoices/:id`). Read-only. */
     async findOne(id: string, now = new Date()) {
         const invoice = await this.prisma.sdSalesInvoice.findUnique({

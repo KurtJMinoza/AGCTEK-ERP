@@ -31,6 +31,7 @@ import type {
     QuotationLinesInput,
     Ticket,
     TicketComment,
+    CrmUserRef,
     TicketListParams,
     TicketOverrideStatus,
     TicketReturnCase,
@@ -210,6 +211,12 @@ export async function apiGetCrmDashboard(days?: number) {
 const ACTIVITY_PARENT_ROOT: Record<ActivityParent['kind'], string> = {
     opportunity: '/crm/opportunities',
     ticket: '/crm/tickets',
+    lead: '/crm/leads',
+}
+
+/** Active users for owner pickers (any CRM read access); at most 50, filtered by `search`. */
+export async function apiListCrmUsers(search?: string) {
+    return get<CrmUserRef[]>('/crm/users', compact({ search }))
 }
 
 const activitiesPath = (parent: ActivityParent) =>

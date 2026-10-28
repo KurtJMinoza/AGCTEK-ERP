@@ -57,7 +57,13 @@ export type Lead = {
     score: number | null
     createdAt: string
     updatedAt: string
+    /** Present on list payloads. */
+    nextActivityStatus?: NextActivityStatus
+    nextActivityDueAt?: string | null
 }
+
+/** Leads accept activities from intake on; a converted lead's follow-ups live on its opportunity. */
+export const leadAcceptsActivities = (status: LeadStatus) => status !== 'CONVERTED'
 
 export type LeadListParams = PageParams & {
     search?: string
@@ -113,6 +119,8 @@ export type ConvertLeadInput = {
         currency?: string
         stage?: (typeof OPPORTUNITY_OPEN_STAGES)[number]
         expectedCloseDate?: string
+        /** Defaults to the lead's owner, then to the user converting. */
+        assignedTo?: string
     }
 }
 
@@ -185,6 +193,33 @@ export type LinkedSalesOrder = {
     totalAmount: string | null
     lineCount: number
     createdAt: string
+    /** GET :id/sales-order only: read-only O2C status from SD (CRM never writes these). */
+    signals?: SalesOrderSignals
+}
+
+export type SalesOrderSignals = {
+    payment: { method: string | null; status: string | null }
+    delivery: {
+        shippedAt: string | null
+        deliveredAt: string | null
+        proofOfDelivery: boolean
+        courierName: string | null
+        trackingNumber: string | null
+    }
+    /** Null until SD creates the invoice (at dispatch). */
+    invoice: {
+        id: string
+        invoiceNumber: string
+        /** DRAFT | UNPAID | OVERDUE | PAID | CANCELLED | REFUNDED */
+        billingStatus: string
+        issuedAt: string | null
+        paidAt: string | null
+        dueDate: string | null
+        currency: string
+        totalAmount: string
+    } | null
+    /** No credit check runs in SD or FICO yet. */
+    credit: { status: 'NOT_CHECKED' }
 }
 
 export {
@@ -250,7 +285,7 @@ export type CreateActivityInput = {
     assignedTo?: string
 }
 
-export type ActivityParent = { kind: 'opportunity' | 'ticket'; id: string }
+export type ActivityParent = { kind: 'opportunity' | 'ticket' | 'lead'; id: string }
 
 /**
  * Chatter feed entry (Odoo-style): CRM notes / SYSTEM audit rows plus activities, SD quotes
@@ -316,9 +351,13 @@ export type CreateOpportunityInput = {
     probability?: number
     expectedCloseDate?: string
     leadId?: string
+    /** Owner (mandatory). */
+    assignedTo: string
 }
 
 export type UpdateOpportunityInput = {
+    /** Reassigns the owner; it cannot be cleared. */
+    assignedTo?: string
     name?: string
     description?: string | null
     amount?: number | null

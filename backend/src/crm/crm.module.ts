@@ -18,6 +18,7 @@ import { CrmCustomer360Controller } from './customer-360/customer-360.controller
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
 import {
     CrmActivitiesController,
+    CrmLeadActivitiesController,
     CrmTicketActivitiesController,
 } from './activities/activities.controller'
 import { CrmActivitiesService } from './activities/activities.service'
@@ -25,6 +26,8 @@ import { CrmDashboardController } from './dashboard/dashboard.controller'
 import { CrmDashboardService } from './dashboard/dashboard.service'
 import { CrmMessagesController } from './messages/messages.controller'
 import { CrmMessagesService } from './messages/crm-messages.service'
+import { CrmUsersController } from './users/crm-users.controller'
+import { CrmUsersService } from './users/crm-users.service'
 
 /**
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
@@ -47,6 +50,8 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmTicketActivitiesController,
         CrmDashboardController,
         CrmMessagesController,
+        CrmUsersController,
+        CrmLeadActivitiesController,
     ],
     providers: [
         CrmLeadsService,
@@ -62,6 +67,7 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmActivitiesService,
         CrmDashboardService,
         CrmMessagesService,
+        CrmUsersService,
     ],
 })
 export class CrmModule {}

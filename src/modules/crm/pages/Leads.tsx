@@ -16,7 +16,9 @@ import usePermissions from '@/utils/hooks/usePermissions'
 import ActiveFilters from '../components/ActiveFilters'
 import ConvertLeadDialog from '../components/ConvertLeadDialog'
 import CrmSelect from '../components/CrmSelect'
+import LeadActivitiesDialog from '../components/LeadActivitiesDialog'
 import LeadFormDialog from '../components/LeadFormDialog'
+import { ActivityStatusBadge } from '../components/NextActivityBadge'
 import { useLeads } from '../hooks/useLeads'
 import { crmPageBreadcrumbs } from '../utils/breadcrumbs'
 import { filterLabels, leadParamsFromUrl } from '../utils/deepLinks'
@@ -25,6 +27,7 @@ import {
     CONVERTIBLE_LEAD_STATUSES,
     LEAD_SOURCES,
     LEAD_STATUSES,
+    leadAcceptsActivities,
     type ConvertLeadResult,
     type Lead,
     type LeadSource,
@@ -47,16 +50,24 @@ export default function LeadsPage() {
         create,
         update,
         convert,
+        reload,
     } = useLeads(leadParamsFromUrl(useSearchParams()))
     const router = useRouter()
     const { can } = usePermissions()
     const canCreate = can('crm.leads', 'create')
     const canUpdate = can('crm.leads', 'update')
     const canCreateSdCustomer = can('sd.customer-master', 'create')
+    const canCreateActivity = can('crm.activities', 'create')
+    const canUpdateActivity = can('crm.activities', 'update')
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editing, setEditing] = useState<Lead | null>(null)
     const [converting, setConverting] = useState<Lead | null>(null)
+    const [activitiesFor, setActivitiesFor] = useState<Lead | null>(null)
+    /** Prefer the reloaded row so the dialog header badge stays current. */
+    const activitiesLead = activitiesFor
+        ? (data.find((row) => row.id === activitiesFor.id) ?? activitiesFor)
+        : null
 
     const onConverted = (result: ConvertLeadResult) => {
         setConverting(null)
@@ -113,6 +124,18 @@ export default function LeadsPage() {
                 cell: ({ row }) => row.original.score ?? '—',
             },
             {
+                header: 'Next activity',
+                cell: ({ row }) =>
+                    leadAcceptsActivities(row.original.status) ? (
+                        <ActivityStatusBadge
+                            status={row.original.nextActivityStatus}
+                            dueAt={row.original.nextActivityDueAt}
+                        />
+                    ) : (
+                        <span className="text-gray-400">On opportunity</span>
+                    ),
+            },
+            {
                 header: 'Created',
                 cell: ({ row }) => formatDate(row.original.createdAt),
             },
@@ -130,6 +153,9 @@ export default function LeadsPage() {
                                 Convert
                             </Button>
                         ) : null}
+                        <Button size="xs" onClick={() => setActivitiesFor(row.original)}>
+                            Activities
+                        </Button>
                         <Button size="xs" onClick={() => openDialog(row.original)}>
                             {canUpdate && row.original.status !== 'CONVERTED' ? 'Edit' : 'View'}
                         </Button>
@@ -243,6 +269,14 @@ export default function LeadsPage() {
                 onClose={() => setConverting(null)}
                 onConvert={convert}
                 onConverted={onConverted}
+            />
+
+            <LeadActivitiesDialog
+                lead={activitiesLead}
+                canCreate={canCreateActivity}
+                canUpdate={canUpdateActivity}
+                onClose={() => setActivitiesFor(null)}
+                onChanged={() => void reload()}
             />
         </PageContainer>
     )
