@@ -9,7 +9,11 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import { useTicketComments } from '../hooks/useTickets'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { crmTone, formatEnumLabel } from '../utils/format'
+import usePermissions from '@/utils/hooks/usePermissions'
+import AttachmentsPanel from './AttachmentsPanel'
+import AuditTrail from './AuditTrail'
 import TicketReturnPanel from './TicketReturnPanel'
+import { apiGetAuditTrail } from '../services/crmApi'
 import type { Ticket, TicketComment, TicketStatus } from '../types'
 
 const authorName = (comment: TicketComment) => {
@@ -43,6 +47,9 @@ export default function TicketCommentsDialog({
     const [changed, setChanged] = useState<{ ticketId: string; status: TicketStatus } | null>(null)
     const status = ticket && changed?.ticketId === ticket.id ? changed.status : ticket?.status
     const closed = status === 'CLOSED' || status === 'CANCELLED'
+    const { can } = usePermissions()
+    const canRemoveAttachments = can('crm.tickets', 'delete')
+    const [auditRefresh, setAuditRefresh] = useState(0)
 
     const submit = async () => {
         if (!body.trim()) return
@@ -90,6 +97,7 @@ export default function TicketCommentsDialog({
                     readOnly={closed}
                     onStatusChanged={(next) => setChanged({ ticketId: ticket.id, status: next })}
                     onDecided={() => {
+                        setAuditRefresh((n) => n + 1)
                         void reload()
                         onCommented?.()
                     }}
@@ -97,6 +105,29 @@ export default function TicketCommentsDialog({
             ) : null}
             {ticket?.description ? (
                 <p className="mb-4 whitespace-pre-wrap text-sm">{ticket.description}</p>
+            ) : null}
+            {ticket ? (
+                <>
+                    <h6 className="mb-2">Attachments</h6>
+                    <div className="mb-4">
+                        <AttachmentsPanel
+                            key={ticket.id}
+                            parent={{ kind: 'ticket', id: ticket.id }}
+                            canUpload={canComment}
+                            canRemove={canRemoveAttachments}
+                            readOnly={closed}
+                            onChanged={() => setAuditRefresh((n) => n + 1)}
+                        />
+                    </div>
+                    <h6 className="mb-2">History</h6>
+                    <div className="mb-4">
+                        <AuditTrail
+                            sourceKey={`ticket:${ticket.id}`}
+                            refreshToken={auditRefresh}
+                            load={() => apiGetAuditTrail({ kind: 'ticket', id: ticket.id })}
+                        />
+                    </div>
+                </>
             ) : null}
             {error ? (
                 <Alert showIcon type="danger" className="mb-4">

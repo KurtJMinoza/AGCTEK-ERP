@@ -74,8 +74,9 @@ function setup() {
         approve: jest.fn().mockResolvedValue({}),
         reject: jest.fn().mockResolvedValue({}),
     }
-    const service = new CrmReturnCasesService(prisma as never, returnRequests as never)
-    return { prisma, returnRequests, service }
+    const messages = { recordSystemOn: jest.fn().mockResolvedValue({ count: 1 }) }
+    const service = new CrmReturnCasesService(prisma as never, returnRequests as never, messages as never)
+    return { prisma, returnRequests, messages, service }
 }
 
 const agent = { id: 'u-1', role: 'sales_agent' }

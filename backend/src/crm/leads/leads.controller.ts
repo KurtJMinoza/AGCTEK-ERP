@@ -3,10 +3,14 @@ import { CurrentUser, type AuthRequestUser } from '../../auth/auth.decorator'
 import { RequirePermission } from '../../permissions/permission.guard'
 import { ConvertLeadDto, CreateLeadDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto'
 import { CrmLeadsService } from './leads.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 
 @Controller('crm/leads')
 export class CrmLeadsController {
-    constructor(private readonly leads: CrmLeadsService) {}
+    constructor(
+        private readonly leads: CrmLeadsService,
+        private readonly messages: CrmMessagesService,
+    ) {}
 
     @Get()
     @RequirePermission('crm.leads', 'read')
@@ -18,6 +22,14 @@ export class CrmLeadsController {
     @RequirePermission('crm.leads', 'read')
     findOne(@Param('id') id: string) {
         return this.leads.findOne(id)
+    }
+
+    /** Lifecycle audit (who / what / when), oldest first. */
+    @Get(':id/history')
+    @RequirePermission('crm.leads', 'read')
+    async history(@Param('id') id: string) {
+        await this.leads.findOne(id)
+        return this.messages.history({ leadId: id })
     }
 
     @Post()

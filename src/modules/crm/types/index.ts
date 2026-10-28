@@ -179,6 +179,31 @@ export type CrmUserRef = {
     lastName: string
 }
 
+/** One lifecycle audit row (lead / ticket SYSTEM trail). */
+export type AuditEntry = {
+    id: string
+    at: string
+    summary: string
+    metadata: Record<string, unknown> | null
+    actor: CrmUserRef | null
+}
+
+export type AttachmentParent = { kind: 'ticket' | 'opportunity'; id: string }
+
+export type CrmAttachment = {
+    id: string
+    ticketId: string | null
+    opportunityId: string | null
+    fileName: string
+    /** Re-uploading a file name adds the next version. */
+    version: number
+    mimeType: string | null
+    fileSize: number
+    uploadedBy: string | null
+    uploader: CrmUserRef | null
+    createdAt: string
+}
+
 /** Read-only view of the SD order linked to an opportunity (SD owns the document). */
 export type LinkedSalesOrder = {
     id: string

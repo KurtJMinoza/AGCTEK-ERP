@@ -5,8 +5,10 @@ import Alert from '@/components/ui/Alert'
 import Input from '@/components/ui/Input'
 import { FormItem } from '@/components/ui/Form'
 import FormDialog from '@/components/shared/FormDialog'
+import AuditTrail from './AuditTrail'
 import CrmSelect from './CrmSelect'
 import CustomerSelect from './CustomerSelect'
+import { apiGetAuditTrail } from '../services/crmApi'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { enumOptions } from '../utils/format'
 import {
@@ -193,6 +195,15 @@ export default function LeadFormDialog({
                     />
                 </FormItem>
             </div>
+            {lead ? (
+                <>
+                    <h6 className="mb-2 mt-2">History</h6>
+                    <AuditTrail
+                        sourceKey={`lead:${lead.id}:${lead.updatedAt}`}
+                        load={() => apiGetAuditTrail({ kind: 'lead', id: lead.id })}
+                    />
+                </>
+            ) : null}
         </FormDialog>
     )
 }

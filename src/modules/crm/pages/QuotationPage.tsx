@@ -25,7 +25,8 @@ import {
 import { crmQuotationBreadcrumbs } from '../utils/breadcrumbs'
 import { opportunityHref, quotationHref } from '../utils/deepLinks'
 import { formatDate, formatEnumLabel } from '../utils/format'
-import type { Quotation } from '@/modules/sd/services/quotationService'
+import { getQuotationHistory, type Quotation } from '@/modules/sd/services/quotationService'
+import AuditTrail, { type AuditTrailEntry } from '../components/AuditTrail'
 
 const QUOTABLE_STAGES: ReadonlySet<string> = new Set(['PROPOSAL', 'NEGOTIATION'])
 
@@ -290,6 +291,13 @@ export default function QuotationPage({
                         onRevise={handleRevise}
                     />
                     <QuotationBody quotation={quotation} />
+                    <AdaptiveCard className="mt-4">
+                        <h5 className="mb-3">History</h5>
+                        <AuditTrail
+                            sourceKey={`quotation:${quotation.id}:${quotation.status}:${quotation.updatedAt}`}
+                            load={() => quotationHistoryEntries(quotation.id)}
+                        />
+                    </AdaptiveCard>
                 </>
             ) : (
                 <div className="flex flex-col gap-3">
@@ -302,6 +310,32 @@ export default function QuotationPage({
             )}
         </PageContainer>
     )
+}
+
+const HISTORY_LABELS: Record<string, string> = {
+    CREATED: 'Created',
+    EDITED: 'Edited',
+    SENT: 'Sent to the customer',
+    REVISED: 'Created as a revision',
+    SUPERSEDED: 'Superseded by a revision',
+    ACCEPTED: 'Customer accepted',
+    REJECTED: 'Customer rejected',
+    CANCELLED: 'Cancelled',
+    EXPIRED: 'Expired',
+    CONVERTED: 'Converted to the SD sales order',
+}
+
+/** SD quotation history as audit-trail rows (who / what / when). */
+async function quotationHistoryEntries(id: string): Promise<AuditTrailEntry[]> {
+    const events = await getQuotationHistory(id)
+    return events.map((event) => ({
+        id: event.id,
+        at: event.createdAt,
+        actor: event.actor,
+        summary: [HISTORY_LABELS[event.action] ?? formatEnumLabel(event.action), event.note]
+            .filter(Boolean)
+            .join(' · '),
+    }))
 }
 
 /** Live quotations show indicative stock; closed ones (converted, cancelled, …) do not. */

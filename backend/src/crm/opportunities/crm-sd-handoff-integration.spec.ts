@@ -113,6 +113,7 @@ class FakeDb {
                 }),
             sdQuotation: {
                 findFirst: async () => null,
+                findMany: async () => [],
                 updateMany: async () => ({ count: 0 }),
             },
             crmOpportunity: {

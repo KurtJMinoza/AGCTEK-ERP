@@ -281,23 +281,41 @@ export class CrmOpportunitiesService {
             client,
         )
 
-        const row = await client.crmOpportunity.create({
-            data: {
-                customerId: dto.customerId,
-                leadId: dto.leadId ?? null,
-                name: dto.name,
-                description: dto.description ?? null,
-                amount: dto.amount === undefined ? null : new Decimal(dto.amount),
-                currency: dto.currency ?? 'PHP',
-                stage,
-                probability: dto.probability ?? stageMeta(stage).defaultProbability,
-                expectedCloseDate: dto.expectedCloseDate ?? null,
-                assignedTo: dto.assignedTo,
-                createdBy: userId,
-                updatedBy: userId,
-            },
-            include: opportunityInclude,
-        })
+        const write = async (tx: CrmPrismaClient) => {
+            const created = await tx.crmOpportunity.create({
+                data: {
+                    customerId: dto.customerId,
+                    leadId: dto.leadId ?? null,
+                    name: dto.name,
+                    description: dto.description ?? null,
+                    amount: dto.amount === undefined ? null : new Decimal(dto.amount),
+                    currency: dto.currency ?? 'PHP',
+                    stage,
+                    probability: dto.probability ?? stageMeta(stage).defaultProbability,
+                    expectedCloseDate: dto.expectedCloseDate ?? null,
+                    assignedTo: dto.assignedTo,
+                    createdBy: userId,
+                    updatedBy: userId,
+                },
+                include: opportunityInclude,
+            })
+            await this.messages.recordSystem(
+                tx,
+                created.id,
+                [
+                    {
+                        field: 'stage',
+                        from: null,
+                        to: stage,
+                        summary: `Opportunity created in ${formatSystemLabel(stage)}${dto.leadId ? ' from a lead' : ''}`,
+                    },
+                ],
+                userId,
+            )
+            return created
+        }
+        const row =
+            client === this.prisma ? await this.prisma.$transaction((tx) => write(tx)) : await write(client)
         return { ...serializeOpportunity(row), ...NO_NEXT_ACTIVITY }
     }
 

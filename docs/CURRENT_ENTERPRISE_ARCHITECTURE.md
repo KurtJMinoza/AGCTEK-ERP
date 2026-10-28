@@ -462,6 +462,29 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
   The opportunity page shows them in an "Order to cash" card with links only.
 - **Handoff failures:** when SD refuses the Closed Won order (HTTP 4xx, e.g. an inactive customer), the win rolls back and a SYSTEM feed entry "Closed Won hand-off to SD failed: <reason>" is kept on the opportunity. Internal errors are not copied to the feed.
 
+**Audit trail, attachments, RBAC (ISO controls):**
+- **Lifecycle audit** (who / what / when, append-only, written in the same transaction as the change):
+  - Leads, tickets and opportunities use SYSTEM rows in `crm_messages` (`ticketId` added; migration `20261111120000_crm_audit_attachments`).
+  - Leads record create, status, owner, customer, source, score and conversion.
+  - Tickets record create (including return cases), status, priority, category, owner, RMA reference, status overrides and attachment changes.
+  - Opportunities record create plus the existing field audit.
+  - Read: `GET /crm/leads/:id/history`, `GET /crm/tickets/:id/history`. Opportunities use the chatter feed.
+- **Quotation history** is SD-owned: `sd_quotation_events` (CREATED, EDITED, SENT, REVISED, SUPERSEDED, ACCEPTED, REJECTED, CANCELLED, EXPIRED, CONVERTED) is written by `QuotationService` with every transition, including bulk expiry and Closed Lost cancellation (guarded per row). Read: `GET /sd/quotations/:id/history`.
+  - The opportunity feed now reads quotation entries from this history, so earlier steps are no longer lost once a quote moves on.
+  - Quotations created before the history existed keep the old derived entries.
+  - The feed cursor now applies to every source (activities, quotes, order), not only notes.
+- **Attachments** (`crm_attachments`) on tickets and opportunities: `/crm/{tickets|opportunities}/:id/attachments`.
+  - Routes: list and download need read, upload needs create, remove needs delete (admins by default).
+  - Uploads are base64 JSON, 10 MB, PDF / Office / CSV / text / images.
+  - Re-uploading a file name adds the next version. Removal is a soft delete that keeps who / when, and the file stays.
+  - Uploads and removals are audited on the parent.
+  - Closed and cancelled tickets are read-only.
+  - Files sit on local disk under `uploads/crm/attachments` (git-ignored) and are served only through authenticated routes. The storage helper `backend/src/common/document-storage.ts` is shared with MM quality attachments.
+- **RBAC:**
+  - `crm.ticket-overrides` (update) ends unsettled return cases.
+  - `crm.loyalty-admin` (update) is required for mock / manual point grants; `crm.loyalty` stays read and everyday.
+  - Both default to admins only; employees get read and create.
+
 **Opportunity workspace:** `/crm/opportunities/[id]` is the canonical place to work a deal (table name / Open, board card click, Customer 360 and "New opportunity" all land there). It reuses the existing APIs only: `GET /crm/opportunities/:id` (also returns `owner` display fields and the source lead's `source`), `PATCH` for stage moves and details (server gates, transitions and lost reason apply; the stage bar adds the no-activity and reopen advisories), `POST :id/win`, the opportunity activity endpoints, and the read-only `GET :id/sales-order`. A **Quotations** panel (`#quotations`) lists the opportunity's SD quotations newest first.
 - Each shows number and revision, status, total, validity and dates, with the lines on demand.
 - Actions follow the quotation status: Edit / Send / Cancel for a DRAFT, Accept / Reject / Revise / Cancel for SENT, Revise / Cancel for ACCEPTED, and Revise for REJECTED or EXPIRED while the deal is open and has no order.

@@ -14,9 +14,12 @@ export class CrmLoyaltyController {
         return this.loyalty.getForCustomer(customerId)
     }
 
-    /** Demo / staging only (LOYALTY_MOCK_ACCRUAL=true and not production, else 403); not invoice-backed. */
+    /**
+     * Demo / staging only (LOYALTY_MOCK_ACCRUAL=true and not production, else 403); not invoice-backed.
+     * A privileged grant: `crm.loyalty-admin`, not the everyday loyalty permission.
+     */
     @Post(':customerId/loyalty/mock-earn')
-    @RequirePermission('crm.loyalty', 'update')
+    @RequirePermission('crm.loyalty-admin', 'update')
     mockEarn(
         @Param('customerId') customerId: string,
         @Body() dto: MockEarnDto,

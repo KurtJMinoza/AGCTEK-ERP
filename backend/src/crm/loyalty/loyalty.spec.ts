@@ -406,8 +406,8 @@ describe('CrmLoyaltyController RBAC metadata', () => {
     const meta = (handler: keyof CrmLoyaltyController) =>
         Reflect.getMetadata(PERMISSION_KEY, CrmLoyaltyController.prototype[handler])
 
-    it('reads with crm.loyalty:read and mock-earns with crm.loyalty:update', () => {
+    it('reads with crm.loyalty:read; mock earn needs crm.loyalty-admin:update', () => {
         expect(meta('getForCustomer')).toEqual({ resource: 'crm.loyalty', action: 'read' })
-        expect(meta('mockEarn')).toEqual({ resource: 'crm.loyalty', action: 'update' })
+        expect(meta('mockEarn')).toEqual({ resource: 'crm.loyalty-admin', action: 'update' })
     })
 })

@@ -10,6 +10,7 @@ import { findCustomerMasterId } from '../../sd/customer-master'
 import { ReturnRequestService } from '../../sd/return-request.service'
 import { ticketInclude } from './tickets.service'
 import { returnSettlement } from './return-settlement'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 
 type CaseUser = { id: string; role: string }
 type SdReturnCase = Awaited<ReturnType<ReturnRequestService['findForCase']>>
@@ -132,6 +133,7 @@ export class CrmReturnCasesService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly returnRequests: ReturnRequestService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     /** Opens the case for a return, or returns the existing one (one ticket per return). */
@@ -147,20 +149,36 @@ export class CrmReturnCasesService {
             )
         }
         try {
-            const ticket = await this.prisma.crmTicket.create({
-                data: {
-                    customerId,
-                    subject: `Return ${request.requestNumber} · ${request.salesOrder.orderNumber}`,
-                    description: caseDescription(request),
-                    category: 'RETURN',
-                    priority: 'MEDIUM',
-                    sdReturnRequestId: request.id,
-                    salesOrderId: request.salesOrderId,
-                    returnRequestNumber: request.requestNumber,
-                    createdBy: actorId,
-                    updatedBy: actorId,
-                },
-                include: ticketInclude,
+            const ticket = await this.prisma.$transaction(async (tx) => {
+                const row = await tx.crmTicket.create({
+                    data: {
+                        customerId,
+                        subject: `Return ${request.requestNumber} · ${request.salesOrder.orderNumber}`,
+                        description: caseDescription(request),
+                        category: 'RETURN',
+                        priority: 'MEDIUM',
+                        sdReturnRequestId: request.id,
+                        salesOrderId: request.salesOrderId,
+                        returnRequestNumber: request.requestNumber,
+                        createdBy: actorId,
+                        updatedBy: actorId,
+                    },
+                    include: ticketInclude,
+                })
+                await this.messages.recordSystemOn(
+                    tx,
+                    { ticketId: row.id },
+                    [
+                        {
+                            field: 'status',
+                            from: null,
+                            to: row.status,
+                            summary: `Return case opened for SD return ${request.requestNumber}`,
+                        },
+                    ],
+                    actorId,
+                )
+                return row
             })
             return { ticket, created: true }
         } catch (err) {

@@ -15,6 +15,7 @@ import OpportunitySalesOrderDialog, {
     SD_SALES_ORDERS_PATH,
     type SalesOrderDialogMode,
 } from '../components/OpportunitySalesOrderDialog'
+import AttachmentsPanel from '../components/AttachmentsPanel'
 import OpportunityActivityPanel from '../components/opportunity/OpportunityActivityPanel'
 import OpportunityChatter from '../components/opportunity/OpportunityChatter'
 import OpportunityDetailsPanel from '../components/opportunity/OpportunityDetailsPanel'
@@ -243,6 +244,15 @@ export default function OpportunityDetailPage() {
                         error={quotations.error}
                         canCreate={canUpdate && can('sd.quotations', 'create')}
                     />
+                    <AdaptiveCard>
+                        <h5 className="mb-3">Attachments</h5>
+                        <AttachmentsPanel
+                            key={opportunity.id}
+                            parent={{ kind: 'opportunity', id: opportunity.id }}
+                            canUpload={canCreate}
+                            canRemove={canDelete}
+                        />
+                    </AdaptiveCard>
                 </div>
                 <div className="flex flex-col gap-4 lg:col-span-2">
                     <OpportunityActivityPanel

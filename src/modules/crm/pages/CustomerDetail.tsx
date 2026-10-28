@@ -518,7 +518,7 @@ export default function CustomerDetailPage() {
                             loading={loading}
                             customerId={customer.id}
                             orders={data.orders}
-                            canMockEarn={can('crm.loyalty', 'update')}
+                            canMockEarn={can('crm.loyalty-admin', 'update')}
                             onChanged={() => void reload()}
                         />
                     </Section>

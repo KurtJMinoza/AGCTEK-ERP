@@ -36,9 +36,22 @@ const uniqueViolation = (modelName: string, target: string[]) =>
 
 const ACTIVE = ['DRAFT', 'SENT', 'ACCEPTED']
 
+/** In-memory `where` for the filters QuotationService uses (equality, `in`, `lt`). */
+const matches = (row: Row, where: Row) =>
+    Object.entries(where).every(([key, condition]) => {
+        if (condition === undefined) return true
+        if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
+            if ('in' in condition) return condition.in.includes(row[key])
+            if ('lt' in condition) return row[key] != null && row[key] < condition.lt
+        }
+        return row[key] === condition
+    })
+
 function setup() {
     const rows: Row[] = []
+    const events: Row[] = []
     const state = {
+        events,
         products: new Map<string, Row>([
             ['p1', product('p1')],
             ['p2', product('p2', { price: new Decimal('99.99') })],
@@ -96,12 +109,7 @@ function setup() {
                 ),
             ),
             findMany: jest.fn(({ where }: { where: Row }) =>
-                Promise.resolve(
-                    [...rows]
-                        .reverse()
-                        .filter((r) => !where.crmOpportunityId || r.crmOpportunityId === where.crmOpportunityId)
-                        .filter((r) => !where.status || r.status === where.status),
-                ),
+                Promise.resolve([...rows].reverse().filter((r) => matches(r, where)).map((r) => ({ ...r }))),
             ),
             create: jest.fn(({ data }: { data: Row }) => {
                 const { lines, sections, ...rest } = data
@@ -120,8 +128,23 @@ function setup() {
                 Object.assign(row, data)
                 return Promise.resolve(row)
             }),
-            updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            updateMany: jest.fn(({ where, data }: { where: Row; data: Row }) => {
+                const hits = rows.filter((r) => matches(r, where))
+                hits.forEach((r) => Object.assign(r, data))
+                return Promise.resolve({ count: hits.length })
+            }),
         },
+        sdQuotationEvent: {
+            create: jest.fn(({ data }: { data: Row }) => {
+                const event = { id: `ev-${events.length + 1}`, createdAt: new Date(), ...data }
+                events.push(event)
+                return Promise.resolve(event)
+            }),
+            findMany: jest.fn(({ where }: { where: Row }) =>
+                Promise.resolve(events.filter((e) => matches(e, where))),
+            ),
+        },
+        user: { findMany: jest.fn().mockResolvedValue([]) },
         sdQuotationLine: {
             deleteMany: jest.fn(({ where }: { where: { quotationId: string } }) => {
                 state.byId(where.quotationId)!.lines = []
@@ -185,9 +208,9 @@ describe('QuotationService.create', () => {
 
         const quote = await service.create(input)
 
-        expect(prisma.sdQuotation.updateMany).toHaveBeenCalledWith({
+        expect(prisma.sdQuotation.findMany).toHaveBeenCalledWith({
             where: { crmOpportunityId: 'opp-1', status: { in: ['SENT', 'ACCEPTED'] }, validUntil: { lt: NOW } },
-            data: { status: 'EXPIRED' },
+            select: { id: true, status: true },
         })
         expect(quote).toMatchObject({
             quotationNumber: 'Q-000042',
@@ -216,7 +239,7 @@ describe('QuotationService.create', () => {
     it('expires an overdue quotation before checking for an active one', async () => {
         const { prisma, service } = setup()
         const order: string[] = []
-        prisma.sdQuotation.updateMany.mockImplementation(() => (order.push('expire'), Promise.resolve({ count: 1 })))
+        prisma.sdQuotation.findMany.mockImplementation(() => (order.push('expire'), Promise.resolve([])))
         prisma.sdQuotation.findFirst.mockImplementation(() => (order.push('active?'), Promise.resolve(null)))
 
         await service.create(input)
@@ -595,20 +618,8 @@ async function sent(ctx: ReturnType<typeof setup>, validUntil?: string) {
     return ctx.state.byId('q-1')!
 }
 
-/** Makes `expireOverdue` behave like the real UPDATE on the in-memory rows. */
-function realExpiry(ctx: ReturnType<typeof setup>) {
-    ctx.prisma.sdQuotation.updateMany.mockImplementation(({ where, data }: { where: Row; data: Row }) => {
-        const hits = ctx.state.rows.filter(
-            (r) =>
-                r.crmOpportunityId === where.crmOpportunityId &&
-                where.status.in.includes(r.status) &&
-                r.validUntil &&
-                r.validUntil < where.validUntil.lt,
-        )
-        hits.forEach((r) => Object.assign(r, data))
-        return Promise.resolve({ count: hits.length })
-    })
-}
+/** `expireOverdue` already runs against the in-memory rows (`matches`); kept for readability. */
+function realExpiry(_ctx: ReturnType<typeof setup>) {}
 
 describe('QuotationService.revise', () => {
     it('supersedes a SENT quotation with a re-priced DRAFT revision under the same number', async () => {
@@ -815,7 +826,7 @@ describe('QuotationService decisions', () => {
         jest.setSystemTime(new Date('2026-10-10T16:00:00Z'))
         const order: string[] = []
         const expire = ctx.prisma.sdQuotation.updateMany.getMockImplementation()!
-        ctx.prisma.sdQuotation.updateMany.mockImplementation((args: never) => (order.push('expire'), expire(args)))
+        ctx.prisma.sdQuotation.updateMany.mockImplementation((args) => (order.push('expire'), expire(args)))
         ctx.prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => (order.push('tx'), fn(ctx.prisma)))
 
         await expect(ctx.service.accept('q-1', {}, 'u')).rejects.toThrow('Cannot accept an EXPIRED quotation')
@@ -829,11 +840,83 @@ describe('QuotationService decisions', () => {
     })
 })
 
+describe('QuotationService lifecycle history (audit)', () => {
+    const trail = (ctx: ReturnType<typeof setup>, quotationId: string) =>
+        ctx.state.events
+            .filter((e) => e.quotationId === quotationId)
+            .map((e) => [e.action, e.fromStatus, e.toStatus, e.actorId])
+
+    it('records who did what for every transition of a revision, in order', async () => {
+        const ctx = setup()
+        await ctx.service.create(input)
+        await ctx.service.updateDraft('q-1', { notes: 'Updated' }, 'user-2')
+        await ctx.service.send('q-1', {}, 'user-3')
+        await ctx.service.accept('q-1', { note: 'PO attached' }, 'user-4')
+
+        expect(trail(ctx, 'q-1')).toEqual([
+            ['CREATED', null, 'DRAFT', 'user-1'],
+            ['EDITED', 'DRAFT', 'DRAFT', 'user-2'],
+            ['SENT', 'DRAFT', 'SENT', 'user-3'],
+            ['ACCEPTED', 'SENT', 'ACCEPTED', 'user-4'],
+        ])
+        expect(ctx.state.events.find((e) => e.action === 'ACCEPTED')!.note).toBe('PO attached')
+    })
+
+    it('records no SENT event when changed prices block the send', async () => {
+        const ctx = setup()
+        await ctx.service.create(input)
+        ctx.state.products.get('p1')!.price = new Decimal('1300.00')
+
+        await expect(ctx.service.send('q-1', {}, 'user-3')).rejects.toMatchObject({
+            response: { code: 'QUOTATION_PRICES_CHANGED' },
+        })
+        expect(trail(ctx, 'q-1').map(([action]) => action)).toEqual(['CREATED'])
+    })
+
+    it('keeps history across revisions: original superseded, revision created with its reason', async () => {
+        const ctx = setup()
+        await sent(ctx)
+        await ctx.service.revise('q-1', { reason: 'CUSTOMER_REQUEST', notes: 'more volume' }, 'user-5')
+
+        expect(trail(ctx, 'q-1')).toContainEqual(['SUPERSEDED', 'SENT', 'SUPERSEDED', 'user-5'])
+        expect(ctx.state.events.find((e) => e.quotationId === 'q-2')).toMatchObject({
+            action: 'REVISED',
+            toStatus: 'DRAFT',
+            note: 'Revision of rev 1 (CUSTOMER_REQUEST): more volume',
+        })
+    })
+
+    it('records system expiry without an actor and conversion with the converter', async () => {
+        const ctx = setup()
+        await sent(ctx, '2026-10-10')
+        jest.setSystemTime(new Date('2026-10-12T00:00:00Z'))
+        await ctx.service.expireOverdue(ctx.prisma as never, 'opp-1')
+        expect(trail(ctx, 'q-1')).toContainEqual(['EXPIRED', 'SENT', 'EXPIRED', null])
+
+        const ctx2 = setup()
+        await sent(ctx2)
+        await ctx2.service.claimForConversion(ctx2.prisma as never, {
+            quotationId: 'q-1',
+            crmOpportunityId: 'opp-1',
+            customerId: 'cust-1',
+            convertedBy: 'user-6',
+        })
+        expect(trail(ctx2, 'q-1')).toContainEqual(['CONVERTED', 'SENT', 'CONVERTED', 'user-6'])
+    })
+
+    it('history() returns the revision trail oldest first', async () => {
+        const ctx = setup()
+        await sent(ctx)
+        const history = await ctx.service.history('q-1')
+        expect(history.map((e) => e.action)).toEqual(['CREATED', 'SENT'])
+        await expect(ctx.service.history('nope')).rejects.toThrow(NotFoundException)
+    })
+})
+
 describe('QuotationService.cancelActiveForOpportunity', () => {
     it('expires overdue quotations, then cancels the active one in the given transaction', async () => {
         const ctx = setup()
-        const calls: Row[] = []
-        ctx.prisma.sdQuotation.updateMany.mockImplementation((args: Row) => (calls.push(args), Promise.resolve({ count: 1 })))
+        await draft(ctx)
 
         await expect(
             ctx.service.cancelActiveForOpportunity(ctx.prisma as never, 'opp-1', {
@@ -842,22 +925,30 @@ describe('QuotationService.cancelActiveForOpportunity', () => {
             }),
         ).resolves.toBe(1)
 
-        expect(calls).toEqual([
-            {
-                where: { crmOpportunityId: 'opp-1', status: { in: ['SENT', 'ACCEPTED'] }, validUntil: { lt: NOW } },
-                data: { status: 'EXPIRED' },
+        expect(ctx.prisma.sdQuotation.findMany).toHaveBeenNthCalledWith(1, {
+            where: { crmOpportunityId: 'opp-1', status: { in: ['SENT', 'ACCEPTED'] }, validUntil: { lt: NOW } },
+            select: { id: true, status: true },
+        })
+        expect(ctx.prisma.sdQuotation.updateMany).toHaveBeenCalledWith({
+            where: { id: 'q-1', status: 'DRAFT' },
+            data: {
+                status: 'CANCELLED',
+                cancelledBy: 'user-9',
+                cancelledAt: NOW,
+                cancelReason: 'Opportunity closed as lost (PRICE)',
+                updatedBy: 'user-9',
             },
-            {
-                where: { crmOpportunityId: 'opp-1', status: { in: ['DRAFT', 'SENT', 'ACCEPTED'] } },
-                data: {
-                    status: 'CANCELLED',
-                    cancelledBy: 'user-9',
-                    cancelledAt: NOW,
-                    cancelReason: 'Opportunity closed as lost (PRICE)',
-                    updatedBy: 'user-9',
-                },
-            },
-        ])
+        })
+        expect(ctx.state.events).toContainEqual(
+            expect.objectContaining({
+                quotationId: 'q-1',
+                action: 'CANCELLED',
+                fromStatus: 'DRAFT',
+                toStatus: 'CANCELLED',
+                actorId: 'user-9',
+                note: 'Opportunity closed as lost (PRICE)',
+            }),
+        )
         expect(ctx.prisma.$transaction).not.toHaveBeenCalled()
     })
 })

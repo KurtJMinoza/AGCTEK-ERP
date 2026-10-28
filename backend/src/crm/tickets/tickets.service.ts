@@ -24,6 +24,10 @@ import {
 import { CrmActivitiesService, overdueTicketWhere } from '../activities/activities.service'
 import { ReturnRequestService } from '../../sd/return-request.service'
 import { RETURN_GATED_TICKET_STATUSES, returnSettlement } from './return-settlement'
+import { CrmMessagesService, fieldChanges } from '../messages/crm-messages.service'
+
+/** Lifecycle fields kept in the ticket audit trail (SYSTEM rows). */
+const TICKET_AUDITED_FIELDS = ['status', 'priority', 'category', 'assignedTo', 'rmaReference'] as const
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -59,6 +63,7 @@ export class CrmTicketsService {
         private readonly prisma: PrismaService,
         private readonly activities: CrmActivitiesService,
         private readonly returnRequests: ReturnRequestService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     async list(query: ListTicketsQueryDto) {
@@ -164,19 +169,35 @@ export class CrmTicketsService {
         await assertCustomerExists(this.prisma, dto.customerId)
         if (dto.assignedTo) await assertUserExists(this.prisma, dto.assignedTo)
 
-        return this.prisma.crmTicket.create({
-            data: {
-                customerId: dto.customerId,
-                subject: dto.subject,
-                description: dto.description ?? null,
-                priority: dto.priority ?? 'MEDIUM',
-                category: dto.category ?? 'GENERAL',
-                assignedTo: dto.assignedTo ?? null,
-                rmaReference: dto.rmaReference || null,
-                createdBy: userId,
-                updatedBy: userId,
-            },
-            include: ticketInclude,
+        return this.prisma.$transaction(async (tx) => {
+            const ticket = await tx.crmTicket.create({
+                data: {
+                    customerId: dto.customerId,
+                    subject: dto.subject,
+                    description: dto.description ?? null,
+                    priority: dto.priority ?? 'MEDIUM',
+                    category: dto.category ?? 'GENERAL',
+                    assignedTo: dto.assignedTo ?? null,
+                    rmaReference: dto.rmaReference || null,
+                    createdBy: userId,
+                    updatedBy: userId,
+                },
+                include: ticketInclude,
+            })
+            await this.messages.recordSystemOn(
+                tx,
+                { ticketId: ticket.id },
+                [
+                    {
+                        field: 'status',
+                        from: null,
+                        to: ticket.status,
+                        summary: `Ticket created (${ticket.category.toLowerCase()}, ${ticket.priority.toLowerCase()} priority)`,
+                    },
+                ],
+                userId,
+            )
+            return ticket
         })
     }
 
@@ -213,13 +234,17 @@ export class CrmTicketsService {
             throw new BadRequestException('No changes supplied')
         }
 
-        const result = await this.prisma.crmTicket.updateMany({
-            where: { id, status: current.status, updatedAt: current.updatedAt },
-            data,
+        const changes = fieldChanges(current, data, TICKET_AUDITED_FIELDS)
+        await this.prisma.$transaction(async (tx) => {
+            const result = await tx.crmTicket.updateMany({
+                where: { id, status: current.status, updatedAt: current.updatedAt },
+                data,
+            })
+            if (result.count === 0) {
+                throw new ConflictException('Ticket changed concurrently, reload and retry')
+            }
+            await this.messages.recordSystemOn(tx, { ticketId: id }, changes, userId)
         })
-        if (result.count === 0) {
-            throw new ConflictException('Ticket changed concurrently, reload and retry')
-        }
         return this.findOne(id)
     }
 
@@ -263,6 +288,19 @@ export class CrmTicketsService {
                         `Reason: ${dto.reason}`,
                 },
             })
+            await this.messages.recordSystemOn(
+                tx,
+                { ticketId: id },
+                [
+                    {
+                        field: 'status',
+                        from: current.status,
+                        to: dto.status,
+                        summary: `Status overridden from ${current.status} to ${dto.status} (return not settled): ${dto.reason}`,
+                    },
+                ],
+                userId,
+            )
         })
         return this.findOne(id)
     }

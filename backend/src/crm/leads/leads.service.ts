@@ -16,6 +16,7 @@ import {
     CRM_CUSTOMER_SUMMARY_SELECT,
 } from '../crm-references'
 import { CrmOpportunitiesService } from '../opportunities/opportunities.service'
+import { CrmMessagesService, fieldChanges } from '../messages/crm-messages.service'
 import {
     ConvertLeadDto,
     CreateLeadDto,
@@ -46,6 +47,9 @@ export const CONVERTIBLE_LEAD_STATUSES: ReadonlySet<string> = new Set<LeadStatus
     'QUALIFIED',
 ])
 
+/** Lifecycle fields kept in the lead audit trail (SYSTEM rows). */
+const LEAD_AUDITED_FIELDS = ['status', 'assignedTo', 'customerId', 'source', 'score'] as const
+
 const leadInclude = {
     customer: { select: CRM_CUSTOMER_SUMMARY_SELECT },
 } satisfies Prisma.CrmLeadInclude
@@ -58,6 +62,7 @@ export class CrmLeadsService {
         private readonly activities: CrmActivitiesService,
         private readonly customers: CustomerService,
         private readonly permissions: PermissionsService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     async list(query: ListLeadsQueryDto) {
@@ -107,19 +112,28 @@ export class CrmLeadsService {
         if (dto.customerId) await assertCustomerExists(this.prisma, dto.customerId)
         if (dto.assignedTo) await assertUserExists(this.prisma, dto.assignedTo)
 
-        return this.prisma.crmLead.create({
-            data: {
-                name: dto.name,
-                email: dto.email ?? null,
-                phone: dto.phone ?? null,
-                source: dto.source ?? 'OTHER',
-                customerId: dto.customerId ?? null,
-                assignedTo: dto.assignedTo ?? null,
-                score: dto.score ?? null,
-                createdBy: userId,
-                updatedBy: userId,
-            },
-            include: leadInclude,
+        return this.prisma.$transaction(async (tx) => {
+            const lead = await tx.crmLead.create({
+                data: {
+                    name: dto.name,
+                    email: dto.email ?? null,
+                    phone: dto.phone ?? null,
+                    source: dto.source ?? 'OTHER',
+                    customerId: dto.customerId ?? null,
+                    assignedTo: dto.assignedTo ?? null,
+                    score: dto.score ?? null,
+                    createdBy: userId,
+                    updatedBy: userId,
+                },
+                include: leadInclude,
+            })
+            await this.messages.recordSystemOn(
+                tx,
+                { leadId: lead.id },
+                [{ field: 'status', from: null, to: lead.status, summary: `Lead created (source ${lead.source})` }],
+                userId,
+            )
+            return lead
         })
     }
 
@@ -162,13 +176,17 @@ export class CrmLeadsService {
             throw new BadRequestException('No changes supplied')
         }
 
-        const result = await this.prisma.crmLead.updateMany({
-            where: { id, status: current.status, updatedAt: current.updatedAt },
-            data,
+        const changes = fieldChanges(current, data, LEAD_AUDITED_FIELDS)
+        await this.prisma.$transaction(async (tx) => {
+            const result = await tx.crmLead.updateMany({
+                where: { id, status: current.status, updatedAt: current.updatedAt },
+                data,
+            })
+            if (result.count === 0) {
+                throw new ConflictException('Lead changed concurrently, reload and retry')
+            }
+            await this.messages.recordSystemOn(tx, { leadId: id }, changes, userId)
         })
-        if (result.count === 0) {
-            throw new ConflictException('Lead changed concurrently, reload and retry')
-        }
         return this.findOne(id)
     }
 
@@ -256,6 +274,19 @@ export class CrmLeadsService {
                 id,
                 created.id,
                 tx,
+            )
+            await this.messages.recordSystemOn(
+                tx,
+                { leadId: id },
+                [
+                    {
+                        field: 'status',
+                        from: lead.status,
+                        to: 'CONVERTED',
+                        summary: `Converted to opportunity "${created.name}"${newCustomer ? ' with a new SD customer' : ''}`,
+                    },
+                ],
+                user.id,
             )
             return { opportunityId: created.id, customerId: customerId!, activitiesMoved }
         })

@@ -27,6 +27,11 @@ import { CrmDashboardService } from './dashboard/dashboard.service'
 import { CrmMessagesController } from './messages/messages.controller'
 import { CrmMessagesService } from './messages/crm-messages.service'
 import { CrmUsersController } from './users/crm-users.controller'
+import {
+    CrmOpportunityAttachmentsController,
+    CrmTicketAttachmentsController,
+} from './attachments/attachments.controller'
+import { CrmAttachmentsService } from './attachments/attachments.service'
 import { CrmUsersService } from './users/crm-users.service'
 
 /**
@@ -52,6 +57,8 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmMessagesController,
         CrmUsersController,
         CrmLeadActivitiesController,
+        CrmTicketAttachmentsController,
+        CrmOpportunityAttachmentsController,
     ],
     providers: [
         CrmLeadsService,
@@ -68,6 +75,7 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmDashboardService,
         CrmMessagesService,
         CrmUsersService,
+        CrmAttachmentsService,
     ],
 })
 export class CrmModule {}

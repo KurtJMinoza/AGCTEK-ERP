@@ -6,6 +6,7 @@ import {
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
 import { CrmActivitiesService } from '../activities/activities.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmTicketsController } from './tickets.controller'
 import { CrmTicketsService, TICKET_TRANSITIONS } from './tickets.service'
 import type { ReturnRequestService } from '../../sd/return-request.service'
@@ -62,7 +63,8 @@ function mockPrisma(opts: { ticket?: ReturnType<typeof ticket> | null; customer?
                 Promise.resolve({ id: 'c-new', ...args.data }),
             ),
         },
-        $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+        crmMessage: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        $transaction: jest.fn(),
     }
 }
 
@@ -77,11 +79,16 @@ const service = (
     prisma: ReturnType<typeof mockPrisma>,
     returnRequests = { findForCase: jest.fn().mockResolvedValue(sdReturn()) },
 ) => {
+    // Array form for list queries; callback form for audited writes.
+    prisma.$transaction.mockImplementation(((arg: unknown) =>
+        typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[])) as never)
     const p = prisma as unknown as PrismaService
+    const activities = new CrmActivitiesService(p)
     return new CrmTicketsService(
         p,
-        new CrmActivitiesService(p),
+        activities,
         returnRequests as unknown as ReturnRequestService,
+        new CrmMessagesService(p, activities, {} as never, {} as never),
     )
 }
 
@@ -206,6 +213,30 @@ describe('CrmTicketsService', () => {
         await expect(
             service(prisma).update('tkt-1', { status: 'CLOSED' }, 'user-1'),
         ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('audits create and changed lifecycle fields (who / what / when) on the ticket trail', async () => {
+        const prisma = mockPrisma()
+        await service(prisma).create({ customerId: 'cust-1', subject: 'Broken unit', priority: 'HIGH' }, 'user-1')
+        expect(prisma.crmMessage.createMany.mock.calls[0][0].data).toEqual([
+            expect.objectContaining({
+                ticketId: 'tkt-1',
+                kind: 'SYSTEM',
+                authorId: 'user-1',
+                body: expect.stringMatching(/^Ticket created/),
+            }),
+        ])
+
+        prisma.crmMessage.createMany.mockClear()
+        await service(prisma).update('tkt-1', { status: 'IN_PROGRESS', priority: 'MEDIUM', subject: 'x' }, 'user-2')
+        expect(prisma.crmMessage.createMany.mock.calls[0][0].data).toEqual([
+            expect.objectContaining({
+                ticketId: 'tkt-1',
+                body: 'Status changed from Open to In Progress',
+                metadata: { field: 'status', from: 'OPEN', to: 'IN_PROGRESS' },
+                authorId: 'user-2',
+            }),
+        ])
     })
 
     it('reopens a resolved ticket', async () => {
