@@ -242,6 +242,31 @@ export function assertStopTypeAllows(input: {
     }
 }
 
+/**
+ * ISO 9001 §5 / O2C: a customer delivery is only DELIVERED with proof — customer
+ * e-signature, a photo of the delivered goods, and a geo-tagged timestamp (on
+ * arrive or deliver). Load / return stops have no customer and are exempt.
+ */
+export function assertDeliveryEvidence(input: {
+    stopType: TripStopType | null | undefined
+    sequence: number
+    hasSignature: boolean
+    hasPhoto: boolean
+    hasGeo: boolean
+}) {
+    if (input.stopType === 'SHIP' || input.stopType === 'RETURN') return
+    const missing = [
+        input.hasSignature ? null : 'customer signature',
+        input.hasPhoto ? null : 'photo of the delivered goods',
+        input.hasGeo ? null : 'location (GPS) at arrival or delivery',
+    ].filter((m): m is string => m != null)
+    if (missing.length > 0) {
+        throw new BadRequestException(
+            `Proof of delivery incomplete for stop #${input.sequence}: ${missing.join(', ')}`,
+        )
+    }
+}
+
 /** Deliver payload `outcome`: DELIVERED (default) / COMPLETED → COMPLETE, FAILED → FAIL. */
 export function parseDeliverOutcome(value: unknown): 'COMPLETE' | 'FAIL' {
     if (value == null || value === '') return 'COMPLETE'

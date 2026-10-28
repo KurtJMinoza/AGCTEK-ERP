@@ -48,7 +48,7 @@
     "prisma:seed-cod-delivery-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-cod-delivery-demo.ts",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit",
-    "test:driver-qa": "jest src/scm/trips src/scm/tracking/public-position.rules.spec.ts src/sd/order-tracking src/sd/cod-delivery-customer-returns.scenarios.spec.ts --runInBand --forceExit --no-coverage",
+    "test:driver-qa": "jest src/scm/trips src/scm/tms/dispatch-windows.rules.spec.ts src/scm/tms/tms-trips.service.location.spec.ts src/scm/tracking/public-position.rules.spec.ts src/sd/order-tracking src/sd/cod-delivery-customer-returns.scenarios.spec.ts --runInBand --forceExit --no-coverage",
     "test:cod-delivery-qa": "jest src/sd/cod-delivery-customer-returns.scenarios.spec.ts src/scm/trips/trips.service.execution.spec.ts src/scm/damage-reports/damage-reports.spec.ts src/sd/return-request.spec.ts src/sd/sales-order.replacement.spec.ts src/crm/tickets/return-cases.spec.ts --runInBand --forceExit --no-coverage",
     "test:pg": "jest --runInBand --forceExit --testRegex \"\\.pg-spec\\.ts$\""
   },

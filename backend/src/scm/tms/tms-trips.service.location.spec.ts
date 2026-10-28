@@ -229,6 +229,41 @@ describe('TmsTripsService — location integrity', () => {
             await expect(service.dispatch('trip-1')).rejects.toThrow(/has no coordinates/)
         })
 
+        it('dispatch blocked when the load exceeds vehicle capacity', async () => {
+            const { service, prisma, tx } = setup(tripWith(), [WH])
+            prisma.loadPlan.findUnique.mockResolvedValue({
+                id: 'lp-1',
+                code: 'LP-1',
+                status: 'ASSIGNED',
+                lines: [{ id: 'lpl-1', assignedQty: 500, weightKg: 0, volumeM3: 0 }],
+            })
+            await expect(service.dispatch('trip-1')).rejects.toThrow(/exceeds vehicle item capacity/)
+            expect(tx.trip.updateMany).not.toHaveBeenCalled()
+        })
+
+        describe('delivery windows (haversine estimate, no router dependency)', () => {
+            function tripWithWindow(windowEnd: Date) {
+                const trip = tripWith()
+                trip.stops[1] = { ...trip.stops[1], windowStart: null, windowEnd } as never
+                return trip
+            }
+
+            it('dispatch blocked when the deliver stop cannot finish before its window closes', async () => {
+                // ~7 km leg (~11 min) + 30 min service vs. a window closing in 20 min.
+                const { service, tx } = setup(tripWithWindow(new Date(Date.now() + 20 * 60_000)), [WH])
+                await expect(service.dispatch('trip-1')).rejects.toThrow(
+                    /Delivery windows cannot be met.*stop #2: about \d+ min after its window closes/,
+                )
+                expect(tx.trip.updateMany).not.toHaveBeenCalled()
+            })
+
+            it('dispatch allowed when the window is reachable', async () => {
+                const { service, tx } = setup(tripWithWindow(new Date(Date.now() + 3 * 3600_000)), [WH])
+                await service.dispatch('trip-1')
+                expect(tx.trip.updateMany).toHaveBeenCalled()
+            })
+        })
+
         it('validate (PLANNED → READY) applies the same guard', async () => {
             const { service, prisma } = setup(tripWith({}, 'PLANNED'), [{ ...WH, geocodeConfirmed: false }])
             ;(prisma.trip as Record<string, jest.Mock>).updateMany = jest.fn()

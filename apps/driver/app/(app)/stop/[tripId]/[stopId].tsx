@@ -161,7 +161,13 @@ export default function StopDetailScreen() {
         setBusy(true)
         setError(null)
         try {
-            setTrip(await apiArriveStop(tripId, stopId, await captureStopMeta()))
+            setTrip(
+                await apiArriveStop(
+                    tripId,
+                    stopId,
+                    await captureStopMeta({ requireFix: kind === 'DELIVER' }),
+                ),
+            )
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Arrive failed')
         } finally {
@@ -247,17 +253,21 @@ export default function StopDetailScreen() {
             setError('Describe what happened')
             return
         }
+        const deliveringToCustomer = outcome === 'DELIVERED' && kind === 'DELIVER'
+        if (deliveringToCustomer && (!photoUri || !signatureUrl)) {
+            setError('Take a photo and get the customer signature first')
+            return
+        }
         setBusy(true)
         setError(null)
         try {
             const updated = await apiDeliverStop(tripId, stopId, {
-                ...(await captureStopMeta()),
+                ...(await captureStopMeta({ requireFix: deliveringToCustomer })),
                 outcome,
                 podNotes: notes || null,
                 podPhotoUrl: photoUri,
                 // A customer signature only applies to deliveries (the API rejects it elsewhere).
-                podSignatureUrl:
-                    outcome === 'DELIVERED' && kind === 'DELIVER' ? signatureUrl : null,
+                podSignatureUrl: deliveringToCustomer ? signatureUrl : null,
                 ...(outcome === 'FAILED'
                     ? { reasonCode: failureCode!, failureReason: failureReason.trim() || null }
                     : {}),
@@ -299,6 +309,7 @@ export default function StopDetailScreen() {
               .sort((a, b) => a.sequence - b.sequence)[0]
     const canArrive = tripInTransit && stop.status === 'PENDING' && !blockingStop
     const canComplete = tripInTransit && stop.status === 'ARRIVED'
+    const podMissing = kind === 'DELIVER' && (!photoUri || !signatureUrl)
     const failureLabel = FAILURE_REASONS.find((r) => r.code === stop.failureCode)?.label
     // COD is only ever on deliver stops (the API attaches it from drop-off shipments).
     const cod = kind === 'DELIVER' ? (stop.collection ?? null) : null
@@ -447,7 +458,7 @@ export default function StopDetailScreen() {
                     />
 
                     <Text style={styles.section}>
-                        {kind === 'DELIVER' ? 'Photo' : 'Photo (optional)'}
+                        {kind === 'DELIVER' ? 'Photo (required)' : 'Photo (optional)'}
                     </Text>
                     <PrimaryButton
                         title={photoUri ? 'Retake photo' : 'Take photo'}
@@ -460,7 +471,7 @@ export default function StopDetailScreen() {
 
                     {kind === 'DELIVER' ? (
                         <>
-                            <Text style={styles.section}>Signature</Text>
+                            <Text style={styles.section}>Customer signature (required)</Text>
                             <SignaturePad
                                 onOK={(data) => setSignatureUrl(data)}
                                 onEmpty={() => setSignatureUrl(null)}
@@ -476,9 +487,16 @@ export default function StopDetailScreen() {
                         </>
                     ) : null}
 
+                    {podMissing ? (
+                        <Text style={styles.acceptHint}>
+                            Proof of delivery needs a photo, the customer signature
+                            and your location.
+                        </Text>
+                    ) : null}
                     <PrimaryButton
                         title={copy.confirm}
                         loading={busy}
+                        disabled={podMissing}
                         onPress={() => void onComplete('DELIVERED')}
                         style={{ marginTop: 16 }}
                     />
