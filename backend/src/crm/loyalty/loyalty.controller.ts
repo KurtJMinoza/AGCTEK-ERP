@@ -14,7 +14,7 @@ export class CrmLoyaltyController {
         return this.loyalty.getForCustomer(customerId)
     }
 
-    /** Demo / staging only (LOYALTY_MOCK_ACCRUAL=true, else 403); not backed by a FICO invoice. */
+    /** Demo / staging only (LOYALTY_MOCK_ACCRUAL=true and not production, else 403); not invoice-backed. */
     @Post(':customerId/loyalty/mock-earn')
     @RequirePermission('crm.loyalty', 'update')
     mockEarn(

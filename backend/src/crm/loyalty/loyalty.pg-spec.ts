@@ -115,6 +115,44 @@ describe('Loyalty accrual on PostgreSQL', () => {
         expect(account).toMatchObject({ pointsBalance: 123, tier: 'BRONZE' })
     })
 
+    it('earns once per order when paid-invoice and mock earns race (unique earnKey)', async () => {
+        const customerId = await newCustomer()
+        const order = await prisma.sdSalesOrder.create({
+            data: {
+                orderNumber: `${tag}-SO-2`,
+                customerId,
+                status: 'DELIVERED',
+                currency: 'PHP',
+                totalAmount: new Prisma.Decimal('5000.00'),
+                correlationId: `${tag}-corr-2`,
+            },
+        })
+        const paid = {
+            salesInvoiceId: `${tag}-inv-2`,
+            invoiceNumber: `${tag}-INV-2`,
+            salesOrderId: order.id,
+            customerId,
+            companyId: 'n/a',
+            currency: 'PHP',
+            totalAmount: '5000.00',
+            paidAt: new Date().toISOString(),
+            idempotencyKey: `${tag}-inv-2`,
+        }
+
+        const { errors } = await settle([
+            loyalty.earnForPaidInvoice(paid),
+            loyalty.earnForPaidInvoice(paid),
+            loyalty.mockEarn(customerId, { salesOrderId: order.id }, userId),
+            loyalty.mockEarn(customerId, { salesOrderId: order.id }, userId),
+        ])
+
+        expect(errors).toEqual([])
+        const rows = await prisma.crmLoyaltyTransaction.findMany({ where: { loyaltyAccount: { customerId } } })
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({ type: 'EARN', points: 50, earnKey: `SALES_ORDER:${order.id}` })
+        expect(await ledgerSum(customerId)).toBe(50)
+    })
+
     it('creates a single account when several first-time earns race', async () => {
         const customerId = await newCustomer()
 

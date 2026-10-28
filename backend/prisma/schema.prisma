@@ -8113,6 +8113,9 @@ model CrmLoyaltyTransaction {
   points           Int
   referenceType    String?
   referenceId      String?
+  /// EARN only: the business source that may earn once, e.g. `SALES_ORDER:<id>` for both a mock
+  /// order earn and the paid invoice of that order. Null for grants and non-EARN rows.
+  earnKey          String?           @unique
   note             String?
   createdBy        String?
   createdAt        DateTime          @default(now())

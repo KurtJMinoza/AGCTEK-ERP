@@ -82,6 +82,58 @@ describe('SalesInvoiceService payment projection', () => {
         })
     })
 
+    describe('SalesInvoicePaid hand-off (CRM loyalty)', () => {
+        const paidAt = new Date('2026-10-10T08:30:00.000Z')
+        const paidInvoice = {
+            id: 'inv-1',
+            invoiceNumber: 'INV-20261014-0001',
+            companyId: 'comp-1',
+            currency: 'PHP',
+            totalAmount: { toString: () => '2549.99' },
+            salesOrder: { customerId: 'shop-1' },
+        }
+
+        it('announces the invoice it moved to PAID, once per invoice', async () => {
+            const sdEvents = { emit: jest.fn().mockResolvedValue(undefined) }
+            service = new SalesInvoiceService(prisma as unknown as PrismaService, sdEvents as never)
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
+            prisma.sdSalesInvoice.findUnique.mockResolvedValue(paidInvoice)
+
+            await service.markPaidForSalesOrder('so-1', paidAt)
+
+            expect(sdEvents.emit).toHaveBeenCalledWith('SalesInvoicePaid', {
+                salesInvoiceId: 'inv-1',
+                invoiceNumber: 'INV-20261014-0001',
+                salesOrderId: 'so-1',
+                customerId: 'shop-1',
+                companyId: 'comp-1',
+                currency: 'PHP',
+                totalAmount: '2549.99',
+                paidAt: paidAt.toISOString(),
+                idempotencyKey: 'inv-1',
+            })
+        })
+
+        it('stays silent when nothing changed (draft, already paid or no invoice)', async () => {
+            const sdEvents = { emit: jest.fn() }
+            service = new SalesInvoiceService(prisma as unknown as PrismaService, sdEvents as never)
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 0 })
+
+            await service.markPaidForSalesOrder('so-1', paidAt)
+
+            expect(sdEvents.emit).not.toHaveBeenCalled()
+        })
+
+        it('never fails the payment when the hand-off fails', async () => {
+            const sdEvents = { emit: jest.fn().mockRejectedValue(new Error('loyalty down')) }
+            service = new SalesInvoiceService(prisma as unknown as PrismaService, sdEvents as never)
+            prisma.sdSalesInvoice.updateMany.mockResolvedValue({ count: 1 })
+            prisma.sdSalesInvoice.findUnique.mockResolvedValue(paidInvoice)
+
+            await expect(service.markPaidForSalesOrder('so-1', paidAt)).resolves.toEqual({ count: 1 })
+        })
+    })
+
     describe('issueForSalesOrder (POD posting)', () => {
         it('posts a DRAFT, then settles it PAID with the payment timestamp', async () => {
             const paidAt = new Date('2026-10-10T08:30:00.000Z')

@@ -1,5 +1,7 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { SdEventEmitterService } from './sd-event-emitter.service'
+import { SD_EVENTS, type SdSalesInvoicePaidPayload } from './sd-event.types'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { ListSalesInvoicesQueryDto } from './dto/sales-invoice.dto'
@@ -88,7 +90,10 @@ type BillToSource = {
 export class SalesInvoiceService {
     private readonly logger = new Logger(SalesInvoiceService.name)
 
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        @Optional() private readonly sdEvents?: SdEventEmitterService,
+    ) {}
 
     async createForSalesOrder(salesOrderId: string) {
         const existing = await this.prisma.sdSalesInvoice.findUnique({
@@ -195,10 +200,50 @@ export class SalesInvoiceService {
      * the order payment and posts it straight to PAID on delivery.
      */
     async markPaidForSalesOrder(salesOrderId: string, paidAt: Date) {
-        return this.prisma.sdSalesInvoice.updateMany({
+        const result = await this.prisma.sdSalesInvoice.updateMany({
             where: { salesOrderId, status: 'ISSUED' },
             data: { status: 'PAID', paidAt },
         })
+        if (result.count > 0) await this.announcePaid(salesOrderId, paidAt)
+        return result
+    }
+
+    /**
+     * Publishes the settled invoice (CRM loyalty earns on it). The payment is already committed, so a
+     * failed hand-off is logged and the outbox row stays PENDING instead of failing the payment.
+     */
+    private async announcePaid(salesOrderId: string, paidAt: Date) {
+        if (!this.sdEvents) return
+        const invoice = await this.prisma.sdSalesInvoice.findUnique({
+            where: { salesOrderId },
+            select: {
+                id: true,
+                invoiceNumber: true,
+                companyId: true,
+                currency: true,
+                totalAmount: true,
+                salesOrder: { select: { customerId: true } },
+            },
+        })
+        if (!invoice?.salesOrder.customerId) return
+        const payload: SdSalesInvoicePaidPayload = {
+            salesInvoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            salesOrderId,
+            customerId: invoice.salesOrder.customerId,
+            companyId: invoice.companyId,
+            currency: invoice.currency,
+            totalAmount: invoice.totalAmount.toString(),
+            paidAt: paidAt.toISOString(),
+            idempotencyKey: invoice.id,
+        }
+        try {
+            await this.sdEvents.emit(SD_EVENTS.SALES_INVOICE_PAID, payload)
+        } catch (err) {
+            this.logger.error(
+                `Invoice ${invoice.invoiceNumber}: paid hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+            )
+        }
     }
 
     /** Invoice document (`GET /sd/invoices/:id`). Read-only. */

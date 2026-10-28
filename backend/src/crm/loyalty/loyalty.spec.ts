@@ -3,6 +3,8 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import { CrmLoyaltyController } from './loyalty.controller'
 import { CrmLoyaltyService, tierForBalance } from './loyalty.service'
+import { CrmLoyaltyEarnListener } from './loyalty-earn.listener'
+import type { SdSalesInvoicePaidPayload } from '../../sd/sd-event.types'
 
 type Txn = {
     id: string
@@ -11,6 +13,7 @@ type Txn = {
     points: number
     referenceType: string | null
     referenceId: string | null
+    earnKey: string | null
     note: string | null
     createdBy: string | null
 }
@@ -42,13 +45,8 @@ function fakeDb(opts: { customer?: boolean; balance?: number | null } = {}) {
             }),
         },
         crmLoyaltyTransaction: {
-            findFirst: jest.fn(async ({ where }: { where: Partial<Txn> }) =>
-                txns.find(
-                    (t) =>
-                        t.type === where.type &&
-                        t.referenceType === where.referenceType &&
-                        t.referenceId === where.referenceId,
-                ) ?? null,
+            findUnique: jest.fn(async ({ where }: { where: { earnKey: string } }) =>
+                txns.find((t) => t.earnKey === where.earnKey) ?? null,
             ),
             create: jest.fn(async ({ data }: { data: Omit<Txn, 'id'> }) => {
                 const row = { id: `tx-${txns.length + 1}`, ...data }
@@ -155,6 +153,7 @@ describe('CrmLoyaltyService.accruePoints', () => {
                 points: 1_200,
                 referenceType: null,
                 referenceId: null,
+                earnKey: null,
                 note: 'first',
                 createdBy: 'u-1',
             },
@@ -173,7 +172,16 @@ describe('CrmLoyaltyService.accruePoints', () => {
         expect(again.created).toBe(false)
         expect(again.transaction.id).toBe('tx-1')
         expect(txns).toHaveLength(1)
+        expect(txns[0].earnKey).toBe('SALES_ORDER:so-1')
         expect(account()!.pointsBalance).toBe(120)
+    })
+
+    it('never sets an earn key on non-EARN rows, so they never deduplicate', async () => {
+        const { service, txns } = setup({ balance: 500 })
+        const adjust = { ...earn, type: 'ADJUSTMENT' as const, points: -10, referenceType: 'SALES_ORDER', referenceId: 'so-1' }
+        await service.accruePoints(adjust)
+        await service.accruePoints(adjust)
+        expect(txns.map((t) => t.earnKey)).toEqual([null, null])
     })
 
     it('keeps the balance at or above zero on redeem', async () => {
@@ -294,6 +302,103 @@ describe('CrmLoyaltyService.mockEarn', () => {
     it('404s for a missing customer', async () => {
         const { service } = setup({ customer: false })
         await expect(service.mockEarn('missing', { points: 5 }, 'u-1')).rejects.toThrow(NotFoundException)
+    })
+})
+
+describe('CrmLoyaltyService.earnForPaidInvoice', () => {
+    const paid = (overrides: Partial<SdSalesInvoicePaidPayload> = {}): SdSalesInvoicePaidPayload => ({
+        salesInvoiceId: 'inv-1',
+        invoiceNumber: 'INV-000045',
+        salesOrderId: 'so-1',
+        customerId: 'shop-1',
+        companyId: 'comp-1',
+        currency: 'PHP',
+        totalAmount: '2549.99',
+        paidAt: '2026-10-28T02:00:00.000Z',
+        idempotencyKey: 'inv-1',
+        ...overrides,
+    })
+
+    it('earns floor(total / 100) once per paid invoice for the Customer Master', async () => {
+        const { prisma, service, txns } = setup()
+
+        const first = await service.earnForPaidInvoice(paid())
+        const again = await service.earnForPaidInvoice(paid())
+
+        expect(prisma.sdCustomer.findFirst).toHaveBeenCalledWith({
+            where: { OR: [{ id: 'shop-1' }, { retailClientId: 'shop-1' }] },
+            select: { id: true },
+        })
+        expect(txns).toEqual([
+            expect.objectContaining({
+                type: 'EARN',
+                points: 25,
+                referenceType: 'SALES_INVOICE',
+                referenceId: 'inv-1',
+                earnKey: 'SALES_ORDER:so-1',
+                note: 'Paid invoice INV-000045 (2549.99 PHP)',
+                createdBy: null,
+            }),
+        ])
+        expect(first).toMatchObject({ created: true, summary: { pointsBalance: 25 } })
+        expect(again).toMatchObject({ created: false })
+    })
+
+    it('an order earns once across sources: a mock order earn blocks the invoice earn and vice versa', async () => {
+        process.env.LOYALTY_MOCK_ACCRUAL = 'true'
+        const mockFirst = setup()
+        await mockFirst.service.mockEarn('cust-1', { salesOrderId: 'so-1' }, 'u-1')
+        await expect(mockFirst.service.earnForPaidInvoice(paid())).resolves.toMatchObject({ created: false })
+        expect(mockFirst.txns).toHaveLength(1)
+
+        const invoiceFirst = setup()
+        await invoiceFirst.service.earnForPaidInvoice(paid())
+        await expect(
+            invoiceFirst.service.mockEarn('cust-1', { salesOrderId: 'so-1' }, 'u-1'),
+        ).resolves.toMatchObject({ created: false })
+        expect(invoiceFirst.txns).toHaveLength(1)
+        expect(invoiceFirst.txns[0].referenceType).toBe('SALES_INVOICE')
+    })
+
+    it.each([
+        ['no Customer Master', paid(), true],
+        ['a non-PHP invoice', paid({ currency: 'USD' }), false],
+        ['under 100 PHP', paid({ totalAmount: '99.99' }), false],
+        ['a zero-value replacement order', paid({ totalAmount: '0' }), false],
+    ])('earns nothing for %s', async (_label, payload, noMaster) => {
+        const { prisma, service, txns } = setup()
+        if (noMaster) prisma.sdCustomer.findFirst.mockResolvedValue(null)
+        await expect(service.earnForPaidInvoice(payload)).resolves.toBeNull()
+        expect(txns).toHaveLength(0)
+    })
+})
+
+describe('mock accrual in production', () => {
+    const nodeEnv = process.env.NODE_ENV
+    afterEach(() => {
+        process.env.NODE_ENV = nodeEnv
+    })
+
+    it('stays off when NODE_ENV=production even with LOYALTY_MOCK_ACCRUAL=true', async () => {
+        process.env.LOYALTY_MOCK_ACCRUAL = 'true'
+        process.env.NODE_ENV = 'production'
+        const { service, txns } = setup()
+        await expect(service.getForCustomer('cust-1')).resolves.toMatchObject({ mockAccrual: false })
+        await expect(service.mockEarn('cust-1', { points: 10 }, 'u-1')).rejects.toThrow(ForbiddenException)
+        expect(txns).toHaveLength(0)
+    })
+})
+
+describe('CrmLoyaltyEarnListener', () => {
+    it('earns for the paid invoice in the SD envelope and lets failures reach the SD outbox', async () => {
+        const loyalty = { earnForPaidInvoice: jest.fn().mockResolvedValue(null) }
+        const listener = new CrmLoyaltyEarnListener(loyalty as never)
+        const payload = { salesInvoiceId: 'inv-1' } as SdSalesInvoicePaidPayload
+        await listener.onInvoicePaid({ payload })
+        expect(loyalty.earnForPaidInvoice).toHaveBeenCalledWith(payload)
+
+        loyalty.earnForPaidInvoice.mockRejectedValue(new Error('db down'))
+        await expect(listener.onInvoicePaid({ payload })).rejects.toThrow('db down')
     })
 })
 

@@ -24,7 +24,7 @@ This document answers: **what each module owns, how value flows today, what is i
 | **SD** | **Integration** | `backend/src/sd/` · nav in `erp-modules.ts` · no `src/modules/sd` |
 | **PP** | **Integration** | `backend/src/pp/` (BOM / production orders for MM MRP) |
 | **FICO** | **Integration** | `backend/src/fico/` · nav scaffold · MM accounting consumer |
-| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; Closed Won → SO, RMA hand-off, loyalty mock accrual (FICO earn deferred) |
+| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; Closed Won → SO, RMA hand-off, loyalty earn on paid SD invoices (FICO clearance deferred) |
 
 **Strategic posture:** MM and SCM are **deep enough to freeze**; do not redesign MM again. The imbalance is maturity across modules — next work is **cross-module business cycles**, not more MM surface area. See [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
 
@@ -457,17 +457,24 @@ Choosing Closed Won opens the win dialog with a readiness checklist (active SD c
 
 **CRM dashboard:** `GET /crm/dashboard?days=30|90|365` (crm:read, default 90) is a read-only summary from CRM tables only. Live counts are new / qualified leads, records with overdue activities (opportunities and tickets, each with an activity count), the weighted open pipeline (same query as `/crm/opportunities/pipeline`), and the default ticket queue by priority and status. The period covers win/loss by `closedAt` (won amount per currency, lost by reason, win rate) and the lead cohort created in the window with its current status (no `convertedAt` is stored). Every widget links to a list filtered to exactly those records: `opportunities?activity=OVERDUE|stage|lostReason|closedFrom|view=board`, `tickets?queue=ALL&activity=OVERDUE|priority|status`, `leads?status|createdFrom`. The "overdue" rule (record still accepts activities and has an open activity past due) lives once in `CrmActivitiesService` and is shared by the list filters and the dashboard. List pages read these query parameters on load and show filters without a control as removable chips.
 
-**Loyalty accrual (mock until FICO):** `CrmLoyaltyService.accruePoints` is the only write path to `CrmLoyaltyAccount` / `CrmLoyaltyTransaction`.
+**Loyalty accrual (paid SD invoices; FICO clearance later):** `CrmLoyaltyService.accruePoints` is the only write path to `CrmLoyaltyAccount` / `CrmLoyaltyTransaction`.
 - It creates the account on the first earn and appends one ledger row. Balance and tier move in the same transaction, under the account row lock.
-- An EARN with a `(referenceType, referenceId)` posts once, and the balance never goes below zero.
+- An EARN posts once per `earnKey` (unique column, migration `20261110120000_crm_loyalty_earn_key`; defaults to `referenceType:referenceId`). The balance never goes below zero.
 - Tier comes from the balance: SILVER ≥ 1,000, GOLD ≥ 5,000, PLATINUM ≥ 20,000, otherwise BRONZE.
-- Today only the demo / staging `POST /crm/customers/:customerId/loyalty/mock-earn` (`crm.loyalty` update) calls it, gated by `LOYALTY_MOCK_ACCRUAL=true` (otherwise 403).
-  - With `salesOrderId`: `floor(total / 100 PHP) × LOYALTY_POINTS_PER_100_PHP` points, posted once per order (`referenceType = SALES_ORDER`). The order must belong to the customer, be in PHP, and not be DRAFT or CANCELLED.
+- **Real earn:** `SalesInvoiceService.markPaidForSalesOrder` emits `SalesInvoicePaid` (SD outbox, one per invoice) when an invoice moves ISSUED → PAID. `CrmLoyaltyEarnListener` calls `earnForPaidInvoice`.
+  - Points are `floor(total / 100 PHP) × LOYALTY_POINTS_PER_100_PHP` for the order's Customer Master (shop account resolved through `findCustomerMasterId`), with `referenceType = SALES_INVOICE`.
+  - No earn for non-PHP invoices, totals under 100 PHP, or customers without a Customer Master.
+  - A failed earn is logged and leaves the outbox row PENDING; it never fails the payment.
+  - The SD paid invoice stands in for FICO receivable clearance until FICO publishes one (`TODO(crm-integration)`).
+- **One earn per sales order:** the mock order earn and the paid-invoice earn share the key `SALES_ORDER:<id>`, so whichever posts first wins.
+- **Mock earn (demo / staging):** `POST /crm/customers/:customerId/loyalty/mock-earn` (`crm.loyalty` update) needs `LOYALTY_MOCK_ACCRUAL=true`, and is always off when `NODE_ENV=production` (403).
+  - With `salesOrderId`: order-based points as above (`referenceType = SALES_ORDER`). The order must belong to the customer, be in PHP, and not be DRAFT or CANCELLED.
   - Without it: an admin grant (`referenceType = MOCK`).
-- **Mock ≠ FICO:** these rows are not invoice-backed. The UI labels them **Mock** and shows "Mock accrual on · not invoice-backed" while the flag is on. Real earn will come from a FICO invoice-cleared consumer calling the same `accruePoints` with an INVOICE reference.
-- Not in scope: storefront redemption, expiry, campaigns, an order-complete hook.
+- **UI:** paid-invoice rows are labelled **Paid invoice** and mock rows **Mock**. The panel says points come from paid SD invoices; it never claims FICO clearance.
+- Not in scope: storefront redemption, expiry, campaigns.
 - `GET …/loyalty` returns `mockAccrual`. Real-database checks: `src/crm/loyalty/loyalty.pg-spec.ts`.
-**Deferred (`TODO(crm-integration)`):** loyalty accrual from FICO invoice clearance (will call `accruePoints`); FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
+
+**Deferred (`TODO(crm-integration)`):** switching the loyalty earn source to FICO receivable clearance; FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
 
 Do not invent inventory or SO engines inside CRM.
 

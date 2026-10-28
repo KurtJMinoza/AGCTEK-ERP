@@ -370,7 +370,7 @@ export async function apiAddTicketComment(ticketId: string, body: string) {
     return data
 }
 
-/** Demo / staging only; the server refuses it (403) unless LOYALTY_MOCK_ACCRUAL=true. */
+/** Demo / staging only; the server refuses it (403) unless LOYALTY_MOCK_ACCRUAL=true (never in production). */
 export async function apiMockEarnLoyalty(customerId: string, body: MockEarnInput) {
     const { data } = await ErpAxiosBase.post<MockEarnResult>(
         `/crm/customers/${encodeURIComponent(customerId)}/loyalty/mock-earn`,

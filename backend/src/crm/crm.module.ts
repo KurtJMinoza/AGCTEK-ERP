@@ -13,6 +13,7 @@ import { CrmReturnCasesService } from './tickets/return-cases.service'
 import { CrmReturnCaseListener } from './tickets/return-case.listener'
 import { CrmLoyaltyController } from './loyalty/loyalty.controller'
 import { CrmLoyaltyService } from './loyalty/loyalty.service'
+import { CrmLoyaltyEarnListener } from './loyalty/loyalty-earn.listener'
 import { CrmCustomer360Controller } from './customer-360/customer-360.controller'
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
 import {
@@ -56,6 +57,7 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmReturnCasesService,
         CrmReturnCaseListener,
         CrmLoyaltyService,
+        CrmLoyaltyEarnListener,
         CrmCustomer360Service,
         CrmActivitiesService,
         CrmDashboardService,
