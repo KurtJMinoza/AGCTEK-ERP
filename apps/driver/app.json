@@ -12,7 +12,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Capture proof-of-delivery photos.",
         "NSPhotoLibraryUsageDescription": "Attach POD photos from your library.",
-        "NSLocationWhenInUseUsageDescription": "Share live location with dispatcher tracking while on a trip."
+        "NSLocationWhenInUseUsageDescription": "Share live location with dispatcher tracking and geo-tag proof of delivery while on a trip."
       }
     },
     "android": {
@@ -53,7 +53,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Share live location with dispatcher tracking while on a trip."
+          "locationWhenInUsePermission": "Share live location with dispatcher tracking and geo-tag proof of delivery while on a trip."
         }
       ]
     ],
