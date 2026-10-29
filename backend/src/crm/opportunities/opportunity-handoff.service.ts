@@ -1,6 +1,7 @@
 import {
     BadRequestException,
     ConflictException,
+    HttpException,
     Injectable,
     NotFoundException,
 } from '@nestjs/common'
@@ -9,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { QuotationService } from '../../sd/quotation.service'
 import { SalesOrderService } from '../../sd/sales-order.service'
+import { SalesInvoiceService } from '../../sd/sales-invoice.service'
 import { CreateOpportunitySalesOrderDto, WinOpportunityDto } from './dto/opportunity.dto'
 import { CrmMessagesService } from '../messages/crm-messages.service'
 import {
@@ -47,6 +49,48 @@ class LinkConflict extends ConflictException {
     }
 }
 
+type OrderSignalSource = {
+    paymentMethod: string | null
+    paymentStatus: string | null
+    shippedAt: Date | null
+    deliveredAt: Date | null
+    proofOfDeliveryUrl: string | null
+    courierName: string | null
+    trackingNumber: string | null
+}
+
+/** Read-only order-to-cash signals for the opportunity page (links only; SD / SCM / FICO own them). */
+export function orderSignals(
+    order: OrderSignalSource,
+    invoice: Awaited<ReturnType<SalesInvoiceService['statusForSalesOrder']>>,
+) {
+    return {
+        payment: { method: order.paymentMethod, status: order.paymentStatus },
+        delivery: {
+            shippedAt: order.shippedAt,
+            deliveredAt: order.deliveredAt,
+            proofOfDelivery: Boolean(order.proofOfDeliveryUrl),
+            courierName: order.courierName,
+            trackingNumber: order.trackingNumber,
+        },
+        invoice,
+        // No credit check runs in SD or FICO yet; CRM shows that instead of guessing.
+        credit: { status: 'NOT_CHECKED' as const },
+    }
+}
+
+/** The message SD gave for a refused handoff (Nest HTTP errors carry it in the response body). */
+export function handoffErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+        const body = error.getResponse()
+        const message =
+            typeof body === 'string' ? body : (body as { message?: string | string[] }).message
+        if (Array.isArray(message)) return message.join('; ')
+        if (message) return message
+    }
+    return error instanceof Error && error.message ? error.message : 'unexpected error'
+}
+
 /** Read-only view of the SD order shown in CRM; SD stays the owner of the document. */
 export function salesOrderSummary(order: SdOrderLike) {
     return {
@@ -76,14 +120,21 @@ export class CrmOpportunityHandoffService {
         private readonly permissions: PermissionsService,
         private readonly quotations: QuotationService,
         private readonly messages: CrmMessagesService,
+        private readonly invoices: SalesInvoiceService,
     ) {}
 
+    /**
+     * The linked SD order plus read-only O2C signals (payment, delivery / POD, invoice, credit)
+     * read live from SD; CRM never writes any of them.
+     */
     async salesOrder(id: string) {
         const opp = await this.findRow(id)
         if (!opp.sdSalesOrderId) {
             throw new NotFoundException('No SD sales order is linked to this opportunity')
         }
-        return salesOrderSummary(await this.salesOrders.findOne(opp.sdSalesOrderId))
+        const order = await this.salesOrders.findOne(opp.sdSalesOrderId)
+        const invoice = await this.invoices.statusForSalesOrder(order.id)
+        return { ...salesOrderSummary(order), signals: orderSignals(order, invoice) }
     }
 
     /** POST :id/win — idempotent: a won opportunity returns its linked order (`created: false`). */
@@ -219,13 +270,42 @@ export class CrmOpportunityHandoffService {
                 )
             } catch (error) {
                 const retryable = this.salesOrders.isRetryableCrmHandoffConflict(error)
-                if (!retryable && !(error instanceof LinkConflict)) throw error
+                if (!retryable && !(error instanceof LinkConflict)) {
+                    await this.recordHandoffFailure(current, error, user.id)
+                    throw error
+                }
                 const fresh = await this.findRow(current.id)
                 if (done(fresh)) return this.linkedResult(current.id, fresh.sdSalesOrderId!)
                 if (!retryable) throw error
             }
         }
         throw new ConflictException('Could not create the SD sales order; retry')
+    }
+
+    /**
+     * SD refused the order (e.g. customer not active, not billable in PHP): the win rolled back, so
+     * the reason is kept on the opportunity feed for the rep. Never masks the original error.
+     */
+    private async recordHandoffFailure(current: CrmOpportunity, error: unknown, userId: string) {
+        if (!(error instanceof HttpException) || error.getStatus() >= 500) return
+        const reason = handoffErrorMessage(error)
+        try {
+            await this.messages.recordSystem(
+                this.prisma,
+                current.id,
+                [
+                    {
+                        field: 'handoff',
+                        from: current.stage,
+                        to: 'FAILED',
+                        summary: `Closed Won hand-off to SD failed: ${reason}`,
+                    },
+                ],
+                userId,
+            )
+        } catch {
+            // The rep still gets the original SD error from the request.
+        }
     }
 
     /**

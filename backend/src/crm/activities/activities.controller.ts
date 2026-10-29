@@ -37,6 +37,39 @@ export class CrmActivitiesController {
     }
 }
 
+@Controller('crm/leads/:leadId/activities')
+export class CrmLeadActivitiesController {
+    constructor(private readonly activities: CrmActivitiesService) {}
+
+    @Get()
+    @RequirePermission('crm.activities', 'read')
+    list(@Param('leadId') leadId: string) {
+        return this.activities.listForLead(leadId)
+    }
+
+    @Post()
+    @RequirePermission('crm.activities', 'create')
+    create(
+        @Param('leadId') leadId: string,
+        @Body() dto: CreateActivityDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.activities.createForLead(leadId, dto, user.id)
+    }
+
+    @Post(':activityId/complete')
+    @HttpCode(200)
+    @RequirePermission('crm.activities', 'update')
+    complete(
+        @Param('leadId') leadId: string,
+        @Param('activityId') activityId: string,
+        @Body() dto: CompleteActivityDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.activities.completeForLead(leadId, activityId, dto, user.id)
+    }
+}
+
 @Controller('crm/tickets/:ticketId/activities')
 export class CrmTicketActivitiesController {
     constructor(private readonly activities: CrmActivitiesService) {}

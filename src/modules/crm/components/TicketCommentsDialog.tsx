@@ -9,9 +9,12 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import { useTicketComments } from '../hooks/useTickets'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { crmTone, formatEnumLabel } from '../utils/format'
-import { isTerminalTicket } from './TicketFormDialog'
+import usePermissions from '@/utils/hooks/usePermissions'
+import AttachmentsPanel from './AttachmentsPanel'
+import AuditTrail from './AuditTrail'
 import TicketReturnPanel from './TicketReturnPanel'
-import type { Ticket, TicketComment } from '../types'
+import { apiGetAuditTrail } from '../services/crmApi'
+import type { Ticket, TicketComment, TicketStatus } from '../types'
 
 const authorName = (comment: TicketComment) => {
     if (!comment.author) return 'Unknown user'
@@ -40,7 +43,13 @@ export default function TicketCommentsDialog({
     const [body, setBody] = useState('')
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
-    const closed = isTerminalTicket(ticket)
+    /** Status set by a return-case override while the dialog is open (the caller's row is a snapshot). */
+    const [changed, setChanged] = useState<{ ticketId: string; status: TicketStatus } | null>(null)
+    const status = ticket && changed?.ticketId === ticket.id ? changed.status : ticket?.status
+    const closed = status === 'CLOSED' || status === 'CANCELLED'
+    const { can } = usePermissions()
+    const canRemoveAttachments = can('crm.tickets', 'delete')
+    const [auditRefresh, setAuditRefresh] = useState(0)
 
     const submit = async () => {
         if (!body.trim()) return
@@ -67,8 +76,8 @@ export default function TicketCommentsDialog({
             headerExtra={
                 ticket ? (
                     <div className="flex flex-wrap gap-2">
-                        <StatusBadge tone={crmTone(ticket.status)}>
-                            {formatEnumLabel(ticket.status)}
+                        <StatusBadge tone={crmTone(status ?? ticket.status)}>
+                            {formatEnumLabel(status ?? ticket.status)}
                         </StatusBadge>
                         <StatusBadge tone={crmTone(ticket.priority)}>
                             {formatEnumLabel(ticket.priority)}
@@ -83,9 +92,12 @@ export default function TicketCommentsDialog({
                 <TicketReturnPanel
                     key={ticket.id}
                     ticketId={ticket.id}
+                    ticketStatus={ticket.status}
                     canDecide={canDecideReturn}
                     readOnly={closed}
+                    onStatusChanged={(next) => setChanged({ ticketId: ticket.id, status: next })}
                     onDecided={() => {
+                        setAuditRefresh((n) => n + 1)
                         void reload()
                         onCommented?.()
                     }}
@@ -93,6 +105,29 @@ export default function TicketCommentsDialog({
             ) : null}
             {ticket?.description ? (
                 <p className="mb-4 whitespace-pre-wrap text-sm">{ticket.description}</p>
+            ) : null}
+            {ticket ? (
+                <>
+                    <h6 className="mb-2">Attachments</h6>
+                    <div className="mb-4">
+                        <AttachmentsPanel
+                            key={ticket.id}
+                            parent={{ kind: 'ticket', id: ticket.id }}
+                            canUpload={canComment}
+                            canRemove={canRemoveAttachments}
+                            readOnly={closed}
+                            onChanged={() => setAuditRefresh((n) => n + 1)}
+                        />
+                    </div>
+                    <h6 className="mb-2">History</h6>
+                    <div className="mb-4">
+                        <AuditTrail
+                            sourceKey={`ticket:${ticket.id}`}
+                            refreshToken={auditRefresh}
+                            load={() => apiGetAuditTrail({ kind: 'ticket', id: ticket.id })}
+                        />
+                    </div>
+                </>
             ) : null}
             {error ? (
                 <Alert showIcon type="danger" className="mb-4">

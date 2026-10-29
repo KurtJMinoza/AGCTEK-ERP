@@ -134,8 +134,9 @@ CRM notifications                             ⬜
 | Ticket activities · default queue (Open + Waiting customer, priority sort) · RMA free-text reference | ✅ |
 | CRM dashboard (`GET /crm/dashboard`): leads, overdue activities, weighted pipeline, tickets by priority, win/loss by reason, lead conversion; deep links to filtered lists / board | ✅ |
 | RMA hand-off: storefront return → CRM case (`link=RETURN`, return panel); agent approves / rejects on the case, SD applies it (`docs/COD_DELIVERY_CUSTOMER_RETURNS.md`) | ✅ |
-| Loyalty `accruePoints` + gated mock earn (`LOYALTY_MOCK_ACCRUAL`; Mock-labelled, not invoice-backed) | ✅ demo / staging |
-| Refund payment (FICO) · loyalty accrual from FICO invoices · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
+| Loyalty `accruePoints` + earn on paid SD invoices (`SalesInvoicePaid`, once per sales order) | ✅ |
+| Gated mock earn (`LOYALTY_MOCK_ACCRUAL`, never in production; Mock-labelled, not invoice-backed) | ✅ demo / staging |
+| Refund payment (FICO) · loyalty earn from FICO receivable clearance · FICO invoices in 360 | ⬜ deferred (`TODO(crm-integration)`) |
 
 ---
 

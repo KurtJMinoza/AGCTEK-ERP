@@ -71,7 +71,7 @@ export default function CustomersPage() {
             <PageHeader
                 title="Customers"
                 description="Customer master is maintained in Sales & Distribution. Open a customer for the CRM 360° view."
-                breadcrumbs={crmPageBreadcrumbs('Customers')}
+                breadcrumbs={crmPageBreadcrumbs('/crm/customers')}
             />
 
             {error ? (

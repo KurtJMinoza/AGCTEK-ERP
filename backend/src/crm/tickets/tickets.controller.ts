@@ -5,17 +5,20 @@ import {
     CreateTicketCommentDto,
     CreateTicketDto,
     ListTicketsQueryDto,
+    OverrideTicketStatusDto,
     RejectReturnCaseDto,
     UpdateTicketDto,
 } from './dto/ticket.dto'
 import { CrmReturnCasesService } from './return-cases.service'
 import { CrmTicketsService } from './tickets.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 
 @Controller('crm/tickets')
 export class CrmTicketsController {
     constructor(
         private readonly tickets: CrmTicketsService,
         private readonly returnCases: CrmReturnCasesService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     /** Opens the case for an SD customer return, or returns the existing one. */
@@ -79,6 +82,25 @@ export class CrmTicketsController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.tickets.update(id, dto, user.id)
+    }
+
+    /** Resolve / close / cancel a return case before its SD return is settled; reason required. */
+    @Post(':id/status-override')
+    @RequirePermission('crm.ticket-overrides', 'update')
+    overrideStatus(
+        @Param('id') id: string,
+        @Body() dto: OverrideTicketStatusDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.tickets.overrideStatus(id, dto, user.id)
+    }
+
+    /** Lifecycle audit (who / what / when), oldest first. */
+    @Get(':id/history')
+    @RequirePermission('crm.tickets', 'read')
+    async history(@Param('id') id: string) {
+        await this.tickets.findOne(id)
+        return this.messages.history({ ticketId: id })
     }
 
     @Get(':id/comments')

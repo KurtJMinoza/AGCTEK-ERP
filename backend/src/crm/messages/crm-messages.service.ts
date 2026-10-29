@@ -28,6 +28,8 @@ export type SystemChange = {
     summary?: string
 }
 
+export type SystemParent = { opportunityId: string } | { leadId: string } | { ticketId: string }
+
 export const FEED_ITEM_TYPES = ['NOTE', 'SYSTEM', 'ACTIVITY', 'QUOTATION', 'SALES_ORDER'] as const
 export type FeedItemType = (typeof FEED_ITEM_TYPES)[number]
 
@@ -61,16 +63,21 @@ export function formatSystemLabel(value: string) {
 
 /** Human-readable summary for a tracked change; `metadata` always stays `{ field, from, to }`. */
 export function systemSummary(change: SystemChange): string {
+    if (change.summary) return change.summary
     const from = change.from === null || change.from === undefined ? 'none' : String(change.from)
     const to = change.to === null || change.to === undefined ? 'none' : String(change.to)
     switch (change.field) {
         case 'stage':
-            return change.summary ?? `Stage changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
+            return `Stage changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
         case 'assignedTo':
             if (to === 'none') return 'Owner was removed'
             return from === 'none'
                 ? `Assigned to ${to}`
                 : `Owner changed from ${from} to ${to}`
+        case 'status':
+            return `Status changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
+        case 'priority':
+            return `Priority changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
         case 'amount':
             return `Amount changed from ${from} to ${to}`
         case 'expectedCloseDate':
@@ -82,6 +89,47 @@ export function systemSummary(change: SystemChange): string {
                 : `Lost reason changed from ${formatSystemLabel(from)} to ${formatSystemLabel(to)}`
         default:
             return `${change.field} changed from ${from} to ${to}`
+    }
+}
+
+/** Audit rows for the tracked fields an update actually changes (`data` = the update payload). */
+export function fieldChanges(
+    current: Record<string, unknown>,
+    data: Record<string, unknown>,
+    fields: readonly string[],
+): SystemChange[] {
+    const same = (a: unknown, b: unknown) => String(a ?? '') === String(b ?? '')
+    return fields
+        .filter((field) => field in data && !same(current[field], data[field]))
+        .map((field) => ({ field, from: current[field] ?? null, to: data[field] ?? null }))
+}
+
+/** Feed line for an SD quotation lifecycle event. */
+export function quotationEventSummary(action: string, label: string, note: string | null) {
+    const withNote = (text: string) => (note ? `${text} (${note})` : text)
+    switch (action) {
+        case 'CREATED':
+            return `Quotation ${label} created`
+        case 'EDITED':
+            return `Quotation ${label} edited`
+        case 'SENT':
+            return withNote(`Quotation ${label} sent`)
+        case 'REVISED':
+            return withNote(`Quotation ${label} created as a revision`)
+        case 'SUPERSEDED':
+            return withNote(`Quotation ${label} superseded`)
+        case 'ACCEPTED':
+            return withNote(`Customer accepted quotation ${label}`)
+        case 'REJECTED':
+            return withNote(`Customer rejected quotation ${label}`)
+        case 'CANCELLED':
+            return withNote(`Quotation ${label} cancelled`)
+        case 'EXPIRED':
+            return `Quotation ${label} expired`
+        case 'CONVERTED':
+            return `Quotation ${label} converted to the SD sales order`
+        default:
+            return withNote(`Quotation ${label} ${formatSystemLabel(action).toLowerCase()}`)
     }
 }
 
@@ -116,13 +164,23 @@ export class CrmMessagesService {
         client: CrmPrismaClient,
         opportunityId: string,
         changes: SystemChange[],
-        authorId: string,
+        authorId: string | null,
+    ) {
+        return this.recordSystemOn(client, { opportunityId }, changes, authorId)
+    }
+
+    /** Same audit row for a lead or ticket lifecycle change (who / what / when). */
+    async recordSystemOn(
+        client: CrmPrismaClient,
+        parent: SystemParent,
+        changes: SystemChange[],
+        authorId: string | null,
     ) {
         if (changes.length === 0) return { count: 0 }
         const createdAt = new Date()
         return client.crmMessage.createMany({
             data: changes.map((change) => ({
-                opportunityId,
+                ...parent,
                 kind: 'SYSTEM',
                 body: systemSummary(change),
                 metadata: {
@@ -192,7 +250,7 @@ export class CrmMessagesService {
         const opportunity = await this.assertOpportunity(opportunityId)
         const cursorWhere = cursorAt ? { createdAt: { lt: cursorAt } } : {}
 
-        const [messages, activities, quotations, order] = await Promise.all([
+        const [messages, activities, quotations, quotationEvents, order] = await Promise.all([
             this.prisma.crmMessage.findMany({
                 where: { opportunityId, deletedAt: null, ...cursorWhere },
                 orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -200,6 +258,7 @@ export class CrmMessagesService {
             }),
             this.activities.listForOpportunity(opportunityId),
             this.quotations.listForOpportunity(opportunityId),
+            this.quotations.eventsForOpportunity(opportunityId),
             opportunity.sdSalesOrderId
                 ? this.salesOrders.findOne(opportunity.sdSalesOrderId)
                 : (Promise.resolve(null) as Promise<null>),
@@ -209,7 +268,10 @@ export class CrmMessagesService {
             ...messages.map((m) => m.authorId),
             ...activities.flatMap((a) => [a.assignedTo, a.assignee?.id]),
             ...quotations.flatMap((q) => [q.sentBy, q.decidedBy]),
+            ...quotationEvents.map((e) => e.actorId),
         ])
+        /** Quotations with SD history use it; older ones fall back to their current status. */
+        const withHistory = new Set(quotationEvents.map((e) => e.quotationId))
 
         const items: FeedItem[] = []
         for (const message of messages) {
@@ -244,11 +306,43 @@ export class CrmMessagesService {
                 })
             }
         }
+        for (const event of quotationEvents) {
+            const label = `${event.quotation.quotationNumber} rev ${event.quotation.revision}`
+            items.push({
+                id: `quotation-event:${event.id}`,
+                type: 'QUOTATION',
+                at: event.createdAt.toISOString(),
+                actor: event.actorId ? (byUser.get(event.actorId) ?? null) : null,
+                summary: quotationEventSummary(event.action, label, event.note),
+                metadata: {
+                    quotationId: event.quotationId,
+                    quotationNumber: event.quotation.quotationNumber,
+                    revision: event.quotation.revision,
+                    action: event.action,
+                    status: event.toStatus,
+                    reason: event.note,
+                },
+            })
+        }
         for (const quotation of quotations) {
             const base = {
                 quotationId: quotation.id,
                 quotationNumber: quotation.quotationNumber,
                 revision: quotation.revision,
+            }
+            if (withHistory.has(quotation.id)) {
+                // Expiry is only persisted on the next change; show it as soon as it is due.
+                if (quotation.status !== 'EXPIRED' && quotation.effectiveStatus === 'EXPIRED') {
+                    items.push({
+                        id: `quotation:${quotation.id}:expired`,
+                        type: 'QUOTATION',
+                        at: (quotation.validUntil ?? quotation.createdAt).toISOString(),
+                        actor: null,
+                        summary: `Quotation ${quotation.quotationNumber} rev ${quotation.revision} expired`,
+                        metadata: { ...base, status: 'EXPIRED', validUntil: quotation.validUntil?.toISOString() ?? null },
+                    })
+                }
+                continue
             }
             if (quotation.status === 'SENT' && quotation.sentAt) {
                 items.push({
@@ -296,14 +390,35 @@ export class CrmMessagesService {
             })
         }
 
-        items.sort((a, b) => {
+        // Activities, quotations and the order are read whole; the cursor applies to every source.
+        const visible = cursorAt ? items.filter((item) => new Date(item.at) < cursorAt) : items
+        visible.sort((a, b) => {
             const time = new Date(b.at).getTime() - new Date(a.at).getTime()
             return time !== 0 ? time : b.id.localeCompare(a.id)
         })
 
-        if (items.length <= limit) return { data: items, nextCursor: null }
-        const page = items.slice(0, limit)
+        if (visible.length <= limit) return { data: visible, nextCursor: null }
+        const page = visible.slice(0, limit)
         return { data: page, nextCursor: page[page.length - 1].at }
+    }
+
+    /**
+     * Lifecycle audit of a lead or ticket (SYSTEM rows, oldest first) with actor display names.
+     * Opportunities use the merged feed.
+     */
+    async history(parent: { leadId: string } | { ticketId: string }) {
+        const rows = await this.prisma.crmMessage.findMany({
+            where: { ...parent, kind: 'SYSTEM' },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        })
+        const users = await this.resolveUsers(rows.map((r) => r.authorId))
+        return rows.map((row) => ({
+            id: row.id,
+            at: row.createdAt,
+            summary: row.body ?? '',
+            metadata: row.metadata,
+            actor: row.authorId ? (users.get(row.authorId) ?? null) : null,
+        }))
     }
 
     private async findNote(opportunityId: string, noteId: string) {

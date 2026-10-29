@@ -24,7 +24,7 @@ This document answers: **what each module owns, how value flows today, what is i
 | **SD** | **Integration** | `backend/src/sd/` · nav in `erp-modules.ts` · no `src/modules/sd` |
 | **PP** | **Integration** | `backend/src/pp/` (BOM / production orders for MM MRP) |
 | **FICO** | **Integration** | `backend/src/fico/` · nav scaffold · MM accounting consumer |
-| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; Closed Won → SO, RMA hand-off, loyalty mock accrual (FICO earn deferred) |
+| **CRM** | **Integration** (core) | `backend/src/crm/`, `src/modules/crm/` · extends `SdCustomer`; Closed Won → SO, RMA hand-off, loyalty earn on paid SD invoices (FICO clearance deferred) |
 
 **Strategic posture:** MM and SCM are **deep enough to freeze**; do not redesign MM again. The imbalance is maturity across modules — next work is **cross-module business cycles**, not more MM surface area. See [`ERP_EVOLUTION_ROADMAP.md`](./ERP_EVOLUTION_ROADMAP.md).
 
@@ -438,6 +438,53 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
 
 **RMA hand-off (return cases):** a storefront customer return (`SdReturnRequest`, SD) emits `ReturnRequestRequested` through the SD outbox. The CRM listener opens one RETURN ticket per return: `crm_tickets.sdReturnRequestId` is unique, and the ticket also holds `salesOrderId` and `returnRequestNumber` snapshots (migration `20261108120000_crm_ticket_return_link`). The customer is resolved through the shared `findCustomerMasterId` (shop account → `SdCustomer`). A failed hand-off never fails the customer's request; `POST /crm/tickets/from-return/:returnRequestId` (SD **Open CRM case**) and `npm run prisma:repair-crm-return-cases` open the missing case. The agent decides the return on the case (crm.tickets update). `POST /crm/tickets/:id/return/approve` applies the customer's Replace / Refund through SD `ReturnRequestService.approve(…, { fromCase })`, which opens the MM customer return (and the $0 replacement order for Replace). `POST :id/return/reject` requires a reason. SD refuses approve / reject without `fromCase` for a return that has a case. Decisions are serialized per ticket, and a single comment records each one. Refund payment is finance's (FICO); the demo settlement is off unless `SD_DEMO_REFUND_PAYMENT=true`. `GET :id/return` reads the return live from SD; `link=RETURN` lists the cases. Flow, runbook and QA: `docs/COD_DELIVERY_CUSTOMER_RETURNS.md`.
 
+**Return case close gate (RMA work instruction):** a return case can be RESOLVED, CLOSED or CANCELLED only once its SD return is settled.
+- **Settled** (`returnSettlement`, `backend/src/crm/tickets/return-settlement.ts`) means the return is rejected, cancelled or closed. Otherwise the goods must be received and dispositioned (restocked, damaged or scrapped) with any refund PAID or NOT_REQUIRED. `PATCH /crm/tickets/:id` re-reads the return from SD and answers 409 with the open step.
+- **Override:** `POST /crm/tickets/:id/status-override { status, reason }` needs `crm.ticket-overrides` update (admins by default; employees do not get it). It makes the same transition, and records the reason and the open step as a case comment. SD and finance still finish the return.
+- **Case view:** `GET :id/return` also returns the latest SD refund (number, amount, method, status, credit memo) and the settlement. The case panel shows them, plus an "Override & end case" action.
+- Until FICO pays refunds, refund returns stay unsettled at "approved, waiting for payment by finance", so ending those cases needs the override.
+
+**Pipeline controls (ISO):**
+- **Mandatory owner:** every opportunity has an active owner (`assignedTo`).
+  - Create requires one.
+  - Update can reassign it but never clear it, and an unowned row must get an owner before any other change.
+  - Winning requires one.
+  - Lead conversion uses the chosen owner, else the lead's owner, else the converting user.
+  - Owner pickers read `GET /crm/users?search=` (any CRM read access; active users, display fields only).
+- **Lead activity log:** `/crm/leads/:leadId/activities` (list, create, complete; `crm.activities`).
+  - A lead accepts activities in every status from intake (NEW) on, except CONVERTED, whose activities move to the opportunity and keep `leadId` as history.
+  - The leads list carries the next-activity badge.
+- **After Closed Won:** `GET /crm/opportunities/:id/sales-order` adds read-only `signals`, read live from SD:
+  - payment status and method;
+  - shipped, delivered, POD on file, courier;
+  - SD invoice billing status (through `SalesInvoiceService.statusForSalesOrder`);
+  - credit, always `NOT_CHECKED` (no credit check exists in SD or FICO).
+  The opportunity page shows them in an "Order to cash" card with links only.
+- **Handoff failures:** when SD refuses the Closed Won order (HTTP 4xx, e.g. an inactive customer), the win rolls back and a SYSTEM feed entry "Closed Won hand-off to SD failed: <reason>" is kept on the opportunity. Internal errors are not copied to the feed.
+
+**Audit trail, attachments, RBAC (ISO controls):**
+- **Lifecycle audit** (who / what / when, append-only, written in the same transaction as the change):
+  - Leads, tickets and opportunities use SYSTEM rows in `crm_messages` (`ticketId` added; migration `20261111120000_crm_audit_attachments`).
+  - Leads record create, status, owner, customer, source, score and conversion.
+  - Tickets record create (including return cases), status, priority, category, owner, RMA reference, status overrides and attachment changes.
+  - Opportunities record create plus the existing field audit.
+  - Read: `GET /crm/leads/:id/history`, `GET /crm/tickets/:id/history`. Opportunities use the chatter feed.
+- **Quotation history** is SD-owned: `sd_quotation_events` (CREATED, EDITED, SENT, REVISED, SUPERSEDED, ACCEPTED, REJECTED, CANCELLED, EXPIRED, CONVERTED) is written by `QuotationService` with every transition, including bulk expiry and Closed Lost cancellation (guarded per row). Read: `GET /sd/quotations/:id/history`.
+  - The opportunity feed now reads quotation entries from this history, so earlier steps are no longer lost once a quote moves on.
+  - Quotations created before the history existed keep the old derived entries.
+  - The feed cursor now applies to every source (activities, quotes, order), not only notes.
+- **Attachments** (`crm_attachments`) on tickets and opportunities: `/crm/{tickets|opportunities}/:id/attachments`.
+  - Routes: list and download need read, upload needs create, remove needs delete (admins by default).
+  - Uploads are base64 JSON, 10 MB, PDF / Office / CSV / text / images.
+  - Re-uploading a file name adds the next version. Removal is a soft delete that keeps who / when, and the file stays.
+  - Uploads and removals are audited on the parent.
+  - Closed and cancelled tickets are read-only.
+  - Files sit on local disk under `uploads/crm/attachments` (git-ignored) and are served only through authenticated routes. The storage helper `backend/src/common/document-storage.ts` is shared with MM quality attachments.
+- **RBAC:**
+  - `crm.ticket-overrides` (update) ends unsettled return cases.
+  - `crm.loyalty-admin` (update) is required for mock / manual point grants; `crm.loyalty` stays read and everyday.
+  - Both default to admins only; employees get read and create.
+
 **Opportunity workspace:** `/crm/opportunities/[id]` is the canonical place to work a deal (table name / Open, board card click, Customer 360 and "New opportunity" all land there). It reuses the existing APIs only: `GET /crm/opportunities/:id` (also returns `owner` display fields and the source lead's `source`), `PATCH` for stage moves and details (server gates, transitions and lost reason apply; the stage bar adds the no-activity and reopen advisories), `POST :id/win`, the opportunity activity endpoints, and the read-only `GET :id/sales-order`. A **Quotations** panel (`#quotations`) lists the opportunity's SD quotations newest first.
 - Each shows number and revision, status, total, validity and dates, with the lines on demand.
 - Actions follow the quotation status: Edit / Send / Cancel for a DRAFT, Accept / Reject / Revise / Cancel for SENT, Revise / Cancel for ACCEPTED, and Revise for REJECTED or EXPIRED while the deal is open and has no order.
@@ -451,17 +498,24 @@ Choosing Closed Won opens the win dialog with a readiness checklist (active SD c
 
 **CRM dashboard:** `GET /crm/dashboard?days=30|90|365` (crm:read, default 90) is a read-only summary from CRM tables only. Live counts are new / qualified leads, records with overdue activities (opportunities and tickets, each with an activity count), the weighted open pipeline (same query as `/crm/opportunities/pipeline`), and the default ticket queue by priority and status. The period covers win/loss by `closedAt` (won amount per currency, lost by reason, win rate) and the lead cohort created in the window with its current status (no `convertedAt` is stored). Every widget links to a list filtered to exactly those records: `opportunities?activity=OVERDUE|stage|lostReason|closedFrom|view=board`, `tickets?queue=ALL&activity=OVERDUE|priority|status`, `leads?status|createdFrom`. The "overdue" rule (record still accepts activities and has an open activity past due) lives once in `CrmActivitiesService` and is shared by the list filters and the dashboard. List pages read these query parameters on load and show filters without a control as removable chips.
 
-**Loyalty accrual (mock until FICO):** `CrmLoyaltyService.accruePoints` is the only write path to `CrmLoyaltyAccount` / `CrmLoyaltyTransaction`.
+**Loyalty accrual (paid SD invoices; FICO clearance later):** `CrmLoyaltyService.accruePoints` is the only write path to `CrmLoyaltyAccount` / `CrmLoyaltyTransaction`.
 - It creates the account on the first earn and appends one ledger row. Balance and tier move in the same transaction, under the account row lock.
-- An EARN with a `(referenceType, referenceId)` posts once, and the balance never goes below zero.
+- An EARN posts once per `earnKey` (unique column, migration `20261110120000_crm_loyalty_earn_key`; defaults to `referenceType:referenceId`). The balance never goes below zero.
 - Tier comes from the balance: SILVER ≥ 1,000, GOLD ≥ 5,000, PLATINUM ≥ 20,000, otherwise BRONZE.
-- Today only the demo / staging `POST /crm/customers/:customerId/loyalty/mock-earn` (`crm.loyalty` update) calls it, gated by `LOYALTY_MOCK_ACCRUAL=true` (otherwise 403).
-  - With `salesOrderId`: `floor(total / 100 PHP) × LOYALTY_POINTS_PER_100_PHP` points, posted once per order (`referenceType = SALES_ORDER`). The order must belong to the customer, be in PHP, and not be DRAFT or CANCELLED.
+- **Real earn:** `SalesInvoiceService.markPaidForSalesOrder` emits `SalesInvoicePaid` (SD outbox, one per invoice) when an invoice moves ISSUED → PAID. `CrmLoyaltyEarnListener` calls `earnForPaidInvoice`.
+  - Points are `floor(total / 100 PHP) × LOYALTY_POINTS_PER_100_PHP` for the order's Customer Master (shop account resolved through `findCustomerMasterId`), with `referenceType = SALES_INVOICE`.
+  - No earn for non-PHP invoices, totals under 100 PHP, or customers without a Customer Master.
+  - A failed earn is logged and leaves the outbox row PENDING; it never fails the payment.
+  - The SD paid invoice stands in for FICO receivable clearance until FICO publishes one (`TODO(crm-integration)`).
+- **One earn per sales order:** the mock order earn and the paid-invoice earn share the key `SALES_ORDER:<id>`, so whichever posts first wins.
+- **Mock earn (demo / staging):** `POST /crm/customers/:customerId/loyalty/mock-earn` (`crm.loyalty` update) needs `LOYALTY_MOCK_ACCRUAL=true`, and is always off when `NODE_ENV=production` (403).
+  - With `salesOrderId`: order-based points as above (`referenceType = SALES_ORDER`). The order must belong to the customer, be in PHP, and not be DRAFT or CANCELLED.
   - Without it: an admin grant (`referenceType = MOCK`).
-- **Mock ≠ FICO:** these rows are not invoice-backed. The UI labels them **Mock** and shows "Mock accrual on · not invoice-backed" while the flag is on. Real earn will come from a FICO invoice-cleared consumer calling the same `accruePoints` with an INVOICE reference.
-- Not in scope: storefront redemption, expiry, campaigns, an order-complete hook.
+- **UI:** paid-invoice rows are labelled **Paid invoice** and mock rows **Mock**. The panel says points come from paid SD invoices; it never claims FICO clearance.
+- Not in scope: storefront redemption, expiry, campaigns.
 - `GET …/loyalty` returns `mockAccrual`. Real-database checks: `src/crm/loyalty/loyalty.pg-spec.ts`.
-**Deferred (`TODO(crm-integration)`):** loyalty accrual from FICO invoice clearance (will call `accruePoints`); FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
+
+**Deferred (`TODO(crm-integration)`):** switching the loyalty earn source to FICO receivable clearance; FICO invoices / AR in Customer 360 (`sections.invoices = not_connected`).
 
 Do not invent inventory or SO engines inside CRM.
 

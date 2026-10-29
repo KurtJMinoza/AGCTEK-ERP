@@ -4373,6 +4373,7 @@ model SdQuotation {
   updatedAt          DateTime          @updatedAt
   lines              SdQuotationLine[]
   sections           SdQuotationSection[]
+  events             SdQuotationEvent[]
   salesOrder         SdSalesOrder?
 
   @@unique([quotationNumber, revision])
@@ -4380,6 +4381,25 @@ model SdQuotation {
   @@index([customerId])
   @@index([status, validUntil])
   @@map("sd_quotations")
+}
+
+/// Append-only lifecycle history of a quotation revision (who / what / when); SD writes it in the same
+/// transaction as the change. The quotation row only keeps the latest actor per step.
+model SdQuotationEvent {
+  id          String      @id @default(cuid())
+  quotationId String
+  quotation   SdQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  /// CREATED | EDITED | SENT | REVISED | SUPERSEDED | ACCEPTED | REJECTED | CANCELLED | EXPIRED | CONVERTED
+  action      String
+  fromStatus  String?
+  toStatus    String
+  /// Null for system transitions (e.g. expiry).
+  actorId     String?
+  note        String?
+  createdAt   DateTime    @default(now())
+
+  @@index([quotationId, createdAt])
+  @@map("sd_quotation_events")
 }
 
 /// Quotation line. Prices follow the SD catalog while DRAFT and are frozen when the quotation is sent;
@@ -7975,6 +7995,7 @@ model CrmOpportunity {
   updatedAt         DateTime      @updatedAt
   activities        CrmActivity[]
   messages          CrmMessage[]
+  attachments       CrmAttachment[]
 
   @@index([customerId])
   @@index([stage])
@@ -8011,6 +8032,8 @@ model CrmTicket {
   updatedAt    DateTime           @updatedAt
   comments     CrmTicketComment[]
   activities   CrmActivity[]
+  messages     CrmMessage[]
+  attachments  CrmAttachment[]
 
   @@index([customerId])
   @@index([status])
@@ -8058,6 +8081,9 @@ model CrmMessage {
   opportunity   CrmOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   leadId        String?
   lead          CrmLead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  /// Ticket lifecycle audit (SYSTEM rows); ticket discussion stays in CrmTicketComment.
+  ticketId      String?
+  ticket        CrmTicket?      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   /// NOTE | SYSTEM
   kind          String
   /// Free text (NOTE) or a human-readable summary (SYSTEM).
@@ -8071,7 +8097,32 @@ model CrmMessage {
 
   @@index([opportunityId, createdAt])
   @@index([leadId, createdAt])
+  @@index([ticketId, createdAt])
   @@map("crm_messages")
+}
+
+/// File on a CRM ticket or opportunity (document control). Re-uploading a file name adds the next
+/// version; earlier versions stay. Removal is a soft delete that keeps who / when. Files live on
+/// local disk under uploads/crm/attachments and are served only through authenticated routes.
+model CrmAttachment {
+  id            String          @id @default(cuid())
+  ticketId      String?
+  ticket        CrmTicket?      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   CrmOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fileName      String
+  version       Int             @default(1)
+  storageKey    String
+  mimeType      String?
+  fileSize      Int
+  uploadedBy    String?
+  createdAt     DateTime        @default(now())
+  deletedAt     DateTime?
+  deletedBy     String?
+
+  @@index([ticketId, createdAt])
+  @@index([opportunityId, createdAt])
+  @@map("crm_attachments")
 }
 
 model CrmTicketComment {
@@ -8113,6 +8164,9 @@ model CrmLoyaltyTransaction {
   points           Int
   referenceType    String?
   referenceId      String?
+  /// EARN only: the business source that may earn once, e.g. `SALES_ORDER:<id>` for both a mock
+  /// order earn and the paid invoice of that order. Null for grants and non-EARN rows.
+  earnKey          String?           @unique
   note             String?
   createdBy        String?
   createdAt        DateTime          @default(now())

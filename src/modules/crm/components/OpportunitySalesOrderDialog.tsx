@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
@@ -9,6 +9,7 @@ import { FormItem } from '@/components/ui/Form'
 import FormDialog from '@/components/shared/FormDialog'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
+import { BILLING_ROUTE } from '@/modules/sd/utils/invoiceDisplay'
 import ProductLinesEditor, {
     chosenProductLines,
     emptyProductLine,
@@ -28,6 +29,7 @@ import type {
     CreateOpportunitySalesOrderResult,
     LinkedSalesOrder,
     Opportunity,
+    SalesOrderSignals,
 } from '../types'
 
 export const SD_SALES_ORDERS_PATH = '/modules/sd/sales-orders'
@@ -38,7 +40,7 @@ const SD_CATALOG_CURRENCY = 'PHP'
 const CHANNEL_LABELS: Record<string, string> = { ECOMMERCE: 'E-commerce', POS: 'POS' }
 const SOURCE_LABELS: Record<string, string> = { CRM: 'CRM', POS: 'POS', ERP: 'ERP' }
 
-/** Channel / source of an SD order (e.g. E-commerce Â· CRM for Closed Won handoffs). */
+/** Channel / source of an SD order (e.g. E-commerce · CRM for Closed Won handoffs). */
 export function SalesOrderOriginBadges({ order }: { order: Pick<LinkedSalesOrder, 'channel' | 'source'> }) {
     return (
         <span className="inline-flex items-center gap-1">
@@ -95,7 +97,7 @@ export function LinkedSalesOrderInfo({
                         order.totalAmount === null ? null : Number(order.totalAmount),
                         order.currency,
                     )}{' '}
-                    Â· {order.lineCount} line{order.lineCount === 1 ? '' : 's'} Â· created{' '}
+                    · {order.lineCount} line{order.lineCount === 1 ? '' : 's'} · created{' '}
                     {formatDate(order.createdAt)}
                 </span>
             </div>
@@ -107,6 +109,60 @@ export function LinkedSalesOrderInfo({
                 </Link>
             </p>
         </div>
+    )
+}
+
+const INVOICE_TONE: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
+    PAID: 'success',
+    UNPAID: 'warning',
+    OVERDUE: 'danger',
+}
+
+/** Read-only order-to-cash status from SD / SCM / finance; links out, never edits. */
+export function OrderSignals({ signals }: { signals: SalesOrderSignals }) {
+    const { payment, delivery, invoice } = signals
+    const deliveryLabel = delivery.deliveredAt
+        ? `Delivered ${formatDate(delivery.deliveredAt)}${delivery.proofOfDelivery ? ' · POD on file' : ' · no POD yet'}`
+        : delivery.shippedAt
+          ? `Shipped ${formatDate(delivery.shippedAt)}${delivery.courierName ? ` · ${delivery.courierName}` : ''}${delivery.trackingNumber ? ` · ${delivery.trackingNumber}` : ''}`
+          : 'Not shipped yet'
+    const rows: { label: string; value: ReactNode }[] = [
+        {
+            label: 'Payment',
+            value: payment.status
+                ? `${payment.status}${payment.method ? ` · ${formatEnumLabel(payment.method)}` : ''}`
+                : 'Not recorded',
+        },
+        { label: 'Delivery / POD', value: deliveryLabel },
+        {
+            label: 'Invoice',
+            value: invoice ? (
+                <span className="inline-flex flex-wrap items-center gap-2">
+                    <Link className="text-primary underline" href={BILLING_ROUTE}>
+                        {invoice.invoiceNumber}
+                    </Link>
+                    <StatusBadge tone={INVOICE_TONE[invoice.billingStatus] ?? 'default'}>
+                        {formatEnumLabel(invoice.billingStatus)}
+                    </StatusBadge>
+                    {invoice.dueDate && invoice.billingStatus !== 'PAID' ? (
+                        <span className="text-gray-500">due {formatDate(invoice.dueDate)}</span>
+                    ) : null}
+                </span>
+            ) : (
+                'Created by SD at dispatch'
+            ),
+        },
+        { label: 'Credit', value: 'Not checked (no credit check in SD / FICO yet)' },
+    ]
+    return (
+        <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[max-content_1fr]">
+            {rows.map((row) => (
+                <div key={row.label} className="contents">
+                    <dt className="text-gray-500">{row.label}</dt>
+                    <dd>{row.value}</dd>
+                </div>
+            ))}
+        </dl>
     )
 }
 
@@ -122,7 +178,7 @@ function ReadinessList({ items }: { items: ReadinessItem[] }) {
                     </StatusBadge>
                     <span>
                         <span className="font-medium">{item.label}</span>
-                        <span className="text-gray-500"> Â· {item.detail}</span>
+                        <span className="text-gray-500"> · {item.detail}</span>
                     </span>
                 </li>
             ))}

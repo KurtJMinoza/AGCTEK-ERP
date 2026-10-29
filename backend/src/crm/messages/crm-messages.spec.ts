@@ -95,6 +95,7 @@ function service(
     opts: {
         activities?: unknown[]
         quotations?: unknown[]
+        quotationEvents?: unknown[]
         order?: Record<string, unknown> | null
     } = {},
 ) {
@@ -103,7 +104,10 @@ function service(
         sdSalesOrderId: opts.order ? 'so-1' : null,
     })
     const activities = { listForOpportunity: jest.fn().mockResolvedValue(opts.activities ?? []) }
-    const quotations = { listForOpportunity: jest.fn().mockResolvedValue(opts.quotations ?? []) }
+    const quotations = {
+        listForOpportunity: jest.fn().mockResolvedValue(opts.quotations ?? []),
+        eventsForOpportunity: jest.fn().mockResolvedValue(opts.quotationEvents ?? []),
+    }
     const salesOrders = { findOne: jest.fn().mockResolvedValue(opts.order ?? null) }
     return new CrmMessagesService(
         prisma as unknown as PrismaService,
@@ -243,6 +247,50 @@ describe('CrmMessagesService.listFeed', () => {
         expect(events[2].metadata).toEqual(
             expect.objectContaining({ status: 'ACCEPTED', quotationId: 'q2' }),
         )
+    })
+
+    it('uses the SD quotation history when it exists (lossless: every step stays in the feed)', async () => {
+        const prisma = mockPrisma()
+        const at = (iso: string) => new Date(iso)
+        const ev = (id: string, action: string, toStatus: string, createdAt: string, extra: Record<string, unknown> = {}) => ({
+            id,
+            quotationId: 'q-1',
+            action,
+            fromStatus: null,
+            toStatus,
+            actorId: 'user-1',
+            note: null,
+            createdAt: at(createdAt),
+            quotation: { quotationNumber: 'Q-000042', revision: 1 },
+            ...extra,
+        })
+        const page = await service(prisma, {
+            // The quotation is now SUPERSEDED: the derived feed would have shown nothing for it.
+            quotations: [quotation({ status: 'SUPERSEDED', sentAt: at('2026-10-01T08:00:00Z') })],
+            quotationEvents: [
+                ev('e3', 'SUPERSEDED', 'SUPERSEDED', '2026-10-03T08:00:00Z', { note: 'Replaced by rev 2' }),
+                ev('e2', 'SENT', 'SENT', '2026-10-02T08:00:00Z', { note: 'Valid until 2026-10-31' }),
+                ev('e1', 'CREATED', 'DRAFT', '2026-10-01T08:00:00Z'),
+            ],
+        }).listFeed('opp-1', { limit: 10 })
+
+        const events = page.data.filter((i) => i.type === 'QUOTATION')
+        expect(events.map((i) => i.summary)).toEqual([
+            'Quotation Q-000042 rev 1 superseded (Replaced by rev 2)',
+            'Quotation Q-000042 rev 1 sent (Valid until 2026-10-31)',
+            'Quotation Q-000042 rev 1 created',
+        ])
+        expect(events[0].actor).toEqual(expect.objectContaining({ id: 'user-1', userName: 'jdoe' }))
+    })
+
+    it('applies the cursor to every source, so a later page never repeats activities or quotes', async () => {
+        const prisma = mockPrisma()
+        prisma.crmMessage.findMany = jest.fn().mockResolvedValue([])
+        const page = await service(prisma, {
+            quotations: [quotation({ status: 'SENT', sentAt: new Date('2026-10-05T08:00:00Z') })],
+        }).listFeed('opp-1', { cursor: '2026-10-01T00:00:00.000Z', limit: 10 })
+
+        expect(page.data).toEqual([])
     })
 
     it('loads no sales order when none is linked', async () => {

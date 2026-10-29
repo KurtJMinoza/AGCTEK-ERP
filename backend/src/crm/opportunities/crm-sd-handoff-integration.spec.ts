@@ -113,6 +113,7 @@ class FakeDb {
                 }),
             sdQuotation: {
                 findFirst: async () => null,
+                findMany: async () => [],
                 updateMany: async () => ({ count: 0 }),
             },
             crmOpportunity: {
@@ -250,6 +251,7 @@ function setup() {
         permissions as unknown as PermissionsService,
         quotations,
         messages,
+        { statusForSalesOrder: async () => null } as never,
     )
 
     const addOpportunity = (id: string, overrides: Row = {}) => {

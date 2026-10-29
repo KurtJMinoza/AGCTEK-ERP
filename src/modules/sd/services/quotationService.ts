@@ -132,6 +132,23 @@ export async function downloadQuotationPdf(id: string) {
     }
 }
 
+export type QuotationHistoryEvent = {
+    id: string
+    /** CREATED | EDITED | SENT | REVISED | SUPERSEDED | ACCEPTED | REJECTED | CANCELLED | EXPIRED | CONVERTED */
+    action: string
+    fromStatus: string | null
+    toStatus: string
+    note: string | null
+    createdAt: string
+    actor: { id: string; userName: string; firstName: string; lastName: string } | null
+}
+
+/** Append-only lifecycle history of one revision, oldest first. */
+export async function getQuotationHistory(id: string) {
+    const { data } = await ErpAxiosBase.get<QuotationHistoryEvent[]>(path(id, '/history'))
+    return data
+}
+
 /** DRAFT only; SD re-prices every line from the catalog. */
 export async function updateQuotationDraft(id: string, body: Partial<QuotationLinesInput>) {
     const { data } = await ErpAxiosBase.patch<Quotation>(path(id), body)

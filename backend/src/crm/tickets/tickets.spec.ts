@@ -6,8 +6,11 @@ import {
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
 import { CrmActivitiesService } from '../activities/activities.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmTicketsController } from './tickets.controller'
 import { CrmTicketsService, TICKET_TRANSITIONS } from './tickets.service'
+import type { ReturnRequestService } from '../../sd/return-request.service'
+import { returnSettlement } from './return-settlement'
 
 const updatedAt = new Date('2026-10-01T00:00:00Z')
 
@@ -60,14 +63,42 @@ function mockPrisma(opts: { ticket?: ReturnType<typeof ticket> | null; customer?
                 Promise.resolve({ id: 'c-new', ...args.data }),
             ),
         },
-        $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+        crmMessage: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        $transaction: jest.fn(),
     }
 }
 
-const service = (prisma: ReturnType<typeof mockPrisma>) => {
+const sdReturn = (overrides: Record<string, unknown> = {}) => ({
+    status: 'RESTOCKED',
+    preferredResolution: 'REFUND',
+    refundStatus: 'PAID',
+    ...overrides,
+})
+
+const service = (
+    prisma: ReturnType<typeof mockPrisma>,
+    returnRequests = { findForCase: jest.fn().mockResolvedValue(sdReturn()) },
+) => {
+    // Array form for list queries; callback form for audited writes.
+    prisma.$transaction.mockImplementation(((arg: unknown) =>
+        typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[])) as never)
     const p = prisma as unknown as PrismaService
-    return new CrmTicketsService(p, new CrmActivitiesService(p))
+    const activities = new CrmActivitiesService(p)
+    return new CrmTicketsService(
+        p,
+        activities,
+        returnRequests as unknown as ReturnRequestService,
+        new CrmMessagesService(p, activities, {} as never, {} as never),
+    )
 }
+
+const returnTicket = (overrides: Record<string, unknown> = {}) =>
+    ticket({
+        category: 'RETURN',
+        sdReturnRequestId: 'rr-1',
+        returnRequestNumber: 'RET-0001',
+        ...overrides,
+    })
 
 const groups = (counts: Record<string, number>) =>
     Object.entries(counts).map(([priority, n]) => ({ priority, _count: { _all: n } }))
@@ -184,6 +215,30 @@ describe('CrmTicketsService', () => {
         ).rejects.toBeInstanceOf(BadRequestException)
     })
 
+    it('audits create and changed lifecycle fields (who / what / when) on the ticket trail', async () => {
+        const prisma = mockPrisma()
+        await service(prisma).create({ customerId: 'cust-1', subject: 'Broken unit', priority: 'HIGH' }, 'user-1')
+        expect(prisma.crmMessage.createMany.mock.calls[0][0].data).toEqual([
+            expect.objectContaining({
+                ticketId: 'tkt-1',
+                kind: 'SYSTEM',
+                authorId: 'user-1',
+                body: expect.stringMatching(/^Ticket created/),
+            }),
+        ])
+
+        prisma.crmMessage.createMany.mockClear()
+        await service(prisma).update('tkt-1', { status: 'IN_PROGRESS', priority: 'MEDIUM', subject: 'x' }, 'user-2')
+        expect(prisma.crmMessage.createMany.mock.calls[0][0].data).toEqual([
+            expect.objectContaining({
+                ticketId: 'tkt-1',
+                body: 'Status changed from Open to In Progress',
+                metadata: { field: 'status', from: 'OPEN', to: 'IN_PROGRESS' },
+                authorId: 'user-2',
+            }),
+        ])
+    })
+
     it('reopens a resolved ticket', async () => {
         const prisma = mockPrisma({ ticket: ticket({ status: 'RESOLVED' }) })
         await service(prisma).update('tkt-1', { status: 'IN_PROGRESS' }, 'user-1')
@@ -242,6 +297,120 @@ describe('CrmTicketsService', () => {
     })
 })
 
+describe('returnSettlement (RMA close gate)', () => {
+    it.each([
+        [{ status: 'REQUESTED' }, 'the return is still waiting for a decision'],
+        [{ status: 'AWAITING_RETURN' }, 'the returned goods have not been received yet'],
+        [{ status: 'UNDER_INSPECTION' }, 'the returned goods are still being inspected'],
+        [{ status: 'RESTOCKED', refundStatus: 'NONE' }, 'the refund has not been recorded in SD yet'],
+        [{ status: 'RESTOCKED', refundStatus: 'APPROVED' }, 'the refund is approved and waiting for payment by finance'],
+        [{ status: 'SCRAPPED', refundStatus: 'FAILED' }, 'the refund payment failed and needs finance follow-up'],
+    ])('blocks %o', (overrides, blocker) => {
+        expect(returnSettlement(sdReturn(overrides))).toEqual({ settled: false, blocker })
+    })
+
+    it.each([
+        sdReturn({ status: 'REJECTED', refundStatus: 'NONE' }),
+        sdReturn({ status: 'CLOSED' }),
+        sdReturn({ status: 'REFUNDED', refundStatus: 'PAID' }),
+        sdReturn({ status: 'MARKED_DAMAGED', refundStatus: 'NOT_REQUIRED' }),
+        sdReturn({ status: 'RESTOCKED', preferredResolution: 'REPLACEMENT', refundStatus: 'NONE' }),
+    ])('settles %o', (request) => {
+        expect(returnSettlement(request)).toEqual({ settled: true, blocker: null })
+    })
+})
+
+describe('CrmTicketsService return case gate', () => {
+    it.each(['RESOLVED', 'CANCELLED'] as const)(
+        'refuses %s while the linked return is not settled',
+        async (status) => {
+            const prisma = mockPrisma({ ticket: returnTicket() })
+            const returnRequests = {
+                findForCase: jest.fn().mockResolvedValue(sdReturn({ status: 'AWAITING_RETURN' })),
+            }
+            await expect(
+                service(prisma, returnRequests).update('tkt-1', { status }, 'user-1'),
+            ).rejects.toThrow(/RET-0001 is not settled: the returned goods have not been received yet/)
+            expect(returnRequests.findForCase).toHaveBeenCalledWith('rr-1')
+            expect(prisma.crmTicket.updateMany).not.toHaveBeenCalled()
+        },
+    )
+
+    it('re-checks the return when closing a resolved case', async () => {
+        const prisma = mockPrisma({ ticket: returnTicket({ status: 'RESOLVED' }) })
+        const returnRequests = {
+            findForCase: jest.fn().mockResolvedValue(sdReturn({ refundStatus: 'APPROVED' })),
+        }
+        await expect(
+            service(prisma, returnRequests).update('tkt-1', { status: 'CLOSED' }, 'user-1'),
+        ).rejects.toBeInstanceOf(ConflictException)
+    })
+
+    it('resolves once the return is settled; other status moves never read SD', async () => {
+        const prisma = mockPrisma({ ticket: returnTicket() })
+        const returnRequests = { findForCase: jest.fn().mockResolvedValue(sdReturn()) }
+        await service(prisma, returnRequests).update('tkt-1', { status: 'RESOLVED' }, 'user-1')
+        expect(prisma.crmTicket.updateMany).toHaveBeenCalledTimes(1)
+
+        returnRequests.findForCase.mockClear()
+        await service(prisma, returnRequests).update('tkt-1', { status: 'IN_PROGRESS' }, 'user-1')
+        expect(returnRequests.findForCase).not.toHaveBeenCalled()
+    })
+
+    it('never gates tickets without a linked return', async () => {
+        const prisma = mockPrisma()
+        const returnRequests = { findForCase: jest.fn() }
+        await service(prisma, returnRequests).update('tkt-1', { status: 'RESOLVED' }, 'user-1')
+        expect(returnRequests.findForCase).not.toHaveBeenCalled()
+    })
+
+    it('override ends an unsettled case and records reason + open step on the case', async () => {
+        const prisma = mockPrisma({ ticket: returnTicket() })
+        prisma.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(prisma)) as never)
+        const returnRequests = {
+            findForCase: jest.fn().mockResolvedValue(sdReturn({ refundStatus: 'APPROVED' })),
+        }
+
+        await service(prisma, returnRequests).overrideStatus(
+            'tkt-1',
+            { status: 'RESOLVED', reason: 'Customer accepted store voucher' },
+            'lead-1',
+        )
+
+        expect(prisma.crmTicket.updateMany).toHaveBeenCalledWith({
+            where: { id: 'tkt-1', status: 'OPEN', updatedAt },
+            data: { status: 'RESOLVED', updatedBy: 'lead-1' },
+        })
+        expect(prisma.crmTicketComment.create).toHaveBeenCalledWith({
+            data: {
+                ticketId: 'tkt-1',
+                authorId: 'lead-1',
+                body:
+                    'Status override OPEN → RESOLVED. Return RET-0001 was not settled: ' +
+                    'the refund is approved and waiting for payment by finance. Reason: Customer accepted store voucher',
+            },
+        })
+    })
+
+    it('override is refused when not needed, invalid, or not a return case', async () => {
+        const settled = mockPrisma({ ticket: returnTicket() })
+        await expect(
+            service(settled).overrideStatus('tkt-1', { status: 'RESOLVED', reason: 'x' }, 'u'),
+        ).rejects.toThrow(/is settled; change the status normally/)
+
+        const open = mockPrisma({ ticket: returnTicket() })
+        await expect(
+            service(open).overrideStatus('tkt-1', { status: 'CLOSED', reason: 'x' }, 'u'),
+        ).rejects.toThrow(/Cannot move ticket from OPEN to CLOSED/)
+
+        const plain = mockPrisma()
+        await expect(
+            service(plain).overrideStatus('tkt-1', { status: 'RESOLVED', reason: 'x' }, 'u'),
+        ).rejects.toThrow(/only to return cases/)
+        expect(plain.crmTicket.updateMany).not.toHaveBeenCalled()
+    })
+})
+
 describe('CrmTicketsController RBAC metadata', () => {
     it.each([
         ['list', 'read'],
@@ -253,5 +422,13 @@ describe('CrmTicketsController RBAC metadata', () => {
     ])('%s requires crm.tickets:%s', (handler, action) => {
         const fn = CrmTicketsController.prototype[handler as keyof CrmTicketsController]
         expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.tickets', action })
+    })
+
+    it('status override requires crm.ticket-overrides:update', () => {
+        const fn = CrmTicketsController.prototype.overrideStatus
+        expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({
+            resource: 'crm.ticket-overrides',
+            action: 'update',
+        })
     })
 })

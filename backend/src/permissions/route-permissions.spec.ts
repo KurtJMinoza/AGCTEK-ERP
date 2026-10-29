@@ -96,6 +96,7 @@ const PUBLIC_ROUTES: Record<string, string> = {
 
 /** POST endpoints that only compute or look up data. */
 const READ_ONLY_POSTS = new Set([
+    'sd/quotations#stockCheck',
     'mm/dashboard#refresh',
     'mm/integration/sd#checkAvailability',
     'mm/integration/sd#checkAvailabilityBatch',

@@ -201,7 +201,7 @@ export default function TicketsPage() {
             <PageHeader
                 title="Tickets"
                 description="Customer service queue: Open and Waiting customer by default, most urgent first. Storefront return requests open a case here; replacements are approved from the case through SD."
-                breadcrumbs={crmPageBreadcrumbs('Tickets')}
+                breadcrumbs={crmPageBreadcrumbs('/crm/tickets')}
                 actions={
                     canCreate ? (
                         <Button variant="solid" onClick={() => openDialog(null)}>

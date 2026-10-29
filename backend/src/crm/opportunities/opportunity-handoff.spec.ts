@@ -11,6 +11,7 @@ import type { PermissionsService } from '../../permissions/permissions.service'
 import type { PrismaService } from '../../prisma/prisma.service'
 import type { QuotationService } from '../../sd/quotation.service'
 import type { SalesOrderService } from '../../sd/sales-order.service'
+import type { SalesInvoiceService } from '../../sd/sales-invoice.service'
 import { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmOpportunitiesController } from './opportunities.controller'
 import type { CrmOpportunitiesService } from './opportunities.service'
@@ -95,6 +96,7 @@ function setup(opp = opportunity()) {
     }
     const permissions = { assertPermission: jest.fn().mockResolvedValue(undefined) }
     const messages = { recordSystem: jest.fn().mockResolvedValue({ count: 0 }) } as unknown as CrmMessagesService
+    const invoices = { statusForSalesOrder: jest.fn().mockResolvedValue(null) }
     const service = new CrmOpportunityHandoffService(
         prisma as unknown as PrismaService,
         opportunities as unknown as CrmOpportunitiesService,
@@ -102,8 +104,9 @@ function setup(opp = opportunity()) {
         permissions as unknown as PermissionsService,
         quotations as unknown as QuotationService,
         messages,
+        invoices as unknown as SalesInvoiceService,
     )
-    return { prisma, opportunities, salesOrders, permissions, quotations, messages, service }
+    return { prisma, opportunities, salesOrders, permissions, quotations, messages, invoices, service }
 }
 
 const linkCall = (prisma: ReturnType<typeof setup>['prisma'], idx = 0) =>
@@ -223,6 +226,38 @@ describe('CrmOpportunityHandoffService.win', () => {
         await expect(service.win('opp-1', dto, user)).rejects.toBeInstanceOf(BadRequestException)
         expect(salesOrders.createFromCrmOpportunity).not.toHaveBeenCalled()
         expect(prisma.crmOpportunity.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('keeps the reason on the opportunity feed when SD refuses the order, and rethrows it', async () => {
+        const { prisma, salesOrders, messages, service } = setup()
+        salesOrders.createFromCrmOpportunity.mockRejectedValue(
+            new BadRequestException('Customer CUST-001 is ON_HOLD; only ACTIVE customers can order'),
+        )
+
+        await expect(service.win('opp-1', dto, user)).rejects.toThrow(/ON_HOLD/)
+
+        expect(messages.recordSystem).toHaveBeenCalledWith(
+            prisma,
+            'opp-1',
+            [
+                {
+                    field: 'handoff',
+                    from: 'NEGOTIATION',
+                    to: 'FAILED',
+                    summary:
+                        'Closed Won hand-off to SD failed: Customer CUST-001 is ON_HOLD; only ACTIVE customers can order',
+                },
+            ],
+            'user-1',
+        )
+    })
+
+    it('does not put internal (5xx / database) errors on the feed', async () => {
+        const { salesOrders, messages, service } = setup()
+        salesOrders.createFromCrmOpportunity.mockRejectedValue(new Error('connection reset'))
+
+        await expect(service.win('opp-1', dto, user)).rejects.toThrow('connection reset')
+        expect(messages.recordSystem).not.toHaveBeenCalled()
     })
 
     it('rejects a win without SD product lines', async () => {
@@ -557,6 +592,40 @@ describe('CrmOpportunityHandoffService.salesOrder', () => {
             orderNumber: 'SO-000010',
             status: 'DRAFT',
             lineCount: 1,
+        })
+    })
+
+    it('adds read-only payment, delivery / POD, invoice and credit signals from SD', async () => {
+        const { salesOrders, invoices, service } = setup(opportunity({ sdSalesOrderId: 'so-1' }))
+        const deliveredAt = new Date('2026-10-20T03:00:00Z')
+        salesOrders.findOne.mockResolvedValue(
+            sdOrder({
+                paymentMethod: 'COD',
+                paymentStatus: 'Pending Collection',
+                shippedAt: new Date('2026-10-19T03:00:00Z'),
+                deliveredAt,
+                proofOfDeliveryUrl: '/uploads/deliveries/pod.jpg',
+                courierName: 'Own fleet',
+                trackingNumber: 'TRK-1',
+            }),
+        )
+        const invoice = { id: 'inv-1', invoiceNumber: 'INV-1', billingStatus: 'UNPAID' }
+        invoices.statusForSalesOrder.mockResolvedValue(invoice)
+
+        const result = await service.salesOrder('opp-1')
+
+        expect(invoices.statusForSalesOrder).toHaveBeenCalledWith('so-1')
+        expect(result.signals).toEqual({
+            payment: { method: 'COD', status: 'Pending Collection' },
+            delivery: {
+                shippedAt: new Date('2026-10-19T03:00:00Z'),
+                deliveredAt,
+                proofOfDelivery: true,
+                courierName: 'Own fleet',
+                trackingNumber: 'TRK-1',
+            },
+            invoice,
+            credit: { status: 'NOT_CHECKED' },
         })
     })
 

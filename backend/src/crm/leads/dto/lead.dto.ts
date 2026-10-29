@@ -232,6 +232,12 @@ export class ConvertLeadOpportunityDto {
     @Type(() => Date)
     @IsDate()
     expectedCloseDate?: Date
+
+    /** Opportunity owner; defaults to the lead's owner, then to the user converting the lead. */
+    @IsOptional()
+    @IsString()
+    @IsNotEmpty()
+    assignedTo?: string
 }
 
 /**

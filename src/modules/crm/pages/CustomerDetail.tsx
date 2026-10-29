@@ -58,6 +58,11 @@ function Section({
     )
 }
 
+/** A section that loaded with no records (distinct from a failed load, which shows SectionNotice). */
+function EmptySection({ children }: { children: ReactNode }) {
+    return <p className="py-6 text-center text-sm text-gray-500">{children}</p>
+}
+
 function SectionNotice({ state }: { state: Exclude<Customer360SectionState, { status: 'ok' }> }) {
     return (
         <Alert showIcon type={state.status === 'unavailable' ? 'warning' : 'info'}>
@@ -71,7 +76,14 @@ const unavailableBadge = { tone: 'warning', label: 'Unavailable' } as const
 /** Recent cards per section; the full lists live in SD / SCM. */
 const CARD_LIMIT = 5
 
-const CUSTOMER_360_TABS = ['opportunities', 'orders', 'shipments', 'tickets', 'loyalty'] as const
+const CUSTOMER_360_TABS = [
+    'opportunities',
+    'orders',
+    'shipments',
+    'invoices',
+    'tickets',
+    'loyalty',
+] as const
 type Customer360Tab = (typeof CUSTOMER_360_TABS)[number]
 const isCustomer360Tab = (value: string | null): value is Customer360Tab =>
     (CUSTOMER_360_TABS as readonly string[]).includes(value ?? '')
@@ -250,7 +262,7 @@ export default function CustomerDetailPage() {
     if (!data) {
         return (
             <PageContainer>
-                <PageHeader title="Customer" breadcrumbs={crmPageBreadcrumbs('Customers')} />
+                <PageHeader title="Customer" breadcrumbs={crmPageBreadcrumbs('/crm/customers')} />
                 {error ? (
                     <Alert showIcon type="danger" title="Unable to load customer">
                         {error}{' '}
@@ -274,7 +286,7 @@ export default function CustomerDetailPage() {
             <PageHeader
                 title={customer.companyName}
                 description={`${customer.customerNumber} · ${customer.contactName}`}
-                breadcrumbs={crmCustomerBreadcrumbs(customer.companyName)}
+                breadcrumbs={crmCustomerBreadcrumbs(customer.companyName, customer.id)}
                 actions={
                     canCreate ? (
                         <div className="flex gap-2">
@@ -390,6 +402,12 @@ export default function CustomerDetailPage() {
                             count={sections.shipments.status === 'ok' ? data.shipments.length : null}
                         />
                     </TabNav>
+                    <TabNav value="invoices" className="shrink-0">
+                        <TabLabel
+                            label="Invoices"
+                            count={sections.invoices.status === 'ok' ? data.invoices.length : null}
+                        />
+                    </TabNav>
                     <TabNav value="tickets" className="shrink-0">
                         <TabLabel
                             label="Tickets"
@@ -403,13 +421,16 @@ export default function CustomerDetailPage() {
 
                 <TabContent value="opportunities">
                     <Section title="Opportunities" state={sections.opportunities}>
-                        <DataTable
-                            columns={opportunityColumns}
-                            data={data.opportunities}
-                            loading={loading}
-                            noData={!loading && data.opportunities.length === 0}
-                            hidePagination
-                        />
+                        {!loading && data.opportunities.length === 0 ? (
+                            <EmptySection>No opportunities for this customer yet.</EmptySection>
+                        ) : (
+                            <DataTable
+                                columns={opportunityColumns}
+                                data={data.opportunities}
+                                loading={loading}
+                                hidePagination
+                            />
+                        )}
                     </Section>
                 </TabContent>
 
@@ -429,6 +450,7 @@ export default function CustomerDetailPage() {
                             loading={loading}
                             shown={Math.min(data.orders.length, CARD_LIMIT)}
                             total={summary.salesOrders ?? data.orders.length}
+                            emptyText="No sales orders for this customer yet."
                             fullList={
                                 <Link href={SD_SALES_ORDERS_PATH} className="text-primary hover:underline">
                                     Open in SD
@@ -448,6 +470,7 @@ export default function CustomerDetailPage() {
                             loading={loading}
                             shown={recentShipments.length}
                             total={data.shipments.length}
+                            emptyText="No shipments for this customer's orders yet."
                             fullList={
                                 <Link href={SCM_SHIPMENTS_PATH} className="text-primary hover:underline">
                                     Open in SCM
@@ -469,13 +492,22 @@ export default function CustomerDetailPage() {
 
                 <TabContent value="tickets">
                     <Section title="Tickets" state={sections.tickets}>
-                        <DataTable
-                            columns={ticketColumns}
-                            data={data.tickets}
-                            loading={loading}
-                            noData={!loading && data.tickets.length === 0}
-                            hidePagination
-                        />
+                        {!loading && data.tickets.length === 0 ? (
+                            <EmptySection>No tickets for this customer yet.</EmptySection>
+                        ) : (
+                            <DataTable
+                                columns={ticketColumns}
+                                data={data.tickets}
+                                loading={loading}
+                                hidePagination
+                            />
+                        )}
+                    </Section>
+                </TabContent>
+
+                <TabContent value="invoices">
+                    <Section title="Invoices" state={sections.invoices}>
+                        <EmptySection>No invoices for this customer yet.</EmptySection>
                     </Section>
                 </TabContent>
 
@@ -486,7 +518,7 @@ export default function CustomerDetailPage() {
                             loading={loading}
                             customerId={customer.id}
                             orders={data.orders}
-                            canMockEarn={can('crm.loyalty', 'update')}
+                            canMockEarn={can('crm.loyalty-admin', 'update')}
                             onChanged={() => void reload()}
                         />
                     </Section>

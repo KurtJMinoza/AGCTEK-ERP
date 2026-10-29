@@ -107,6 +107,7 @@ import { BackorderReportService } from './backorder-report.service'
     ],
     exports: [
         SalesOrderService,
+        SalesInvoiceService,
         SdEventEmitterService,
         SdMmPipelineService,
         CustomerService,

@@ -13,6 +13,8 @@ import { Prisma, PrismaClient } from '@prisma/client'
 import { ReturnRequestService } from '../../sd/return-request.service'
 import { SalesOrderService } from '../../sd/sales-order.service'
 import { CrmReturnCasesService } from './return-cases.service'
+import { CrmActivitiesService } from '../activities/activities.service'
+import { CrmMessagesService } from '../messages/crm-messages.service'
 
 jest.setTimeout(180_000)
 
@@ -45,7 +47,11 @@ describe('RMA hand-off on PostgreSQL', () => {
     )
     jest.spyOn(salesOrders, 'createReservationAndPickingForSalesOrder').mockResolvedValue(undefined as never)
     const returnRequests = new ReturnRequestService(prisma as never, {} as never, salesOrders)
-    const cases = new CrmReturnCasesService(prisma as never, returnRequests)
+    const cases = new CrmReturnCasesService(
+        prisma as never,
+        returnRequests,
+        new CrmMessagesService(prisma as never, new CrmActivitiesService(prisma as never), {} as never, {} as never),
+    )
 
     let agent: { id: string; role: string }
     let companyId: string

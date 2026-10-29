@@ -135,10 +135,10 @@ export class CreateOpportunityDto {
     @IsDate()
     expectedCloseDate?: Date
 
-    @IsOptional()
+    /** Owner (mandatory): the user accountable for the deal. */
     @IsString()
     @IsNotEmpty()
-    assignedTo?: string
+    assignedTo!: string
 
     @IsOptional()
     @IsString()
@@ -192,10 +192,11 @@ export class UpdateOpportunityDto {
     @IsDate()
     expectedCloseDate?: Date | null
 
+    /** Reassigns the owner; it can never be cleared. */
     @IsOptional()
     @IsString()
     @IsNotEmpty()
-    assignedTo?: string | null
+    assignedTo?: string
 
     @IsOptional()
     @IsString()

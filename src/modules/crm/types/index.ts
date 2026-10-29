@@ -57,7 +57,13 @@ export type Lead = {
     score: number | null
     createdAt: string
     updatedAt: string
+    /** Present on list payloads. */
+    nextActivityStatus?: NextActivityStatus
+    nextActivityDueAt?: string | null
 }
+
+/** Leads accept activities from intake on; a converted lead's follow-ups live on its opportunity. */
+export const leadAcceptsActivities = (status: LeadStatus) => status !== 'CONVERTED'
 
 export type LeadListParams = PageParams & {
     search?: string
@@ -113,6 +119,8 @@ export type ConvertLeadInput = {
         currency?: string
         stage?: (typeof OPPORTUNITY_OPEN_STAGES)[number]
         expectedCloseDate?: string
+        /** Defaults to the lead's owner, then to the user converting. */
+        assignedTo?: string
     }
 }
 
@@ -171,6 +179,31 @@ export type CrmUserRef = {
     lastName: string
 }
 
+/** One lifecycle audit row (lead / ticket SYSTEM trail). */
+export type AuditEntry = {
+    id: string
+    at: string
+    summary: string
+    metadata: Record<string, unknown> | null
+    actor: CrmUserRef | null
+}
+
+export type AttachmentParent = { kind: 'ticket' | 'opportunity'; id: string }
+
+export type CrmAttachment = {
+    id: string
+    ticketId: string | null
+    opportunityId: string | null
+    fileName: string
+    /** Re-uploading a file name adds the next version. */
+    version: number
+    mimeType: string | null
+    fileSize: number
+    uploadedBy: string | null
+    uploader: CrmUserRef | null
+    createdAt: string
+}
+
 /** Read-only view of the SD order linked to an opportunity (SD owns the document). */
 export type LinkedSalesOrder = {
     id: string
@@ -185,6 +218,33 @@ export type LinkedSalesOrder = {
     totalAmount: string | null
     lineCount: number
     createdAt: string
+    /** GET :id/sales-order only: read-only O2C status from SD (CRM never writes these). */
+    signals?: SalesOrderSignals
+}
+
+export type SalesOrderSignals = {
+    payment: { method: string | null; status: string | null }
+    delivery: {
+        shippedAt: string | null
+        deliveredAt: string | null
+        proofOfDelivery: boolean
+        courierName: string | null
+        trackingNumber: string | null
+    }
+    /** Null until SD creates the invoice (at dispatch). */
+    invoice: {
+        id: string
+        invoiceNumber: string
+        /** DRAFT | UNPAID | OVERDUE | PAID | CANCELLED | REFUNDED */
+        billingStatus: string
+        issuedAt: string | null
+        paidAt: string | null
+        dueDate: string | null
+        currency: string
+        totalAmount: string
+    } | null
+    /** No credit check runs in SD or FICO yet. */
+    credit: { status: 'NOT_CHECKED' }
 }
 
 export {
@@ -250,7 +310,7 @@ export type CreateActivityInput = {
     assignedTo?: string
 }
 
-export type ActivityParent = { kind: 'opportunity' | 'ticket'; id: string }
+export type ActivityParent = { kind: 'opportunity' | 'ticket' | 'lead'; id: string }
 
 /**
  * Chatter feed entry (Odoo-style): CRM notes / SYSTEM audit rows plus activities, SD quotes
@@ -316,9 +376,13 @@ export type CreateOpportunityInput = {
     probability?: number
     expectedCloseDate?: string
     leadId?: string
+    /** Owner (mandatory). */
+    assignedTo: string
 }
 
 export type UpdateOpportunityInput = {
+    /** Reassigns the owner; it cannot be cleared. */
+    assignedTo?: string
     name?: string
     description?: string | null
     amount?: number | null
@@ -454,7 +518,27 @@ export type TicketReturnCase = {
     }[]
     mmCustomerReturn: { id: string; returnNumber: string; status: string } | null
     replacementOrder: { id: string; orderNumber: string; status: string | null } | null
+    /** Latest SD refund record (finance pays it); null until SD records one. */
+    refund: {
+        refundNumber: string
+        /** PENDING_REFUND | APPROVED | PAID | FAILED */
+        status: string
+        amount: string
+        currency: string
+        refundMethod: string | null
+        isDemo: boolean
+        approvedAt: string | null
+        paidAt: string | null
+        failReason: string | null
+        creditMemo: { creditMemoNumber: string; amount: string; status: string } | null
+    } | null
+    /** Physical + financial resolution (RMA close gate); computed by the server. */
+    settlement: { settled: true; blocker: null } | { settled: false; blocker: string }
 }
+
+/** Statuses that end a return case; the server allows them only once the return is settled. */
+export const TICKET_OVERRIDE_STATUSES = ['RESOLVED', 'CLOSED', 'CANCELLED'] as const
+export type TicketOverrideStatus = (typeof TICKET_OVERRIDE_STATUSES)[number]
 
 /** Ticket statuses where activities may still be scheduled (CLOSED / CANCELLED are read-only). */
 export const TICKET_ACTIVITY_STATUSES: readonly TicketStatus[] = [

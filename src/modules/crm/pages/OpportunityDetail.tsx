@@ -10,10 +10,12 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import usePermissions from '@/utils/hooks/usePermissions'
 import OpportunitySalesOrderDialog, {
+    OrderSignals,
     SalesOrderOriginBadges,
     SD_SALES_ORDERS_PATH,
     type SalesOrderDialogMode,
 } from '../components/OpportunitySalesOrderDialog'
+import AttachmentsPanel from '../components/AttachmentsPanel'
 import OpportunityActivityPanel from '../components/opportunity/OpportunityActivityPanel'
 import OpportunityChatter from '../components/opportunity/OpportunityChatter'
 import OpportunityDetailsPanel from '../components/opportunity/OpportunityDetailsPanel'
@@ -72,7 +74,7 @@ export default function OpportunityDetailPage() {
             <PageContainer>
                 <PageHeader
                     title="Opportunity"
-                    breadcrumbs={crmPageBreadcrumbs('Opportunities')}
+                    breadcrumbs={crmPageBreadcrumbs('/crm/opportunities')}
                 />
                 {notFound ? (
                     <Alert
@@ -217,6 +219,17 @@ export default function OpportunityDetailPage() {
                 />
             </div>
 
+            {salesOrder?.signals ? (
+                <AdaptiveCard className="mb-4">
+                    <h5 className="mb-1">Order to cash</h5>
+                    <p className="text-xs text-gray-500">
+                        Read-only status of {salesOrder.orderNumber} from SD, SCM and finance; CRM
+                        never changes it.
+                    </p>
+                    <OrderSignals signals={salesOrder.signals} />
+                </AdaptiveCard>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
                 <div className="flex flex-col gap-4 lg:col-span-3">
                     <OpportunityDetailsPanel
@@ -231,6 +244,15 @@ export default function OpportunityDetailPage() {
                         error={quotations.error}
                         canCreate={canUpdate && can('sd.quotations', 'create')}
                     />
+                    <AdaptiveCard>
+                        <h5 className="mb-3">Attachments</h5>
+                        <AttachmentsPanel
+                            key={opportunity.id}
+                            parent={{ kind: 'opportunity', id: opportunity.id }}
+                            canUpload={canCreate}
+                            canRemove={canDelete}
+                        />
+                    </AdaptiveCard>
                 </div>
                 <div className="flex flex-col gap-4 lg:col-span-2">
                     <OpportunityActivityPanel

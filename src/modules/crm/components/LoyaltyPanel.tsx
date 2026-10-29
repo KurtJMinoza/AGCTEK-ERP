@@ -15,8 +15,9 @@ import { apiMockEarnLoyalty } from '../services/crmApi'
 import type { Customer360Order, LoyaltySummary, LoyaltyTransaction } from '../types'
 import { crmTone, formatDate, formatEnumLabel, formatMoney } from '../utils/format'
 
-/** Rows posted by the mock (no invoice behind them); real earn will reference the FICO invoice. */
+/** Rows posted by the mock (no invoice behind them); real earn references the paid SD invoice. */
 const MOCK_REFERENCE_TYPES: ReadonlySet<string> = new Set(['MOCK', 'SALES_ORDER'])
+const INVOICE_REFERENCE_TYPE = 'SALES_INVOICE'
 const NOT_EARNING_ORDER_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'CANCELLED'])
 
 const TIER_TONE: Record<string, 'default' | 'info' | 'warning' | 'success'> = {
@@ -68,6 +69,9 @@ export default function LoyaltyPanel({
                     <span className="inline-flex flex-wrap items-center gap-1">
                         <StatusBadge>{formatEnumLabel(row.original.type)}</StatusBadge>
                         {isMock(row.original) ? <StatusBadge tone="warning">Mock</StatusBadge> : null}
+                        {row.original.referenceType === INVOICE_REFERENCE_TYPE ? (
+                            <StatusBadge tone="success">Paid invoice</StatusBadge>
+                        ) : null}
                     </span>
                 ),
             },
@@ -128,7 +132,7 @@ export default function LoyaltyPanel({
             setNotice(
                 result.created
                     ? `Mock earn posted: +${result.transaction.points} points (balance ${result.summary.pointsBalance}).`
-                    : 'This sales order already earned points; nothing changed.',
+                    : 'This sales order already earned points (mock or paid invoice); nothing changed.',
             )
             onChanged?.()
         } catch (err) {
@@ -171,6 +175,13 @@ export default function LoyaltyPanel({
                 ) : null}
             </div>
 
+            <p className="text-xs text-gray-500">
+                Points are earned when the customer&apos;s SD invoice is paid (once per sales order).
+                {loyalty?.mockAccrual
+                    ? ' Rows marked Mock are demo grants with no invoice behind them.'
+                    : null}
+            </p>
+
             {notice ? (
                 <Alert showIcon closable type="success" onClose={() => setNotice(null)}>
                     {notice}
@@ -179,10 +190,8 @@ export default function LoyaltyPanel({
 
             {!loading && loyalty && !hasAccount ? (
                 <p className="text-sm text-gray-500">
-                    No loyalty account yet. It opens with the first earn
-                    {loyalty.mockAccrual
-                        ? ' (mock earn is on for demos).'
-                        : '; points from paid invoices arrive once finance (FICO) accrual is live.'}
+                    No loyalty account yet. It opens with the first paid invoice
+                    {loyalty.mockAccrual ? ' (or a demo mock earn).' : '.'}
                 </p>
             ) : (
                 <DataTable
@@ -198,7 +207,7 @@ export default function LoyaltyPanel({
                 isOpen={dialogOpen}
                 onClose={() => setDialogOpen(false)}
                 title="Mock earn"
-                description="Demo / staging only. Posts real ledger rows without an invoice behind them; real points will come from finance (FICO)."
+                description="Demo / staging only (never in production). Posts ledger rows without an invoice behind them; real points come from paid SD invoices. A sales order earns once, whichever posts first."
                 onSubmit={canSubmit ? submit : undefined}
                 confirmText="Post mock earn"
                 confirmLoading={saving}

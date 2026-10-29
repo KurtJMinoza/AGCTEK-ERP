@@ -15,12 +15,19 @@ import {
     CreateTicketCommentDto,
     CreateTicketDto,
     ListTicketsQueryDto,
+    OverrideTicketStatusDto,
     TICKET_DEFAULT_QUEUE_STATUSES,
     TICKET_PRIORITY_ORDER,
     TicketStatus,
     UpdateTicketDto,
 } from './dto/ticket.dto'
 import { CrmActivitiesService, overdueTicketWhere } from '../activities/activities.service'
+import { ReturnRequestService } from '../../sd/return-request.service'
+import { RETURN_GATED_TICKET_STATUSES, returnSettlement } from './return-settlement'
+import { CrmMessagesService, fieldChanges } from '../messages/crm-messages.service'
+
+/** Lifecycle fields kept in the ticket audit trail (SYSTEM rows). */
+const TICKET_AUDITED_FIELDS = ['status', 'priority', 'category', 'assignedTo', 'rmaReference'] as const
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -55,6 +62,8 @@ export class CrmTicketsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly activities: CrmActivitiesService,
+        private readonly returnRequests: ReturnRequestService,
+        private readonly messages: CrmMessagesService,
     ) {}
 
     async list(query: ListTicketsQueryDto) {
@@ -160,19 +169,35 @@ export class CrmTicketsService {
         await assertCustomerExists(this.prisma, dto.customerId)
         if (dto.assignedTo) await assertUserExists(this.prisma, dto.assignedTo)
 
-        return this.prisma.crmTicket.create({
-            data: {
-                customerId: dto.customerId,
-                subject: dto.subject,
-                description: dto.description ?? null,
-                priority: dto.priority ?? 'MEDIUM',
-                category: dto.category ?? 'GENERAL',
-                assignedTo: dto.assignedTo ?? null,
-                rmaReference: dto.rmaReference || null,
-                createdBy: userId,
-                updatedBy: userId,
-            },
-            include: ticketInclude,
+        return this.prisma.$transaction(async (tx) => {
+            const ticket = await tx.crmTicket.create({
+                data: {
+                    customerId: dto.customerId,
+                    subject: dto.subject,
+                    description: dto.description ?? null,
+                    priority: dto.priority ?? 'MEDIUM',
+                    category: dto.category ?? 'GENERAL',
+                    assignedTo: dto.assignedTo ?? null,
+                    rmaReference: dto.rmaReference || null,
+                    createdBy: userId,
+                    updatedBy: userId,
+                },
+                include: ticketInclude,
+            })
+            await this.messages.recordSystemOn(
+                tx,
+                { ticketId: ticket.id },
+                [
+                    {
+                        field: 'status',
+                        from: null,
+                        to: ticket.status,
+                        summary: `Ticket created (${ticket.category.toLowerCase()}, ${ticket.priority.toLowerCase()} priority)`,
+                    },
+                ],
+                userId,
+            )
+            return ticket
         })
     }
 
@@ -194,10 +219,12 @@ export class CrmTicketsService {
             data.assignedTo = dto.assignedTo
         }
         if (dto.status !== undefined && dto.status !== current.status) {
-            const from = current.status as TicketStatus
-            if (!TICKET_TRANSITIONS[from]?.includes(dto.status)) {
-                throw new BadRequestException(
-                    `Cannot move ticket from ${current.status} to ${dto.status}`,
+            this.assertTransition(current.status, dto.status)
+            const settlement = await this.returnSettlementFor(current, dto.status)
+            if (settlement && !settlement.settled) {
+                throw new ConflictException(
+                    `Return ${current.returnRequestNumber ?? ''} is not settled: ${settlement.blocker}. ` +
+                        'Wait for SD / finance, or use the override (reason required).',
                 )
             }
             data.status = dto.status
@@ -207,14 +234,90 @@ export class CrmTicketsService {
             throw new BadRequestException('No changes supplied')
         }
 
-        const result = await this.prisma.crmTicket.updateMany({
-            where: { id, status: current.status, updatedAt: current.updatedAt },
-            data,
+        const changes = fieldChanges(current, data, TICKET_AUDITED_FIELDS)
+        await this.prisma.$transaction(async (tx) => {
+            const result = await tx.crmTicket.updateMany({
+                where: { id, status: current.status, updatedAt: current.updatedAt },
+                data,
+            })
+            if (result.count === 0) {
+                throw new ConflictException('Ticket changed concurrently, reload and retry')
+            }
+            await this.messages.recordSystemOn(tx, { ticketId: id }, changes, userId)
         })
-        if (result.count === 0) {
-            throw new ConflictException('Ticket changed concurrently, reload and retry')
-        }
         return this.findOne(id)
+    }
+
+    /**
+     * Resolves, closes or cancels a return case whose SD return is not settled yet. The override,
+     * its reason and what was still open are kept on the case as a comment.
+     */
+    async overrideStatus(id: string, dto: OverrideTicketStatusDto, userId: string) {
+        const current = await this.findOne(id)
+        if (TERMINAL_STATUSES.has(current.status)) {
+            throw new ConflictException(`${current.status} tickets are read-only`)
+        }
+        if (!current.sdReturnRequestId) {
+            throw new BadRequestException(
+                'Overrides apply only to return cases; change the status normally',
+            )
+        }
+        this.assertTransition(current.status, dto.status)
+        const settlement = await this.returnSettlementFor(current, dto.status)
+        if (!settlement || settlement.settled) {
+            throw new BadRequestException(
+                `Return ${current.returnRequestNumber ?? ''} is settled; change the status normally`,
+            )
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            const result = await tx.crmTicket.updateMany({
+                where: { id, status: current.status, updatedAt: current.updatedAt },
+                data: { status: dto.status, updatedBy: userId },
+            })
+            if (result.count === 0) {
+                throw new ConflictException('Ticket changed concurrently, reload and retry')
+            }
+            await tx.crmTicketComment.create({
+                data: {
+                    ticketId: id,
+                    authorId: userId,
+                    body:
+                        `Status override ${current.status} → ${dto.status}. ` +
+                        `Return ${current.returnRequestNumber ?? ''} was not settled: ${settlement.blocker}. ` +
+                        `Reason: ${dto.reason}`,
+                },
+            })
+            await this.messages.recordSystemOn(
+                tx,
+                { ticketId: id },
+                [
+                    {
+                        field: 'status',
+                        from: current.status,
+                        to: dto.status,
+                        summary: `Status overridden from ${current.status} to ${dto.status} (return not settled): ${dto.reason}`,
+                    },
+                ],
+                userId,
+            )
+        })
+        return this.findOne(id)
+    }
+
+    private assertTransition(from: string, to: TicketStatus) {
+        if (!TICKET_TRANSITIONS[from as TicketStatus]?.includes(to)) {
+            throw new BadRequestException(`Cannot move ticket from ${from} to ${to}`)
+        }
+    }
+
+    /** Settlement of the linked SD return when `to` ends a return case; null when no gate applies. */
+    private async returnSettlementFor(
+        ticket: { sdReturnRequestId: string | null },
+        to: TicketStatus,
+    ) {
+        if (!ticket.sdReturnRequestId || !RETURN_GATED_TICKET_STATUSES.has(to)) return null
+        return returnSettlement(await this.returnRequests.findForCase(ticket.sdReturnRequestId))
     }
 
     async listComments(ticketId: string) {

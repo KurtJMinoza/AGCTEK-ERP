@@ -5,8 +5,10 @@ import Alert from '@/components/ui/Alert'
 import Input from '@/components/ui/Input'
 import { FormItem } from '@/components/ui/Form'
 import FormDialog from '@/components/shared/FormDialog'
+import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import CrmSelect from './CrmSelect'
 import CustomerSelect from './CustomerSelect'
+import OwnerSelect from './OwnerSelect'
 import { LinkedSalesOrderInfo } from './OpportunitySalesOrderDialog'
 import { useOpportunityStages } from '../hooks/useOpportunityPipeline'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
@@ -32,10 +34,16 @@ type OpportunityForm = {
     expectedCloseDate: string
     lostReason: string | null
     lostNotes: string
+    assignedTo: string | null
 }
 
-const toForm = (row: Opportunity | null, customerId?: string): OpportunityForm => ({
+const toForm = (
+    row: Opportunity | null,
+    customerId?: string,
+    currentUserId?: string,
+): OpportunityForm => ({
     customerId: row?.customerId ?? customerId ?? null,
+    assignedTo: row ? row.assignedTo : (currentUserId ?? null),
     name: row?.name ?? '',
     description: row?.description ?? '',
     amount: row?.amount == null ? '' : String(row.amount),
@@ -105,7 +113,11 @@ export default function OpportunityFormDialog({
     onUpdate,
 }: OpportunityFormDialogProps) {
     const { config, meta } = useOpportunityStages()
-    const [form, setForm] = useState<OpportunityForm>(() => toForm(opportunity, customerId))
+    const { session } = useCurrentSession()
+    const currentUserId = session?.user?.id
+    const [form, setForm] = useState<OpportunityForm>(() =>
+        toForm(opportunity, customerId, currentUserId),
+    )
     const [saving, setSaving] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
     const isWon = opportunity?.stage === 'CLOSED_WON'
@@ -120,10 +132,10 @@ export default function OpportunityFormDialog({
 
     useEffect(() => {
         if (isOpen) {
-            setForm(toForm(opportunity, customerId))
+            setForm(toForm(opportunity, customerId, currentUserId))
             setFormError(null)
         }
-    }, [isOpen, opportunity, customerId])
+    }, [isOpen, opportunity, customerId, currentUserId])
 
     const changeStage = (stage: OpportunityStage) =>
         setForm((f) => {
@@ -146,6 +158,10 @@ export default function OpportunityFormDialog({
             setFormError('Add notes explaining the lost reason')
             return
         }
+        if (!form.assignedTo) {
+            setFormError('Select an owner; every opportunity needs one')
+            return
+        }
         setSaving(true)
         setFormError(null)
         const amount = optionalNumber(form.amount)
@@ -153,6 +169,9 @@ export default function OpportunityFormDialog({
         try {
             if (opportunity) {
                 await onUpdate(opportunity.id, {
+                    ...(form.assignedTo !== opportunity.assignedTo
+                        ? { assignedTo: form.assignedTo }
+                        : {}),
                     name: form.name.trim(),
                     description: form.description.trim() || null,
                     amount,
@@ -178,6 +197,7 @@ export default function OpportunityFormDialog({
                     stage: form.stage as CreateOpportunityInput['stage'],
                     probability: probability ?? undefined,
                     expectedCloseDate: form.expectedCloseDate || undefined,
+                    assignedTo: form.assignedTo,
                 })
             }
             onClose()
@@ -239,11 +259,19 @@ export default function OpportunityFormDialog({
                         onChange={(id) => setForm((f) => ({ ...f, customerId: id }))}
                     />
                 </FormItem>
-                <FormItem label="Name" asterisk className="md:col-span-2">
+                <FormItem label="Name" asterisk>
                     <Input
                         value={form.name}
                         disabled={readOnly}
                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    />
+                </FormItem>
+                <FormItem label="Owner" asterisk>
+                    <OwnerSelect
+                        value={form.assignedTo}
+                        currentOwner={opportunity?.owner}
+                        isDisabled={readOnly}
+                        onChange={(id) => setForm((f) => ({ ...f, assignedTo: id }))}
                     />
                 </FormItem>
                 <FormItem label="Amount" asterisk={Boolean(targetMeta?.requiresAmount)}>

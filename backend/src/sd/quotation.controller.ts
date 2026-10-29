@@ -54,6 +54,13 @@ export class QuotationController {
      * Read-only PDF of the quotation (SD-owned data). Never changes the quotation's status or
      * creates a sales order. `?inline=1` opens it in the browser instead of downloading.
      */
+    /** Append-only lifecycle history (who / what / when) of this revision. */
+    @Get(':id/history')
+    @RequirePermission('sd.quotations', 'read')
+    history(@Param('id') id: string) {
+        return this.quotations.history(id)
+    }
+
     @Get(':id/pdf')
     @RequirePermission('sd.quotations', 'read')
     async downloadPdf(

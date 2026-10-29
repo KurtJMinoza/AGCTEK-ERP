@@ -31,7 +31,12 @@ import type {
     QuotationLinesInput,
     Ticket,
     TicketComment,
+    AttachmentParent,
+    AuditEntry,
+    CrmAttachment,
+    CrmUserRef,
     TicketListParams,
+    TicketOverrideStatus,
     TicketReturnCase,
     UpdateLeadInput,
     UpdateOpportunityInput,
@@ -209,6 +214,48 @@ export async function apiGetCrmDashboard(days?: number) {
 const ACTIVITY_PARENT_ROOT: Record<ActivityParent['kind'], string> = {
     opportunity: '/crm/opportunities',
     ticket: '/crm/tickets',
+    lead: '/crm/leads',
+}
+
+/** Lifecycle audit of a lead or ticket (who / what / when), oldest first. */
+export async function apiGetAuditTrail(parent: { kind: 'lead' | 'ticket'; id: string }) {
+    const root = parent.kind === 'lead' ? '/crm/leads' : '/crm/tickets'
+    return get<AuditEntry[]>(`${root}/${encodeURIComponent(parent.id)}/history`)
+}
+
+const attachmentsPath = (parent: AttachmentParent) =>
+    `${parent.kind === 'ticket' ? '/crm/tickets' : '/crm/opportunities'}/${encodeURIComponent(parent.id)}/attachments`
+
+export async function apiListAttachments(parent: AttachmentParent) {
+    return get<CrmAttachment[]>(attachmentsPath(parent))
+}
+
+/** Base64 JSON upload (10 MB cap); re-uploading a file name adds the next version. */
+export async function apiUploadAttachment(
+    parent: AttachmentParent,
+    body: { fileName: string; mimeType?: string; contentBase64: string },
+) {
+    const { data } = await ErpAxiosBase.post<CrmAttachment>(attachmentsPath(parent), body)
+    return data
+}
+
+/** Authenticated download (the file is never public). */
+export async function apiDownloadAttachment(parent: AttachmentParent, attachmentId: string) {
+    const { data } = await ErpAxiosBase.get<Blob>(
+        `${attachmentsPath(parent)}/${encodeURIComponent(attachmentId)}/download`,
+        { responseType: 'blob' },
+    )
+    return data
+}
+
+/** Soft delete (kept with who / when); needs delete rights on the record. */
+export async function apiRemoveAttachment(parent: AttachmentParent, attachmentId: string) {
+    await ErpAxiosBase.delete(`${attachmentsPath(parent)}/${encodeURIComponent(attachmentId)}`)
+}
+
+/** Active users for owner pickers (any CRM read access); at most 50, filtered by `search`. */
+export async function apiListCrmUsers(search?: string) {
+    return get<CrmUserRef[]>('/crm/users', compact({ search }))
 }
 
 const activitiesPath = (parent: ActivityParent) =>
@@ -342,6 +389,19 @@ export async function apiRejectTicketReturn(ticketId: string, reason: string) {
     return data
 }
 
+/** Ends a return case before SD / finance settle the return (crm.ticket-overrides; reason kept on the case). */
+export async function apiOverrideTicketStatus(
+    ticketId: string,
+    status: TicketOverrideStatus,
+    reason: string,
+) {
+    const { data } = await ErpAxiosBase.post<Ticket>(
+        `/crm/tickets/${encodeURIComponent(ticketId)}/status-override`,
+        { status, reason },
+    )
+    return data
+}
+
 export async function apiGetTicketComments(ticketId: string) {
     return get<TicketComment[]>(
         `/crm/tickets/${encodeURIComponent(ticketId)}/comments`,
@@ -356,7 +416,7 @@ export async function apiAddTicketComment(ticketId: string, body: string) {
     return data
 }
 
-/** Demo / staging only; the server refuses it (403) unless LOYALTY_MOCK_ACCRUAL=true. */
+/** Demo / staging only; the server refuses it (403) unless LOYALTY_MOCK_ACCRUAL=true (never in production). */
 export async function apiMockEarnLoyalty(customerId: string, body: MockEarnInput) {
     const { data } = await ErpAxiosBase.post<MockEarnResult>(
         `/crm/customers/${encodeURIComponent(customerId)}/loyalty/mock-earn`,

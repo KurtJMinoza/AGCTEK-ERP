@@ -234,7 +234,7 @@ export default function OpportunitiesPage() {
             <PageHeader
                 title="Opportunities"
                 description="Sales pipeline per SD customer. Closing as won (from the opportunity workspace) creates the SD sales order in the same step."
-                breadcrumbs={crmPageBreadcrumbs('Opportunities')}
+                breadcrumbs={crmPageBreadcrumbs('/crm/opportunities')}
                 actions={
                     canCreate ? (
                         <Button variant="solid" onClick={() => setDialogOpen(true)}>

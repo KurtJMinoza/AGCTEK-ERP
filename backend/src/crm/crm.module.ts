@@ -13,10 +13,12 @@ import { CrmReturnCasesService } from './tickets/return-cases.service'
 import { CrmReturnCaseListener } from './tickets/return-case.listener'
 import { CrmLoyaltyController } from './loyalty/loyalty.controller'
 import { CrmLoyaltyService } from './loyalty/loyalty.service'
+import { CrmLoyaltyEarnListener } from './loyalty/loyalty-earn.listener'
 import { CrmCustomer360Controller } from './customer-360/customer-360.controller'
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
 import {
     CrmActivitiesController,
+    CrmLeadActivitiesController,
     CrmTicketActivitiesController,
 } from './activities/activities.controller'
 import { CrmActivitiesService } from './activities/activities.service'
@@ -24,6 +26,13 @@ import { CrmDashboardController } from './dashboard/dashboard.controller'
 import { CrmDashboardService } from './dashboard/dashboard.service'
 import { CrmMessagesController } from './messages/messages.controller'
 import { CrmMessagesService } from './messages/crm-messages.service'
+import { CrmUsersController } from './users/crm-users.controller'
+import {
+    CrmOpportunityAttachmentsController,
+    CrmTicketAttachmentsController,
+} from './attachments/attachments.controller'
+import { CrmAttachmentsService } from './attachments/attachments.service'
+import { CrmUsersService } from './users/crm-users.service'
 
 /**
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
@@ -46,6 +55,10 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmTicketActivitiesController,
         CrmDashboardController,
         CrmMessagesController,
+        CrmUsersController,
+        CrmLeadActivitiesController,
+        CrmTicketAttachmentsController,
+        CrmOpportunityAttachmentsController,
     ],
     providers: [
         CrmLeadsService,
@@ -56,10 +69,13 @@ import { CrmMessagesService } from './messages/crm-messages.service'
         CrmReturnCasesService,
         CrmReturnCaseListener,
         CrmLoyaltyService,
+        CrmLoyaltyEarnListener,
         CrmCustomer360Service,
         CrmActivitiesService,
         CrmDashboardService,
         CrmMessagesService,
+        CrmUsersService,
+        CrmAttachmentsService,
     ],
 })
 export class CrmModule {}

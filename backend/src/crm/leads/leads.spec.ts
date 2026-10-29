@@ -10,6 +10,7 @@ import type { PrismaService } from '../../prisma/prisma.service'
 import type { CustomerService } from '../../sd/customer.service'
 import type { CrmActivitiesService } from '../activities/activities.service'
 import type { CrmOpportunitiesService } from '../opportunities/opportunities.service'
+import type { CrmMessagesService } from '../messages/crm-messages.service'
 import { CrmLeadsController } from './leads.controller'
 import { CrmLeadsService, LEAD_TRANSITIONS } from './leads.service'
 
@@ -37,7 +38,9 @@ function mockPrisma(opts: { lead?: ReturnType<typeof lead> | null; customer?: bo
         },
         crmLead: {
             findUnique: jest.fn().mockResolvedValue(opts.lead === undefined ? lead() : opts.lead),
-            create: jest.fn((args: { data: unknown }) => Promise.resolve({ id: 'lead-new', ...(args.data as object) })),
+            create: jest.fn((args: { data: unknown }) =>
+                Promise.resolve({ id: 'lead-new', status: 'NEW', ...(args.data as object) }),
+            ),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             findMany: jest.fn().mockResolvedValue([]),
             count: jest.fn().mockResolvedValue(0),
@@ -57,9 +60,13 @@ function mockDeps() {
             create: jest.fn().mockResolvedValue({ id: 'opp-1' }),
             findOne: jest.fn().mockResolvedValue({ id: 'opp-1', nextActivityStatus: 'UPCOMING' }),
         },
-        activities: { reparentLeadActivities: jest.fn().mockResolvedValue(2) },
+        activities: {
+            reparentLeadActivities: jest.fn().mockResolvedValue(2),
+            withNextActivityFor: jest.fn(async (_kind: string, rows: unknown[]) => rows),
+        },
         customers: { create: jest.fn().mockResolvedValue({ id: 'cust-new' }) },
         permissions: { assertPermission: jest.fn().mockResolvedValue(undefined) },
+        messages: { recordSystemOn: jest.fn().mockResolvedValue({ count: 1 }) },
     }
 }
 
@@ -70,6 +77,7 @@ const service = (prisma: ReturnType<typeof mockPrisma>, deps = mockDeps()) =>
         deps.activities as unknown as CrmActivitiesService,
         deps.customers as unknown as CustomerService,
         deps.permissions as unknown as PermissionsService,
+        deps.messages as unknown as CrmMessagesService,
     )
 
 const admin = { id: 'user-1', role: 'admin' }
@@ -90,6 +98,41 @@ describe('CrmLeadsService', () => {
                     updatedBy: 'user-1',
                 }),
             }),
+        )
+    })
+
+    it('audits lead create, status / owner changes and conversion on the lead trail', async () => {
+        const prisma = mockPrisma()
+        const deps = mockDeps()
+        await service(prisma, deps).create({ name: 'Walk-in' }, 'user-1')
+        expect(deps.messages.recordSystemOn).toHaveBeenLastCalledWith(
+            prisma,
+            { leadId: 'lead-new' },
+            [expect.objectContaining({ field: 'status', to: 'NEW', summary: 'Lead created (source OTHER)' })],
+            'user-1',
+        )
+
+        await service(prisma, deps).update('lead-1', { status: 'CONTACTED', assignedTo: 'user-2', name: 'x' }, 'user-1')
+        expect(deps.messages.recordSystemOn).toHaveBeenLastCalledWith(
+            prisma,
+            { leadId: 'lead-1' },
+            [
+                { field: 'status', from: 'NEW', to: 'CONTACTED' },
+                { field: 'assignedTo', from: null, to: 'user-2' },
+            ],
+            'user-1',
+        )
+
+        await service(mockPrisma({ lead: lead({ status: 'QUALIFIED', customerId: 'cust-1' }) }), deps).convert(
+            'lead-1',
+            {},
+            admin,
+        )
+        expect(deps.messages.recordSystemOn).toHaveBeenLastCalledWith(
+            expect.anything(),
+            { leadId: 'lead-1' },
+            [expect.objectContaining({ from: 'QUALIFIED', to: 'CONVERTED' })],
+            'user-1',
         )
     })
 
@@ -205,6 +248,28 @@ describe('CrmLeadsService.convert', () => {
                 opportunity: expect.objectContaining({ id: 'opp-1', nextActivityStatus: 'UPCOMING' }),
             }),
         )
+    })
+
+    it('gives the opportunity an owner: chosen, else the lead owner, else the converting user', async () => {
+        const unassigned = mockDeps()
+        await service(mockPrisma(), unassigned).convert('lead-1', { customerId: 'cust-1' }, admin)
+        expect(unassigned.opportunities.create.mock.calls[0][0].assignedTo).toBe('user-1')
+
+        const chosen = mockDeps()
+        await service(mockPrisma({ lead: lead({ assignedTo: 'user-2' }) }), chosen).convert(
+            'lead-1',
+            { customerId: 'cust-1', opportunity: { assignedTo: 'user-3' } },
+            admin,
+        )
+        expect(chosen.opportunities.create.mock.calls[0][0].assignedTo).toBe('user-3')
+    })
+
+    it('lists leads with their next-activity badge', async () => {
+        const prisma = mockPrisma()
+        prisma.crmLead.findMany.mockResolvedValue([lead()])
+        const deps = mockDeps()
+        await service(prisma, deps).list({})
+        expect(deps.activities.withNextActivityFor).toHaveBeenCalledWith('lead', [lead()])
     })
 
     it('links an existing SD customer supplied at conversion', async () => {

@@ -2,11 +2,13 @@ import {
     BadRequestException,
     ForbiddenException,
     Injectable,
+    Logger,
 } from '@nestjs/common'
 import { Prisma, type CrmLoyaltyTransaction } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { findCustomerMasterId } from '../../sd/customer-master'
 import { SalesOrderService } from '../../sd/sales-order.service'
+import type { SdSalesInvoicePaidPayload } from '../../sd/sd-event.types'
 import { assertCustomerExists } from '../crm-references'
 import type { MockEarnDto } from './dto/mock-earn.dto'
 
@@ -27,12 +29,18 @@ export const LOYALTY_TIERS = [
 export const tierForBalance = (balance: number) =>
     LOYALTY_TIERS.find((t) => balance >= t.minPoints)?.tier ?? 'BRONZE'
 
-/** Reference types posted by the mock; real earn will reference the cleared FICO invoice. */
+/** Reference types posted by the mock; real earn references the paid SD invoice (SALES_INVOICE). */
 export const MOCK_REFERENCE_TYPES = ['MOCK', 'SALES_ORDER'] as const
+export const INVOICE_EARN_REFERENCE_TYPE = 'SALES_INVOICE'
 
 const NOT_EARNING_ORDER_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'CANCELLED'])
 
-export const isMockAccrualEnabled = () => process.env.LOYALTY_MOCK_ACCRUAL === 'true'
+/** One earn per sales order, whichever source posts it first (mock order earn or paid invoice). */
+export const salesOrderEarnKey = (salesOrderId: string) => `SALES_ORDER:${salesOrderId}`
+
+/** Demo / staging only: never on when NODE_ENV is production, whatever LOYALTY_MOCK_ACCRUAL says. */
+export const isMockAccrualEnabled = () =>
+    process.env.LOYALTY_MOCK_ACCRUAL === 'true' && process.env.NODE_ENV !== 'production'
 
 function pointsPer100Php() {
     const value = Number(process.env.LOYALTY_POINTS_PER_100_PHP ?? 1)
@@ -57,12 +65,14 @@ export type AccruePointsInput = {
     points: number
     referenceType?: string
     referenceId?: string
+    /** EARN only: the source that may earn once; defaults to `referenceType:referenceId`. */
+    earnKey?: string
     note?: string
     createdBy?: string | null
 }
 
 export type AccrualResult = {
-    /** False when an EARN with the same reference was already posted (nothing changed). */
+    /** False when an EARN with the same earn key was already posted (nothing changed). */
     created: boolean
     transaction: CrmLoyaltyTransaction
     summary: LoyaltySummary
@@ -88,6 +98,8 @@ function assertAccrualInput(input: AccruePointsInput) {
 
 @Injectable()
 export class CrmLoyaltyService {
+    private readonly logger = new Logger(CrmLoyaltyService.name)
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly salesOrders: SalesOrderService,
@@ -124,10 +136,10 @@ export class CrmLoyaltyService {
     }
 
     /**
-     * The single loyalty write path (mock today; FICO invoice clearance later — TODO(crm-integration)).
-     * Creates the account on first use and appends one ledger row while the balance and tier move
-     * in the same transaction, under the account row lock. An EARN with a reference posts once:
-     * a repeat returns the existing row. The balance never goes below zero.
+     * The single loyalty write path (paid SD invoices, and the demo mock). Creates the account on
+     * first use and appends one ledger row while the balance and tier move in the same transaction,
+     * under the account row lock. An EARN with an earn key posts once (unique `earnKey`): a repeat
+     * returns the existing row. The balance never goes below zero.
      */
     async accruePoints(input: AccruePointsInput): Promise<AccrualResult> {
         assertAccrualInput(input)
@@ -137,7 +149,8 @@ export class CrmLoyaltyService {
         try {
             posted = await run()
         } catch (err) {
-            // Two first-time earns for one customer race on the account's unique customerId.
+            // Two first-time earns for one customer race on the account's unique customerId, or two
+            // earns for one source race on earnKey; the retry finds the winner.
             if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
             posted = await run()
         }
@@ -157,15 +170,15 @@ export class CrmLoyaltyService {
             select: { pointsBalance: true },
         })
 
-        if (input.type === 'EARN' && input.referenceType && input.referenceId) {
-            const existing = await tx.crmLoyaltyTransaction.findFirst({
-                where: {
-                    loyaltyAccountId: accountId,
-                    type: 'EARN',
-                    referenceType: input.referenceType,
-                    referenceId: input.referenceId,
-                },
-            })
+        const earnKey =
+            input.type !== 'EARN'
+                ? null
+                : (input.earnKey ??
+                  (input.referenceType && input.referenceId
+                      ? `${input.referenceType}:${input.referenceId}`
+                      : null))
+        if (earnKey) {
+            const existing = await tx.crmLoyaltyTransaction.findUnique({ where: { earnKey } })
             if (existing) return { created: false, transaction: existing }
         }
 
@@ -182,6 +195,7 @@ export class CrmLoyaltyService {
                 points: input.points,
                 referenceType: input.referenceType ?? null,
                 referenceId: input.referenceId ?? null,
+                earnKey,
                 note: input.note ?? null,
                 createdBy: input.createdBy ?? null,
             },
@@ -194,13 +208,45 @@ export class CrmLoyaltyService {
     }
 
     /**
-     * Demo / staging earn (LOYALTY_MOCK_ACCRUAL=true). With a sales order: floor(total / 100 PHP) ×
+     * Real earn: a settled SD invoice (`SalesInvoicePaid`) earns floor(total / 100 PHP) ×
+     * LOYALTY_POINTS_PER_100_PHP for the order's Customer Master, once per sales order. Returns null
+     * when nothing is earned (no Customer Master, not PHP, or under 100 PHP).
+     * TODO(crm-integration): switch the source to FICO receivable clearance once FICO publishes it.
+     */
+    async earnForPaidInvoice(paid: SdSalesInvoicePaidPayload): Promise<AccrualResult | null> {
+        const customerId = await findCustomerMasterId(this.prisma, paid.customerId)
+        if (!customerId) {
+            this.logger.warn(
+                `Invoice ${paid.invoiceNumber}: the order's customer has no Customer Master record; no points earned`,
+            )
+            return null
+        }
+        if (paid.currency !== 'PHP') return null
+        const total = Number(paid.totalAmount)
+        const points = Math.floor(total / 100) * pointsPer100Php()
+        if (!Number.isFinite(points) || points <= 0) return null
+        return this.accruePoints({
+            customerId,
+            type: 'EARN',
+            points,
+            referenceType: INVOICE_EARN_REFERENCE_TYPE,
+            referenceId: paid.salesInvoiceId,
+            earnKey: salesOrderEarnKey(paid.salesOrderId),
+            note: `Paid invoice ${paid.invoiceNumber} (${total.toFixed(2)} PHP)`,
+            createdBy: null,
+        })
+    }
+
+    /**
+     * Demo / staging earn (LOYALTY_MOCK_ACCRUAL=true, never in production). With a sales order: floor(total / 100 PHP) ×
      * LOYALTY_POINTS_PER_100_PHP, posted once per order. Without: an admin grant of `points`.
-     * Not backed by an invoice; real earn comes from FICO through `accruePoints`.
+     * Not backed by an invoice; an order that already earned from its paid invoice earns nothing more.
      */
     async mockEarn(customerId: string, dto: MockEarnDto, userId: string) {
         if (!isMockAccrualEnabled()) {
-            throw new ForbiddenException('Mock loyalty accrual is disabled (LOYALTY_MOCK_ACCRUAL is not true)')
+            throw new ForbiddenException(
+                'Mock loyalty accrual is disabled (LOYALTY_MOCK_ACCRUAL is not true, or this is production)',
+            )
         }
         await assertCustomerExists(this.prisma, customerId)
         const note = dto.note?.trim()
@@ -231,6 +277,7 @@ export class CrmLoyaltyService {
                 points,
                 referenceType: 'SALES_ORDER',
                 referenceId: order.id,
+                earnKey: salesOrderEarnKey(order.id),
                 note: [`Mock accrual · ${order.orderNumber} (${total.toFixed(2)} PHP)`, note].filter(Boolean).join(' · '),
                 createdBy: userId,
             })

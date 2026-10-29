@@ -14,13 +14,16 @@ import {
     RESOLUTION_TONE,
     RETURN_STATUS_TONE,
 } from '@/modules/sd/services/customerReturnRequestService'
+import usePermissions from '@/utils/hooks/usePermissions'
 import {
     apiApproveTicketReturn,
     apiGetTicketReturn,
+    apiOverrideTicketStatus,
     apiRejectTicketReturn,
 } from '../services/crmApi'
-import { formatDate, formatEnumLabel } from '../utils/format'
-import type { TicketReturnCase } from '../types'
+import CrmSelect from './CrmSelect'
+import { decimal, enumOptions, formatDate, formatEnumLabel, formatMoney } from '../utils/format'
+import type { TicketOverrideStatus, TicketReturnCase, TicketStatus } from '../types'
 
 const SD_CUSTOMER_RETURNS_PATH = '/modules/sd/customer-returns'
 const DECIDABLE_RESOLUTIONS: ReadonlySet<string> = new Set(['REPLACEMENT', 'REFUND'])
@@ -72,24 +75,64 @@ function progressSteps(rc: TicketReturnCase): Step[] {
     return steps
 }
 
+/** Transitions an override may make from the current ticket status (same rules as a normal change). */
+const overrideTargets = (status: TicketStatus): TicketOverrideStatus[] =>
+    status === 'RESOLVED' ? ['CLOSED'] : ['RESOLVED', 'CANCELLED']
+
+const TERMINAL: ReadonlySet<TicketStatus> = new Set(['CLOSED', 'CANCELLED'])
+
 type TicketReturnPanelProps = {
     ticketId: string
+    ticketStatus: TicketStatus
     /** crm.tickets update (re-checked by the server). */
     canDecide: boolean
     /** The ticket is closed or cancelled. */
     readOnly: boolean
-    /** After approve / reject (the server adds a ticket comment). */
+    /** After approve / reject / override (the server adds a ticket comment). */
     onDecided: () => void
+    onStatusChanged?: (status: TicketStatus) => void
 }
 
 /** SD customer return behind a CRM case: the agent decides it here; SD, MM and finance carry it out. */
-export default function TicketReturnPanel({ ticketId, canDecide, readOnly, onDecided }: TicketReturnPanelProps) {
+export default function TicketReturnPanel({
+    ticketId,
+    ticketStatus,
+    canDecide,
+    readOnly: readOnlyProp,
+    onDecided,
+    onStatusChanged,
+}: TicketReturnPanelProps) {
+    const { can } = usePermissions()
+    const canOverride = can('crm.ticket-overrides', 'update')
     const [rc, setRc] = useState<TicketReturnCase | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [dialog, setDialog] = useState<'approve' | 'reject' | null>(null)
+    const [dialog, setDialog] = useState<'approve' | 'reject' | 'override' | null>(null)
     const [rejectReason, setRejectReason] = useState('')
     const [saving, setSaving] = useState(false)
+    const [status, setStatus] = useState<TicketStatus>(ticketStatus)
+    const [overrideTo, setOverrideTo] = useState<TicketOverrideStatus>(overrideTargets(ticketStatus)[0])
+    const [overrideReason, setOverrideReason] = useState('')
+    const readOnly = readOnlyProp || TERMINAL.has(status)
+
+    const override = async () => {
+        setSaving(true)
+        setError(null)
+        try {
+            const ticket = await apiOverrideTicketStatus(ticketId, overrideTo, overrideReason.trim())
+            setStatus(ticket.status)
+            onStatusChanged?.(ticket.status)
+            setOverrideTo(overrideTargets(ticket.status)[0])
+            setOverrideReason('')
+            setDialog(null)
+            onDecided()
+        } catch (err) {
+            setDialog(null)
+            setError(getApiErrorMessage(err, 'The case status was not changed'))
+        } finally {
+            setSaving(false)
+        }
+    }
 
     const load = useCallback(async () => {
         setLoading(true)
@@ -199,6 +242,46 @@ export default function TicketReturnPanel({ ticketId, canDecide, readOnly, onDec
                 </ol>
             )}
 
+            {rc.refund ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-gray-600 dark:text-gray-300">
+                    <span className="font-medium">Refund {rc.refund.refundNumber}</span>
+                    <span>
+                        · {formatMoney(decimal(rc.refund.amount), rc.refund.currency)}
+                        {rc.refund.refundMethod ? ` · ${formatEnumLabel(rc.refund.refundMethod)}` : ''}
+                    </span>
+                    <StatusBadge tone={rc.refund.status === 'PAID' ? 'success' : rc.refund.status === 'FAILED' ? 'danger' : 'warning'}>
+                        {REFUND_STATUS_LABEL[rc.refund.status] ?? formatEnumLabel(rc.refund.status)}
+                    </StatusBadge>
+                    {rc.refund.isDemo ? <StatusBadge>Demo</StatusBadge> : null}
+                    {rc.refund.creditMemo ? (
+                        <span className="text-gray-500">
+                            · Credit memo {rc.refund.creditMemo.creditMemoNumber} (
+                            {formatEnumLabel(rc.refund.creditMemo.status)})
+                        </span>
+                    ) : null}
+                    {rc.refund.paidAt ? (
+                        <span className="text-gray-500">· Paid {formatDate(rc.refund.paidAt)}</span>
+                    ) : null}
+                    {rc.refund.failReason ? (
+                        <span className="text-red-600">· {rc.refund.failReason}</span>
+                    ) : null}
+                </div>
+            ) : null}
+
+            {!readOnly ? (
+                rc.settlement.settled ? (
+                    <Alert showIcon type="success" className="mt-3">
+                        The return is settled in SD and finance; this case can be resolved and closed.
+                    </Alert>
+                ) : (
+                    <Alert showIcon type="info" className="mt-3">
+                        Not ready to end this case: {rc.settlement.blocker}. Resolving, closing or
+                        cancelling waits for SD / finance
+                        {canOverride ? ', or use the override with a reason.' : '.'}
+                    </Alert>
+                )
+            ) : null}
+
             <div className="mt-3 flex flex-wrap items-center gap-2">
                 {canApprove ? (
                     <Button size="sm" variant="solid" onClick={() => setDialog('approve')}>
@@ -208,6 +291,11 @@ export default function TicketReturnPanel({ ticketId, canDecide, readOnly, onDec
                 {canReject ? (
                     <Button size="sm" onClick={() => setDialog('reject')}>
                         Reject return
+                    </Button>
+                ) : null}
+                {!readOnly && !rc.settlement.settled && canOverride ? (
+                    <Button size="sm" onClick={() => setDialog('override')}>
+                        Override &amp; end case
                     </Button>
                 ) : null}
                 <Button size="sm" loading={loading} onClick={() => void load()}>
@@ -261,6 +349,38 @@ export default function TicketReturnPanel({ ticketId, canDecide, readOnly, onDec
                     placeholder="Reason (required, recorded on the return and the ticket)"
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
+                />
+            </ConfirmDialog>
+
+            <ConfirmDialog
+                isOpen={dialog === 'override'}
+                type="warning"
+                title={`End case before return ${rc.requestNumber} is settled?`}
+                confirmText="Override"
+                confirmButtonProps={{ loading: saving, disabled: !overrideReason.trim() }}
+                onClose={() => setDialog(null)}
+                onCancel={() => setDialog(null)}
+                onConfirm={() => void override()}
+            >
+                <p className="mb-2">
+                    {rc.settlement.settled ? null : `Still open: ${rc.settlement.blocker}. `}
+                    SD and finance still finish the return; the override, its reason and the open step
+                    are recorded on this case.
+                </p>
+                <div className="mb-2">
+                    <CrmSelect
+                        options={enumOptions(overrideTargets(status))}
+                        value={overrideTo}
+                        onChange={(value) => setOverrideTo((value ?? overrideTo) as TicketOverrideStatus)}
+                    />
+                </div>
+                <Input
+                    textArea
+                    rows={3}
+                    maxLength={500}
+                    placeholder="Reason (required, recorded on the case)"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
                 />
             </ConfirmDialog>
         </div>

@@ -57,6 +57,38 @@ export type QuotationView = QuotationRow & {
 
 export type QuotationConversionClaim = { quote: QuotationRow; alreadyConverted: boolean }
 
+export type QuotationEventAction =
+    | 'CREATED'
+    | 'EDITED'
+    | 'SENT'
+    | 'REVISED'
+    | 'SUPERSEDED'
+    | 'ACCEPTED'
+    | 'REJECTED'
+    | 'CANCELLED'
+    | 'EXPIRED'
+    | 'CONVERTED'
+
+const DECISION_EVENTS: Partial<Record<QuotationAction, QuotationEventAction>> = {
+    ACCEPT: 'ACCEPTED',
+    REJECT: 'REJECTED',
+    CANCEL: 'CANCELLED',
+}
+
+type QuotationEventInput = {
+    quotationId: string
+    action: QuotationEventAction
+    fromStatus: string | null
+    toStatus: string
+    actorId: string | null
+    note?: string | null
+}
+
+/** Append-only lifecycle row, written in the caller's transaction together with the change. */
+function recordQuotationEvent(client: Client, event: QuotationEventInput) {
+    return client.sdQuotationEvent.create({ data: { ...event, note: event.note ?? null } })
+}
+
 function lineData({ inactive: _inactive, ...line }: PricedCatalogLine) {
     return line
 }
@@ -199,6 +231,13 @@ export class QuotationService {
                     data: sections.map((s) => ({ quotationId: id, ...s })),
                 })
             }
+            await recordQuotationEvent(tx, {
+                quotationId: id,
+                action: 'EDITED',
+                fromStatus: current.status,
+                toStatus: current.status,
+                actorId: userId,
+            })
             return this.load(tx, id)
         })
         return (await this.views(this.prisma, [row]))[0]
@@ -257,6 +296,16 @@ export class QuotationService {
                           updatedBy: userId,
                       },
             })
+            if (!changedLines.length) {
+                await recordQuotationEvent(tx, {
+                    quotationId: id,
+                    action: 'SENT',
+                    fromStatus: current.status,
+                    toStatus: nextQuotationStatus(current.status, 'SEND'),
+                    actorId: userId,
+                    note: `Valid until ${manilaDate(validUntil)}`,
+                })
+            }
             return { changedLines }
         })
 
@@ -307,6 +356,14 @@ export class QuotationService {
                         where: { id },
                         data: { status: revisedStatus, updatedBy: userId },
                     })
+                    await recordQuotationEvent(tx, {
+                        quotationId: id,
+                        action: 'SUPERSEDED',
+                        fromStatus: current.status,
+                        toStatus: revisedStatus,
+                        actorId: userId,
+                        note: `Replaced by rev ${current.revision + 1}`,
+                    })
                 }
                 const active = await this.findActiveForOpportunity(tx, current.crmOpportunityId)
                 if (active) throw this.activeQuotationExists(active)
@@ -332,7 +389,7 @@ export class QuotationService {
                     new Prisma.Decimal(0),
                 )
 
-                return tx.sdQuotation.create({
+                const created = await tx.sdQuotation.create({
                     data: {
                         quotationNumber: current.quotationNumber,
                         revision: current.revision + 1,
@@ -359,6 +416,17 @@ export class QuotationService {
                     },
                     include: QUOTATION_INCLUDE,
                 })
+                await recordQuotationEvent(tx, {
+                    quotationId: created.id,
+                    action: 'REVISED',
+                    fromStatus: null,
+                    toStatus: 'DRAFT',
+                    actorId: userId,
+                    note: [`Revision of rev ${current.revision} (${input.reason})`, revisionNotes]
+                        .filter(Boolean)
+                        .join(': '),
+                })
+                return created
             })
             return (await this.views(this.prisma, [row]))[0]
         } catch (error) {
@@ -375,10 +443,11 @@ export class QuotationService {
 
     /** SENT → ACCEPTED (not after the validity date). */
     async accept(id: string, input: { note?: string }, userId: string) {
-        return this.decide(id, 'ACCEPT', userId, (now) => ({
+        const note = input.note?.trim() || null
+        return this.decide(id, 'ACCEPT', userId, note, (now) => ({
             decidedBy: userId,
             decidedAt: now,
-            decisionReason: input.note?.trim() || null,
+            decisionReason: note,
         }))
     }
 
@@ -386,7 +455,7 @@ export class QuotationService {
     async reject(id: string, input: { reason: string }, userId: string) {
         const reason = input.reason?.trim()
         if (!reason) throw new BadRequestException('A rejection reason is required')
-        return this.decide(id, 'REJECT', userId, (now) => ({
+        return this.decide(id, 'REJECT', userId, reason, (now) => ({
             decidedBy: userId,
             decidedAt: now,
             decisionReason: reason,
@@ -395,11 +464,43 @@ export class QuotationService {
 
     /** DRAFT / SENT / ACCEPTED → CANCELLED. */
     async cancel(id: string, input: { reason?: string }, userId: string) {
-        return this.decide(id, 'CANCEL', userId, (now) => ({
+        const reason = input.reason?.trim() || null
+        return this.decide(id, 'CANCEL', userId, reason, (now) => ({
             cancelledBy: userId,
             cancelledAt: now,
-            cancelReason: input.reason?.trim() || null,
+            cancelReason: reason,
         }))
+    }
+
+    /** Lifecycle history of one revision, oldest first, with actor display names. */
+    async history(id: string) {
+        await this.load(this.prisma, id)
+        const events = await this.prisma.sdQuotationEvent.findMany({
+            where: { quotationId: id },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        })
+        const actorIds = [...new Set(events.map((e) => e.actorId).filter((a): a is string => !!a))]
+        const actors = actorIds.length
+            ? await this.prisma.user.findMany({
+                  where: { id: { in: actorIds } },
+                  select: { id: true, userName: true, firstName: true, lastName: true },
+              })
+            : []
+        const byId = new Map(actors.map((a) => [a.id, a]))
+        return events.map((event) => ({
+            ...event,
+            actor: event.actorId ? (byId.get(event.actorId) ?? null) : null,
+        }))
+    }
+
+    /** Every revision's lifecycle events for an opportunity (CRM feed), newest first. */
+    eventsForOpportunity(crmOpportunityId: string) {
+        return this.prisma.sdQuotationEvent.findMany({
+            where: { quotation: { crmOpportunityId } },
+            include: { quotation: { select: { quotationNumber: true, revision: true } } },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 200,
+        })
     }
 
     /**
@@ -439,6 +540,13 @@ export class QuotationService {
             where: { id: quote.id },
             data: { status, convertedBy: input.convertedBy, convertedAt: now, updatedBy: input.convertedBy },
         })
+        await recordQuotationEvent(tx, {
+            quotationId: quote.id,
+            action: 'CONVERTED',
+            fromStatus: quote.status,
+            toStatus: status,
+            actorId: input.convertedBy,
+        })
         return { quote, alreadyConverted: false }
     }
 
@@ -447,14 +555,31 @@ export class QuotationService {
      * active slot. Called before quotation-changing operations; reads never write.
      */
     async expireOverdue(client: Client, crmOpportunityId: string, now = new Date()) {
-        const { count } = await client.sdQuotation.updateMany({
+        const overdue = await client.sdQuotation.findMany({
             where: {
                 crmOpportunityId,
                 status: { in: [...EXPIRABLE_QUOTATION_STATUSES] },
                 validUntil: { lt: now },
             },
-            data: { status: 'EXPIRED' },
+            select: { id: true, status: true },
         })
+        let count = 0
+        for (const quote of overdue) {
+            // Guarded on the status read above, so a concurrent expiry records one event only.
+            const updated = await client.sdQuotation.updateMany({
+                where: { id: quote.id, status: quote.status },
+                data: { status: 'EXPIRED' },
+            })
+            if (updated.count === 0) continue
+            count += 1
+            await recordQuotationEvent(client, {
+                quotationId: quote.id,
+                action: 'EXPIRED',
+                fromStatus: quote.status,
+                toStatus: 'EXPIRED',
+                actorId: null,
+            })
+        }
         return count
     }
 
@@ -469,16 +594,33 @@ export class QuotationService {
         now = new Date(),
     ) {
         await this.expireOverdue(tx, crmOpportunityId, now)
-        const { count } = await tx.sdQuotation.updateMany({
+        const active = await tx.sdQuotation.findMany({
             where: { crmOpportunityId, status: { in: [...ACTIVE_QUOTATION_STATUSES] } },
-            data: {
-                status: 'CANCELLED',
-                cancelledBy: input.cancelledBy,
-                cancelledAt: now,
-                cancelReason: input.reason,
-                updatedBy: input.cancelledBy,
-            },
+            select: { id: true, status: true },
         })
+        let count = 0
+        for (const quote of active) {
+            const updated = await tx.sdQuotation.updateMany({
+                where: { id: quote.id, status: quote.status },
+                data: {
+                    status: 'CANCELLED',
+                    cancelledBy: input.cancelledBy,
+                    cancelledAt: now,
+                    cancelReason: input.reason,
+                    updatedBy: input.cancelledBy,
+                },
+            })
+            if (updated.count === 0) continue
+            count += 1
+            await recordQuotationEvent(tx, {
+                quotationId: quote.id,
+                action: 'CANCELLED',
+                fromStatus: quote.status,
+                toStatus: 'CANCELLED',
+                actorId: input.cancelledBy,
+                note: input.reason,
+            })
+        }
         return count
     }
 
@@ -497,6 +639,7 @@ export class QuotationService {
         id: string,
         action: QuotationAction,
         userId: string,
+        note: string | null,
         data: (now: Date) => Prisma.SdQuotationUpdateInput,
     ) {
         const now = new Date()
@@ -508,6 +651,14 @@ export class QuotationService {
             await tx.sdQuotation.update({
                 where: { id },
                 data: { ...data(now), status, updatedBy: userId },
+            })
+            await recordQuotationEvent(tx, {
+                quotationId: id,
+                action: DECISION_EVENTS[action]!,
+                fromStatus: current.status,
+                toStatus: status,
+                actorId: userId,
+                note,
             })
             return this.load(tx, id)
         })
@@ -525,7 +676,7 @@ export class QuotationService {
         const [{ value }] = await tx.$queryRaw<{ value: bigint }[]>`
             SELECT nextval('sd_quotation_number_seq') AS value`
 
-        return tx.sdQuotation.create({
+        const created = await tx.sdQuotation.create({
             data: {
                 quotationNumber: formatQuotationNumber(value),
                 revision: 1,
@@ -544,6 +695,14 @@ export class QuotationService {
             },
             include: QUOTATION_INCLUDE,
         })
+        await recordQuotationEvent(tx, {
+            quotationId: created.id,
+            action: 'CREATED',
+            fromStatus: null,
+            toStatus: 'DRAFT',
+            actorId: input.createdBy ?? null,
+        })
+        return created
     }
 
     /** Display fields; DRAFT lines are checked against the catalog (one product query per call). */
