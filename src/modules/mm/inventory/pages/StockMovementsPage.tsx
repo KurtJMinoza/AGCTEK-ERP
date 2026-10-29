@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -26,7 +26,6 @@ import {
     type InventoryTransaction,
 } from '../services/inventoryService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { buildTransactionColumns } from '../utils/ledgerColumns'
 
 const ROUTE = '/modules/mm/inventory-management/stock-movements'
@@ -58,7 +57,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const StockMovementsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
         'companies',
         'warehouses',
@@ -305,12 +304,15 @@ const StockMovementsPage = () => {
         ],
     )
 
-    const columns = useMemo(() => buildTransactionColumns(), [])
+    const columns = useMemo(
+        () => buildTransactionColumns(undefined, { presentation: 'inventory' }),
+        [],
+    )
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Stock Movements"
                 description="Every posting that moved stock — what moved, where it came from, and who posted it."
                 actions={
@@ -377,11 +379,12 @@ const StockMovementsPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{
                         total: meta.total,
@@ -389,6 +392,7 @@ const StockMovementsPage = () => {
                         pageSize: meta.limit,
                     }}
                     onPaginationChange={setPage}
+                    tableMinWidthClass="min-w-[1100px]"
                 />
             </AdaptiveCard>
         </PageContainer>

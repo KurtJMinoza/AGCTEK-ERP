@@ -51,7 +51,6 @@ Existing flow: approve → pick/ship → `post` (`RETURN_OUT` from quarantine/bl
 
 ## UI
 
-- Workflow strip: `Iso9001ReturnsDisposalWorkflowStrip` on intake, scrap, disposal pages.
 - Scrap/disposal: **Record execution** before **Post to ledger**.
 
 ## Traceability

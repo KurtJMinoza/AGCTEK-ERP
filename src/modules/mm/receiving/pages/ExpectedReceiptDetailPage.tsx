@@ -8,7 +8,9 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import ReceivingResponsiveTable from '../components/ReceivingResponsiveTable'
+import { RcvMaterialCell, RcvQtyCell, RcvAnimatedStatus, RCV_EXPECTED_RECEIPT_STATUS, rcvStatusTone } from '../components/receivingTableUi'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Spinner from '@/components/ui/Spinner'
@@ -103,23 +105,27 @@ const ExpectedReceiptDetailPage = () => {
         {
             header: 'Material',
             accessorKey: 'material.materialCode',
-            cell: ({ row }) =>
-                `${row.original.material?.materialCode ?? ''} — ${row.original.material?.materialName ?? row.original.materialId}`,
+            cell: ({ row }) => (
+                <RcvMaterialCell
+                    code={row.original.material?.materialCode ?? row.original.materialId}
+                    name={row.original.material?.materialName}
+                />
+            ),
         },
         {
             header: 'Expected',
             accessorKey: 'expectedQuantity',
-            cell: ({ row }) => Number(row.original.expectedQuantity),
+            cell: ({ row }) => <RcvQtyCell value={row.original.expectedQuantity} />,
         },
         {
             header: 'Received',
             accessorKey: 'receivedQuantity',
-            cell: ({ row }) => Number(row.original.receivedQuantity),
+            cell: ({ row }) => <RcvQtyCell value={row.original.receivedQuantity} />,
         },
         {
             header: 'Damaged',
             accessorKey: 'damagedQuantity',
-            cell: ({ row }) => Number(row.original.damagedQuantity),
+            cell: ({ row }) => <RcvQtyCell value={row.original.damagedQuantity} />,
         },
         {
             header: 'UOM',
@@ -130,9 +136,10 @@ const ExpectedReceiptDetailPage = () => {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_EXPECTED_RECEIPT_STATUS)}
+                />
             ),
         },
     ], [])
@@ -277,7 +284,12 @@ const ExpectedReceiptDetailPage = () => {
 
             <AdaptiveCard>
                 <h6 className="mb-3">Lines</h6>
-                <DataTable columns={lineColumns} data={er.lines ?? []} />
+                <ReceivingResponsiveTable
+                    columns={lineColumns}
+                    data={er.lines ?? []}
+                    getRowId={(row) => row.id}
+                    hidePagination
+                />
             </AdaptiveCard>
 
             <ReceiveAgainstErDialog

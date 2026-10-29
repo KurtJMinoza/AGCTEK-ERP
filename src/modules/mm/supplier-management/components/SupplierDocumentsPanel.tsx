@@ -1,7 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from './SupplierResponsiveTable'
+import { SmPlainCell } from './SupplierTableCells'
+import Tag from '@/components/ui/Tag'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import Dialog from '@/components/ui/Dialog'
@@ -278,23 +281,27 @@ const SupplierDocumentsPanel = ({
                 header: 'Type',
                 accessorKey: 'docType',
                 size: 120,
-                cell: ({ row }) => (
-                    <span className="text-sm">
-                        {DOC_TYPES.find((o) => o.value === row.original.docType)
-                            ?.label ??
-                            row.original.docType ??
-                            '—'}
-                    </span>
-                ),
+                cell: ({ row }) => {
+                    const label =
+                        DOC_TYPES.find((o) => o.value === row.original.docType)?.label ??
+                        row.original.docType
+                    return label ? (
+                        <Tag className="border-gray-200 bg-gray-50 text-[10px] font-semibold uppercase tracking-wide dark:border-gray-600 dark:bg-gray-800/60">
+                            {label}
+                        </Tag>
+                    ) : (
+                        <SmPlainCell>—</SmPlainCell>
+                    )
+                },
             },
             {
                 header: 'Uploaded',
                 accessorKey: 'uploadedAt',
                 size: 160,
                 cell: ({ row }) => (
-                    <span className="text-xs">
+                    <SmPlainCell mono muted>
                         {new Date(row.original.uploadedAt).toLocaleString()}
-                    </span>
+                    </SmPlainCell>
                 ),
             },
             {
@@ -344,13 +351,26 @@ const SupplierDocumentsPanel = ({
                 </div>
             ) : null}
 
-            <DataTable
+            <SupplierResponsiveTable
                 columns={columns}
                 data={items}
                 compact={compact}
                 fit={compact}
                 loading={loading}
+                getRowId={(row) => row.id}
                 noData={!loading && items.length === 0}
+                tableMinWidthClass="min-w-[640px]"
+                mobile={{
+                    title: (row) => row.fileName,
+                    subtitle: (row) =>
+                        DOC_TYPES.find((o) => o.value === row.docType)?.label ?? row.docType,
+                    fields: [
+                        {
+                            label: 'Uploaded',
+                            value: (row) => new Date(row.uploadedAt).toLocaleDateString(),
+                        },
+                    ],
+                }}
             />
 
             <FormDialog

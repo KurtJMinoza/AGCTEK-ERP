@@ -3,10 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import InventoryControlResponsiveTable, {
+    type ColumnDef,
+} from '../components/InventoryControlResponsiveTable'
+import {
+    IC_COUNT_STATUS,
+    IcAnimatedStatus,
+    IcDocCell,
+    IcMethodTag,
+    IcPartyCell,
+    IcPlainCell,
+    IcQtyCell,
+    icStatusTone,
+} from '../components/inventoryControlTableUi'
+import { inventoryControlParentBreadcrumbs } from '../utils/inventoryControlPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Button from '@/components/ui/Button'
@@ -20,8 +31,6 @@ import { HiOutlinePlus, HiOutlineTrash, HiOutlinePlay } from 'react-icons/hi'
 import { inventoryControlService } from '../services/inventoryControlService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { CountRule, InventoryCount } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/cycle-counting'
 
@@ -45,7 +54,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const CycleCountingPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryControlParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState('rules')
     const [rules, setRules] = useState<CountRule[]>([])
     const [counts, setCounts] = useState<InventoryCount[]>([])
@@ -112,34 +121,53 @@ const CycleCountingPage = () => {
 
     const ruleColumns: ColumnDef<CountRule>[] = useMemo(
         () => [
-            { header: 'Code', accessorKey: 'code' },
-            { header: 'Name', accessorKey: 'name' },
+            {
+                header: 'Rule',
+                cell: ({ row }) => (
+                    <IcDocCell
+                        icon="rule"
+                        primary={row.original.code}
+                        secondary={row.original.name}
+                    />
+                ),
+            },
             {
                 header: 'ABC',
-                cell: ({ row }) => row.original.abcClass ?? '—',
+                cell: ({ row }) => (
+                    <IcMethodTag label={row.original.abcClass ? `ABC ${row.original.abcClass}` : null} />
+                ),
             },
             {
                 header: 'Velocity',
-                cell: ({ row }) => row.original.velocityClass ?? '—',
+                cell: ({ row }) => (
+                    <IcPlainCell mono>{row.original.velocityClass}</IcPlainCell>
+                ),
             },
             {
                 header: 'Risk',
-                cell: ({ row }) => row.original.riskClass ?? '—',
+                cell: ({ row }) => (
+                    <IcPlainCell mono>{row.original.riskClass}</IcPlainCell>
+                ),
             },
             {
                 header: 'Frequency',
-                cell: ({ row }) => `${row.original.frequencyDays}d`,
+                cell: ({ row }) => (
+                    <IcPlainCell mono>{`${row.original.frequencyDays}d`}</IcPlainCell>
+                ),
             },
             {
                 header: 'Qty tol',
-                cell: ({ row }) => Number(row.original.varianceQtyTolerance),
+                cell: ({ row }) => (
+                    <IcQtyCell value={row.original.varianceQtyTolerance} />
+                ),
             },
             {
                 header: 'Active',
                 cell: ({ row }) => (
-                    <StatusBadge tone={row.original.isActive ? 'success' : 'default'}>
-                        {row.original.isActive ? 'Yes' : 'No'}
-                    </StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.isActive ? 'ACTIVE' : 'INACTIVE'}
+                        tone={row.original.isActive ? 'success' : 'default'}
+                    />
                 ),
             },
             {
@@ -160,23 +188,38 @@ const CycleCountingPage = () => {
 
     const countColumns: ColumnDef<InventoryCount>[] = useMemo(
         () => [
-            { header: 'Count #', accessorKey: 'countNumber' },
             {
-                header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                header: 'Count',
+                cell: ({ row }) => (
+                    <IcDocCell
+                        primary={row.original.countNumber}
+                        secondary={row.original.rule?.code}
+                    />
+                ),
             },
             {
-                header: 'Rule',
-                cell: ({ row }) => row.original.rule?.code ?? '—',
+                header: 'Warehouse',
+                cell: ({ row }) => (
+                    <IcPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Lines',
-                cell: ({ row }) => row.original._count?.lines ?? row.original.lines?.length ?? 0,
+                cell: ({ row }) => (
+                    <IcQtyCell
+                        value={
+                            row.original._count?.lines ?? row.original.lines?.length ?? 0
+                        }
+                    />
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="info">{row.original.status}</StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.status}
+                        tone={icStatusTone(row.original.status, IC_COUNT_STATUS)}
+                    />
                 ),
             },
             {
@@ -267,10 +310,10 @@ const CycleCountingPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Cycle Counting"
-                description="ABC frequency rules and cycle count generation. A=weekly, B=monthly, C=quarterly."
+                description="Define ABC count rules and run cycle count sessions by warehouse."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     tab === 'rules' ? (
                         <Button icon={<HiOutlinePlus />} onClick={openRule}>
@@ -287,8 +330,6 @@ const CycleCountingPage = () => {
                     )
                 }
             />
-            <Iso9001WorkflowStrip activeStep={1} />
-
             <AdaptiveCard>
                 <Tabs value={tab} onChange={setTab}>
                     <Tabs.TabList>
@@ -297,17 +338,21 @@ const CycleCountingPage = () => {
                     </Tabs.TabList>
                     <div className="mt-4">
                         <Tabs.TabContent value="rules">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={ruleColumns}
                                 data={rules}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[960px]"
                             />
                         </Tabs.TabContent>
                         <Tabs.TabContent value="sessions">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={countColumns}
                                 data={counts}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[880px]"
                             />
                         </Tabs.TabContent>
                     </div>

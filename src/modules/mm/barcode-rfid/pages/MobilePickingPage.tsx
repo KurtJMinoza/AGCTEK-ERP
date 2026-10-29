@@ -1,9 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import BarcodeResponsiveTable, { type ColumnDef } from '../components/BarcodeResponsiveTable'
+import {
+    BcAnimatedStatus,
+    BcMaterialCell,
+    BcQtyCell,
+    BcScanIdCell,
+} from '../components/barcodeTableUi'
 import FormSection from '@/components/shared/FormSection'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { FormItem } from '@/components/ui/Form'
@@ -240,36 +245,49 @@ const MobilePickingPage = () => {
                 title="Open pick tasks"
                 description="Select a task or scan its barcode to bind the session."
             >
-                <DataTable
+                <BarcodeResponsiveTable
                     columns={
                         [
                             {
                                 header: 'Task',
-                                cell: ({ row }: any) =>
-                                    row.original.taskNumber ??
-                                    row.original.id.slice(0, 8),
+                                cell: ({ row }: any) => (
+                                    <BcScanIdCell
+                                        icon="barcode"
+                                        primary={
+                                            row.original.taskNumber ??
+                                            row.original.id.slice(0, 8)
+                                        }
+                                    />
+                                ),
                             },
                             {
                                 header: 'Material',
-                                cell: ({ row }: any) =>
-                                    row.original.material?.materialCode ??
-                                    row.original.materialId,
+                                cell: ({ row }: any) => (
+                                    <BcMaterialCell
+                                        code={
+                                            row.original.material?.materialCode ??
+                                            row.original.materialId
+                                        }
+                                        name={row.original.material?.materialName}
+                                    />
+                                ),
                             },
                             {
                                 header: 'Qty',
-                                cell: ({ row }: any) =>
-                                    Number(
-                                        row.original.requiredQty ??
+                                cell: ({ row }: any) => (
+                                    <BcQtyCell
+                                        value={
+                                            row.original.requiredQty ??
                                             row.original.quantity ??
-                                            0,
-                                    ),
+                                            0
+                                        }
+                                    />
+                                ),
                             },
                             {
                                 header: 'Status',
                                 cell: ({ row }: any) => (
-                                    <StatusBadge tone="warning">
-                                        {row.original.status}
-                                    </StatusBadge>
+                                    <BcAnimatedStatus status={row.original.status} tone="warning" />
                                 ),
                             },
                             {
@@ -304,6 +322,8 @@ const MobilePickingPage = () => {
                         ] as ColumnDef<any>[]
                     }
                     data={tasks}
+                    getRowId={(row: any) => row.id}
+                    tableMinWidthClass="min-w-[720px]"
                 />
             </FormSection>
         </MobileScanShell>

@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import { AnalyticsReportPage, DataTable } from './AnalyticsReportShell'
+import DataTable from '@/components/shared/DataTable'
+import { AnalyticsReportPage } from './AnalyticsReportShell'
 
 type SpendTab = 'supplier' | 'category' | 'material'
 

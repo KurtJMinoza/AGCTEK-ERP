@@ -140,6 +140,15 @@ function serveUpload(req, res) {
     return true
 }
 
+function proxyPath(url) {
+    const pathOnly = (url || '/').split('?')[0]
+    if (pathOnly === '/favicon.ico') {
+        const qs = url.includes('?') ? url.slice(url.indexOf('?')) : ''
+        return `/icon${qs}`
+    }
+    return url
+}
+
 const server = http.createServer((req, res) => {
     const url = req.url || '/'
     if (isNestPath(url)) {
@@ -147,6 +156,7 @@ const server = http.createServer((req, res) => {
         return
     }
     if (url.startsWith('/uploads/') && serveUpload(req, res)) return
+    req.url = proxyPath(url)
     nextProxy.web(req, res)
 })
 

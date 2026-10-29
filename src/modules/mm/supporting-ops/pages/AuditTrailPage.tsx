@@ -1,20 +1,40 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import SupportingOpsResponsiveTable, {
+    type ColumnDef,
+} from '../components/SupportingOpsResponsiveTable'
+import {
+    SOP_AUDIT_ACTION,
+    SopAnimatedStatus,
+    SopDateCell,
+    SopDocCell,
+    SopMethodTag,
+    SopPlainCell,
+    sopStatusTone,
+} from '../components/supportingOpsTableUi'
+import { supportingOpsParentBreadcrumbs } from '../utils/supportingOpsPageUi'
 import Input from '@/components/ui/Input'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { supportingOpsService } from '../services/supportingOpsService'
 
 const ROUTE = '/modules/mm/supporting-operations/audit-trail'
 
+type AuditRow = {
+    id?: string
+    performedAt: string
+    domain?: string
+    action?: string
+    entityNumber?: string | null
+    performedBy?: string | null
+}
+
 const AuditTrailPage = () => {
+    const parentBreadcrumbs = supportingOpsParentBreadcrumbs(ROUTE)
     const [companyId, setCompanyId] = useState('')
-    const [rows, setRows] = useState<any[]>([])
+    const [rows, setRows] = useState<AuditRow[]>([])
     const [loading, setLoading] = useState(false)
 
     const load = useCallback(async () => {
@@ -35,20 +55,58 @@ const AuditTrailPage = () => {
         load()
     }, [load])
 
-    const columns: ColumnDef<any>[] = [
-        { header: 'When', accessorKey: 'performedAt', cell: ({ row }) => new Date(row.original.performedAt).toLocaleString() },
-        { header: 'Domain', accessorKey: 'domain' },
-        { header: 'Action', accessorKey: 'action' },
-        { header: 'Entity', accessorKey: 'entityNumber' },
-        { header: 'By', accessorKey: 'performedBy' },
-    ]
+    const columns: ColumnDef<AuditRow>[] = useMemo(
+        () => [
+            {
+                header: 'When',
+                cell: ({ row }) => <SopDateCell iso={row.original.performedAt} />,
+            },
+            {
+                header: 'Domain',
+                cell: ({ row }) => (
+                    <SopMethodTag label={row.original.domain} />
+                ),
+            },
+            {
+                header: 'Action',
+                cell: ({ row }) =>
+                    row.original.action ? (
+                        <SopAnimatedStatus
+                            status={row.original.action}
+                            tone={sopStatusTone(row.original.action, SOP_AUDIT_ACTION)}
+                        />
+                    ) : (
+                        <SopPlainCell muted>—</SopPlainCell>
+                    ),
+            },
+            {
+                header: 'Entity',
+                cell: ({ row }) =>
+                    row.original.entityNumber ? (
+                        <SopDocCell
+                            icon="audit"
+                            primary={row.original.entityNumber}
+                        />
+                    ) : (
+                        <SopPlainCell muted>—</SopPlainCell>
+                    ),
+            },
+            {
+                header: 'By',
+                cell: ({ row }) => (
+                    <SopPlainCell mono>{row.original.performedBy}</SopPlainCell>
+                ),
+            },
+        ],
+        [],
+    )
 
     return (
         <PageContainer>
-            <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
             <PageHeader
                 title="Audit Trail"
                 description="Append-only compliance audit entries (no delete from UI)."
+                breadcrumbs={parentBreadcrumbs}
             />
             <AdaptiveCard>
                 <Input
@@ -57,7 +115,16 @@ const AuditTrailPage = () => {
                     value={companyId}
                     onChange={(e: any) => setCompanyId(e.target.value)}
                 />
-                <DataTable columns={columns} data={rows} loading={loading} hidePagination />
+                <SupportingOpsResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row, index) =>
+                        row.id ?? `${row.performedAt}-${row.entityNumber ?? index}`
+                    }
+                    hidePagination
+                    tableMinWidthClass="min-w-[960px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

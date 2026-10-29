@@ -5,10 +5,18 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReturnsResponsiveTable, { type ColumnDef as ListColumnDef } from '../components/ReturnsResponsiveTable'
+import {
+    RD_CUSTOMER_RETURN_STATUS,
+    RdAnimatedStatus,
+    RdDocNumberCell,
+    RdPartyCell,
+    RdQtyCell,
+    rdStatusTone,
+} from '../components/returnsTableUi'
+import { returnsParentBreadcrumbs } from '../utils/returnsPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -23,23 +31,10 @@ import { materialService } from '../../material-master/services/materialService'
 import type { CustomerReturn } from '../types'
 import type { Warehouse } from '../../warehouse/types'
 import type { Material } from '../../material-master/types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import type { CustomerReturnLine } from '../types'
-import Iso9001ReturnsDisposalWorkflowStrip from '../components/Iso9001ReturnsDisposalWorkflowStrip'
 
 const ROUTE = '/modules/mm/returns-disposal/customer-return-intake'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    INTAKE: 'info',
-    INSPECTION: 'warning',
-    PENDING_APPROVAL: 'warning',
-    APPROVED: 'success',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-    REVERSED: 'warning',
-}
 
 const DISPOSITION_OPTS = [
     { value: 'RESTOCK', label: 'Restock' },
@@ -70,7 +65,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const CustomerReturnIntakePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = returnsParentBreadcrumbs(ROUTE)
     const searchParams = useSearchParams()
     const [statusFilter, setStatusFilter] = useState('')
     const [page, setPage] = useState(1)
@@ -265,29 +260,48 @@ const CustomerReturnIntakePage = () => {
         [detail],
     )
 
-    const columns: ColumnDef<CustomerReturn>[] = useMemo(
+    const columns: ListColumnDef<CustomerReturn>[] = useMemo(
         () => [
-            { header: 'Return #', accessorKey: 'returnNumber' },
+            {
+                header: 'Return',
+                cell: ({ row }) => (
+                    <RdDocNumberCell
+                        icon="return"
+                        primary={row.original.returnNumber}
+                        secondary={row.original.customerRef}
+                    />
+                ),
+            },
             {
                 header: 'Customer',
-                cell: ({ row }) =>
-                    row.original.customerName || row.original.customerRef || '—',
+                cell: ({ row }) => (
+                    <RdPartyCell
+                        name={
+                            row.original.customerName ||
+                            row.original.customerRef ||
+                            'Walk-in customer'
+                        }
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                cell: ({ row }) => (
+                    <RdPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                        {row.original.status}
-                    </StatusBadge>
+                    <RdAnimatedStatus
+                        status={row.original.status}
+                        tone={rdStatusTone(row.original.status, RD_CUSTOMER_RETURN_STATUS)}
+                    />
                 ),
             },
             {
                 header: 'Qty',
-                cell: ({ row }) => Number(row.original.totalQuantity),
+                cell: ({ row }) => <RdQtyCell value={row.original.totalQuantity} />,
             },
             {
                 header: '',
@@ -299,16 +313,16 @@ const CustomerReturnIntakePage = () => {
                 ),
             },
         ],
-        [],
+        [openDetail],
     )
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Customer Return Intake"
                 description="Intake posts to return inspection stock; sellable only after quality disposition and transfer."
                 icon={<HiOutlineReply />}
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button
                         variant="solid"
@@ -319,8 +333,6 @@ const CustomerReturnIntakePage = () => {
                     </Button>
                 }
             />
-
-            <Iso9001ReturnsDisposalWorkflowStrip activeStep={1} />
 
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -335,13 +347,15 @@ const CustomerReturnIntakePage = () => {
                     />
                 </div>
 
-                <DataTable
+                <ReturnsResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={setPage}
                     onSelectChange={setPageSize}
+                    tableMinWidthClass="min-w-[920px]"
                 />
             </AdaptiveCard>
 
@@ -450,9 +464,10 @@ const CustomerReturnIntakePage = () => {
                 icon={<HiOutlineReply />}
                 headerExtra={
                     detail ? (
-                        <StatusBadge tone={STATUS_TONE[detail.status] ?? 'default'}>
-                            {detail.status}
-                        </StatusBadge>
+                        <RdAnimatedStatus
+                            status={detail.status}
+                            tone={rdStatusTone(detail.status, RD_CUSTOMER_RETURN_STATUS)}
+                        />
                     ) : undefined
                 }
                 bodyClassName="overflow-x-hidden"

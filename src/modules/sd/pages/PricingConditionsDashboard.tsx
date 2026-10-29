@@ -9,8 +9,6 @@ import {
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
-import ErpBackLink from '@/components/erp/ErpBackLink'
 import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
@@ -24,7 +22,7 @@ import Alert from '@/components/ui/Alert'
 import { FormItem } from '@/components/ui/Form'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { sdParentBreadcrumbs } from '../utils/sdPageUi'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     listProducts,
@@ -176,7 +174,10 @@ const StatCard = ({
 )
 
 const PricingConditionsDashboard = () => {
-    const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
+    const parentBreadcrumbs = useMemo(
+        () => sdParentBreadcrumbs(ROUTE_PATH),
+        [],
+    )
     const { canCreate, canUpdate } = useResourceAccess('sd.pricing-conditions')
 
     const [tab, setTab] = useState<PricingTab>('BASE_PRICE')
@@ -503,9 +504,8 @@ const PricingConditionsDashboard = () => {
 
     return (
         <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
-            <Breadcrumb items={breadcrumbItems} className="mb-4" />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Pricing Conditions & Rules"
                 description="Define base prices, quantity tier discounts, and promo overrides."
                 icon={<HiOutlineTag />}

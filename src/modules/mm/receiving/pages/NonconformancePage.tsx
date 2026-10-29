@@ -4,8 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RcvAnimatedStatus,
+    RcvDocNumberCell,
+    RcvPlainCell,
+    RcvQtyCell,
+    RcvSeverityCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import Input from '@/components/ui/Input'
@@ -102,25 +110,56 @@ export default function NonconformancePage() {
         [expandedNcId, loadCapa],
     )
 
+    const NC_STATUS: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
+        OPEN: 'warning',
+        IN_PROGRESS: 'info',
+        RESOLVED: 'success',
+        CLOSED: 'success',
+    }
+
     const columns: ColumnDef<MmNonconformance>[] = useMemo(
         () => [
-            { header: 'NC #', accessorKey: 'ncNumber' },
+            {
+                header: 'NC',
+                accessorKey: 'ncNumber',
+                cell: ({ row }) => (
+                    <RcvDocNumberCell icon="nc" primary={row.original.ncNumber} />
+                ),
+            },
             {
                 header: 'Lot',
                 accessorKey: 'inspectionLot.lotNumber',
-                cell: ({ row }) => row.original.inspectionLot?.lotNumber ?? '—',
+                cell: ({ row }) => (
+                    <RcvDocNumberCell
+                        icon="inspection"
+                        primary={row.original.inspectionLot?.lotNumber ?? '—'}
+                    />
+                ),
             },
-            { header: 'Cause', accessorKey: 'cause' },
-            { header: 'Severity', accessorKey: 'severity' },
+            {
+                header: 'Cause',
+                accessorKey: 'cause',
+                cell: ({ row }) => <RcvPlainCell>{row.original.cause}</RcvPlainCell>,
+            },
+            {
+                header: 'Severity',
+                accessorKey: 'severity',
+                cell: ({ row }) => <RcvSeverityCell severity={row.original.severity} />,
+            },
             {
                 header: 'Qty',
                 accessorKey: 'affectedQuantity',
-                cell: ({ row }) => Number(row.original.affectedQuantity),
+                cell: ({ row }) => <RcvQtyCell value={row.original.affectedQuantity} />,
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <RcvAnimatedStatus
+                        status={row.original.status}
+                        tone={rcvStatusTone(row.original.status, NC_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'CAPA',
@@ -175,7 +214,27 @@ export default function NonconformancePage() {
                 title="Nonconformances"
                 description="Quality incidents from failed inspections and defects."
             />
-            <DataTable columns={columns} data={rows} loading={loading} />
+            <AdaptiveCard>
+                <ReceivingResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[920px]"
+                    mobile={{
+                        title: (row) => row.ncNumber,
+                        subtitle: (row) => row.inspectionLot?.lotNumber,
+                        status: (row) => ({
+                            text: row.status,
+                            tone: rcvStatusTone(row.status, NC_STATUS),
+                        }),
+                        fields: [
+                            { label: 'Cause', value: (row) => row.cause ?? '—' },
+                            { label: 'Qty', value: (row) => String(row.affectedQuantity) },
+                        ],
+                    }}
+                />
+            </AdaptiveCard>
 
             {/* Expanded CAPA panel */}
             {expandedNcId && (

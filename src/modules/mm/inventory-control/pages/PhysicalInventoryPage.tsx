@@ -3,10 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import InventoryControlResponsiveTable, {
+    type ColumnDef,
+} from '../components/InventoryControlResponsiveTable'
+import {
+    IC_COUNT_STATUS,
+    IcAnimatedStatus,
+    IcDocCell,
+    IcPartyCell,
+    IcQtyCell,
+    icStatusTone,
+} from '../components/inventoryControlTableUi'
+import { inventoryControlParentBreadcrumbs } from '../utils/inventoryControlPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -20,21 +29,10 @@ import { HiOutlinePlus, HiOutlinePlay, HiOutlineCheck, HiOutlineX } from 'react-
 import { inventoryControlService } from '../services/inventoryControlService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryCount } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/physical-inventory'
 
 type Opt = { value: string; label: string }
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    OPEN: 'default',
-    COUNTING: 'info',
-    RECOUNT: 'warning',
-    APPROVAL: 'warning',
-    POSTED: 'success',
-    CLOSED: 'success',
-}
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
@@ -46,7 +44,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const PhysicalInventoryPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryControlParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<InventoryCount[]>([])
     const [status, setStatus] = useState('')
     const [loading, setLoading] = useState(true)
@@ -109,21 +107,31 @@ const PhysicalInventoryPage = () => {
 
     const columns: ColumnDef<InventoryCount>[] = useMemo(
         () => [
-            { header: 'Count #', accessorKey: 'countNumber' },
+            {
+                header: 'Count',
+                cell: ({ row }) => (
+                    <IcDocCell primary={row.original.countNumber} secondary="PHYSICAL" />
+                ),
+            },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                cell: ({ row }) => (
+                    <IcPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Lines',
-                cell: ({ row }) => row.original._count?.lines ?? 0,
+                cell: ({ row }) => (
+                    <IcQtyCell value={row.original._count?.lines ?? 0} />
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                        {row.original.status}
-                    </StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.status}
+                        tone={icStatusTone(row.original.status, IC_COUNT_STATUS)}
+                    />
                 ),
             },
             {
@@ -173,18 +181,16 @@ const PhysicalInventoryPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Physical Inventory"
-                description="ISO 9001 step 2: scheduled full warehouse count. Any first-pass discrepancy triggers a mandatory recount before variance analysis."
+                description="Plan and execute full physical inventory counts by warehouse."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button variant="solid" icon={<HiOutlinePlus />} onClick={openCreate}>
                         New Stock-Take
                     </Button>
                 }
             />
-            <Iso9001WorkflowStrip activeStep={2} />
-
             <AdaptiveCard>
                 <Tabs value={status} onChange={setStatus}>
                     <Tabs.TabList>
@@ -198,7 +204,13 @@ const PhysicalInventoryPage = () => {
                     </Tabs.TabList>
                 </Tabs>
                 <div className="mt-4">
-                    <DataTable columns={columns} data={rows} loading={loading} />
+                    <InventoryControlResponsiveTable
+                        columns={columns}
+                        data={rows}
+                        loading={loading}
+                        getRowId={(row) => row.id}
+                        tableMinWidthClass="min-w-[820px]"
+                    />
                 </div>
             </AdaptiveCard>
 
@@ -318,11 +330,12 @@ const PhysicalInventoryPage = () => {
             >
                 {detail && (
                     <div className="space-y-3">
-                        <p className="text-sm">
-                            Status:{' '}
-                            <StatusBadge tone={STATUS_TONE[detail.status] ?? 'default'}>
-                                {detail.status}
-                            </StatusBadge>
+                        <p className="flex items-center gap-2 text-sm">
+                            Status:
+                            <IcAnimatedStatus
+                                status={detail.status}
+                                tone={icStatusTone(detail.status, IC_COUNT_STATUS)}
+                            />
                         </p>
                         <div className="max-h-80 overflow-auto text-sm">
                             <table className="min-w-full">

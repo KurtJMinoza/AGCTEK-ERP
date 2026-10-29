@@ -19,8 +19,9 @@ const UomPage = () => {
     return (
         <RefCrudPage<MmUom>
             routePath="/modules/mm/material-master/units-of-measure"
-            title="Unit of Measure"
-            description="Define units of measure used across materials."
+            title="Units of Measure"
+            description="Material Master — Units of Measure."
+            integrateBreadcrumbs
             fields={[
                 { key: 'code', label: 'Code', autoGenerate: true, autoGenerateHint: 'Auto-generated (e.g. UOM-000001)' },
                 { key: 'name', label: 'Name', required: true, placeholder: 'e.g. Piece, Kilogram, Liter, Meter' },

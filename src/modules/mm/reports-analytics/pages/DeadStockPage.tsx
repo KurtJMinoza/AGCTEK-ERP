@@ -1,6 +1,7 @@
 'use client'
 
-import { AnalyticsReportPage, DataTable } from './AnalyticsReportShell'
+import DataTable from '@/components/shared/DataTable'
+import { AnalyticsReportPage } from './AnalyticsReportShell'
 
 const DeadStockPage = () => (
     <AnalyticsReportPage

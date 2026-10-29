@@ -3,16 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RCV_VARIANCE_STATUS,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvPlainCell,
+    RcvQtyCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import Select from '@/components/ui/Select'
-import Tag from '@/components/ui/Tag'
 import { HiOutlineSearch } from 'react-icons/hi'
 import { receivingService } from '../services/receivingService'
 import type { MmReceivingVariance } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { receivingParentBreadcrumbs } from '../utils/receivingPageUi'
 
 const ROUTE = '/modules/mm/receiving/receiving-variances'
 
@@ -35,9 +41,7 @@ const TYPE_FILTER_OPTIONS: FilterOption[] = [
     { value: 'UOM_MISMATCH', label: 'UOM mismatch' },
 ]
 
-const VARIANCE_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    OPEN: 'warning',
-    RESOLVED: 'success',
+const TYPE_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
     UNDER_RECEIPT: 'info',
     OVER_RECEIPT: 'warning',
     DAMAGED: 'danger',
@@ -47,13 +51,11 @@ const VARIANCE_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'
     UOM_MISMATCH: 'warning',
 }
 
-function fmtDate(iso?: string) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 const ReceivingVariancesPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => receivingParentBreadcrumbs(ROUTE),
+        [],
+    )
 
     const [rows, setRows] = useState<MmReceivingVariance[]>([])
     const [total, setTotal] = useState(0)
@@ -90,58 +92,57 @@ const ReceivingVariancesPage = () => {
         {
             header: 'Receiving doc',
             accessorKey: 'receivingDocument.documentNumber',
-            cell: ({ row }) =>
-                row.original.receivingDocument?.documentNumber
-                    ? (
-                        <span className="font-medium">
-                            {row.original.receivingDocument.documentNumber}
-                        </span>
-                    )
-                    : '—',
+            cell: ({ row }) => (
+                <RcvDocNumberCell
+                    icon="receipt"
+                    primary={row.original.receivingDocument?.documentNumber ?? '—'}
+                />
+            ),
         },
         {
             header: 'Type',
             accessorKey: 'varianceType',
             cell: ({ row }) => (
-                <Tag className="text-xs">
-                    {row.original.varianceType.replace(/_/g, ' ')}
-                </Tag>
+                <RcvAnimatedStatus
+                    status={row.original.varianceType}
+                    tone={rcvStatusTone(row.original.varianceType, TYPE_TONE)}
+                />
             ),
         },
         {
             header: 'Qty',
             accessorKey: 'quantity',
-            cell: ({ row }) => Number(row.original.quantity),
+            cell: ({ row }) => <RcvQtyCell value={row.original.quantity} />,
         },
         {
             header: 'Description',
             accessorKey: 'description',
-            cell: ({ row }) => row.original.description ?? '—',
+            cell: ({ row }) => <RcvPlainCell>{row.original.description}</RcvPlainCell>,
         },
         {
             header: 'Resolution',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={VARIANCE_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_VARIANCE_STATUS)}
+                />
             ),
         },
         {
             header: 'Detected',
             accessorKey: 'detectedAt',
-            cell: ({ row }) => fmtDate(row.original.detectedAt),
+            cell: ({ row }) => <RcvDateCell iso={row.original.detectedAt} />,
         },
     ], [])
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Receiving Variances"
                 description="Typed variance records from receiving validation — shortages, overages, damage, and identity mismatches."
             />
-
             <AdaptiveCard className="mb-4">
                 <p className="text-sm text-gray-500">Open variances (page)</p>
                 <p className="text-2xl font-semibold">{openCount}</p>
@@ -165,13 +166,15 @@ const ReceivingVariancesPage = () => {
                     />
                 </div>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[860px]"
                 />
             </AdaptiveCard>
         </PageContainer>

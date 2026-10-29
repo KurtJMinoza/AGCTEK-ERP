@@ -3,17 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReturnsResponsiveTable, { type ColumnDef } from '../components/ReturnsResponsiveTable'
+import {
+    RD_BLOCKED_STOCK_STATUS,
+    RdAnimatedStatus,
+    RdDateCell,
+    RdMaterialCell,
+    RdPartyCell,
+    RdPlainCell,
+    RdQtyCell,
+    rdStatusTone,
+} from '../components/returnsTableUi'
+import { returnsParentBreadcrumbs } from '../utils/returnsPageUi'
 import Button from '@/components/ui/Button'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { HiOutlineCalendar } from 'react-icons/hi'
 import { returnsDisposalService } from '../services/returnsDisposalService'
 import type { BlockedBalance } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useRouter } from 'next/navigation'
 
 const ROUTE = '/modules/mm/returns-disposal/expired-stock'
@@ -27,17 +35,8 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-    })
-}
-
 const ExpiredStockPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = returnsParentBreadcrumbs(ROUTE)
     const router = useRouter()
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
@@ -107,37 +106,44 @@ const ExpiredStockPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material
-                        ? `${row.original.material.materialCode} — ${row.original.material.materialName}`
-                        : row.original.materialId,
+                cell: ({ row }) => (
+                    <RdMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                cell: ({ row }) => (
+                    <RdPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Batch',
-                cell: ({ row }) => row.original.batch?.batchNumber ?? '—',
+                cell: ({ row }) => (
+                    <RdPlainCell mono>
+                        {row.original.batch?.batchNumber ?? '—'}
+                    </RdPlainCell>
+                ),
             },
             {
-                header: 'Expiry Date',
-                cell: ({ row }) => fmtDate(row.original.batch?.expiryDate),
+                header: 'Expiry date',
+                cell: ({ row }) => (
+                    <RdDateCell iso={row.original.batch?.expiryDate} />
+                ),
             },
             {
                 header: 'Quantity',
-                cell: ({ row }) => Number(row.original.quantity),
+                cell: ({ row }) => <RdQtyCell value={row.original.quantity} />,
             },
             {
-                header: 'Stock Status',
+                header: 'Stock status',
                 cell: ({ row }) => (
-                    <StatusBadge
-                        tone={
-                            row.original.stockStatus === 'EXPIRED' ? 'warning' : 'danger'
-                        }
-                    >
-                        {row.original.stockStatus}
-                    </StatusBadge>
+                    <RdAnimatedStatus
+                        status={row.original.stockStatus}
+                        tone={rdStatusTone(row.original.stockStatus, RD_BLOCKED_STOCK_STATUS)}
+                    />
                 ),
             },
             {
@@ -154,27 +160,28 @@ const ExpiredStockPage = () => {
                 ),
             },
         ],
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [],
     )
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Expired Stock"
                 description="Past-expiry batches — mark EXPIRED and create controlled disposal."
                 icon={<HiOutlineCalendar />}
+                breadcrumbs={parentBreadcrumbs}
             />
 
             <AdaptiveCard>
-                <DataTable
+                <ReturnsResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[980px]"
                 />
             </AdaptiveCard>
         </PageContainer>

@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -20,7 +25,6 @@ import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { ReorderRule, MaterialRequirement } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/reorder-point'
 type Opt = { value: string; label: string }
@@ -35,7 +39,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const ReorderPointPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState('rules')
     const [rules, setRules] = useState<ReorderRule[]>([])
     const [below, setBelow] = useState<MaterialRequirement[]>([])
@@ -97,32 +101,41 @@ const ReorderPointPage = () => {
             {
                 id: 'material',
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 id: 'warehouse',
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? 'Company default',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>
+                        {row.original.warehouse?.code ?? 'Company default'}
+                    </MrpPlainCell>
+                ),
             },
             {
                 id: 'reorderPoint',
                 header: 'ROP',
-                cell: ({ row }) => Number(row.original.reorderPoint),
+                cell: ({ row }) => <MrpQtyCell value={row.original.reorderPoint} />,
             },
             {
                 id: 'safetyStock',
                 header: 'Safety',
-                cell: ({ row }) => Number(row.original.safetyStock),
+                cell: ({ row }) => <MrpQtyCell value={row.original.safetyStock} />,
             },
             {
                 id: 'reorderQuantity',
                 header: 'Reorder qty',
-                cell: ({ row }) => Number(row.original.reorderQuantity),
+                cell: ({ row }) => <MrpQtyCell value={row.original.reorderQuantity} />,
             },
             {
                 id: 'minimumOrderQuantity',
                 header: 'MOQ',
-                cell: ({ row }) => Number(row.original.minimumOrderQuantity),
+                cell: ({ row }) => <MrpQtyCell value={row.original.minimumOrderQuantity} />,
             },
             {
                 id: 'leadTimeDays',
@@ -133,9 +146,10 @@ const ReorderPointPage = () => {
                 id: 'isActive',
                 header: 'Active',
                 cell: ({ row }) => (
-                    <StatusBadge tone={row.original.isActive ? 'success' : 'default'}>
-                        {row.original.isActive ? 'Active' : 'Inactive'}
-                    </StatusBadge>
+                    <MrpAnimatedStatus
+                        status={row.original.isActive ? 'OK' : 'INACTIVE'}
+                        tone={row.original.isActive ? 'success' : 'default'}
+                    />
                 ),
             },
             {
@@ -160,27 +174,36 @@ const ReorderPointPage = () => {
             {
                 id: 'material',
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 id: 'warehouse',
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 id: 'availableQty',
                 header: 'Available',
-                cell: ({ row }) => Number(row.original.availableQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.availableQty} />,
             },
             {
                 id: 'reorderPoint',
                 header: 'ROP',
-                cell: ({ row }) => Number(row.original.reorderPoint),
+                cell: ({ row }) => <MrpQtyCell value={row.original.reorderPoint} />,
             },
             {
                 id: 'recommendedQty',
                 header: 'Recommended',
-                cell: ({ row }) => Number(row.original.recommendedQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.recommendedQty} emphasize="warning" />
+                ),
             },
         ],
         [],
@@ -210,8 +233,8 @@ const ReorderPointPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Reorder Point"
                 description="Warehouse overrides and materials at or below ROP"
                 actions={
@@ -240,17 +263,21 @@ const ReorderPointPage = () => {
                         <Tabs.TabNav value="below">Below ROP</Tabs.TabNav>
                     </Tabs.TabList>
                     <Tabs.TabContent value="rules">
-                        <DataTable
+                        <MrpResponsiveTable
                             columns={ruleCols}
                             data={rules}
                             loading={loading}
+                            getRowId={(row) => row.id}
+                            tableMinWidthClass="min-w-[980px]"
                         />
                     </Tabs.TabContent>
                     <Tabs.TabContent value="below">
-                        <DataTable
+                        <MrpResponsiveTable
                             columns={belowCols}
                             data={below}
                             loading={loading}
+                            getRowId={(row) => row.id}
+                            tableMinWidthClass="min-w-[880px]"
                         />
                     </Tabs.TabContent>
                 </Tabs>

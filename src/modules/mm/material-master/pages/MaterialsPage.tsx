@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -35,7 +34,7 @@ import { useMaterials } from '../hooks/useMaterials'
 import { useReferenceData } from '../hooks/useReferenceData'
 import { materialService } from '../services/materialService'
 import type { Material, MaterialStatus } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { materialMasterFeatureDescription, materialMasterParentBreadcrumbs } from '../utils/materialMasterPageUi'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -59,7 +58,10 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
 ]
 
 const MaterialsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(MATERIALS_PATH)
+    const parentBreadcrumbs = useMemo(
+        () => materialMasterParentBreadcrumbs(MATERIALS_PATH),
+        [],
+    )
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const { materialTypes, materialCategories } = useReferenceData([
@@ -436,10 +438,10 @@ const MaterialsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Materials / SKUs"
-                description="Master data for all materials — codes, UOMs, tracking rules, reorder points, and valuation."
+                description={materialMasterFeatureDescription('Materials / SKUs')}
                 actions={
                     canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button> : undefined
                 }

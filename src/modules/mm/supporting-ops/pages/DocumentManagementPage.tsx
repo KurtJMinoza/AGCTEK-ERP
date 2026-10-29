@@ -1,23 +1,42 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import SupportingOpsResponsiveTable, {
+    type ColumnDef,
+} from '../components/SupportingOpsResponsiveTable'
+import {
+    SOP_DOCUMENT_STATUS,
+    SopAnimatedStatus,
+    SopDocCell,
+    SopMethodTag,
+    SopPlainCell,
+    sopStatusTone,
+} from '../components/supportingOpsTableUi'
+import { supportingOpsParentBreadcrumbs } from '../utils/supportingOpsPageUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import FormDialog from '@/components/shared/FormDialog'
 import { FormItem } from '@/components/ui/Form'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { supportingOpsService } from '../services/supportingOpsService'
 
 const ROUTE = '/modules/mm/supporting-operations/document-management'
 
+type DocRow = {
+    id: string
+    documentNumber: string
+    title?: string
+    documentType?: string
+    status?: string
+    currentRevision?: string | number
+}
+
 const DocumentManagementPage = () => {
+    const parentBreadcrumbs = supportingOpsParentBreadcrumbs(ROUTE)
     const [companyId, setCompanyId] = useState('')
-    const [rows, setRows] = useState<any[]>([])
+    const [rows, setRows] = useState<DocRow[]>([])
     const [loading, setLoading] = useState(false)
     const [createOpen, setCreateOpen] = useState(false)
     const [detail, setDetail] = useState<any | null>(null)
@@ -51,10 +70,10 @@ const DocumentManagementPage = () => {
         load()
     }, [load])
 
-    const openDetail = async (id: string) => {
+    const openDetail = useCallback(async (id: string) => {
         const doc = await supportingOpsService.getDocument(id)
         setDetail(doc)
-    }
+    }, [])
 
     const fileToBase64 = (file: File) =>
         new Promise<string>((resolve, reject) => {
@@ -67,29 +86,65 @@ const DocumentManagementPage = () => {
             reader.readAsDataURL(file)
         })
 
-    const columns: ColumnDef<any>[] = [
-        { header: 'Number', accessorKey: 'documentNumber' },
-        { header: 'Title', accessorKey: 'title' },
-        { header: 'Type', accessorKey: 'documentType' },
-        { header: 'Status', accessorKey: 'status' },
-        { header: 'Revision', accessorKey: 'currentRevision' },
-        {
-            header: '',
-            id: 'view',
-            cell: ({ row }) => (
-                <Button size="xs" onClick={() => openDetail(row.original.id)}>
-                    Open
-                </Button>
-            ),
-        },
-    ]
+    const columns: ColumnDef<DocRow>[] = useMemo(
+        () => [
+            {
+                header: 'Document',
+                cell: ({ row }) => (
+                    <SopDocCell
+                        icon="document"
+                        primary={row.original.documentNumber}
+                        secondary={row.original.title}
+                    />
+                ),
+            },
+            {
+                header: 'Type',
+                cell: ({ row }) => (
+                    <SopMethodTag label={row.original.documentType} />
+                ),
+            },
+            {
+                header: 'Status',
+                cell: ({ row }) =>
+                    row.original.status ? (
+                        <SopAnimatedStatus
+                            status={row.original.status}
+                            tone={sopStatusTone(row.original.status, SOP_DOCUMENT_STATUS)}
+                        />
+                    ) : (
+                        <SopPlainCell muted>—</SopPlainCell>
+                    ),
+            },
+            {
+                header: 'Revision',
+                cell: ({ row }) => (
+                    <SopPlainCell mono>
+                        {row.original.currentRevision != null
+                            ? String(row.original.currentRevision)
+                            : '—'}
+                    </SopPlainCell>
+                ),
+            },
+            {
+                header: '',
+                id: 'view',
+                cell: ({ row }) => (
+                    <Button size="xs" onClick={() => openDetail(row.original.id)}>
+                        Open
+                    </Button>
+                ),
+            },
+        ],
+        [openDetail],
+    )
 
     return (
         <PageContainer>
-            <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
             <PageHeader
                 title="Document Management"
                 description="Controlled documents — approved revisions are immutable; effective version is not overwritten."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button
                         variant="solid"
@@ -109,7 +164,14 @@ const DocumentManagementPage = () => {
                     value={companyId}
                     onChange={(e: any) => setCompanyId(e.target.value)}
                 />
-                <DataTable columns={columns} data={rows} loading={loading} hidePagination />
+                <SupportingOpsResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    hidePagination
+                    tableMinWidthClass="min-w-[880px]"
+                />
             </AdaptiveCard>
 
             <FormDialog
@@ -231,7 +293,8 @@ const DocumentManagementPage = () => {
                         <ul className="mt-4 text-sm">
                             {(detail.versions ?? []).map((v: any) => (
                                 <li key={v.id}>
-                                    Rev {v.revisionNumber} — {v.status} — checksum {v.fileChecksum?.slice(0, 8)}
+                                    Rev {v.revisionNumber} — {v.status} — checksum{' '}
+                                    {v.fileChecksum?.slice(0, 8)}
                                 </li>
                             ))}
                         </ul>

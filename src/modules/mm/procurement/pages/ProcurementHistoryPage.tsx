@@ -4,9 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcMoneyCell,
+    PrcPlainCell,
+    PrcQtyCell,
+    PRC_PO_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -19,7 +30,6 @@ import {
     type ProcurementHistoryRow,
 } from '../services/procurementHistoryService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/procurement-history'
 type Opt = { value: string; label: string }
@@ -35,7 +45,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const ProcurementHistoryPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<ProcurementHistoryRow[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
@@ -106,51 +116,64 @@ const ProcurementHistoryPage = () => {
     const columns: ColumnDef<ProcurementHistoryRow>[] = useMemo(
         () => [
             {
-                header: 'PO',
+                header: 'PO line',
                 cell: ({ row }) => (
-                    <button
-                        type="button"
-                        className="font-mono text-sm text-primary hover:underline"
+                    <PrcDocNumberCell
+                        icon="po"
+                        primary={row.original.poNumber}
+                        secondary={row.original.material?.materialCode}
                         onClick={() =>
                             router.push(
                                 `/modules/mm/procurement/purchase-orders/${row.original.poId}`,
                             )
                         }
-                    >
-                        {row.original.poNumber}
-                    </button>
+                    />
                 ),
             },
             {
                 header: 'Date',
-                cell: ({ row }) =>
-                    String(row.original.date).slice(0, 10),
+                cell: ({ row }) => <PrcDateCell iso={String(row.original.date)} />,
             },
             {
                 header: 'Supplier',
-                cell: ({ row }) =>
-                    row.original.supplier?.supplierCode ?? '—',
+                cell: ({ row }) => (
+                    <SmEntityCell
+                        kind="supplier"
+                        primary={row.original.supplier?.supplierName}
+                        secondary={row.original.supplier?.supplierCode}
+                    />
+                ),
             },
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <SmEntityCell
+                        kind="material"
+                        primary={row.original.material?.materialName}
+                        secondary={row.original.material?.materialCode}
+                    />
+                ),
             },
             {
                 header: 'Qty',
-                cell: ({ row }) => row.original.quantity,
+                cell: ({ row }) => <PrcQtyCell value={row.original.quantity} />,
             },
             {
                 header: 'Price',
-                cell: ({ row }) => row.original.unitPrice.toFixed(2),
+                cell: ({ row }) => <PrcMoneyCell amount={row.original.unitPrice} />,
             },
             {
                 header: 'Buyer',
-                cell: ({ row }) => row.original.buyerId,
+                cell: ({ row }) => <PrcPlainCell mono>{row.original.buyerId}</PrcPlainCell>,
             },
             {
-                header: 'Status',
-                cell: ({ row }) => row.original.poStatus,
+                header: 'PO status',
+                cell: ({ row }) => (
+                    <PrcAnimatedStatus
+                        status={row.original.poStatus}
+                        tone={prcStatusTone(row.original.poStatus, PRC_PO_STATUS)}
+                    />
+                ),
             },
         ],
         [router],
@@ -158,8 +181,8 @@ const ProcurementHistoryPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Procurement History"
                 description="Searchable PO line history by supplier, material, price, quantity, buyer, date, and PO"
             />
@@ -327,7 +350,13 @@ const ProcurementHistoryPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ProcurementResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row, index) => `${row.poId}-${row.material?.materialCode ?? index}`}
+                    tableMinWidthClass="min-w-[960px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

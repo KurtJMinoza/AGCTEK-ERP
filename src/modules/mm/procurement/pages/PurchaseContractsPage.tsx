@@ -3,10 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcPlainCell,
+    PrcSupplierCell,
+    PRC_CONTRACT_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -20,7 +28,6 @@ import {
     type PurchaseContract,
 } from '../services/purchaseContractService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/purchase-contracts'
 type Opt = { value: string; label: string }
@@ -35,7 +42,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const PurchaseContractsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<PurchaseContract[]>([])
     const [loading, setLoading] = useState(true)
     const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
@@ -90,43 +97,41 @@ const PurchaseContractsPage = () => {
             {
                 header: 'Contract',
                 cell: ({ row }) => (
-                    <span className="font-mono text-sm">
-                        {row.original.contractNumber}
-                    </span>
+                    <PrcDocNumberCell
+                        icon="contract"
+                        primary={row.original.contractNumber}
+                        secondary={row.original.purchaseOrder?.poNumber ? `PO ${row.original.purchaseOrder.poNumber}` : undefined}
+                    />
                 ),
             },
             {
                 header: 'Supplier',
-                cell: ({ row }) =>
-                    row.original.supplier
-                        ? row.original.supplier.supplierCode
-                        : '—',
+                cell: ({ row }) => (
+                    <PrcSupplierCell
+                        code={row.original.supplier?.supplierCode}
+                        name={row.original.supplier?.supplierName}
+                    />
+                ),
             },
             {
                 header: 'Buyer',
-                cell: ({ row }) => row.original.buyerId,
+                cell: ({ row }) => <PrcPlainCell mono>{row.original.buyerId}</PrcPlainCell>,
             },
             {
                 header: 'Valid from',
-                cell: ({ row }) =>
-                    String(row.original.validFrom).slice(0, 10),
+                cell: ({ row }) => <PrcDateCell iso={String(row.original.validFrom)} />,
             },
             {
                 header: 'Valid to',
-                cell: ({ row }) =>
-                    row.original.validTo
-                        ? String(row.original.validTo).slice(0, 10)
-                        : '—',
-            },
-            {
-                header: 'PO link',
-                cell: ({ row }) =>
-                    row.original.purchaseOrder?.poNumber ?? '—',
+                cell: ({ row }) => <PrcDateCell iso={row.original.validTo ? String(row.original.validTo) : null} />,
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge status={row.original.status} />
+                    <PrcAnimatedStatus
+                        status={row.original.status}
+                        tone={prcStatusTone(row.original.status, PRC_CONTRACT_STATUS)}
+                    />
                 ),
             },
             {
@@ -215,8 +220,8 @@ const PurchaseContractsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Purchase Contracts"
                 description="Commercial terms with suppliers — does not create inventory"
                 actions={
@@ -259,10 +264,12 @@ const PurchaseContractsPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable
+                <ProcurementResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[880px]"
                 />
             </AdaptiveCard>
 

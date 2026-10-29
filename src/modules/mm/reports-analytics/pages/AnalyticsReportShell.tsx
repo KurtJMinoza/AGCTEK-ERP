@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable from '@/components/shared/DataTable'
-import Chart from '@/components/shared/Chart'
 import Select from '@/components/ui/Select'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -29,7 +26,9 @@ type Props = {
     showDeadStockDays?: boolean
     showAgingBuckets?: boolean
     extraParams?: Partial<ReportParams>
-    render: (data: any) => ReactNode
+    /** Extra filter fields rendered inside the filter card grid */
+    filterExtensions?: ReactNode
+    render: (data: any, ctx?: { loading: boolean }) => ReactNode
 }
 
 type Opt = { value: string; label: string }
@@ -44,9 +43,12 @@ export function AnalyticsReportPage({
     showDeadStockDays = false,
     showAgingBuckets = false,
     extraParams,
+    filterExtensions,
     render,
 }: Props) {
     const breadcrumbItems = buildErpBreadcrumbs(route)
+    const parentBreadcrumbs =
+        breadcrumbItems.length > 1 ? breadcrumbItems.slice(0, -1) : breadcrumbItems
     const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
     const { ensure: ensureWarehouses, warehouses: allWarehouses } = useLazyMmRefs()
     const [companyId, setCompanyId] = useState('')
@@ -122,8 +124,8 @@ export function AnalyticsReportPage({
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title={title}
                 description={description}
                 actions={
@@ -196,11 +198,10 @@ export function AnalyticsReportPage({
                             />
                         </FormItem>
                     )}
+                    {filterExtensions}
                 </div>
             </AdaptiveCard>
-            <AdaptiveCard>{render(data)}</AdaptiveCard>
+            <AdaptiveCard>{render(data, { loading })}</AdaptiveCard>
         </PageContainer>
     )
 }
-
-export { DataTable, Chart }

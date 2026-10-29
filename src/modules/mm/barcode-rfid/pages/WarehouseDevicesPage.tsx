@@ -1,23 +1,43 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import BarcodeResponsiveTable, { type ColumnDef } from '../components/BarcodeResponsiveTable'
+import {
+    BC_DEVICE_STATUS,
+    BcAnimatedStatus,
+    BcDateCell,
+    BcMethodTag,
+    BcPlainCell,
+    BcScanIdCell,
+    bcStatusTone,
+} from '../components/barcodeTableUi'
+import { barcodeParentBreadcrumbs } from '../utils/barcodePageUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import FormDialog from '@/components/shared/FormDialog'
 import { FormItem } from '@/components/ui/Form'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { supportingOpsService } from '../../supporting-ops/services/supportingOpsService'
 
 const ROUTE = '/modules/mm/barcode-rfid/warehouse-devices'
 
+type DeviceRow = {
+    id?: string
+    deviceCode: string
+    deviceName?: string
+    deviceType?: string
+    status?: string
+    revokedAt?: string | null
+    lastActiveAt?: string | null
+    warehouse?: { code?: string; name?: string }
+}
+
 const WarehouseDevicesPage = () => {
+    const parentBreadcrumbs = barcodeParentBreadcrumbs(ROUTE)
     const [companyId, setCompanyId] = useState('')
-    const [rows, setRows] = useState<any[]>([])
+    const [rows, setRows] = useState<DeviceRow[]>([])
     const [loading, setLoading] = useState(false)
     const [registerOpen, setRegisterOpen] = useState(false)
     const [form, setForm] = useState({
@@ -45,46 +65,80 @@ const WarehouseDevicesPage = () => {
         load()
     }, [load])
 
-    const columns: ColumnDef<any>[] = [
-        { header: 'Code', accessorKey: 'deviceCode' },
-        { header: 'Name', accessorKey: 'deviceName' },
-        { header: 'Type', accessorKey: 'deviceType' },
-        { header: 'Warehouse', accessorKey: 'warehouse.code' },
-        { header: 'Status', accessorKey: 'status' },
-        {
-            header: 'Last active',
-            accessorKey: 'lastActiveAt',
-            cell: ({ row }) =>
-                row.original.lastActiveAt
-                    ? new Date(row.original.lastActiveAt).toLocaleString()
-                    : '—',
-        },
-        {
-            header: '',
-            id: 'actions',
-            cell: ({ row }) =>
-                !row.original.revokedAt ? (
-                    <Button
-                        size="xs"
-                        onClick={async () => {
-                            await supportingOpsService.revokeDevice(row.original.deviceCode)
-                            load()
-                        }}
-                    >
-                        Revoke
-                    </Button>
-                ) : (
-                    'Revoked'
+    const columns: ColumnDef<DeviceRow>[] = useMemo(
+        () => [
+            {
+                header: 'Device',
+                cell: ({ row }) => (
+                    <BcScanIdCell
+                        icon="device"
+                        primary={row.original.deviceCode}
+                        secondary={row.original.deviceName}
+                    />
                 ),
-        },
-    ]
+            },
+            {
+                header: 'Type',
+                cell: ({ row }) => (
+                    <BcMethodTag label={row.original.deviceType} />
+                ),
+            },
+            {
+                header: 'Warehouse',
+                cell: ({ row }) => (
+                    <BcPlainCell mono>
+                        {row.original.warehouse?.code ??
+                            row.original.warehouse?.name ??
+                            '—'}
+                    </BcPlainCell>
+                ),
+            },
+            {
+                header: 'Status',
+                cell: ({ row }) => {
+                    const status = row.original.revokedAt
+                        ? 'REVOKED'
+                        : row.original.status ?? 'ACTIVE'
+                    return (
+                        <BcAnimatedStatus
+                            status={status}
+                            tone={bcStatusTone(status, BC_DEVICE_STATUS)}
+                        />
+                    )
+                },
+            },
+            {
+                header: 'Last active',
+                cell: ({ row }) => <BcDateCell iso={row.original.lastActiveAt} />,
+            },
+            {
+                header: '',
+                id: 'actions',
+                cell: ({ row }) =>
+                    !row.original.revokedAt ? (
+                        <Button
+                            size="xs"
+                            onClick={async () => {
+                                await supportingOpsService.revokeDevice(row.original.deviceCode)
+                                load()
+                            }}
+                        >
+                            Revoke
+                        </Button>
+                    ) : (
+                        <BcPlainCell muted>Revoked</BcPlainCell>
+                    ),
+            },
+        ],
+        [load],
+    )
 
     return (
         <PageContainer>
-            <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
             <PageHeader
                 title="Warehouse Devices"
                 description="Registered scanners and mobile devices. Revoked devices cannot open scan sessions."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button
                         variant="solid"
@@ -104,7 +158,14 @@ const WarehouseDevicesPage = () => {
                     value={companyId}
                     onChange={(e: any) => setCompanyId(e.target.value)}
                 />
-                <DataTable columns={columns} data={rows} loading={loading} hidePagination />
+                <BarcodeResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id ?? row.deviceCode}
+                    hidePagination
+                    tableMinWidthClass="min-w-[960px]"
+                />
             </AdaptiveCard>
             <FormDialog
                 isOpen={registerOpen}

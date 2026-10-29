@@ -3,15 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ValuationResponsiveTable, {
+    type ColumnDef,
+} from '../components/ValuationResponsiveTable'
+import {
+    VAL_LAYER_STATUS,
+    ValAnimatedStatus,
+    ValDocNumberCell,
+    ValMaterialCell,
+    ValMoneyCell,
+    ValQtyCell,
+    valStatusTone,
+} from '../components/valuationTableUi'
+import { valuationParentBreadcrumbs } from '../utils/valuationPageUi'
 import Button from '@/components/ui/Button'
 import Tabs from '@/components/ui/Tabs'
 import { valuationService } from '../services/valuationService'
 import type { CostLayer, ValuationTransaction } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 
@@ -21,7 +30,7 @@ type FifoTab = 'layers' | 'transactions'
 const { TabList, TabNav, TabContent } = Tabs
 
 const FifoPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = valuationParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState<FifoTab>('layers')
     const [layers, setLayers] = useState<CostLayer[]>([])
     const [txns, setTxns] = useState<ValuationTransaction[]>([])
@@ -58,14 +67,29 @@ const FifoPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode || row.original.materialId,
+                cell: ({ row }) => (
+                    <ValMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
-            { header: 'Remaining', accessorKey: 'remainingQuantity' },
-            { header: 'Unit Cost', accessorKey: 'unitCost' },
+            {
+                header: 'Remaining',
+                cell: ({ row }) => <ValQtyCell value={row.original.remainingQuantity} />,
+            },
+            {
+                header: 'Unit cost',
+                cell: ({ row }) => <ValMoneyCell amount={row.original.unitCost} />,
+            },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <ValAnimatedStatus
+                        status={row.original.status}
+                        tone={valStatusTone(row.original.status, VAL_LAYER_STATUS)}
+                    />
+                ),
             },
         ],
         [],
@@ -73,22 +97,47 @@ const FifoPage = () => {
 
     const txnCols: ColumnDef<ValuationTransaction>[] = useMemo(
         () => [
-            { header: 'Number', accessorKey: 'valuationNumber' },
-            { header: 'Direction', accessorKey: 'direction' },
-            { header: 'Qty', accessorKey: 'quantity' },
-            { header: 'Unit Cost', accessorKey: 'unitCost' },
-            { header: 'Total', accessorKey: 'totalCost' },
+            {
+                header: 'Number',
+                cell: ({ row }) => (
+                    <ValDocNumberCell
+                        primary={row.original.valuationNumber}
+                        icon="fifo"
+                    />
+                ),
+            },
+            {
+                header: 'Direction',
+                cell: ({ row }) => (
+                    <span className="font-mono text-xs text-gray-700 dark:text-gray-300">
+                        {row.original.direction}
+                    </span>
+                ),
+            },
+            {
+                header: 'Qty',
+                cell: ({ row }) => <ValQtyCell value={row.original.quantity} />,
+            },
+            {
+                header: 'Unit cost',
+                cell: ({ row }) => <ValMoneyCell amount={row.original.unitCost} />,
+            },
+            {
+                header: 'Total',
+                cell: ({ row }) => (
+                    <ValMoneyCell amount={row.original.totalCost} emphasize="positive" />
+                ),
+            },
         ],
         [],
     )
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="FIFO"
                 description="Open cost layers and FIFO valuation transactions"
-                
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button variant="solid" onClick={load}>
                         Refresh
@@ -103,10 +152,22 @@ const FifoPage = () => {
                     </TabList>
                     <div className="mt-4">
                         <TabContent value="layers">
-                            <DataTable columns={layerCols} data={layers} loading={loading} />
+                            <ValuationResponsiveTable
+                                columns={layerCols}
+                                data={layers}
+                                loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[820px]"
+                            />
                         </TabContent>
                         <TabContent value="transactions">
-                            <DataTable columns={txnCols} data={txns} loading={loading} />
+                            <ValuationResponsiveTable
+                                columns={txnCols}
+                                data={txns}
+                                loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[900px]"
+                            />
                         </TabContent>
                     </div>
                 </Tabs>

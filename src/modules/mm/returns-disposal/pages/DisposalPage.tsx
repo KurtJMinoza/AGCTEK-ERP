@@ -3,10 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReturnsResponsiveTable, { type ColumnDef as ListColumnDef } from '../components/ReturnsResponsiveTable'
+import {
+    RD_DISPOSAL_STATUS,
+    RdAnimatedStatus,
+    RdDateCell,
+    RdDocNumberCell,
+    RdMoneyCell,
+    RdPartyCell,
+    RdPlainCell,
+    RdQtyCell,
+    rdStatusTone,
+} from '../components/returnsTableUi'
+import { returnsParentBreadcrumbs } from '../utils/returnsPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -34,26 +45,12 @@ import {
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
 import type { Disposal, ReturnsDisposalConfig } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
 import type { DisposalLine, AuditEntry } from '../types'
-import Iso9001ReturnsDisposalWorkflowStrip from '../components/Iso9001ReturnsDisposalWorkflowStrip'
 
 const ROUTE = '/modules/mm/returns-disposal/disposal'
 const DISPOSAL_TYPE = 'DISPOSAL'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    DRAFT: 'default',
-    SUBMITTED: 'warning',
-    PENDING_APPROVAL: 'warning',
-    APPROVED: 'success',
-    EXECUTED: 'info',
-    REJECTED: 'danger',
-    POSTED: 'success',
-    CANCELLED: 'danger',
-    REVERSED: 'warning',
-}
 
 const TAB_OPTIONS = [
     { value: '', label: 'All' },
@@ -96,7 +93,7 @@ function fmtDate(iso?: string | null) {
 }
 
 const DisposalPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = returnsParentBreadcrumbs(ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusTab, setStatusTab] = useState('')
@@ -281,14 +278,50 @@ const DisposalPage = () => {
         { header: 'Date', accessorKey: 'performedAt', size: 96, cell: ({ row }) => fmtDate(row.original.performedAt) },
     ], [])
 
-    const columns: ColumnDef<Disposal>[] = useMemo(() => [
-        { header: 'Disposal #', accessorKey: 'disposalNumber' },
-        { header: 'Warehouse', accessorKey: 'warehouse.name', cell: ({ row }) => row.original.warehouse?.name ?? '—' },
-        { header: 'Reason', accessorKey: 'reason' },
-        { header: 'Value', accessorKey: 'estimatedValue', cell: ({ row }) => Number(row.original.estimatedValue).toLocaleString() },
-        { header: 'Qty', accessorKey: 'totalQuantity', cell: ({ row }) => Number(row.original.totalQuantity) },
-        { header: 'Status', accessorKey: 'status', cell: ({ row }) => <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge> },
-        { header: 'Created', accessorKey: 'createdAt', cell: ({ row }) => fmtDate(row.original.createdAt) },
+    const columns: ListColumnDef<Disposal>[] = useMemo(() => [
+        {
+            header: 'Disposal',
+            cell: ({ row }) => (
+                <RdDocNumberCell
+                    icon="nc"
+                    primary={row.original.disposalNumber}
+                    secondary={fmtDate(row.original.createdAt)}
+                />
+            ),
+        },
+        {
+            header: 'Warehouse',
+            cell: ({ row }) => (
+                <RdPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+            ),
+        },
+        {
+            header: 'Reason',
+            cell: ({ row }) => (
+                <RdPlainCell>{row.original.reason?.replace(/_/g, ' ')}</RdPlainCell>
+            ),
+        },
+        {
+            header: 'Value',
+            cell: ({ row }) => <RdMoneyCell amount={row.original.estimatedValue} />,
+        },
+        {
+            header: 'Qty',
+            cell: ({ row }) => <RdQtyCell value={row.original.totalQuantity} />,
+        },
+        {
+            header: 'Status',
+            cell: ({ row }) => (
+                <RdAnimatedStatus
+                    status={row.original.status}
+                    tone={rdStatusTone(row.original.status, RD_DISPOSAL_STATUS)}
+                />
+            ),
+        },
+        {
+            header: 'Created',
+            cell: ({ row }) => <RdDateCell iso={row.original.createdAt} />,
+        },
         {
             header: '', id: 'actions', cell: ({ row }) => (
                 <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
@@ -315,10 +348,10 @@ const DisposalPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Disposal"
                 description="Disposal documents — permanently remove inventory with accounting events"
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <div className="flex gap-2">
                         <Button variant="plain" icon={<HiOutlineCog />} onClick={openConfig}>Config</Button>
@@ -327,8 +360,6 @@ const DisposalPage = () => {
                 }
             />
 
-            <Iso9001ReturnsDisposalWorkflowStrip activeStep={3} />
-
             <AdaptiveCard>
                 <div className="flex flex-wrap items-center gap-4 mb-4">
                     <Input prefix={<HiOutlineSearch />} placeholder="Search..." value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(1) }} className="max-w-xs" />
@@ -336,7 +367,16 @@ const DisposalPage = () => {
                 <Tabs value={statusTab} onChange={(val) => { setStatusTab(val as string); setPage(1) }}>
                     <Tabs.TabList>{TAB_OPTIONS.map((t) => <Tabs.TabNav key={t.value} value={t.value}>{t.label}</Tabs.TabNav>)}</Tabs.TabList>
                 </Tabs>
-                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
+                <ReturnsResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    pagingData={{ total, pageIndex: page, pageSize }}
+                    onPaginationChange={(p) => setPage(p)}
+                    onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[980px]"
+                />
             </AdaptiveCard>
 
             {/* Config Dialog */}
@@ -404,7 +444,14 @@ const DisposalPage = () => {
                 onClose={() => setDetailOpen(false)}
                 size="xl"
                 title={detail?.disposalNumber ?? 'Disposal'}
-                headerExtra={detail ? <StatusBadge tone={STATUS_TONE[detail.status] ?? 'default'}>{detail.status}</StatusBadge> : undefined}
+                headerExtra={
+                    detail ? (
+                        <RdAnimatedStatus
+                            status={detail.status}
+                            tone={rdStatusTone(detail.status, RD_DISPOSAL_STATUS)}
+                        />
+                    ) : undefined
+                }
                 bodyClassName="overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={detail ? (

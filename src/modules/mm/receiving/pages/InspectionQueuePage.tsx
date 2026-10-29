@@ -4,10 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RCV_INSPECTION_LOT_STATUS,
+    RCV_INSPECTION_RESULT,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvMaterialCell,
+    RcvQtyCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import Input from '@/components/ui/Input'
 import Tabs from '@/components/ui/Tabs'
 import { HiOutlineClipboardList, HiOutlineSearch } from 'react-icons/hi'
@@ -15,33 +23,16 @@ import Button from '@/components/ui/Button'
 import { inspectionService } from '../services/inspectionService'
 import { qualityService, type QualityDashboard } from '../services/qualityService'
 import type { MmInspectionLot } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { receivingParentBreadcrumbs } from '../utils/receivingPageUi'
 
 const ROUTE = '/modules/mm/receiving/inspection-queue'
 const DETAIL_ROUTE = '/modules/mm/receiving/inspection-queue'
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    CREATED: 'warning',
-    READY: 'warning',
-    PENDING: 'warning',
-    IN_PROGRESS: 'info',
-    PENDING_DECISION: 'warning',
-    DECIDED: 'success',
-    CLOSED: 'success',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-    PASS: 'success',
-    FAIL: 'danger',
-    PARTIAL_PASS: 'warning',
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 const InspectionQueuePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => receivingParentBreadcrumbs(ROUTE),
+        [],
+    )
     const [data, setData] = useState<MmInspectionLot[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -88,42 +79,47 @@ const InspectionQueuePage = () => {
 
     const columns: ColumnDef<MmInspectionLot>[] = useMemo(() => [
         {
-            header: 'Lot #',
+            header: 'Lot',
             accessorKey: 'lotNumber',
             cell: ({ row }) => (
-                <Link
-                    href={`${DETAIL_ROUTE}/${row.original.id}`}
-                    className="text-primary hover:underline font-medium"
-                >
-                    {row.original.lotNumber}
+                <Link href={`${DETAIL_ROUTE}/${row.original.id}`} className="block">
+                    <RcvDocNumberCell icon="inspection" primary={row.original.lotNumber} />
                 </Link>
             ),
         },
         {
             header: 'Material',
             accessorKey: 'material.materialCode',
-            cell: ({ row }) =>
-                row.original.material
-                    ? `${row.original.material.materialCode} — ${row.original.material.materialName}`
-                    : row.original.materialId,
+            cell: ({ row }) => (
+                <RcvMaterialCell
+                    code={row.original.material?.materialCode ?? row.original.materialId}
+                    name={row.original.material?.materialName}
+                />
+            ),
         },
         {
             header: 'GR',
             accessorKey: 'goodsReceipt.documentNumber',
-            cell: ({ row }) => row.original.goodsReceipt?.documentNumber ?? '—',
+            cell: ({ row }) => (
+                <RcvDocNumberCell
+                    icon="gr"
+                    primary={row.original.goodsReceipt?.documentNumber ?? '—'}
+                />
+            ),
         },
         {
             header: 'Qty',
             accessorKey: 'quantity',
-            cell: ({ row }) => Number(row.original.quantity),
+            cell: ({ row }) => <RcvQtyCell value={row.original.quantity} />,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_INSPECTION_LOT_STATUS)}
+                />
             ),
         },
         {
@@ -131,24 +127,25 @@ const InspectionQueuePage = () => {
             accessorKey: 'result',
             cell: ({ row }) =>
                 row.original.result ? (
-                    <StatusBadge tone={STATUS_TONE[row.original.result] ?? 'default'}>
-                        {row.original.result}
-                    </StatusBadge>
+                    <RcvAnimatedStatus
+                        status={row.original.result}
+                        tone={rcvStatusTone(row.original.result, RCV_INSPECTION_RESULT)}
+                    />
                 ) : (
-                    '—'
+                    <span className="text-sm text-gray-400">—</span>
                 ),
         },
         {
             header: 'Created',
             accessorKey: 'createdAt',
-            cell: ({ row }) => fmtDate(row.original.createdAt),
+            cell: ({ row }) => <RcvDateCell iso={row.original.createdAt} />,
         },
     ], [])
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Inspection Queue"
                 description="Pending inspection lots created at goods receipt post. Record samples and usage decisions from lot detail."
                 icon={<HiOutlineClipboardList />}
@@ -158,7 +155,6 @@ const InspectionQueuePage = () => {
                     </Link>
                 }
             />
-
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <AdaptiveCard>
                     <p className="text-sm text-gray-500">Open lots (company)</p>
@@ -199,13 +195,15 @@ const InspectionQueuePage = () => {
                     </Tabs.TabList>
                 </Tabs>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[900px]"
                 />
             </AdaptiveCard>
         </PageContainer>

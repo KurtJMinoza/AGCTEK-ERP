@@ -10,6 +10,8 @@ export type MmExceptionDomain =
     | 'transfers'
     | 'mrp'
     | 'integration'
+    | 'returns_disposal'
+    | 'supporting_ops'
 
 export type MmExceptionItem = {
     id: string

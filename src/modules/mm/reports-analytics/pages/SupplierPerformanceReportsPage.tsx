@@ -1,6 +1,8 @@
 'use client'
 
-import { AnalyticsReportPage, Chart, DataTable } from './AnalyticsReportShell'
+import Chart from '@/components/shared/Chart'
+import DataTable from '@/components/shared/DataTable'
+import { AnalyticsReportPage } from './AnalyticsReportShell'
 
 const SupplierPerformanceReportsPage = () => (
     <AnalyticsReportPage

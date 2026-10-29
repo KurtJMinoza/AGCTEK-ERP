@@ -4,10 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcPlainCell,
+    PRC_PR_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -37,7 +44,6 @@ import { purchaseRequisitionService } from '../services/purchaseRequisitionServi
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { defaultMaterialUomId } from '@/modules/mm/shared/uomHelpers'
 import type { PurchaseRequisition, PrListResponse } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
@@ -50,19 +56,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE_PATH = '/modules/mm/procurement/purchase-requisitions'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    SUBMITTED: 'info',
-    PENDING_APPROVAL: 'warning',
-    APPROVED: 'success',
-    REJECTED: 'danger',
-    RETURNED: 'warning',
-    PARTIALLY_CONVERTED: 'info',
-    FULLY_CONVERTED: 'success',
-    CANCELLED: 'danger',
-    CLOSED: 'default',
-}
 
 type FilterOption = {
     value: string
@@ -116,7 +109,7 @@ const emptyLine = (): LineDraft => ({
 
 const PurchaseRequisitionListPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
     const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<PurchaseRequisition[]>([])
@@ -309,47 +302,45 @@ const PurchaseRequisitionListPage = () => {
 
     const columns = useMemo<ColumnDef<PurchaseRequisition>[]>(() => [
         {
-            header: 'Request number',
+            header: 'Request',
             accessorKey: 'requisitionNumber',
-            size: 150,
+            size: 180,
             cell: ({ row }) => (
-                <button
-                    type="button"
-                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                <PrcDocNumberCell
+                    icon="pr"
+                    primary={row.original.requisitionNumber}
+                    secondary={row.original.purpose}
                     onClick={() => router.push(`${ROUTE_PATH}/${row.original.id}`)}
-                >
-                    {row.original.requisitionNumber}
-                </button>
+                />
             ),
         },
         {
             header: 'Requester',
             accessorKey: 'requesterId',
             size: 120,
-            cell: ({ row }) => <span className="text-sm">{row.original.requesterId}</span>,
+            cell: ({ row }) => <PrcPlainCell mono>{row.original.requesterId}</PrcPlainCell>,
         },
         {
             header: 'Department',
             accessorKey: 'departmentId',
             size: 120,
-            cell: ({ row }) => <span className="text-sm">{row.original.departmentId || '—'}</span>,
+            cell: ({ row }) => <PrcPlainCell>{row.original.departmentId}</PrcPlainCell>,
         },
         {
-            header: 'Required Date',
+            header: 'Required',
             accessorKey: 'requiredDate',
             size: 120,
-            cell: ({ row }) => (
-                <span className="text-sm">{new Date(row.original.requiredDate).toLocaleDateString()}</span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.requiredDate} />,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             size: 140,
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status.replace(/_/g, ' ')}
-                </StatusBadge>
+                <PrcAnimatedStatus
+                    status={row.original.status}
+                    tone={prcStatusTone(row.original.status, PRC_PR_STATUS)}
+                />
             ),
         },
         {
@@ -420,8 +411,8 @@ const PurchaseRequisitionListPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Purchase Requests"
                 description="Internal demand documents for materials and services — not a supplier commitment."
                 actions={canCreate ? (
@@ -448,16 +439,17 @@ const PurchaseRequisitionListPage = () => {
                 </div>
 
                 <div className="mt-4">
-                    <DataTable<PurchaseRequisition>
+                    <ProcurementResponsiveTable<PurchaseRequisition>
                         columns={columns}
                         data={data}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        tableMinWidthClass="min-w-[880px]"
                     />
                 </div>
             </AdaptiveCard>

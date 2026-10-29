@@ -4,10 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RCV_INSPECTION_RESULT,
+    RCV_QI_STATUS,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvQtyCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -18,7 +25,7 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlineClipboardCheck, HiOutlineSearch } from 'react-icons/hi'
 import { inboundService } from '../services/inboundService'
 import type { MmQualityInspection, MmQualityInspectionLine } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { receivingParentBreadcrumbs } from '../utils/receivingPageUi'
 import {
     firstError,
     nonNegativeNumber,
@@ -27,15 +34,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE = '/modules/mm/receiving/quality-quarantine'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    PENDING: 'warning',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-    PASS: 'success',
-    FAIL: 'danger',
-    PARTIAL_PASS: 'warning',
-}
 
 type DecideDraft = {
     lineId: string
@@ -53,11 +51,6 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 function lineLabel(line: MmQualityInspectionLine) {
     const m = line.goodsReceiptLine?.material
     return m
@@ -66,7 +59,10 @@ function lineLabel(line: MmQualityInspectionLine) {
 }
 
 const QualityQuarantinePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => receivingParentBreadcrumbs(ROUTE),
+        [],
+    )
 
     const [data, setData] = useState<MmQualityInspection[]>([])
     const [total, setTotal] = useState(0)
@@ -199,24 +195,38 @@ const QualityQuarantinePage = () => {
     }, [selected, drafts, inspectedBy, remarks, errors, fetchData])
 
     const columns: ColumnDef<MmQualityInspection>[] = useMemo(() => [
-        { header: 'Inspection #', accessorKey: 'inspectionNumber' },
+        {
+            header: 'Inspection',
+            accessorKey: 'inspectionNumber',
+            cell: ({ row }) => (
+                <RcvDocNumberCell icon="inspection" primary={row.original.inspectionNumber} />
+            ),
+        },
         {
             header: 'Goods receipt',
             accessorKey: 'goodsReceipt.documentNumber',
-            cell: ({ row }) => row.original.goodsReceipt?.documentNumber ?? '—',
+            cell: ({ row }) => (
+                <RcvDocNumberCell
+                    icon="gr"
+                    primary={row.original.goodsReceipt?.documentNumber ?? '—'}
+                />
+            ),
         },
         {
             header: 'Lines',
             accessorKey: 'lines',
-            cell: ({ row }) => row.original.lines?.length ?? 0,
+            cell: ({ row }) => (
+                <RcvQtyCell value={row.original.lines?.length ?? 0} label="Lines" />
+            ),
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_QI_STATUS)}
+                />
             ),
         },
         {
@@ -224,17 +234,18 @@ const QualityQuarantinePage = () => {
             accessorKey: 'result',
             cell: ({ row }) =>
                 row.original.result ? (
-                    <StatusBadge tone={STATUS_TONE[row.original.result] ?? 'default'}>
-                        {row.original.result}
-                    </StatusBadge>
+                    <RcvAnimatedStatus
+                        status={row.original.result}
+                        tone={rcvStatusTone(row.original.result, RCV_INSPECTION_RESULT)}
+                    />
                 ) : (
-                    '—'
+                    <span className="text-sm text-gray-400">—</span>
                 ),
         },
         {
             header: 'Created',
             accessorKey: 'createdAt',
-            cell: ({ row }) => fmtDate(row.original.createdAt),
+            cell: ({ row }) => <RcvDateCell iso={row.original.createdAt} />,
         },
         {
             header: '',
@@ -255,12 +266,11 @@ const QualityQuarantinePage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Quality / Quarantine"
                 description="Legacy quality inspections and usage decisions. Pass → ACCEPT (unrestricted stock); fail-only → REJECT (quarantine). For full 5-code decisions use Inspection Queue."
             />
-
             <AdaptiveCard className="mb-4 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
                 <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
                     Legacy inspection records only
@@ -293,13 +303,15 @@ const QualityQuarantinePage = () => {
                     </Tabs.TabList>
                 </Tabs>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[880px]"
                 />
             </AdaptiveCard>
 

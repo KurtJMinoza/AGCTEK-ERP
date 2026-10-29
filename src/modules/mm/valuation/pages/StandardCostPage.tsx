@@ -3,9 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ValuationResponsiveTable, {
+    type ColumnDef,
+} from '../components/ValuationResponsiveTable'
+import {
+    ValMaterialCell,
+    ValMethodTag,
+    ValMoneyCell,
+    ValPlainCell,
+} from '../components/valuationTableUi'
+import { valuationParentBreadcrumbs } from '../utils/valuationPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -17,11 +25,9 @@ import { HiOutlinePlus } from 'react-icons/hi'
 import { valuationService } from '../services/valuationService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialValuation } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
 
 const ROUTE = '/modules/mm/valuation/standard-cost'
-type Opt = { value: string; label: string }
 
 const METHOD_OPTS = [
     { value: 'STANDARD_COST', label: 'Standard Cost' },
@@ -30,7 +36,7 @@ const METHOD_OPTS = [
 ]
 
 const StandardCostPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = valuationParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialValuation[]>([])
     const [loading, setLoading] = useState(false)
     const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
@@ -51,11 +57,6 @@ const StandardCostPage = () => {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await valuationService.listMaterialValuations({
-                valuationMethod: 'STANDARD_COST',
-                limit: 100,
-            })
-            // Also show all so users can convert
             const all = await valuationService.listMaterialValuations({ limit: 100 })
             setRows(all.data)
         } catch (e: any) {
@@ -84,17 +85,37 @@ const StandardCostPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode || row.original.materialId,
+                cell: ({ row }) => (
+                    <ValMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) =>
-                    row.original.warehouse?.name || row.original.warehouseId,
+                cell: ({ row }) => (
+                    <ValPlainCell>
+                        {row.original.warehouse?.name || row.original.warehouseId}
+                    </ValPlainCell>
+                ),
             },
-            { header: 'Method', accessorKey: 'valuationMethod' },
-            { header: 'Standard Cost', accessorKey: 'standardCost' },
-            { header: 'Revision', accessorKey: 'revision' },
+            {
+                header: 'Method',
+                cell: ({ row }) => (
+                    <ValMethodTag method={row.original.valuationMethod} />
+                ),
+            },
+            {
+                header: 'Standard cost',
+                cell: ({ row }) => <ValMoneyCell amount={row.original.standardCost} />,
+            },
+            {
+                header: 'Revision',
+                cell: ({ row }) => (
+                    <ValPlainCell mono>{String(row.original.revision)}</ValPlainCell>
+                ),
+            },
             {
                 header: 'Actions',
                 cell: ({ row }) => (
@@ -163,11 +184,10 @@ const StandardCostPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Standard Cost"
                 description="Maintain standard costs and revisions by valuation area"
-                
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button
                         variant="solid"
@@ -179,7 +199,13 @@ const StandardCostPage = () => {
                 }
             />
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ValuationResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[920px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

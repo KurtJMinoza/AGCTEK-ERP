@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
+import { InvPlainCell, InvQtyCell } from '../components/inventoryTableUi'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import { StockStatusTag } from '../utils/inventoryUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
 } from '@/components/shared/FilterBar'
 import StatCard from '@/components/shared/StatCard'
 import Button from '@/components/ui/Button'
-import Tag from '@/components/ui/Tag'
 import Progress from '@/components/ui/Progress'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -30,27 +31,12 @@ import {
     useMmFilterRefs,
     useLazyBinsForWarehouse,
 } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/inventory-management/available-stock'
 
 type Opt = { value: string; label: string }
 
 /** Stock status → tag colour. */
-const STATUS_TONE: Record<string, string> = {
-    UNRESTRICTED:
-        'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
-    RESTRICTED:
-        'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-    QUARANTINE:
-        'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-    BLOCKED: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-    HOLD: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-    INSPECTION:
-        'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-    DAMAGED: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-}
-
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
         <Notification type={type} title={title} closable duration={3500}>
@@ -63,7 +49,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 const fmt = (v: number) => v.toLocaleString()
 
 const AvailableStockPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const { companies, warehouses, materials } = useMmFilterRefs(
         'companies',
         'warehouses',
@@ -301,30 +287,19 @@ const AvailableStockPage = () => {
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <Tag
-                        className={
-                            STATUS_TONE[row.original.stockStatus] ??
-                            'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                        }
-                    >
-                        {row.original.stockStatus}
-                    </Tag>
+                    <StockStatusTag status={row.original.stockStatus} />
                 ),
             },
             {
                 header: 'Bin',
                 cell: ({ row }) => (
-                    <span className="font-mono text-xs text-gray-600">
-                        {row.original.storageBinId?.slice(0, 8) ?? '—'}
-                    </span>
+                    <InvPlainCell mono>{row.original.storageBinId?.slice(0, 8)}</InvPlainCell>
                 ),
             },
             {
                 header: 'On hand',
                 cell: ({ row }) => (
-                    <span className="font-medium text-gray-900">
-                        {fmt(Number(row.original.quantity))}
-                    </span>
+                    <InvQtyCell value={Number(row.original.quantity)} />
                 ),
             },
             {
@@ -412,8 +387,8 @@ const AvailableStockPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Available to Promise"
                 description="Unrestricted − Existing Reservations − Restricted = Available. Reservations do not deduct physical inventory."
             />
@@ -469,10 +444,14 @@ const AvailableStockPage = () => {
                                 {result.balances.length === 1 ? '' : 's'}
                             </span>
                         </div>
-                        <DataTable
+                        <InventoryResponsiveTable
                             columns={balanceColumns}
                             data={result.balances}
                             hidePagination
+                            getRowId={(row, index) =>
+                                `${row.stockStatus}-${row.storageBinId ?? index}`
+                            }
+                            tableMinWidthClass="min-w-[720px]"
                         />
                     </AdaptiveCard>
                 </>

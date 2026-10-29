@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from '@/modules/mm/supplier-management/components/SupplierResponsiveTable'
+import {
+    SmAnimatedStatus,
+    SmEntityCell,
+    SmPeriodCell,
+    SmPlainCell,
+    SmScoreCell,
+    SM_RECORD_STATUS,
+} from '@/modules/mm/supplier-management/components/SupplierTableCells'
+import { supplierParentBreadcrumbs } from '@/modules/mm/supplier-management/utils/supplierPageUi'
 import FormDialog from '@/components/shared/FormDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -26,7 +34,6 @@ import type {
     ScoreWeightConfig,
     AlertConfig,
 } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/supplier-management/supplier-evaluation'
 type Opt = { value: string; label: string }
@@ -51,7 +58,7 @@ function monthBounds() {
 }
 
 const SupplierEvaluationPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState('run')
     const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
     const [companyId, setCompanyId] = useState('')
@@ -183,49 +190,64 @@ const SupplierEvaluationPage = () => {
         () => [
             {
                 header: 'Supplier',
-                cell: ({ row }) =>
-                    row.original.supplier
-                        ? `${row.original.supplier.supplierCode}`
-                        : '—',
+                cell: ({ row }) => (
+                    <SmEntityCell
+                        kind="supplier"
+                        primary={row.original.supplier?.supplierName}
+                        secondary={row.original.supplier?.supplierCode}
+                    />
+                ),
             },
             {
                 header: 'Period',
-                cell: ({ row }) =>
-                    `${String(row.original.periodStart).slice(0, 10)} → ${String(row.original.periodEnd).slice(0, 10)}`,
+                cell: ({ row }) => (
+                    <SmPeriodCell
+                        start={row.original.periodStart}
+                        end={row.original.periodEnd}
+                    />
+                ),
             },
             {
                 header: 'Overall',
-                cell: ({ row }) => Number(row.original.overallScore).toFixed(1),
+                cell: ({ row }) => (
+                    <SmScoreCell value={row.original.overallScore} emphasize />
+                ),
             },
             {
                 header: 'Delivery',
-                cell: ({ row }) => Number(row.original.deliveryScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.deliveryScore} />,
             },
             {
                 header: 'Quality',
-                cell: ({ row }) => Number(row.original.qualityScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.qualityScore} />,
             },
             {
                 header: 'Price',
-                cell: ({ row }) => Number(row.original.priceScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.priceScore} />,
             },
             {
                 header: 'Quantity',
-                cell: ({ row }) =>
-                    Number(row.original.quantityScore ?? 0).toFixed(1),
+                cell: ({ row }) => (
+                    <SmScoreCell value={row.original.quantityScore ?? 0} />
+                ),
             },
             {
                 header: 'Fill %',
-                cell: ({ row }) =>
-                    `${(Number(row.original.fillRate ?? 0) * 100).toFixed(0)}%`,
+                cell: ({ row }) => (
+                    <SmPlainCell mono>
+                        {(Number(row.original.fillRate ?? 0) * 100).toFixed(0)}%
+                    </SmPlainCell>
+                ),
             },
             {
                 header: 'Service',
-                cell: ({ row }) => Number(row.original.serviceScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.serviceScore} />,
             },
             {
                 header: 'Compliance',
-                cell: ({ row }) => Number(row.original.complianceScore).toFixed(1),
+                cell: ({ row }) => (
+                    <SmScoreCell value={row.original.complianceScore} />
+                ),
             },
         ],
         [],
@@ -235,27 +257,40 @@ const SupplierEvaluationPage = () => {
         () => [
             {
                 header: 'Supplier',
-                cell: ({ row }) => row.original.supplier?.supplierCode ?? '—',
+                cell: ({ row }) => (
+                    <SmEntityCell
+                        kind="supplier"
+                        primary={row.original.supplier?.supplierName}
+                        secondary={row.original.supplier?.supplierCode}
+                    />
+                ),
             },
             {
                 header: 'Type',
-                cell: ({ row }) => row.original.alertType ?? 'POOR_SCORE',
+                cell: ({ row }) => (
+                    <SmPlainCell>{row.original.alertType ?? 'POOR_SCORE'}</SmPlainCell>
+                ),
             },
             {
                 header: 'Score',
-                cell: ({ row }) => Number(row.original.score).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.score} />,
             },
             {
                 header: 'Threshold',
-                cell: ({ row }) => Number(row.original.threshold).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.threshold} />,
             },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <SmAnimatedStatus
+                        status={row.original.status}
+                        tone={SM_RECORD_STATUS[row.original.status] ?? 'default'}
+                    />
+                ),
             },
             {
                 header: 'Message',
-                cell: ({ row }) => row.original.message ?? '—',
+                cell: ({ row }) => <SmPlainCell>{row.original.message}</SmPlainCell>,
             },
             {
                 header: 'Actions',
@@ -301,8 +336,8 @@ const SupplierEvaluationPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Evaluation"
                 description="Run period scorecards from MM transactions, configure weights and alert thresholds. Calculated scores cannot be overwritten — use Manual Assessment for controlled qualitative reviews. Alerts never auto-block suppliers."
                 actions={
@@ -334,10 +369,12 @@ const SupplierEvaluationPage = () => {
                         <Tabs.TabNav value="alerts">Alerts</Tabs.TabNav>
                     </Tabs.TabList>
                     <Tabs.TabContent value="run">
-                        <DataTable
+                        <SupplierResponsiveTable
                             columns={evalCols}
                             data={evaluations}
                             loading={loading}
+                            getRowId={(row) => row.id}
+                            tableMinWidthClass="min-w-[960px]"
                         />
                     </Tabs.TabContent>
                     <Tabs.TabContent value="weights">
@@ -492,10 +529,12 @@ const SupplierEvaluationPage = () => {
                         </div>
                     </Tabs.TabContent>
                     <Tabs.TabContent value="alerts">
-                        <DataTable
+                        <SupplierResponsiveTable
                             columns={alertCols}
                             data={alerts}
                             loading={loading}
+                            getRowId={(row) => row.id}
+                            tableMinWidthClass="min-w-[880px]"
                         />
                     </Tabs.TabContent>
                 </Tabs>

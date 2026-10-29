@@ -3,12 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpDateCell,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+    MRP_SOURCE_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -19,7 +27,6 @@ import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PlanningDemand } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/demand'
 type Opt = { value: string; label: string }
@@ -43,7 +50,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const DemandPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<PlanningDemand[]>([])
     const [loading, setLoading] = useState(true)
     const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
@@ -96,33 +103,36 @@ const DemandPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material
-                        ? `${row.original.material.materialCode}`
-                        : row.original.materialId,
-            },
-            {
-                header: 'Name',
-                cell: ({ row }) => row.original.material?.materialName ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) =>
-                    row.original.warehouse?.code ?? 'All / unscoped',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>
+                        {row.original.warehouse?.code ?? 'All / unscoped'}
+                    </MrpPlainCell>
+                ),
             },
             {
                 header: 'Date',
-                cell: ({ row }) =>
-                    String(row.original.demandDate).slice(0, 10),
+                cell: ({ row }) => <MrpDateCell iso={row.original.demandDate} />,
             },
             {
                 header: 'Qty',
-                cell: ({ row }) => Number(row.original.quantity),
+                cell: ({ row }) => <MrpQtyCell value={row.original.quantity} />,
             },
             {
                 header: 'Source',
                 cell: ({ row }) => (
-                    <StatusBadge status={row.original.sourceType} />
+                    <MrpAnimatedStatus
+                        status={row.original.sourceType}
+                        tone={mrpStatusTone(row.original.sourceType, MRP_SOURCE_STATUS)}
+                    />
                 ),
             },
             {
@@ -180,8 +190,8 @@ const DemandPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Planning Demand"
                 description="Manual / forecast demand that feeds MRP netting"
                 actions={
@@ -204,7 +214,13 @@ const DemandPage = () => {
                 </FormItem>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[880px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

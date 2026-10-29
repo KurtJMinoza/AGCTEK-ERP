@@ -5,8 +5,19 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    fmtRcvDate,
+    RCV_ASN_STATUS,
+    RcvAnimatedStatus,
+    RcvCarrierCell,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvPartyCell,
+    RcvPlainCell,
+    RcvQtyCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -31,12 +42,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE = '/modules/mm/receiving/advanced-shipping-notices'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    CONFIRMED: 'success',
-    CANCELLED: 'danger',
-}
 
 type FilterOption = { value: string; label: string }
 
@@ -247,59 +252,72 @@ const AsnListPage = () => {
     }, [fetchData])
 
     const columns: ColumnDef<MmAsn>[] = useMemo(() => [
-        { header: 'ASN #', accessorKey: 'asnNumber' },
+        {
+            header: 'ASN',
+            accessorKey: 'asnNumber',
+            cell: ({ row }) => (
+                <RcvDocNumberCell
+                    icon="asn"
+                    primary={row.original.asnNumber}
+                    secondary={row.original.shipmentNumber || fmtRcvDate(row.original.expectedDate)}
+                />
+            ),
+        },
         {
             header: 'Supplier',
             accessorKey: 'supplier.supplierName',
-            cell: ({ row }) => row.original.supplier?.supplierName ?? '—',
-        },
-        {
-            header: 'Shipment',
-            accessorKey: 'shipmentNumber',
-            cell: ({ row }) => row.original.shipmentNumber || '—',
+            cell: ({ row }) => (
+                <RcvPartyCell
+                    name={row.original.supplier?.supplierName}
+                    subtitle={row.original.supplier?.supplierCode}
+                />
+            ),
         },
         {
             header: 'Supplier ref',
             accessorKey: 'supplierReference',
-            cell: ({ row }) => row.original.supplierReference || '—',
+            cell: ({ row }) => <RcvPlainCell mono>{row.original.supplierReference}</RcvPlainCell>,
         },
         {
             header: 'Packages',
             accessorKey: 'packageCount',
-            cell: ({ row }) => row.original.packageCount ?? '—',
+            cell: ({ row }) => <RcvQtyCell value={row.original.packageCount} label="Pkgs" />,
         },
         {
             header: 'Carrier / tracking',
             id: 'carrier',
-            cell: ({ row }) => {
-                const c = row.original.carrier
-                const t = row.original.trackingNumber
-                if (!c && !t) return '—'
-                return [c, t].filter(Boolean).join(' · ')
-            },
+            cell: ({ row }) => (
+                <RcvCarrierCell
+                    carrier={row.original.carrier}
+                    tracking={row.original.trackingNumber}
+                />
+            ),
         },
         {
             header: 'PO',
             accessorKey: 'purchaseOrder.poNumber',
-            cell: ({ row }) => row.original.purchaseOrder?.poNumber ?? '—',
+            cell: ({ row }) => <RcvPlainCell mono>{row.original.purchaseOrder?.poNumber}</RcvPlainCell>,
         },
         {
             header: 'ETA',
             accessorKey: 'expectedDate',
-            cell: ({ row }) => fmtDate(row.original.expectedDate),
+            cell: ({ row }) => <RcvDateCell iso={row.original.expectedDate} />,
         },
         {
             header: 'Lines',
             accessorKey: 'lines',
-            cell: ({ row }) => row.original.lines?.length ?? 0,
+            cell: ({ row }) => (
+                <RcvQtyCell value={row.original.lines?.length ?? 0} label="Lines" />
+            ),
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_ASN_STATUS)}
+                />
             ),
         },
         {
@@ -364,13 +382,15 @@ const AsnListPage = () => {
                     />
                 </div>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 

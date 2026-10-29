@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -32,7 +33,6 @@ import {
 import { adjustmentService } from '../services/adjustmentService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { InventoryAdjustment, StockOpsQueryParams } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import InfoCard from '../../shared/InfoCard'
@@ -93,7 +93,7 @@ function materialLabel(line: InventoryAdjustment['lines'][number]) {
 }
 
 const AdjustmentPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
@@ -295,6 +295,9 @@ const AdjustmentPage = () => {
     const columns: ColumnDef<InventoryAdjustment>[] = useMemo(
         () =>
             buildStockDocColumns<InventoryAdjustment>({
+                presentation: 'inventory',
+                docIcon: 'adj',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: {
                     header: 'Reason',
                     value: (row) =>
@@ -450,8 +453,8 @@ const AdjustmentPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Inventory Adjustments"
                 description="Adjust stock quantities with approval workflow"
                 actions={
@@ -488,15 +491,17 @@ const AdjustmentPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 

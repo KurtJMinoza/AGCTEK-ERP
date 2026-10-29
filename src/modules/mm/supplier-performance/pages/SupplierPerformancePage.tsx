@@ -4,9 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from '@/modules/mm/supplier-management/components/SupplierResponsiveTable'
+import {
+    SmPlainCell,
+    SmScoreCell,
+    SmSupplierIdentityCell,
+} from '@/modules/mm/supplier-management/components/SupplierTableCells'
+import { supplierParentBreadcrumbs } from '@/modules/mm/supplier-management/utils/supplierPageUi'
+import { rcvMobileCardEnterClass } from '@/modules/mm/receiving/components/receivingTableUi'
 import Chart from '@/components/shared/Chart'
 import Select from '@/components/ui/Select'
 import Card from '@/components/ui/Card'
@@ -17,7 +24,6 @@ import { FormItem } from '@/components/ui/Form'
 import { supplierPerformanceService } from '../services/supplierPerformanceService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { PerformanceDashboard, SupplierEvaluation } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/supplier-management/supplier-performance'
 type Opt = { value: string; label: string }
@@ -32,7 +38,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const SupplierPerformancePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE)
     const { companies, loadFilterRefs } = useDeferredFilterRefs('companies')
     const [companyId, setCompanyId] = useState('')
     const [dash, setDash] = useState<PerformanceDashboard | null>(null)
@@ -66,50 +72,57 @@ const SupplierPerformancePage = () => {
         () => [
             {
                 header: 'Supplier',
-                cell: ({ row }) => (
-                    <Link
-                        className="text-primary hover:underline"
-                        href={`/modules/mm/supplier-management/supplier-master/${row.original.supplierId}`}
-                    >
-                        {row.original.supplier?.supplierCode ?? '—'}
-                    </Link>
-                ),
-            },
-            {
-                header: 'Name',
-                cell: ({ row }) => row.original.supplier?.supplierName ?? '—',
+                cell: ({ row }) => {
+                    const s = row.original.supplier
+                    if (!s) return <SmPlainCell>—</SmPlainCell>
+                    return (
+                        <Link
+                            href={`/modules/mm/supplier-management/supplier-master/${row.original.supplierId}`}
+                            className="block"
+                        >
+                            <SmSupplierIdentityCell
+                                code={s.supplierCode}
+                                name={s.supplierName}
+                            />
+                        </Link>
+                    )
+                },
             },
             {
                 header: 'Score',
                 cell: ({ row }) => (
-                    <span className="font-semibold">
-                        {Number(row.original.overallScore).toFixed(1)}
-                    </span>
+                    <SmScoreCell value={row.original.overallScore} emphasize />
                 ),
             },
             {
                 header: 'Delivery',
-                cell: ({ row }) => Number(row.original.deliveryScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.deliveryScore} />,
             },
             {
                 header: 'Quality',
-                cell: ({ row }) => Number(row.original.qualityScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.qualityScore} />,
             },
             {
                 header: 'Returns %',
-                cell: ({ row }) =>
-                    `${(Number(row.original.returnRate) * 100).toFixed(1)}%`,
+                cell: ({ row }) => (
+                    <SmPlainCell mono>
+                        {(Number(row.original.returnRate) * 100).toFixed(1)}%
+                    </SmPlainCell>
+                ),
             },
             {
                 header: 'Price',
-                cell: ({ row }) => Number(row.original.priceScore).toFixed(1),
+                cell: ({ row }) => <SmScoreCell value={row.original.priceScore} />,
             },
             {
                 header: 'Volume',
-                cell: ({ row }) =>
-                    Number(row.original.purchaseVolume).toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                    }),
+                cell: ({ row }) => (
+                    <SmPlainCell mono>
+                        {Number(row.original.purchaseVolume).toLocaleString(undefined, {
+                            maximumFractionDigits: 0,
+                        })}
+                    </SmPlainCell>
+                ),
             },
         ],
         [],
@@ -143,8 +156,8 @@ const SupplierPerformancePage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Performance"
                 description="Score ranking, delivery/quality/returns/price, purchase volume, and trend"
                 actions={
@@ -194,8 +207,11 @@ const SupplierPerformancePage = () => {
                         ),
                     },
                     { label: 'Open alerts', value: s?.openAlerts ?? 0 },
-                ].map((c) => (
-                    <Card key={c.label} className="p-4">
+                ].map((c, index) => (
+                    <Card
+                        key={c.label}
+                        className={`p-4 ${rcvMobileCardEnterClass(index)} motion-reduce:animate-none`}
+                    >
                         <div className="text-xs text-gray-500">{c.label}</div>
                         <div className="text-xl font-semibold">{c.value}</div>
                     </Card>
@@ -219,10 +235,12 @@ const SupplierPerformancePage = () => {
             </AdaptiveCard>
 
             <AdaptiveCard>
-                <DataTable
+                <SupplierResponsiveTable
                     columns={columns}
                     data={dash?.rankings ?? []}
                     loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[900px]"
                 />
             </AdaptiveCard>
         </PageContainer>

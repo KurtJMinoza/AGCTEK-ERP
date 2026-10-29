@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
@@ -47,8 +46,7 @@ import type {
     AssignableWorker,
     StorageBin,
 } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
+import { warehouseParentBreadcrumbs } from '../utils/warehousePageUi'
 import {
     WmAnimatedStatus,
     WmBinChip,
@@ -121,7 +119,10 @@ function pushToast(
 
 const PickingPage = () => {
     const searchParams = useSearchParams()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => warehouseParentBreadcrumbs(ROUTE),
+        [],
+    )
 
     const [search, setSearch] = useState(() => searchParams.get('search') ?? '')
     const [warehouseFilter, setWarehouseFilter] = useState('')
@@ -1064,8 +1065,8 @@ const PickingPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Picking"
                 description="Create pick tasks or waves, then scan items to confirm picks. Stock posts from Goods Issue."
                 actions={
@@ -1089,8 +1090,6 @@ const PickingPage = () => {
                     </div>
                 }
             />
-            <Iso9001OutboundWorkflowStrip activeStep={1} />
-
             <AdaptiveCard className="mt-4">
                 <Tabs
                     value={statusTab}

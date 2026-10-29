@@ -5,12 +5,22 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ProcurementResponsiveTable from '@/modules/mm/procurement/components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDocNumberCell,
+    PrcMoneyCell,
+    PrcPlainCell,
+    PrcSupplierCell,
+    PRC_INVOICE_STATUS,
+    PRC_MATCH_STATUS,
+    prcStatusTone,
+} from '@/modules/mm/procurement/components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '@/modules/mm/procurement/utils/procurementPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Dropdown from '@/components/ui/Dropdown'
 import Input from '@/components/ui/Input'
@@ -29,7 +39,6 @@ import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { SupplierInvoice } from '../types'
 import type { MmPurchaseOrder, MmPurchaseOrderLine } from '@/modules/mm/procurement/types'
 import { poInvoiceOpenQty } from '@/modules/mm/procurement/types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     listPurchaseOrdersForInvoicing,
     loadSupplierInvoicePoDraft,
@@ -60,7 +69,7 @@ const SupplierInvoicesPage = () => {
     const searchParams = useSearchParams()
     const highlightId = searchParams.get('invoiceId')
     const prefillPoId = searchParams.get('purchaseOrderId')
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<SupplierInvoice[]>([])
     const [loading, setLoading] = useState(false)
     const { ensure: ensureFormRefs, suppliers } = useLazyMmRefs()
@@ -334,38 +343,63 @@ const SupplierInvoicesPage = () => {
                 header: 'Invoice',
                 accessorKey: 'invoiceNumber',
                 cell: ({ row }) => (
-                    <span className={row.original.id === highlightId ? 'font-bold text-primary' : ''}>
-                        {row.original.invoiceNumber}
-                    </span>
+                    <div className={row.original.id === highlightId ? 'rounded-lg ring-2 ring-primary/40' : undefined}>
+                        <PrcDocNumberCell
+                            icon="invoice"
+                            primary={row.original.invoiceNumber}
+                            secondary={row.original.purchaseOrder?.poNumber}
+                        />
+                    </div>
                 ),
             },
             {
                 header: 'Supplier',
-                cell: ({ row }) =>
-                    row.original.supplier?.supplierName || row.original.supplierId,
+                cell: ({ row }) => (
+                    <PrcSupplierCell
+                        code={row.original.supplier?.supplierCode}
+                        name={row.original.supplier?.supplierName ?? row.original.supplierId}
+                    />
+                ),
             },
             {
                 header: 'PO',
                 cell: ({ row }) =>
                     row.original.purchaseOrder?.poNumber ? (
                         <Link
-                            className="text-primary hover:underline"
+                            className="font-mono text-xs font-semibold text-primary hover:underline"
                             href={`/modules/mm/procurement/purchase-orders/${row.original.purchaseOrderId}`}
                         >
                             {row.original.purchaseOrder.poNumber}
                         </Link>
                     ) : (
-                        row.original.purchaseOrderId
+                        <PrcPlainCell mono>{row.original.purchaseOrderId}</PrcPlainCell>
                     ),
             },
-            { header: 'Total', accessorKey: 'totalAmount' },
+            {
+                header: 'Total',
+                accessorKey: 'totalAmount',
+                cell: ({ row }) => <PrcMoneyCell amount={row.original.totalAmount} />,
+            },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <PrcAnimatedStatus
+                        status={row.original.status}
+                        tone={prcStatusTone(row.original.status, PRC_INVOICE_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'Match',
-                cell: ({ row }) => row.original.matchStatus || '—',
+                cell: ({ row }) =>
+                    row.original.matchStatus ? (
+                        <PrcAnimatedStatus
+                            status={row.original.matchStatus}
+                            tone={prcStatusTone(row.original.matchStatus, PRC_MATCH_STATUS)}
+                        />
+                    ) : (
+                        <PrcPlainCell muted>—</PrcPlainCell>
+                    ),
             },
             {
                 header: '',
@@ -510,8 +544,8 @@ const SupplierInvoicesPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Invoices"
                 description="Select a partially or fully received PO, allocate posted goods receipt lines, then create and submit for three-way match."
                 actions={
@@ -521,7 +555,13 @@ const SupplierInvoicesPage = () => {
                 }
             />
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ProcurementResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[960px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

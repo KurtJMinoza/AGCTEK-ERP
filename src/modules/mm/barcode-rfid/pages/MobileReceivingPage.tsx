@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import BarcodeResponsiveTable, { type ColumnDef } from '../components/BarcodeResponsiveTable'
+import { BcMaterialCell, BcQtyCell } from '../components/barcodeTableUi'
 import FormSection from '@/components/shared/FormSection'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -278,22 +279,32 @@ const MobileReceivingPage = () => {
                     title="Open lines"
                     description="Tap Use to select a line for the next receive."
                 >
-                    <DataTable
+                    <BarcodeResponsiveTable
                         columns={
                             [
                                 {
                                     header: 'Material',
-                                    cell: ({ row }: any) =>
-                                        row.original.material?.materialCode ??
-                                        row.original.materialId,
+                                    cell: ({ row }: any) => (
+                                        <BcMaterialCell
+                                            code={
+                                                row.original.material?.materialCode ??
+                                                row.original.materialId
+                                            }
+                                            name={row.original.material?.materialName}
+                                        />
+                                    ),
                                 },
                                 {
                                     header: 'Expected',
-                                    accessorKey: 'expectedQuantity',
+                                    cell: ({ row }: any) => (
+                                        <BcQtyCell value={row.original.expectedQuantity} />
+                                    ),
                                 },
                                 {
                                     header: 'Received',
-                                    accessorKey: 'receivedQuantity',
+                                    cell: ({ row }: any) => (
+                                        <BcQtyCell value={row.original.receivedQuantity} />
+                                    ),
                                 },
                                 {
                                     header: '',
@@ -317,6 +328,8 @@ const MobileReceivingPage = () => {
                             ] as ColumnDef<any>[]
                         }
                         data={selectedEr.lines}
+                        getRowId={(row: any) => row.id}
+                        tableMinWidthClass="min-w-[640px]"
                     />
                 </FormSection>
             ) : null}

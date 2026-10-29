@@ -3,10 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+    MRP_FLAG_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
@@ -17,7 +24,6 @@ import SafetyStockChart, {
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialRequirement } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/safety-stock'
 type Opt = { value: string; label: string }
@@ -32,7 +38,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const SafetyStockPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialRequirement[]>([])
     const [loading, setLoading] = useState(true)
     const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs(
@@ -77,23 +83,26 @@ const SafetyStockPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
-            },
-            {
-                header: 'Name',
-                cell: ({ row }) => row.original.material?.materialName ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Available',
-                cell: ({ row }) => Number(row.original.availableQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.availableQty} />,
             },
             {
                 header: 'Safety stock',
-                cell: ({ row }) => Number(row.original.safetyStock),
+                cell: ({ row }) => <MrpQtyCell value={row.original.safetyStock} />,
             },
             {
                 header: 'Gap',
@@ -101,18 +110,28 @@ const SafetyStockPage = () => {
                     const gap =
                         Number(row.original.safetyStock) -
                         Number(row.original.availableQty)
-                    return gap > 0 ? gap : 0
+                    return (
+                        <MrpQtyCell
+                            value={gap > 0 ? gap : 0}
+                            emphasize={gap > 0 ? 'danger' : undefined}
+                        />
+                    )
                 },
             },
             {
                 header: 'Status',
-                cell: ({ row }) =>
-                    Number(row.original.availableQty) <
-                    Number(row.original.safetyStock) ? (
-                        <StatusBadge status="BELOW_SAFETY" />
-                    ) : (
-                        <StatusBadge status="OK" />
-                    ),
+                cell: ({ row }) => {
+                    const below =
+                        Number(row.original.availableQty) <
+                        Number(row.original.safetyStock)
+                    const code = below ? 'BELOW_SAFETY' : 'OK'
+                    return (
+                        <MrpAnimatedStatus
+                            status={code}
+                            tone={mrpStatusTone(code, MRP_FLAG_STATUS)}
+                        />
+                    )
+                },
             },
         ],
         [],
@@ -120,8 +139,8 @@ const SafetyStockPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Safety Stock"
                 description="Available stock versus safety stock from the latest MRP snapshot"
             />
@@ -163,7 +182,13 @@ const SafetyStockPage = () => {
             ) : null}
 
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[920px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

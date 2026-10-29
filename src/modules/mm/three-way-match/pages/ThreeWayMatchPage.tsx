@@ -3,21 +3,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, {
+    type ColumnDef,
+} from '@/modules/mm/procurement/components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDocNumberCell,
+    PrcPlainCell,
+    PRC_INVOICE_STATUS,
+    PRC_MATCH_STATUS,
+    prcStatusTone,
+} from '@/modules/mm/procurement/components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '@/modules/mm/procurement/utils/procurementPageUi'
 import Button from '@/components/ui/Button'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { threeWayMatchService } from '../services/threeWayMatchService'
 import type { SupplierInvoice } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/three-way-match'
 
 const ThreeWayMatchPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<SupplierInvoice[]>([])
     const [loading, setLoading] = useState(false)
 
@@ -53,23 +61,51 @@ const ThreeWayMatchPage = () => {
 
     const columns: ColumnDef<SupplierInvoice>[] = useMemo(
         () => [
-            { header: 'Invoice', accessorKey: 'invoiceNumber' },
+            {
+                header: 'Invoice',
+                accessorKey: 'invoiceNumber',
+                cell: ({ row }) => (
+                    <PrcDocNumberCell
+                        icon="invoice"
+                        primary={row.original.invoiceNumber}
+                        secondary={row.original.purchaseOrder?.poNumber}
+                    />
+                ),
+            },
             {
                 header: 'PO',
-                cell: ({ row }) =>
-                    row.original.purchaseOrder?.poNumber || row.original.purchaseOrderId,
+                cell: ({ row }) => (
+                    <PrcPlainCell mono>
+                        {row.original.purchaseOrder?.poNumber || row.original.purchaseOrderId}
+                    </PrcPlainCell>
+                ),
             },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <PrcAnimatedStatus
+                        status={row.original.status}
+                        tone={prcStatusTone(row.original.status, PRC_INVOICE_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'Match',
-                cell: ({ row }) => row.original.matchStatus || '—',
+                cell: ({ row }) =>
+                    row.original.matchStatus ? (
+                        <PrcAnimatedStatus
+                            status={row.original.matchStatus}
+                            tone={prcStatusTone(row.original.matchStatus, PRC_MATCH_STATUS)}
+                        />
+                    ) : (
+                        <PrcPlainCell muted>—</PrcPlainCell>
+                    ),
             },
             {
-                header: 'Payment Eligible',
-                cell: ({ row }) => (row.original.paymentEligible ? 'Yes' : 'No'),
+                header: 'Payment',
+                cell: ({ row }) => (
+                    <PrcPlainCell>{row.original.paymentEligible ? 'Eligible' : 'Blocked'}</PrcPlainCell>
+                ),
             },
             {
                 header: 'Actions',
@@ -140,8 +176,8 @@ const ThreeWayMatchPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Three-Way Match"
                 description="Match supplier invoices against PO and goods receipts"
                 actions={
@@ -151,7 +187,13 @@ const ThreeWayMatchPage = () => {
                 }
             />
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ProcurementResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[920px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

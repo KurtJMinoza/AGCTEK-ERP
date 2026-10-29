@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -10,8 +10,16 @@ import Button from '@/components/ui/Button'
 import Link from 'next/link'
 import { qualityService, type QualityDashboard } from '../services/qualityService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RcvCodeCell,
+    RcvQtyCell,
+    rcvMobileCardEnterClass,
+} from '../components/receivingTableUi'
 
 const ROUTE = '/modules/mm/receiving/quality-dashboard'
+
+type DefectRow = { code: string; count: number }
 
 export default function QualityDashboardPage() {
     const [data, setData] = useState<QualityDashboard | null>(null)
@@ -25,6 +33,30 @@ export default function QualityDashboardPage() {
             .finally(() => setLoading(false))
     }, [])
 
+    const defectRows: DefectRow[] = useMemo(
+        () => data?.topDefects?.map((d) => ({ code: d.code, count: d.count })) ?? [],
+        [data],
+    )
+
+    const defectColumns: ColumnDef<DefectRow>[] = useMemo(
+        () => [
+            {
+                header: 'Defect code',
+                accessorKey: 'code',
+                cell: ({ row }) => <RcvCodeCell code={row.original.code} />,
+            },
+            {
+                header: 'Occurrences',
+                accessorKey: 'count',
+                cell: ({ row }) => <RcvQtyCell value={row.original.count} label="Hits" />,
+            },
+        ],
+        [],
+    )
+
+    const statClass = (index: number) =>
+        `${rcvMobileCardEnterClass(index)} motion-reduce:animate-none`
+
     return (
         <PageContainer>
             <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
@@ -32,17 +64,23 @@ export default function QualityDashboardPage() {
                 title="Quality Dashboard"
                 description="Inspection throughput, acceptance rates, holds, and nonconformances."
             />
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-                <StatCard title="Open lots" value={loading ? '—' : String(data?.pendingLots ?? 0)} />
-                <StatCard title="In progress" value={loading ? '—' : String(data?.inProgressLots ?? 0)} />
-                <StatCard title="Pending decision" value={loading ? '—' : String(data?.pendingDecision ?? 0)} />
-                <StatCard title="Active holds" value={loading ? '—' : String(data?.activeHolds ?? 0)} />
-                <StatCard title="Acceptance rate" value={loading ? '—' : `${data?.acceptanceRate ?? 0}%`} />
-                <StatCard title="Rejection rate" value={loading ? '—' : `${data?.rejectionRate ?? 0}%`} />
-                <StatCard title="Return rate" value={loading ? '—' : `${data?.returnRate ?? 0}%`} />
-                <StatCard title="Open NC" value={loading ? '—' : String(data?.openNonconformances ?? 0)} />
+            <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                    { title: 'Open lots', value: loading ? '—' : String(data?.pendingLots ?? 0) },
+                    { title: 'In progress', value: loading ? '—' : String(data?.inProgressLots ?? 0) },
+                    { title: 'Pending decision', value: loading ? '—' : String(data?.pendingDecision ?? 0) },
+                    { title: 'Active holds', value: loading ? '—' : String(data?.activeHolds ?? 0) },
+                    { title: 'Acceptance rate', value: loading ? '—' : `${data?.acceptanceRate ?? 0}%` },
+                    { title: 'Rejection rate', value: loading ? '—' : `${data?.rejectionRate ?? 0}%` },
+                    { title: 'Return rate', value: loading ? '—' : `${data?.returnRate ?? 0}%` },
+                    { title: 'Open NC', value: loading ? '—' : String(data?.openNonconformances ?? 0) },
+                ].map((stat, index) => (
+                    <div key={stat.title} className={statClass(index)}>
+                        <StatCard title={stat.title} value={stat.value} />
+                    </div>
+                ))}
             </div>
-            <AdaptiveCard title="Quick links" className="mb-4">
+            <AdaptiveCard title="Quick links" className={`mb-4 ${statClass(8)}`}>
                 <div className="flex flex-wrap gap-2">
                     <Link href="/modules/mm/receiving/inspection-queue">
                         <Button size="sm">Inspection queue</Button>
@@ -61,16 +99,19 @@ export default function QualityDashboardPage() {
                     </Link>
                 </div>
             </AdaptiveCard>
-            {data?.topDefects?.length ? (
-                <AdaptiveCard title="Top defect codes">
-                    <ul className="space-y-1 text-sm">
-                        {data.topDefects.map((d) => (
-                            <li key={d.code} className="flex justify-between">
-                                <span>{d.code}</span>
-                                <span className="text-gray-500">{d.count}</span>
-                            </li>
-                        ))}
-                    </ul>
+            {defectRows.length ? (
+                <AdaptiveCard title="Top defect codes" className={statClass(9)}>
+                    <ReceivingResponsiveTable
+                        columns={defectColumns}
+                        data={defectRows}
+                        loading={loading}
+                        getRowId={(row) => row.code}
+                        hidePagination
+                        mobile={{
+                            title: (row) => row.code,
+                            fields: [{ label: 'Occurrences', value: (row) => String(row.count) }],
+                        }}
+                    />
                 </AdaptiveCard>
             ) : null}
         </PageContainer>

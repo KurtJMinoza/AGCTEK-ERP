@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
+import { InvPlainCell, InvQtyCell } from '../components/inventoryTableUi'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -31,7 +33,6 @@ import {
     type InventoryBalance,
 } from '../services/inventoryService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { StockStatusTag } from '../utils/inventoryUi'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
@@ -48,7 +49,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const InventoryStatusPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
         'companies',
         'warehouses',
@@ -167,14 +168,11 @@ const InventoryStatusPage = () => {
                 cell: ({ row }) => {
                     const m = row.original.material
                     return (
-                        <div className="min-w-[11rem] max-w-[12rem]">
-                            <div className="truncate font-semibold text-gray-900">
-                                {m?.materialCode ?? row.original.materialId.slice(0, 8)}
-                            </div>
-                            <div className="truncate text-xs text-gray-500">
-                                {m?.materialName ?? '—'}
-                            </div>
-                        </div>
+                        <SmEntityCell
+                            kind="material"
+                            primary={m?.materialName}
+                            secondary={m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                        />
                     )
                 },
             },
@@ -187,31 +185,27 @@ const InventoryStatusPage = () => {
             {
                 header: 'Location',
                 cell: ({ row }) => (
-                    <div className="min-w-[8rem] max-w-[9rem] whitespace-nowrap text-sm text-gray-600">
-                        <div className="truncate">
+                    <div className="min-w-[8rem]">
+                        <InvPlainCell>
                             {row.original.warehouse?.code ??
                                 row.original.warehouseId.slice(0, 8)}
-                        </div>
-                        <div className="truncate font-mono text-xs text-gray-400">
+                        </InvPlainCell>
+                        <InvPlainCell mono muted>
                             {row.original.storageBin?.code ?? 'No bin'}
-                        </div>
+                        </InvPlainCell>
                     </div>
                 ),
             },
             {
                 header: 'Quantity',
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap text-right font-semibold text-gray-900">
-                        {Number(row.original.quantity ?? 0).toLocaleString()}
-                    </div>
+                    <InvQtyCell value={Number(row.original.quantity ?? 0)} />
                 ),
             },
             {
                 header: 'Available',
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap text-right font-semibold text-emerald-600">
-                        {Number(row.original.availableQuantity ?? 0).toLocaleString()}
-                    </div>
+                    <InvQtyCell value={Number(row.original.availableQuantity ?? 0)} />
                 ),
             },
         ],
@@ -318,8 +312,8 @@ const InventoryStatusPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Inventory Status"
                 description="Balances by stock status. Post status changes through the ledger engine."
                 actions={
@@ -412,11 +406,14 @@ const InventoryStatusPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row, index) =>
+                        `${row.materialId}-${row.warehouseId}-${row.storageBinId ?? index}`
+                    }
                     noData={rows.length === 0}
                     pagingData={{
                         total: meta.total,
@@ -424,6 +421,7 @@ const InventoryStatusPage = () => {
                         pageSize: meta.limit,
                     }}
                     onPaginationChange={setPage}
+                    tableMinWidthClass="min-w-[880px]"
                 />
             </AdaptiveCard>
 

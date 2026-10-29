@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import { sopMetricEnterClass } from '../components/supportingOpsTableUi'
+import { supportingOpsParentBreadcrumbs } from '../utils/supportingOpsPageUi'
 import Input from '@/components/ui/Input'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { supportingOpsService } from '../services/supportingOpsService'
 
 const ROUTE = '/modules/mm/supporting-operations/compliance-dashboard'
@@ -26,14 +26,52 @@ type Summary = {
     archivedBarcodes: number
 }
 
-const Metric = ({ label, value }: { label: string; value: string | number }) => (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+const METRICS: {
+    key: keyof Summary
+    label: string
+    format?: (s: Summary) => string | number
+}[] = [
+    { key: 'pendingScanOverrides', label: 'Pending scan overrides' },
+    { key: 'documentsAwaitingReview', label: 'Documents awaiting review' },
+    { key: 'expiredControlledDocuments', label: 'Expired controlled documents' },
+    { key: 'openScanSessions', label: 'Open scan sessions' },
+    {
+        key: 'scanCompliancePercentLast24h',
+        label: 'Scan compliance (24h)',
+        format: (s) =>
+            s.scanCompliancePercentLast24h != null
+                ? `${s.scanCompliancePercentLast24h}%`
+                : '—',
+    },
+    {
+        key: 'rejectedScansLast24h',
+        label: 'Failed scans (24h)',
+        format: (s) => `${s.rejectedScansLast24h} / ${s.scanEventsLast24h}`,
+    },
+    { key: 'revokedWarehouseDevices', label: 'Revoked devices' },
+    { key: 'activeRfidTags', label: 'Active RFID tags' },
+    { key: 'archivedBarcodes', label: 'Archived barcodes' },
+]
+
+const Metric = ({
+    label,
+    value,
+    index,
+}: {
+    label: string
+    value: string | number
+    index: number
+}) => (
+    <div
+        className={`rounded-lg border border-gray-200 p-4 transition-shadow duration-200 hover:shadow-sm dark:border-gray-700 ${sopMetricEnterClass(index)}`}
+    >
         <div className="text-sm text-gray-500">{label}</div>
-        <div className="text-2xl font-semibold mt-1">{value}</div>
+        <div className="mt-1 text-2xl font-semibold tabular-nums heading-text">{value}</div>
     </div>
 )
 
 const ComplianceDashboardPage = () => {
+    const parentBreadcrumbs = supportingOpsParentBreadcrumbs(ROUTE)
     const [companyId, setCompanyId] = useState('')
     const [summary, setSummary] = useState<Summary | null>(null)
     const [loading, setLoading] = useState(false)
@@ -55,10 +93,10 @@ const ComplianceDashboardPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
             <PageHeader
                 title="Compliance Dashboard"
                 description="Operational compliance indicators from scan events, overrides, devices, and controlled documents — not certification status."
+                breadcrumbs={parentBreadcrumbs}
             />
             <AdaptiveCard>
                 <Input
@@ -70,36 +108,23 @@ const ComplianceDashboardPage = () => {
                 {loading && <p className="text-sm text-gray-500">Loading…</p>}
                 {summary && (
                     <>
-                        <p className="text-xs text-gray-500 mb-4">
+                        <p className="mb-4 text-xs text-gray-500">
                             Generated {new Date(summary.generatedAt).toLocaleString()} · Company{' '}
                             {summary.companyId}
                         </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <Metric label="Pending scan overrides" value={summary.pendingScanOverrides} />
-                            <Metric
-                                label="Documents awaiting review"
-                                value={summary.documentsAwaitingReview}
-                            />
-                            <Metric
-                                label="Expired controlled documents"
-                                value={summary.expiredControlledDocuments}
-                            />
-                            <Metric label="Open scan sessions" value={summary.openScanSessions} />
-                            <Metric
-                                label="Scan compliance (24h)"
-                                value={
-                                    summary.scanCompliancePercentLast24h != null
-                                        ? `${summary.scanCompliancePercentLast24h}%`
-                                        : '—'
-                                }
-                            />
-                            <Metric
-                                label="Failed scans (24h)"
-                                value={`${summary.rejectedScansLast24h} / ${summary.scanEventsLast24h}`}
-                            />
-                            <Metric label="Revoked devices" value={summary.revokedWarehouseDevices} />
-                            <Metric label="Active RFID tags" value={summary.activeRfidTags} />
-                            <Metric label="Archived barcodes" value={summary.archivedBarcodes} />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            {METRICS.map((m, index) => (
+                                <Metric
+                                    key={m.key}
+                                    index={index}
+                                    label={m.label}
+                                    value={
+                                        m.format
+                                            ? m.format(summary)
+                                            : (summary[m.key] as string | number)
+                                    }
+                                />
+                            ))}
                         </div>
                     </>
                 )}

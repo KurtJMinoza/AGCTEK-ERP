@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import Button from '@/components/ui/Button'
-import { AnalyticsReportPage, DataTable } from './AnalyticsReportShell'
+import DataTable from '@/components/shared/DataTable'
+import { AnalyticsReportPage } from './AnalyticsReportShell'
 
 const StockVarianceReportPage = () => (
     <AnalyticsReportPage

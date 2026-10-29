@@ -4,10 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcPlainCell,
+    PRC_RFQ_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -29,7 +36,6 @@ import { rfqService } from '../services/rfqService'
 import { purchaseRequisitionService } from '../services/purchaseRequisitionService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmRfq, MmRfqListResponse, PurchaseRequisition } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
@@ -41,17 +47,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE_PATH = '/modules/mm/procurement/rfqs'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    ISSUED: 'info',
-    PARTIALLY_RESPONDED: 'warning',
-    RESPONDED: 'info',
-    EVALUATION: 'warning',
-    AWARDED: 'success',
-    CLOSED: 'default',
-    CANCELLED: 'danger',
-}
 
 type FilterOption = { value: string; label: string }
 
@@ -94,7 +89,7 @@ const emptyLine = (): LineDraft => ({
 
 const RfqListPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
     const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmRfq[]>([])
@@ -365,49 +360,36 @@ const RfqListPage = () => {
 
     const columns = useMemo<ColumnDef<MmRfq>[]>(() => [
         {
-            header: 'RFQ Number',
+            header: 'RFQ',
             accessorKey: 'rfqNumber',
-            size: 160,
+            size: 180,
             cell: ({ row }) => (
-                <button
-                    type="button"
-                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                <PrcDocNumberCell
+                    icon="rfq"
+                    primary={row.original.rfqNumber}
+                    secondary={row.original.purpose}
                     onClick={() => router.push(`${ROUTE_PATH}/${row.original.id}`)}
-                >
-                    {row.original.rfqNumber}
-                </button>
+                />
             ),
         },
         {
             header: 'Buyer',
             accessorKey: 'buyerId',
             size: 120,
-            cell: ({ row }) => <span className="text-sm">{row.original.buyerId}</span>,
-        },
-        {
-            header: 'Purpose',
-            accessorKey: 'purpose',
-            size: 200,
-            cell: ({ row }) => (
-                <span className="line-clamp-1 text-sm">{row.original.purpose || '—'}</span>
-            ),
+            cell: ({ row }) => <PrcPlainCell mono>{row.original.buyerId}</PrcPlainCell>,
         },
         {
             header: 'Deadline',
             accessorKey: 'responseDeadline',
             size: 120,
-            cell: ({ row }) => (
-                <span className="text-sm">
-                    {new Date(row.original.responseDeadline).toLocaleDateString()}
-                </span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.responseDeadline} />,
         },
         {
             header: 'Suppliers',
             id: 'suppliers',
             size: 90,
             cell: ({ row }) => (
-                <span className="text-sm">{row.original.invitedSuppliers?.length ?? 0}</span>
+                <PrcPlainCell>{String(row.original.invitedSuppliers?.length ?? 0)}</PrcPlainCell>
             ),
         },
         {
@@ -415,7 +397,7 @@ const RfqListPage = () => {
             id: 'quotes',
             size: 80,
             cell: ({ row }) => (
-                <span className="text-sm">{row.original.quotations?.length ?? 0}</span>
+                <PrcPlainCell>{String(row.original.quotations?.length ?? 0)}</PrcPlainCell>
             ),
         },
         {
@@ -423,17 +405,18 @@ const RfqListPage = () => {
             accessorKey: 'status',
             size: 150,
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status.replace(/_/g, ' ')}
-                </StatusBadge>
+                <PrcAnimatedStatus
+                    status={row.original.status}
+                    tone={prcStatusTone(row.original.status, PRC_RFQ_STATUS)}
+                />
             ),
         },
     ], [router])
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="RFQs"
                 description="Request quotations from suppliers, compare responses, and award winners."
                 actions={canCreate ? (
@@ -465,16 +448,17 @@ const RfqListPage = () => {
                 </div>
 
                 <div className="mt-4">
-                    <DataTable<MmRfq>
+                    <ProcurementResponsiveTable<MmRfq>
                         columns={columns}
                         data={data}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        tableMinWidthClass="min-w-[920px]"
                     />
                 </div>
             </AdaptiveCard>

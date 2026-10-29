@@ -17,7 +17,6 @@ import { FormItem } from '@/components/ui/Form'
 import Tabs from '@/components/ui/Tabs'
 import { HiOutlinePlus } from 'react-icons/hi'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { inventoryControlService } from '../services/inventoryControlService'
 import type { CountPlan, CountPolicy } from '../types'
@@ -266,8 +265,6 @@ const CountPlanningPage = () => {
                     )
                 }
             />
-            <Iso9001WorkflowStrip activeStep={1} />
-
             <AdaptiveCard>
                 <Tabs
                     value={activeTab}

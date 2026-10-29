@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import ReceivingResponsiveTable from '../components/ReceivingResponsiveTable'
+import { RcvPlainCell, RcvAnimatedStatus } from '../components/receivingTableUi'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -17,7 +18,7 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlineClipboardCheck } from 'react-icons/hi'
 import { inspectionService } from '../services/inspectionService'
 import type { MmInspectionLot, MmInspectionResult } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { receivingParentBreadcrumbs } from '../utils/receivingPageUi'
 
 const ROUTE = '/modules/mm/receiving/inspection-queue'
 
@@ -39,7 +40,10 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 const InspectionDetailPage = () => {
     const params = useParams()
     const lotId = String(params?.id ?? '')
-    const breadcrumbItems = buildErpBreadcrumbs(`${ROUTE}/${lotId}`)
+    const parentBreadcrumbs = useMemo(
+        () => receivingParentBreadcrumbs(`${ROUTE}/${lotId}`),
+        [lotId],
+    )
 
     const [lot, setLot] = useState<MmInspectionLot | null>(null)
     const [loading, setLoading] = useState(true)
@@ -71,13 +75,32 @@ const InspectionDetailPage = () => {
     useEffect(() => { load() }, [load])
 
     const resultColumns: ColumnDef<MmInspectionResult>[] = useMemo(() => [
-        { header: 'Characteristic', accessorKey: 'characteristic.name', cell: ({ row }) => row.original.characteristic?.name ?? '—' },
-        { header: 'Value', accessorKey: 'measuredValue', cell: ({ row }) => row.original.measuredValue ?? row.original.numericValue ?? '—' },
+        {
+            header: 'Characteristic',
+            accessorKey: 'characteristic.name',
+            cell: ({ row }) => <RcvPlainCell>{row.original.characteristic?.name}</RcvPlainCell>,
+        },
+        {
+            header: 'Value',
+            accessorKey: 'measuredValue',
+            cell: ({ row }) => (
+                <RcvPlainCell mono>
+                    {String(row.original.measuredValue ?? row.original.numericValue ?? '')}
+                </RcvPlainCell>
+            ),
+        },
         {
             header: 'Passed',
             accessorKey: 'passed',
             cell: ({ row }) =>
-                row.original.passed == null ? '—' : row.original.passed ? 'Yes' : 'No',
+                row.original.passed == null ? (
+                    <span className="text-sm text-gray-400">—</span>
+                ) : (
+                    <RcvAnimatedStatus
+                        status={row.original.passed ? 'PASS' : 'FAIL'}
+                        tone={row.original.passed ? 'success' : 'danger'}
+                    />
+                ),
         },
     ], [])
 
@@ -152,13 +175,12 @@ const InspectionDetailPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title={lot.lotNumber}
                 description={`Material ${lot.material?.materialCode ?? lot.materialId} · Qty ${Number(lot.quantity)} · GR ${lot.goodsReceipt?.documentNumber ?? lot.goodsReceiptId}${lot.supplier ? ` · ${lot.supplier.supplierName}` : ''}`}
                 icon={<HiOutlineClipboardCheck />}
             />
-
             <div className="mb-4 flex flex-wrap items-center gap-2">
                 <StatusBadge tone={['CREATED', 'READY', 'PENDING', 'PENDING_DECISION'].includes(lot.status) ? 'warning' : 'info'}>{lot.status}</StatusBadge>
                 {lot.result ? <StatusBadge tone="success">{lot.result}</StatusBadge> : null}
@@ -239,7 +261,13 @@ const InspectionDetailPage = () => {
             </div>
 
             <AdaptiveCard className="mt-4" title="Results">
-                <DataTable columns={resultColumns} data={lot.results ?? []} loading={false} />
+                <ReceivingResponsiveTable
+                    columns={resultColumns}
+                    data={lot.results ?? []}
+                    loading={false}
+                    getRowId={(row, index) => row.id ?? String(index)}
+                    hidePagination
+                />
             </AdaptiveCard>
 
             {lot.defects?.length ? (

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -37,8 +38,6 @@ import {
 import { goodsIssueService } from '../services/goodsIssueService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsIssue, StockOpsQueryParams } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import InfoCard from '../../shared/InfoCard'
@@ -94,7 +93,7 @@ function materialLabel(line: GoodsIssue['lines'][number]) {
 }
 
 const GoodsIssuePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
@@ -345,6 +344,9 @@ const GoodsIssuePage = () => {
     const columns: ColumnDef<GoodsIssue>[] = useMemo(
         () =>
             buildStockDocColumns<GoodsIssue>({
+                presentation: 'inventory',
+                docIcon: 'gi',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: {
                     header: 'Purpose',
                     value: (row) =>
@@ -472,8 +474,8 @@ const GoodsIssuePage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Goods Issue"
                 description="Issue materials from inventory — every issue posts through the inventory ledger."
                 actions={
@@ -482,8 +484,6 @@ const GoodsIssuePage = () => {
                     </Button>
                 }
             />
-            <Iso9001OutboundWorkflowStrip activeStep={3} />
-
             <FilterBar
                 className="mb-4"
                 fields={fields}
@@ -507,15 +507,17 @@ const GoodsIssuePage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 

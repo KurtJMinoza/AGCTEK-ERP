@@ -6,8 +6,18 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    fmtRcvDate,
+    RCV_EXPECTED_RECEIPT_STATUS,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvPartyCell,
+    RcvQtyCell,
+    RcvSourceTag,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -27,13 +37,6 @@ import { firstError, required, visibleError, type FieldErrors } from '@/modules/
 
 const ROUTE = '/modules/mm/receiving/expected-receipts'
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    OPEN: 'info',
-    IN_PROGRESS: 'warning',
-    CLOSED: 'success',
-    CANCELLED: 'danger',
-}
-
 type FilterOption = { value: string; label: string }
 
 const STATUS_FILTER_OPTIONS: FilterOption[] = [
@@ -49,11 +52,6 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
         <Notification type={type} title={title} closable duration={3500}>{msg}</Notification>,
         { placement: 'top-end' },
     )
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 const ExpectedReceiptsPage = () => {
@@ -210,59 +208,72 @@ const ExpectedReceiptsPage = () => {
 
     const columns: ColumnDef<MmExpectedReceipt>[] = useMemo(() => [
         {
-            header: 'Document #',
+            header: 'Document',
             accessorKey: 'documentNumber',
             cell: ({ row }) => (
-                <button
-                    type="button"
-                    className="text-primary hover:underline"
+                <RcvDocNumberCell
+                    icon="receipt"
+                    primary={row.original.documentNumber}
+                    secondary={fmtRcvDate(row.original.expectedDate)}
                     onClick={() => router.push(`${ROUTE}/${row.original.id}`)}
-                >
-                    {row.original.documentNumber}
-                </button>
+                />
             ),
         },
         {
             header: 'Supplier',
             accessorKey: 'supplier.supplierName',
-            cell: ({ row }) => row.original.supplier?.supplierName ?? '—',
+            cell: ({ row }) => (
+                <RcvPartyCell
+                    name={row.original.supplier?.supplierName}
+                    subtitle={row.original.supplier?.supplierCode}
+                />
+            ),
         },
         {
             header: 'Source',
             accessorKey: 'sourceType',
             cell: ({ row }) => (
-                <span>
-                    {row.original.sourceType}
-                    {row.original.purchaseOrder?.poNumber
-                        ? ` · ${row.original.purchaseOrder.poNumber}`
-                        : row.original.asn?.asnNumber
-                          ? ` · ${row.original.asn.asnNumber}`
-                          : ''}
-                </span>
+                <RcvSourceTag
+                    sourceType={row.original.sourceType}
+                    ref={
+                        row.original.purchaseOrder?.poNumber
+                            ?? row.original.asn?.asnNumber
+                            ?? null
+                    }
+                />
             ),
         },
         {
             header: 'Warehouse',
             accessorKey: 'warehouse.name',
-            cell: ({ row }) => row.original.warehouse?.name ?? '—',
+            cell: ({ row }) => (
+                <RcvPartyCell
+                    kind="warehouse"
+                    name={row.original.warehouse?.name}
+                    subtitle={row.original.warehouse?.code}
+                />
+            ),
         },
         {
             header: 'Expected',
             accessorKey: 'expectedDate',
-            cell: ({ row }) => fmtDate(row.original.expectedDate),
+            cell: ({ row }) => <RcvDateCell iso={row.original.expectedDate} />,
         },
         {
             header: 'Lines',
             accessorKey: 'lines',
-            cell: ({ row }) => row.original.lines?.length ?? 0,
+            cell: ({ row }) => (
+                <RcvQtyCell value={row.original.lines?.length ?? 0} label="Lines" />
+            ),
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_EXPECTED_RECEIPT_STATUS)}
+                />
             ),
         },
         {
@@ -324,13 +335,15 @@ const ExpectedReceiptsPage = () => {
                     />
                 </div>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[880px]"
                 />
             </AdaptiveCard>
 

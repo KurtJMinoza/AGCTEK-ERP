@@ -4,10 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from '../components/SupplierResponsiveTable'
+import {
+    SmAnimatedStatus,
+    SmContactCell,
+    SmPlainCell,
+    SmSupplierIdentityCell,
+    SM_RECORD_STATUS,
+} from '../components/SupplierTableCells'
+import { supplierParentBreadcrumbs } from '../utils/supplierPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -36,7 +43,6 @@ import { supplierCategoryService } from '../services/supplierCategoryService'
 import { paymentTermsService } from '../services/paymentTermsService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { Supplier, SupplierCategory, PaymentTerms, SupplierListResponse } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     email as emailRule,
@@ -53,15 +59,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE_PATH = '/modules/mm/supplier-management/supplier-master'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    PENDING_REVIEW: 'info',
-    APPROVED: 'info',
-    ACTIVE: 'success',
-    INACTIVE: 'warning',
-    BLOCKED: 'danger',
-}
 
 type FilterOption = { value: string; label: string }
 
@@ -82,7 +79,7 @@ function pushToast(type: 'success' | 'danger' | 'warning' | 'info', title: strin
 
 const SupplierListPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE_PATH)
 
     const [data, setData] = useState<Supplier[]>([])
     const [total, setTotal] = useState(0)
@@ -308,27 +305,17 @@ const SupplierListPage = () => {
     const columns = useMemo<ColumnDef<Supplier>[]>(
         () => [
             {
-                header: 'Code',
-                accessorKey: 'supplierCode',
-                size: 120,
-                cell: ({ row }) => (
-                    <span className="font-mono text-xs font-semibold text-primary">{row.original.supplierCode}</span>
-                ),
-            },
-            {
-                header: 'Supplier Name',
-                accessorKey: 'supplierName',
-                size: 200,
+                header: 'Supplier',
+                id: 'supplier',
+                size: 240,
                 cell: ({ row }) => {
                     const s = row.original
                     return (
-                        <button
-                            type="button"
+                        <SmSupplierIdentityCell
+                            code={s.supplierCode}
+                            name={s.supplierName}
                             onClick={() => router.push(`${ROUTE_PATH}/${s.id}`)}
-                            className="block truncate text-left text-sm font-semibold text-gray-900 hover:text-primary hover:underline dark:text-gray-100"
-                        >
-                            {s.supplierName}
-                        </button>
+                        />
                     )
                 },
             },
@@ -336,36 +323,38 @@ const SupplierListPage = () => {
                 header: 'Type',
                 accessorKey: 'supplierType',
                 size: 100,
-                cell: ({ row }) => <span className="text-sm">{row.original.supplierType || '—'}</span>,
+                cell: ({ row }) => (
+                    <SmPlainCell>{row.original.supplierType?.replace(/_/g, ' ')}</SmPlainCell>
+                ),
             },
             {
                 header: 'Category',
                 accessorKey: 'categoryId',
                 size: 120,
-                cell: ({ row }) => <span className="text-sm">{row.original.category?.name || '—'}</span>,
+                cell: ({ row }) => (
+                    <SmPlainCell>{row.original.category?.name}</SmPlainCell>
+                ),
             },
             {
                 header: 'Contact',
                 accessorKey: 'email',
                 size: 160,
-                cell: ({ row }) => {
-                    const s = row.original
-                    return (
-                        <div className="min-w-0 text-xs">
-                            {s.primaryContact && <div className="truncate">{s.primaryContact}</div>}
-                            {s.email && <div className="truncate text-gray-500">{s.email}</div>}
-                        </div>
-                    )
-                },
+                cell: ({ row }) => (
+                    <SmContactCell
+                        name={row.original.primaryContact}
+                        email={row.original.email}
+                    />
+                ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
                 size: 120,
                 cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                        {row.original.status.replace(/_/g, ' ')}
-                    </StatusBadge>
+                    <SmAnimatedStatus
+                        status={row.original.status}
+                        tone={SM_RECORD_STATUS[row.original.status] ?? 'default'}
+                    />
                 ),
             },
             {
@@ -443,8 +432,8 @@ const SupplierListPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Master"
                 description="Manage supplier records, lifecycle, and purchasing data."
                 actions={
@@ -477,16 +466,17 @@ const SupplierListPage = () => {
                 </div>
 
                 <div className="mt-4">
-                    <DataTable<Supplier>
+                    <SupplierResponsiveTable<Supplier>
                         columns={columns}
                         data={data}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        tableMinWidthClass="min-w-[920px]"
                     />
                 </div>
             </AdaptiveCard>

@@ -3,11 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ValuationResponsiveTable, {
+    type ColumnDef,
+} from '../components/ValuationResponsiveTable'
+import {
+    VAL_LANDED_STATUS,
+    ValAnimatedStatus,
+    ValDocNumberCell,
+    ValMoneyCell,
+    ValPlainCell,
+    valStatusTone,
+} from '../components/valuationTableUi'
+import { valuationParentBreadcrumbs } from '../utils/valuationPageUi'
 import FormDialog from '@/components/shared/FormDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -18,11 +27,8 @@ import { HiOutlinePlus } from 'react-icons/hi'
 import { valuationService } from '../services/valuationService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { LandedCost } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
-
 const ROUTE = '/modules/mm/valuation/landed-cost'
-type Opt = { value: string; label: string }
 
 const COST_TYPES = [
     { value: 'FREIGHT', label: 'Freight' },
@@ -43,7 +49,7 @@ const ALLOC_BASES = [
 ]
 
 const LandedCostPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = valuationParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<LandedCost[]>([])
     const [loading, setLoading] = useState(false)
     const { ensure: ensureFormRefs, companies, warehouses } = useLazyMmRefs()
@@ -91,12 +97,35 @@ const LandedCostPage = () => {
 
     const columns: ColumnDef<LandedCost>[] = useMemo(
         () => [
-            { header: 'Document', accessorKey: 'documentNumber' },
-            { header: 'Base', accessorKey: 'allocationBase' },
-            { header: 'Total', accessorKey: 'totalAmount' },
+            {
+                header: 'Document',
+                cell: ({ row }) => (
+                    <ValDocNumberCell
+                        primary={row.original.documentNumber}
+                        icon="landed"
+                    />
+                ),
+            },
+            {
+                header: 'Base',
+                cell: ({ row }) => (
+                    <ValPlainCell mono>{row.original.allocationBase}</ValPlainCell>
+                ),
+            },
+            {
+                header: 'Total',
+                cell: ({ row }) => (
+                    <ValMoneyCell amount={row.original.totalAmount} emphasize="positive" />
+                ),
+            },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <ValAnimatedStatus
+                        status={row.original.status}
+                        tone={valStatusTone(row.original.status, VAL_LANDED_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'Actions',
@@ -196,10 +225,10 @@ const LandedCostPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Landed Cost"
                 description="Freight, duty, customs, insurance, and handling — allocate and capitalize onto inventory valuation."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button
                         variant="solid"
@@ -211,7 +240,13 @@ const LandedCostPage = () => {
                 }
             />
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ValuationResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[920px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

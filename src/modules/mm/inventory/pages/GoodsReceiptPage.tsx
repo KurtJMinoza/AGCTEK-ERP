@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -38,8 +40,6 @@ import { goodsReceiptToSlip } from '@/modules/mm/receiving/utils/receiptSlipMapp
 import { goodsReceiptService } from '../services/goodsReceiptService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsReceipt, StockOpsQueryParams } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001ReceivingWorkflowStrip from '@/modules/mm/shared/components/Iso9001ReceivingWorkflowStrip'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import { DocStatusBadge, StockStatusTag } from '../utils/inventoryUi'
@@ -104,7 +104,9 @@ function hasDiscrepancy(gr: GoodsReceipt) {
 }
 
 const GoodsReceiptPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const pathname = usePathname()
+    const isReceivingHub = Boolean(pathname?.includes('/receiving/'))
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(pathname || ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
@@ -230,6 +232,11 @@ const GoodsReceiptPage = () => {
     const [printSlip, setPrintSlip] = useState<
         ReturnType<typeof goodsReceiptToSlip> | null
     >(null)
+    const [confirmAction, setConfirmAction] = useState<{
+        action: string
+        fn: () => void
+    } | null>(null)
+    const [workflowActor, setWorkflowActor] = useState('')
 
     const openPrint = useCallback(async (id: string) => {
         try {
@@ -299,13 +306,6 @@ const GoodsReceiptPage = () => {
         [detail, refreshDetail, fetchList, workflowActor],
     )
 
-    /* ── Confirm dialog ── */
-    const [confirmAction, setConfirmAction] = useState<{
-        action: string
-        fn: () => void
-    } | null>(null)
-    const [workflowActor, setWorkflowActor] = useState('')
-
     const detailLineColumns = useMemo<ColumnDef<GoodsReceipt['lines'][number]>[]>(
         () => [
             {
@@ -363,6 +363,9 @@ const GoodsReceiptPage = () => {
     const columns: ColumnDef<GoodsReceipt>[] = useMemo(
         () =>
             buildStockDocColumns<GoodsReceipt>({
+                presentation: isReceivingHub ? 'receiving' : 'inventory',
+                docIcon: 'gr',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: {
                     header: 'Supplier',
                     value: (row) => supplierLabel(row),
@@ -471,7 +474,7 @@ const GoodsReceiptPage = () => {
                     },
                 ],
             }),
-        [openDetail, openPrint, fetchList],
+        [openDetail, openPrint, fetchList, isReceivingHub],
     )
 
     const chips = useMemo<FilterChip[]>(() => {
@@ -524,8 +527,8 @@ const GoodsReceiptPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Goods Receipt"
                 description="Receive materials into inventory — every receipt posts through the inventory ledger."
                 actions={
@@ -534,8 +537,6 @@ const GoodsReceiptPage = () => {
                     </Button>
                 }
             />
-            <Iso9001ReceivingWorkflowStrip activeStep={1} />
-
             <FilterBar
                 className="mb-4"
                 fields={fields}
@@ -559,15 +560,17 @@ const GoodsReceiptPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
                     noData={rows.length === 0}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 

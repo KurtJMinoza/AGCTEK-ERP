@@ -3,10 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import InventoryControlResponsiveTable, {
+    type ColumnDef,
+} from '../components/InventoryControlResponsiveTable'
+import {
+    IC_VARIANCE_STATUS,
+    IcAnimatedStatus,
+    IcDocCell,
+    IcMaterialCell,
+    IcMoneyCell,
+    IcPlainCell,
+    IcQtyCell,
+    icStatusTone,
+} from '../components/inventoryControlTableUi'
+import { inventoryControlParentBreadcrumbs } from '../utils/inventoryControlPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
@@ -18,8 +29,6 @@ import { FormItem } from '@/components/ui/Form'
 import { inventoryControlService } from '../services/inventoryControlService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { CountSession, CountVariance, InventoryCountLine } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/variance-analysis'
 const { TabList, TabNav, TabContent } = Tabs
@@ -34,7 +43,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const VarianceAnalysisPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryControlParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState<'engine' | 'legacy'>('engine')
     const [sessions, setSessions] = useState<CountSession[]>([])
     const [sessionId, setSessionId] = useState('')
@@ -193,49 +202,55 @@ const VarianceAnalysisPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.task?.material?.materialCode ??
-                    row.original.taskId.slice(0, 8),
+                cell: ({ row }) => (
+                    <IcMaterialCell
+                        code={
+                            row.original.task?.material?.materialCode ??
+                            row.original.taskId.slice(0, 8)
+                        }
+                        name={row.original.task?.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'System',
-                cell: ({ row }) => Number(row.original.systemQuantity),
+                cell: ({ row }) => <IcQtyCell value={row.original.systemQuantity} />,
             },
             {
                 header: 'Physical',
-                cell: ({ row }) => Number(row.original.countQuantity),
+                cell: ({ row }) => <IcQtyCell value={row.original.countQuantity} />,
             },
             {
                 header: 'Variance',
-                cell: ({ row }) => Number(row.original.varianceQuantity),
+                cell: ({ row }) => {
+                    const n = Number(row.original.varianceQuantity)
+                    return (
+                        <IcQtyCell
+                            value={row.original.varianceQuantity}
+                            emphasize={n > 0 ? 'positive' : n < 0 ? 'negative' : undefined}
+                        />
+                    )
+                },
             },
             {
                 header: 'Value',
-                cell: ({ row }) => Number(row.original.estimatedValue).toFixed(2),
+                cell: ({ row }) => <IcMoneyCell amount={row.original.estimatedValue} />,
             },
             {
                 header: 'Root cause',
-                cell: ({ row }) =>
-                    row.original.rootCause ? (
-                        <span className="line-clamp-2 text-xs">{row.original.rootCause}</span>
-                    ) : (
-                        <span className="text-gray-400">—</span>
-                    ),
+                cell: ({ row }) => (
+                    <IcPlainCell clamp muted={!row.original.rootCause}>
+                        {row.original.rootCause}
+                    </IcPlainCell>
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge
-                        tone={
-                            row.original.status === 'RECOUNT_REQUIRED'
-                                ? 'warning'
-                                : row.original.status === 'INVESTIGATED'
-                                  ? 'success'
-                                  : 'default'
-                        }
-                    >
-                        {row.original.status.replaceAll('_', ' ')}
-                    </StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.status}
+                        tone={icStatusTone(row.original.status, IC_VARIANCE_STATUS)}
+                    />
                 ),
             },
             {
@@ -256,36 +271,61 @@ const VarianceAnalysisPage = () => {
         () => [
             {
                 header: 'Count',
-                cell: ({ row }) => row.original.count?.countNumber ?? '—',
+                cell: ({ row }) => (
+                    <IcDocCell
+                        icon="variance"
+                        primary={row.original.count?.countNumber ?? '—'}
+                    />
+                ),
             },
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode ??
-                    row.original.materialId.slice(0, 8),
+                cell: ({ row }) => (
+                    <IcMaterialCell
+                        code={
+                            row.original.material?.materialCode ??
+                            row.original.materialId.slice(0, 8)
+                        }
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'System',
-                cell: ({ row }) => Number(row.original.systemQuantity ?? 0),
+                cell: ({ row }) => <IcQtyCell value={row.original.systemQuantity ?? 0} />,
             },
             {
                 header: 'Physical',
-                cell: ({ row }) =>
-                    Number(
-                        row.original.finalQuantity ??
+                cell: ({ row }) => (
+                    <IcQtyCell
+                        value={
+                            row.original.finalQuantity ??
                             row.original.recountQuantity ??
                             row.original.countedQuantity ??
-                            0,
-                    ),
+                            0
+                        }
+                    />
+                ),
             },
             {
                 header: 'Variance qty',
-                cell: ({ row }) => Number(row.original.varianceQuantity ?? 0),
+                cell: ({ row }) => {
+                    const n = Number(row.original.varianceQuantity ?? 0)
+                    return (
+                        <IcQtyCell
+                            value={row.original.varianceQuantity ?? 0}
+                            emphasize={n > 0 ? 'positive' : n < 0 ? 'negative' : undefined}
+                        />
+                    )
+                },
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="warning">{row.original.status}</StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.status}
+                        tone={icStatusTone(row.original.status, IC_VARIANCE_STATUS)}
+                    />
                 ),
             },
         ],
@@ -294,14 +334,12 @@ const VarianceAnalysisPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Variance Analysis"
-                description="Investigate count variances, document root cause, and issue the formal variance report before adjustment approval."
+                description="Review count variances, investigate root cause, and prepare adjustment requests."
+                breadcrumbs={parentBreadcrumbs}
                 actions={<Button onClick={load}>Refresh</Button>}
             />
-            <Iso9001WorkflowStrip activeStep={3} />
-
             <AdaptiveCard className="mb-4">
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                     <FormItem label="Warehouse filter">
@@ -402,19 +440,23 @@ const VarianceAnalysisPage = () => {
                                     placeholder="Summary for management review (ISO 9001 documented output)"
                                 />
                             </FormItem>
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={varianceColumns}
                                 data={variances}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[1040px]"
                             />
                         </div>
                     </TabContent>
                     <TabContent value="legacy">
                         <div className="mt-4">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={legacyColumns}
                                 data={legacyRows}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[960px]"
                             />
                         </div>
                     </TabContent>

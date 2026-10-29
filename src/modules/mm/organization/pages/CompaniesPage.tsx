@@ -9,6 +9,11 @@ import type {
 } from '@/modules/mm/material-master/components/RefCrudPage'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import type { MmCompany } from '@/modules/mm/material-master/types'
+import {
+    OrgAddressCell,
+    OrgCompanyCell,
+    OrgTinCell,
+} from '../components/organizationTableUi'
 import { HiOutlineOfficeBuilding } from 'react-icons/hi'
 
 const ROUTE_PATH = '/modules/mm/organization/companies'
@@ -86,41 +91,28 @@ const CompaniesPage = () => {
     const columns = useMemo<ColumnDef<MmCompany>[]>(
         () => [
             {
-                header: '',
-                id: 'logo',
-                size: 56,
-                cell: ({ row }) =>
-                    row.original.logoUrl ? (
-                        <img
-                            src={row.original.logoUrl}
-                            alt=""
-                            className="h-9 w-9 rounded-lg border border-gray-200 object-contain bg-white shadow-sm dark:border-gray-600"
-                        />
-                    ) : (
-                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-xs text-gray-400 dark:bg-gray-800">
-                            —
-                        </span>
-                    ),
-            },
-            {
-                header: 'Code',
-                accessorKey: 'code',
-                size: 120,
+                header: 'Company',
+                id: 'company',
+                size: 280,
                 cell: ({ row }) => (
-                    <span className="font-mono text-xs font-semibold">{row.original.code}</span>
+                    <OrgCompanyCell
+                        code={row.original.code}
+                        name={row.original.name}
+                        logoUrl={row.original.logoUrl}
+                    />
                 ),
             },
-            { header: 'Name', accessorKey: 'name', size: 200 },
-            { header: 'TIN', accessorKey: 'tin', size: 140 },
             {
-                header: 'Address',
+                header: 'TIN',
+                accessorKey: 'tin',
+                size: 140,
+                cell: ({ row }) => <OrgTinCell tin={row.original.tin} />,
+            },
+            {
+                header: 'Registered address',
                 accessorKey: 'address',
-                size: 260,
-                cell: ({ row }) => (
-                    <span className="line-clamp-2 text-sm text-gray-600 dark:text-gray-300">
-                        {row.original.address || '—'}
-                    </span>
-                ),
+                size: 280,
+                cell: ({ row }) => <OrgAddressCell address={row.original.address} />,
             },
         ],
         [],
@@ -167,6 +159,20 @@ const CompaniesPage = () => {
                     : 'Add a legal entity with code, TIN, registered address, and logo.'
             }
             getItemLabel={(item) => `${item.code} — ${item.name}`}
+            animatedTable
+            integrateBreadcrumbs
+            tableMinWidthClass="min-w-[720px]"
+            tableMobile={{
+                title: (row) => row.code,
+                subtitle: (row) => row.name,
+                fields: [
+                    { label: 'TIN', value: (row) => row.tin ?? '—' },
+                    {
+                        label: 'Address',
+                        value: (row) => row.address ?? '—',
+                    },
+                ],
+            }}
         />
     )
 }

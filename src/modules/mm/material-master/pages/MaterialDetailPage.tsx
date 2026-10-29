@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -55,6 +54,7 @@ import MaterialFormDialog from '../components/MaterialFormDialog'
 import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload } from '../types'
 import type { SupplierMaterial } from '@/modules/mm/supplier-management/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { materialMasterFeatureDescription } from '../utils/materialMasterPageUi'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -99,13 +99,13 @@ const MaterialDetailPage = () => {
     const id = params?.id as string
     const { data: material, loading, refresh } = useMaterial(id)
     const { canUpdate } = useResourceAccess()
-    const breadcrumbItems = useMemo(
-        () =>
-            buildErpBreadcrumbs(`/modules/mm/material-master/materials-skus/${id}`, {
-                detailLabel: material?.materialCode,
-            }),
-        [id, material?.materialCode],
-    )
+    const parentBreadcrumbs = useMemo(() => {
+        const items = buildErpBreadcrumbs(
+            `/modules/mm/material-master/materials-skus/${id}`,
+            { detailLabel: material?.materialCode },
+        )
+        return items.length > 1 ? items.slice(0, -1) : items
+    }, [id, material?.materialCode])
 
     const [tab, setTab] = useState('overview')
     const [editOpen, setEditOpen] = useState(false)
@@ -138,7 +138,7 @@ const MaterialDetailPage = () => {
     if (loading) {
         return (
             <PageContainer>
-                <Breadcrumb items={breadcrumbItems} />
+                <PageHeader breadcrumbs={parentBreadcrumbs} title="Materials / SKUs" description={materialMasterFeatureDescription('Materials / SKUs')} />
                 <div className="flex h-64 items-center justify-center"><Spinner size={40} /></div>
             </PageContainer>
         )
@@ -147,7 +147,7 @@ const MaterialDetailPage = () => {
     if (!material) {
         return (
             <PageContainer>
-                <Breadcrumb items={breadcrumbItems} />
+                <PageHeader breadcrumbs={parentBreadcrumbs} title="Materials / SKUs" description={materialMasterFeatureDescription('Materials / SKUs')} />
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
                     <p className="text-lg font-semibold heading-text">Material not found</p>
                     <Button size="sm" onClick={() => router.push('/modules/mm/material-master/materials-skus')}>View materials</Button>
@@ -158,9 +158,8 @@ const MaterialDetailPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
-
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title={material.materialName}
                 description={`${material.materialCode}${material.sku ? ` · SKU: ${material.sku}` : ''}${material.brand ? ` · ${material.brand}` : ''}${material.model ? ` ${material.model}` : ''}`}
                 actions={
