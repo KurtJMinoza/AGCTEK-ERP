@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -24,7 +25,10 @@ import { storageShelfService } from '../services/storageShelfService'
 import UomCodeSelect from '@/modules/mm/shared/UomCodeSelect'
 import { useUoms } from '@/modules/mm/shared/useUoms'
 import type { StorageBin, StorageShelf, StorageSection } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    warehouseParentBreadcrumbs,
+    warehouseStorageStatusTone,
+} from '../utils/warehousePageUi'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 import {
     WmBinCapacityCell,
@@ -32,7 +36,6 @@ import {
     WmBinOperationsCell,
     WmStorageBinCell,
     WmStorageStatusCell,
-    storageTableRowEnterClass,
 } from '../components/StorageTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/storage-bins'
@@ -44,7 +47,10 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const StorageBinsPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const router = useRouter()
+    const searchParams = useSearchParams()
+    const handledEditQuery = useRef(false)
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
     const { uoms } = useUoms()
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<StorageBin[]>([])
@@ -106,7 +112,7 @@ const StorageBinsPage = () => {
         }).catch(() => {})
     }, [])
 
-    const openCreate = () => {
+    const openCreate = useCallback(() => {
         setEditing(null)
         setFormData({
             code: '', storageSectionId: sections[0]?.id ?? '', shelfId: '', barcode: '',
@@ -114,9 +120,9 @@ const StorageBinsPage = () => {
             weightUom: 'KG', volumeUom: 'L', pickingAllowed: true, putawayAllowed: true,
         })
         setFormOpen(true)
-    }
+    }, [sections])
 
-    const openEdit = (item: StorageBin) => {
+    const openEdit = useCallback((item: StorageBin) => {
         setEditing(item)
         setFormData({
             code: item.code, storageSectionId: item.storageSectionId, shelfId: item.shelfId ?? '', barcode: item.barcode || '',
@@ -125,7 +131,28 @@ const StorageBinsPage = () => {
             pickingAllowed: item.pickingAllowed, putawayAllowed: item.putawayAllowed,
         })
         setFormOpen(true)
-    }
+    }, [])
+
+    useEffect(() => {
+        const editId = searchParams.get('edit')
+        if (!editId || handledEditQuery.current || loading) return
+
+        const openFromQuery = async () => {
+            let bin = items.find((b) => b.id === editId)
+            if (!bin) {
+                try {
+                    bin = await storageBinService.get(editId)
+                } catch {
+                    return
+                }
+            }
+            handledEditQuery.current = true
+            openEdit(bin)
+            router.replace(ROUTE, { scroll: false })
+        }
+
+        void openFromQuery()
+    }, [searchParams, loading, items, openEdit, router])
 
     const handleSave = async () => {
         const payload = { ...formData, shelfId: formData.shelfId || null }
@@ -259,7 +286,63 @@ const StorageBinsPage = () => {
                 ),
             },
         ],
-        [],
+        [openEdit],
+    )
+
+    const binMobile = useMemo(
+        () => ({
+            title: (item: StorageBin) => item.code,
+            subtitle: (item: StorageBin) => item.barcode?.trim() || item.storageSection?.name || undefined,
+            status: (item: StorageBin) => ({
+                text: item.status.replace(/_/g, ' '),
+                tone: warehouseStorageStatusTone(item.status),
+            }),
+            onPress: (item: StorageBin) => openEdit(item),
+            fields: [
+                {
+                    label: 'Section',
+                    value: (item: StorageBin) =>
+                        item.storageSection
+                            ? `${item.storageSection.code} — ${item.storageSection.name}`
+                            : '—',
+                },
+                {
+                    label: 'Shelf',
+                    value: (item: StorageBin) => item.shelf?.code ?? '—',
+                },
+                {
+                    label: 'Warehouse',
+                    value: (item: StorageBin) =>
+                        item.storageSection?.storageType?.warehouse?.name ?? '—',
+                },
+                {
+                    label: 'Utilization',
+                    value: (item: StorageBin) => {
+                        const pct = item.utilizationPct
+                        if (pct != null && Number.isFinite(Number(pct))) {
+                            return `${Number(pct).toFixed(0)}%`
+                        }
+                        const cur = item.currentQuantity
+                        const cap = Number(item.capacityQuantity)
+                        if (cur != null && cap > 0) {
+                            return `${Number(cur).toLocaleString()} / ${cap.toLocaleString()}`
+                        }
+                        return '—'
+                    },
+                },
+                {
+                    label: 'Operations',
+                    value: (item: StorageBin) => {
+                        const flags = [
+                            item.pickingAllowed ? 'Pick' : null,
+                            item.putawayAllowed ? 'Putaway' : null,
+                        ].filter(Boolean)
+                        return flags.length ? flags.join(', ') : '—'
+                    },
+                },
+            ],
+        }),
+        [openEdit],
     )
 
     const filteredItems = useMemo(
@@ -269,8 +352,16 @@ const StorageBinsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Storage Bins" description="Manage individual storage bin locations and their capacity." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add bin</Button>} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Storage Bins"
+                description="Manage individual storage bin locations and their capacity."
+                actions={
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
+                        Add bin
+                    </Button>
+                }
+            />
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 sm:max-w-xl">
                     <Input
@@ -287,22 +378,20 @@ const StorageBinsPage = () => {
                     </p>
                 ) : null}
                 {selectedRows.size > 0 && (
-                    <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>Delete selected</Button>
                         </div>
                     </div>
                 )}
-                <DataTable<StorageBin>
+                <WarehouseResponsiveTable<StorageBin>
                     columns={columns}
                     data={filteredItems}
                     compact
-                    fit
                     loading={loading}
                     getRowId={(row) => row.id}
-                    rowClassName={(_, index) => storageTableRowEnterClass(index)}
                     noData={!loading && filteredItems.length === 0}
                     selectable
                     checkboxChecked={(row) => selectedRows.has(row.id)}
@@ -310,6 +399,9 @@ const StorageBinsPage = () => {
                     onIndeterminateCheckBoxChange={(checked, rows) =>
                         handleSelectAllChange(checked, rows as any)
                     }
+                    tableMinWidthClass="min-w-[720px]"
+                    mobile={binMobile}
+                    instanceId="storage-bins"
                 />
             </AdaptiveCard>
 

@@ -11,11 +11,14 @@ export type InventoryMobileConfig<T> = ReceivingMobileConfig<T>
 
 type Props<T> = ComponentProps<typeof ReceivingResponsiveTable<T>>
 
-export default function InventoryResponsiveTable<T>(props: Props<T>) {
+export default function InventoryResponsiveTable<T>({
+    rowEnterClass = invTableRowEnterClass,
+    ...rest
+}: Props<T>) {
     return (
         <ReceivingResponsiveTable<T>
-            {...props}
-            rowEnterClass={invTableRowEnterClass}
+            {...rest}
+            rowEnterClass={rowEnterClass}
         />
     )
 }

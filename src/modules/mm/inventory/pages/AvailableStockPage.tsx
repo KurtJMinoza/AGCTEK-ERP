@@ -7,6 +7,7 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
 import { InvPlainCell, InvQtyCell } from '../components/inventoryTableUi'
 import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import { buildAtpBalanceMobileConfig } from '../utils/inventoryBalanceMobile'
 import { StockStatusTag } from '../utils/inventoryUi'
 import FilterBar, {
     type FilterChip,
@@ -340,6 +341,8 @@ const AvailableStockPage = () => {
         [],
     )
 
+    const atpBalanceMobile = useMemo(() => buildAtpBalanceMobileConfig(), [])
+
     const reservedPct =
         result && result.onHand > 0
             ? Math.min(100, Math.round((result.reserved / result.onHand) * 100))
@@ -452,6 +455,8 @@ const AvailableStockPage = () => {
                                 `${row.stockStatus}-${row.storageBinId ?? index}`
                             }
                             tableMinWidthClass="min-w-[720px]"
+                            mobile={atpBalanceMobile}
+                            instanceId="available-stock"
                         />
                     </AdaptiveCard>
                 </>

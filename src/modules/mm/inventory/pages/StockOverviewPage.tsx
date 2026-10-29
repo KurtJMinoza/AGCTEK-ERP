@@ -1,12 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
 import { InvPlainCell, InvQtyCell } from '../components/inventoryTableUi'
-import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import {
+    INVENTORY_LEDGER_PATH,
+    inventoryParentBreadcrumbs,
+} from '../utils/inventoryPageUi'
+import { buildInventoryBalanceMobileConfig } from '../utils/inventoryBalanceMobile'
 import { StockStatusTag } from '../utils/inventoryUi'
 import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import FilterBar, {
@@ -36,7 +41,6 @@ import {
 import MmCompanyCell from '@/modules/mm/shared/MmCompanyCell'
 
 const ROUTE = '/modules/mm/inventory-management/stock-overview'
-const LEDGER_ROUTE = '/modules/mm/inventory-management/inventory-ledger'
 
 type Opt = { value: string; label: string }
 
@@ -71,6 +75,7 @@ function ago(iso?: string) {
 }
 
 const StockOverviewPage = () => {
+    const router = useRouter()
     const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const {
         companies,
@@ -481,7 +486,7 @@ const StockOverviewPage = () => {
                 id: 'ledger',
                 cell: ({ row }) => (
                     <Link
-                        href={`${LEDGER_ROUTE}?materialId=${row.original.materialId}&warehouseId=${row.original.warehouseId}`}
+                        href={`${INVENTORY_LEDGER_PATH}?materialId=${row.original.materialId}&warehouseId=${row.original.warehouseId}`}
                         className="text-primary text-sm hover:underline"
                     >
                         Ledger
@@ -490,6 +495,22 @@ const StockOverviewPage = () => {
             },
         ],
         [],
+    )
+
+    const balanceMobile = useMemo(
+        () =>
+            buildInventoryBalanceMobileConfig({
+                showCompany: true,
+                showReserved: true,
+                onPress: (row) => {
+                    const params = new URLSearchParams({
+                        materialId: row.materialId,
+                        warehouseId: row.warehouseId,
+                    })
+                    router.push(`${INVENTORY_LEDGER_PATH}?${params.toString()}`)
+                },
+            }),
+        [router],
     )
 
     const summaryCards = useMemo(
@@ -597,6 +618,7 @@ const StockOverviewPage = () => {
                     getRowId={(row, index) =>
                         `${row.materialId}-${row.warehouseId}-${row.storageBinId ?? index}`
                     }
+                    noData={!loading && rows.length === 0}
                     pagingData={{
                         total: meta.total,
                         pageIndex: page,
@@ -604,6 +626,8 @@ const StockOverviewPage = () => {
                     }}
                     onPaginationChange={setPage}
                     tableMinWidthClass="min-w-[1100px]"
+                    mobile={balanceMobile}
+                    instanceId="stock-overview"
                 />
             </AdaptiveCard>
         </PageContainer>

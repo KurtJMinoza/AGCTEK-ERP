@@ -34,6 +34,7 @@ import {
 } from '../services/inventoryService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { StockStatusTag } from '../utils/inventoryUi'
+import { buildInventoryBalanceMobileConfig } from '../utils/inventoryBalanceMobile'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
 
@@ -132,8 +133,49 @@ const InventoryStatusPage = () => {
 
     const openStatusChange = useCallback(async () => {
         await ensureFormRefs('companies', 'warehouses', 'materials')
+        setChangeForm({
+            companyId: '',
+            warehouseId: '',
+            materialId: '',
+            fromStatus: 'UNRESTRICTED',
+            toStatus: 'BLOCKED',
+            quantity: 1,
+            uomId: '',
+            postingDate: new Date().toISOString().slice(0, 10),
+            documentDate: new Date().toISOString().slice(0, 10),
+        })
         setChangeOpen(true)
     }, [ensureFormRefs])
+
+    const openStatusChangeFromBalance = useCallback(
+        async (row: InventoryBalance) => {
+            await ensureFormRefs('companies', 'warehouses', 'materials')
+            const matOpt = materials.find((m) => m.value === row.materialId)
+            const baseUomId = (matOpt?.meta as { baseUomId?: string } | undefined)
+                ?.baseUomId
+            const onHand = Number(row.quantity ?? 0)
+            const available = Number(row.availableQuantity ?? 0)
+            const qty = available > 0 ? available : onHand > 0 ? onHand : 1
+            const from = row.stockStatus || 'UNRESTRICTED'
+            const to =
+                from === 'BLOCKED' || from === 'QUARANTINE' || from === 'RESTRICTED'
+                    ? 'UNRESTRICTED'
+                    : 'BLOCKED'
+            setChangeForm({
+                companyId: row.companyId,
+                warehouseId: row.warehouseId,
+                materialId: row.materialId,
+                fromStatus: from,
+                toStatus: to,
+                quantity: qty,
+                uomId: baseUomId ?? '',
+                postingDate: new Date().toISOString().slice(0, 10),
+                documentDate: new Date().toISOString().slice(0, 10),
+            })
+            setChangeOpen(true)
+        },
+        [ensureFormRefs, materials],
+    )
 
     const submitStatusChange = async () => {
         const mat = materials.find((m) => m.value === changeForm.materialId)
@@ -210,6 +252,16 @@ const InventoryStatusPage = () => {
             },
         ],
         [],
+    )
+
+    const balanceMobile = useMemo(
+        () =>
+            buildInventoryBalanceMobileConfig({
+                onPress: (row) => {
+                    void openStatusChangeFromBalance(row)
+                },
+            }),
+        [openStatusChangeFromBalance],
     )
 
     const statusCodes = statusOpts.filter((o) => o.value)
@@ -317,9 +369,10 @@ const InventoryStatusPage = () => {
                 title="Inventory Status"
                 description="Balances by stock status. Post status changes through the ledger engine."
                 actions={
-                    <>
+                    <div className="flex flex-wrap gap-2">
                         <Button
                             variant="plain"
+                            size="sm"
                             icon={<HiOutlineRefresh />}
                             loading={loading}
                             onClick={load}
@@ -328,12 +381,13 @@ const InventoryStatusPage = () => {
                         </Button>
                         <Button
                             variant="solid"
+                            size="sm"
                             icon={<HiOutlinePlus />}
-                            onClick={openStatusChange}
+                            onClick={() => void openStatusChange()}
                         >
                             Status Change
                         </Button>
-                    </>
+                    </div>
                 }
             />
 
@@ -414,7 +468,7 @@ const InventoryStatusPage = () => {
                     getRowId={(row, index) =>
                         `${row.materialId}-${row.warehouseId}-${row.storageBinId ?? index}`
                     }
-                    noData={rows.length === 0}
+                    noData={!loading && rows.length === 0}
                     pagingData={{
                         total: meta.total,
                         pageIndex: page,
@@ -422,6 +476,8 @@ const InventoryStatusPage = () => {
                     }}
                     onPaginationChange={setPage}
                     tableMinWidthClass="min-w-[880px]"
+                    mobile={balanceMobile}
+                    instanceId="inventory-status"
                 />
             </AdaptiveCard>
 

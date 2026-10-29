@@ -424,6 +424,46 @@ const SupplierListPage = () => {
         [openEdit, handleLifecycleAction, router],
     )
 
+    const supplierMobile = useMemo(
+        () => ({
+            title: (s: Supplier) => s.supplierCode,
+            subtitle: (s: Supplier) => s.supplierName,
+            status: (s: Supplier) => ({
+                text: s.status.replace(/_/g, ' '),
+                tone: SM_RECORD_STATUS[s.status] ?? 'default',
+            }),
+            onPress: (s: Supplier) => router.push(`${ROUTE_PATH}/${s.id}`),
+            fields: [
+                {
+                    label: 'Type',
+                    value: (s: Supplier) =>
+                        s.supplierType?.replace(/_/g, ' ') ?? '—',
+                },
+                {
+                    label: 'Category',
+                    value: (s: Supplier) => s.category?.name ?? '—',
+                },
+                {
+                    label: 'Contact',
+                    value: (s: Supplier) => s.primaryContact?.trim() || '—',
+                },
+                {
+                    label: 'Email',
+                    value: (s: Supplier) => s.email?.trim() || '—',
+                },
+                {
+                    label: 'Phone',
+                    value: (s: Supplier) => s.phone?.trim() || '—',
+                },
+                {
+                    label: 'Country',
+                    value: (s: Supplier) => s.country?.trim() || '—',
+                },
+            ],
+        }),
+        [router],
+    )
+
     const val = (key: string) => formValues[key] ?? ''
     const set = (key: string, v: any) => {
         setFormValues((p: any) => ({ ...p, [key]: v }))
@@ -475,8 +515,13 @@ const SupplierListPage = () => {
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        onSelectChange={(size) => {
+                            setPageSize(size)
+                            setPage(1)
+                        }}
                         tableMinWidthClass="min-w-[920px]"
+                        mobile={supplierMobile}
+                        instanceId="supplier-master"
                     />
                 </div>
             </AdaptiveCard>

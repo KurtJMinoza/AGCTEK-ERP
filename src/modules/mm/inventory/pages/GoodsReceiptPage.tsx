@@ -41,6 +41,7 @@ import { goodsReceiptService } from '../services/goodsReceiptService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsReceipt, StockOpsQueryParams } from '../types'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
+import { buildStockDocMobileConfig } from '../utils/stockDocMobile'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import { DocStatusBadge, StockStatusTag } from '../utils/inventoryUi'
 import InfoCard from '../../shared/InfoCard'
@@ -477,6 +478,39 @@ const GoodsReceiptPage = () => {
         [openDetail, openPrint, fetchList, isReceivingHub],
     )
 
+    const goodsReceiptMobile = useMemo(
+        () =>
+            buildStockDocMobileConfig<GoodsReceipt>({
+                onPress: (row) => {
+                    void openDetail(row.id)
+                },
+                detailLabel: 'Supplier',
+                detailValue: supplierLabel,
+                detailSub: (row) =>
+                    row.purchaseOrder?.poNumber
+                        ? `PO ${row.purchaseOrder.poNumber}`
+                        : undefined,
+                warehouse: (row) => row.warehouse?.name,
+                extraFields: [
+                    {
+                        label: 'Stock status',
+                        value: (row) =>
+                            (row.stockStatus ?? '—').replace(/_/g, ' '),
+                    },
+                    {
+                        label: 'Lines',
+                        value: (row) => String(row.lines?.length ?? 0),
+                    },
+                    {
+                        label: 'Variance',
+                        value: (row) =>
+                            hasDiscrepancy(row) ? 'Discrepancy' : '—',
+                    },
+                ],
+            }),
+        [openDetail],
+    )
+
     const chips = useMemo<FilterChip[]>(() => {
         const list: FilterChip[] = []
         if (search)
@@ -532,7 +566,12 @@ const GoodsReceiptPage = () => {
                 title="Goods Receipt"
                 description="Receive materials into inventory — every receipt posts through the inventory ledger."
                 actions={
-                    <Button variant="solid" icon={<HiOutlinePlus />} onClick={openCreate}>
+                    <Button
+                        variant="solid"
+                        size="sm"
+                        icon={<HiOutlinePlus />}
+                        onClick={() => void openCreate()}
+                    >
                         New Receipt
                     </Button>
                 }
@@ -565,12 +604,17 @@ const GoodsReceiptPage = () => {
                     data={rows}
                     loading={loading}
                     compact
-                    noData={rows.length === 0}
+                    noData={!loading && rows.length === 0}
                     getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
-                    onSelectChange={(s) => setPageSize(s)}
+                    onSelectChange={(s) => {
+                        setPageSize(s)
+                        setPage(1)
+                    }}
                     tableMinWidthClass="min-w-[960px]"
+                    mobile={goodsReceiptMobile}
+                    instanceId="goods-receipt"
                 />
             </AdaptiveCard>
 

@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
@@ -23,7 +23,10 @@ import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCollection, Hi
 import { storageTypeService } from '../services/storageTypeService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { StorageType } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    warehouseParentBreadcrumbs,
+    warehouseStorageStatusTone,
+} from '../utils/warehousePageUi'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 
 const ROUTE = '/modules/mm/warehouse-management/storage-types'
@@ -35,7 +38,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const StorageTypesPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<StorageType[]>([])
     const { ensure: ensureFormRefs, warehouses: warehouseOpts } = useLazyMmRefs()
@@ -83,7 +86,7 @@ const StorageTypesPage = () => {
         setFormOpen(true)
     }
 
-    const openEdit = async (item: StorageType) => {
+    const openEdit = useCallback(async (item: StorageType) => {
         await ensureFormRefs('warehouses')
         setEditing(item)
         setFormData({
@@ -94,7 +97,7 @@ const StorageTypesPage = () => {
             receivingAllowed: item.receivingAllowed ?? false, shippingAllowed: item.shippingAllowed ?? false,
         })
         setFormOpen(true)
-    }
+    }, [ensureFormRefs])
 
     const handleSave = async () => {
         try {
@@ -148,7 +151,55 @@ const StorageTypesPage = () => {
                 </Dropdown>
             ),
         },
-    ], [])
+    ], [openEdit])
+
+    const typeMobile = useMemo(
+        () => ({
+            title: (item: StorageType) => item.code,
+            subtitle: (item: StorageType) => item.name,
+            status: (item: StorageType) => ({
+                text: item.status.replace(/_/g, ' '),
+                tone: warehouseStorageStatusTone(item.status),
+            }),
+            onPress: (item: StorageType) => {
+                void openEdit(item)
+            },
+            fields: [
+                {
+                    label: 'Warehouse',
+                    value: (item: StorageType) => item.warehouse?.name ?? '—',
+                },
+                {
+                    label: 'Description',
+                    value: (item: StorageType) => item.description?.trim() || '—',
+                },
+                {
+                    label: 'Controls',
+                    value: (item: StorageType) => {
+                        const flags = [
+                            item.temperatureControlled ? 'Temp' : null,
+                            item.qualityControlled ? 'QC' : null,
+                            item.hazardous ? 'Haz' : null,
+                        ].filter(Boolean)
+                        return flags.length ? flags.join(', ') : '—'
+                    },
+                },
+                {
+                    label: 'Flow',
+                    value: (item: StorageType) => {
+                        const flags = [
+                            item.receivingAllowed ? 'Recv' : null,
+                            item.shippingAllowed ? 'Ship' : null,
+                            item.pickingAllowed ? 'Pick' : null,
+                            item.putawayAllowed ? 'Putaway' : null,
+                        ].filter(Boolean)
+                        return flags.length ? flags.join(', ') : '—'
+                    },
+                },
+            ],
+        }),
+        [openEdit],
+    )
 
     const filteredItems = useMemo(
         () => filterTableRows(items, search),
@@ -157,8 +208,16 @@ const StorageTypesPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Storage Types" description="Define storage type classifications within warehouses." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add storage type</Button>} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Storage Types"
+                description="Define storage type classifications within warehouses."
+                actions={
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => void openCreate()}>
+                        Add storage type
+                    </Button>
+                }
+            />
             <AdaptiveCard>
                 <div className="mb-4 max-w-md">
                     <Input
@@ -169,15 +228,31 @@ const StorageTypesPage = () => {
                     />
                 </div>
                 {selectedRows.size > 0 && (
-                    <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>Delete selected</Button>
                         </div>
                     </div>
                 )}
-                <DataTable<StorageType> columns={columns} data={filteredItems} compact loading={loading} noData={!loading && filteredItems.length === 0} selectable checkboxChecked={(row) => selectedRows.has(row.id)} onCheckBoxChange={handleCheckBoxChange} onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)} />
+                <WarehouseResponsiveTable<StorageType>
+                    columns={columns}
+                    data={filteredItems}
+                    compact
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    noData={!loading && filteredItems.length === 0}
+                    selectable
+                    checkboxChecked={(row) => selectedRows.has(row.id)}
+                    onCheckBoxChange={handleCheckBoxChange}
+                    onIndeterminateCheckBoxChange={(checked, rows) =>
+                        handleSelectAllChange(checked, rows as any)
+                    }
+                    tableMinWidthClass="min-w-[960px]"
+                    mobile={typeMobile}
+                    instanceId="storage-types"
+                />
             </AdaptiveCard>
 
             <FormDialog

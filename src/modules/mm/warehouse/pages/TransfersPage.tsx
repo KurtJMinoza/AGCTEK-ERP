@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
@@ -42,7 +42,7 @@ import type {
     TransferQueryParams,
     CreateTransferPayload,
 } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { warehouseParentBreadcrumbs } from '../utils/warehousePageUi'
 import InfoCard from '../../shared/InfoCard'
 import {
     WmTransferIdentityCell,
@@ -50,7 +50,9 @@ import {
     WmTransferProgressCell,
     WmTransferRouteCell,
     WmTransferStatusCell,
+    wmTransferProgressText,
     wmTransferRowEnterClass,
+    wmTransferStatusTone,
 } from '../components/WmTransferTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/warehouse-transfers'
@@ -93,7 +95,7 @@ function fmtDate(iso?: string) {
 }
 
 const TransfersPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
 
     /* ── list state ── */
     const [search, setSearch] = useState('')
@@ -452,6 +454,49 @@ const TransfersPage = () => {
         [openDetail, handleCancelSingle],
     )
 
+    const transferMobile = useMemo(
+        () => ({
+            title: (t: WarehouseTransfer) => t.transferNumber,
+            subtitle: (t: WarehouseTransfer) => {
+                const lines = t.lines?.length ?? 0
+                return `${lines} line${lines === 1 ? '' : 's'}`
+            },
+            status: (t: WarehouseTransfer) => ({
+                text: t.status.replace(/_/g, ' '),
+                tone: wmTransferStatusTone(t.status),
+            }),
+            onPress: (t: WarehouseTransfer) => {
+                void openDetail(t.id)
+            },
+            fields: [
+                {
+                    label: 'Route',
+                    value: (t: WarehouseTransfer) =>
+                        `${t.sourceWarehouse?.code ?? '—'} → ${t.destinationWarehouse?.code ?? '—'}`,
+                },
+                {
+                    label: 'Warehouses',
+                    value: (t: WarehouseTransfer) =>
+                        `${t.sourceWarehouse?.name ?? 'Source'} → ${t.destinationWarehouse?.name ?? 'Dest'}`,
+                },
+                {
+                    label: 'Progress',
+                    value: (t: WarehouseTransfer) => wmTransferProgressText(t),
+                },
+                {
+                    label: 'Requested',
+                    value: (t: WarehouseTransfer) =>
+                        t.requestedBy?.trim() || '—',
+                },
+                {
+                    label: 'Created',
+                    value: (t: WarehouseTransfer) => fmtDate(t.createdAt),
+                },
+            ],
+        }),
+        [openDetail],
+    )
+
     /* ── detail line columns ── */
     const detailLineColumns = useMemo<ColumnDef<WarehouseTransferLine>[]>(
         () => [
@@ -496,17 +541,21 @@ const TransfersPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Warehouse Transfers"
                 description="Request → Approve → Pick → Dispatch (in transit) → Receive → Close. Dispatch requires pick."
-                actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Create Transfer</Button>}
+                actions={
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => void openCreate()}>
+                        Create Transfer
+                    </Button>
+                }
             />
 
             {/* ── Tabs ── */}
             <AdaptiveCard className="mt-4">
                 <Tabs value={statusTab} onChange={(v) => { setStatusTab(v); setPage(1) }}>
-                    <Tabs.TabList>
+                    <Tabs.TabList className="flex flex-wrap gap-1">
                         {TAB_OPTIONS.map((t) => (
                             <Tabs.TabNav key={t.value} value={t.value}>{t.label}</Tabs.TabNav>
                         ))}
@@ -523,9 +572,9 @@ const TransfersPage = () => {
                 </div>
 
                 {selectedRows.size > 0 && (
-                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
                             {draftSelectedCount > 0 && (
                                 <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineX />} onClick={() => setBulkCancelOpen(true)}>
@@ -542,22 +591,29 @@ const TransfersPage = () => {
                     </p>
                 ) : null}
                 <div className="mt-4">
-                    <DataTable<WarehouseTransfer>
+                    <WarehouseResponsiveTable<WarehouseTransfer>
                         columns={columns}
                         data={transfers}
                         compact
-                        fit
                         loading={loading}
                         getRowId={(row) => row.id}
-                        rowClassName={(_, index) => wmTransferRowEnterClass(index)}
+                        rowEnterClass={wmTransferRowEnterClass}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
                         noData={!loading && transfers.length === 0}
                         pagingData={{ total: meta.total, pageIndex: page, pageSize }}
                         onPaginationChange={(p) => setPage(p)}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        onSelectChange={(size) => {
+                            setPageSize(size)
+                            setPage(1)
+                        }}
+                        tableMinWidthClass="min-w-[720px]"
+                        mobile={transferMobile}
+                        instanceId="warehouse-transfers"
                     />
                 </div>
             </AdaptiveCard>

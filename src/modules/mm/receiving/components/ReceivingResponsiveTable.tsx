@@ -2,13 +2,15 @@
 
 import DataTable from '@/components/shared/DataTable'
 import Loading from '@/components/shared/Loading'
+import Pagination from '@/components/ui/Pagination'
+import Select from '@/components/ui/Select'
 import {
     rcvMobileCardEnterClass,
     rcvTableRowEnterClass,
     RcvAnimatedStatus,
     type RcvBadgeTone,
 } from './receivingTableUi'
-import type { ComponentProps, ReactNode } from 'react'
+import { useMemo, type ComponentProps, type ReactNode } from 'react'
 
 export type { ColumnDef } from '@/components/shared/DataTable'
 
@@ -45,10 +47,60 @@ export default function ReceivingResponsiveTable<T>({
     data,
     loading,
     pagingData,
+    onPaginationChange,
+    onSelectChange,
+    pageSizes = [10, 25, 50, 100],
+    hidePagination = false,
+    noData,
+    customNoDataIcon,
+    instanceId = 'responsive-table',
     ...rest
 }: ReceivingResponsiveTableProps<T>) {
     const rows = (data ?? []) as T[]
-    const useMobileCards = Boolean(mobile) && !pagingData
+    const useMobileCards = Boolean(mobile)
+    const { pageSize, pageIndex, total } = pagingData ?? {
+        pageSize: 10,
+        pageIndex: 1,
+        total: 0,
+    }
+
+    const pageSizeOption = useMemo(
+        () =>
+            pageSizes.map((number) => ({
+                value: number,
+                label: `${number} / page`,
+            })),
+        [pageSizes],
+    )
+
+    const mobilePagination =
+        pagingData && !hidePagination ? (
+            <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                <Pagination
+                    pageSize={pageSize}
+                    currentPage={pageIndex}
+                    total={total}
+                    onChange={(page) => {
+                        if (!loading) onPaginationChange?.(page)
+                    }}
+                />
+                <div className="w-full sm:w-auto sm:min-w-[8.125rem]">
+                    <Select
+                        instanceId={`${instanceId}-page-size`}
+                        size="sm"
+                        menuPlacement="top"
+                        isSearchable={false}
+                        value={pageSizeOption.filter((option) => option.value === pageSize)}
+                        options={pageSizeOption}
+                        onChange={(option) => {
+                            if (!loading && option?.value != null) {
+                                onSelectChange?.(option.value)
+                            }
+                        }}
+                    />
+                </div>
+            </div>
+        ) : null
 
     const table = (
         <div className="-mx-1 overflow-x-auto sm:mx-0">
@@ -58,6 +110,13 @@ export default function ReceivingResponsiveTable<T>({
                     data={data}
                     loading={loading}
                     pagingData={pagingData}
+                    onPaginationChange={onPaginationChange}
+                    onSelectChange={onSelectChange}
+                    pageSizes={pageSizes}
+                    hidePagination={hidePagination}
+                    noData={noData}
+                    customNoDataIcon={customNoDataIcon}
+                    instanceId={instanceId}
                     fit={rest.fit ?? false}
                     getRowId={getRowId}
                     rowClassName={(row, index) =>
@@ -82,8 +141,10 @@ export default function ReceivingResponsiveTable<T>({
                         <Loading loading />
                     </div>
                 ) : null}
-                {!loading && rows.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-gray-500">No records in scope.</p>
+                {!loading && (noData || rows.length === 0) ? (
+                    customNoDataIcon ?? (
+                        <p className="py-8 text-center text-sm text-gray-500">No records in scope.</p>
+                    )
                 ) : null}
                 {showMobileCards ? (
                     <ul className="space-y-3">
@@ -140,6 +201,7 @@ export default function ReceivingResponsiveTable<T>({
                         })}
                     </ul>
                 ) : null}
+                {mobilePagination}
             </div>
             <div className="hidden lg:block">{table}</div>
         </>

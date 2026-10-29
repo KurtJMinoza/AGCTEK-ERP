@@ -4,7 +4,9 @@ import { useCallback, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import MaterialMasterResponsiveTable from '../components/MaterialMasterResponsiveTable'
+import { MM_MATERIAL_STATUS_TONE } from '../components/materialMasterTableUi'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -433,7 +435,60 @@ const MaterialsPage = () => {
                 ),
             },
         ],
-[openEdit, openDuplicate, canUpdate, canDelete],
+        [openEdit, openDuplicate, canUpdate, canDelete],
+    )
+
+    const materialsMobile = useMemo(
+        () => ({
+            title: (m: Material) => m.materialCode,
+            subtitle: (m: Material) =>
+                [m.materialName, m.sku ? `SKU ${m.sku}` : null].filter(Boolean).join(' · ') ||
+                undefined,
+            status: (m: Material) => ({
+                text: m.status,
+                tone: MM_MATERIAL_STATUS_TONE[m.status] ?? 'default',
+            }),
+            onPress: (m: Material) => setViewMaterial(m),
+            fields: [
+                {
+                    label: 'Type',
+                    value: (m: Material) => m.materialType?.name ?? '—',
+                },
+                {
+                    label: 'Category',
+                    value: (m: Material) => m.materialCategory?.name ?? '—',
+                },
+                {
+                    label: 'UOM',
+                    value: (m: Material) => m.baseUom?.code ?? '—',
+                },
+                {
+                    label: 'Cost',
+                    value: (m: Material) =>
+                        formatMaterialMoney(Number(m.standardCost), m.currency?.code),
+                },
+                {
+                    label: 'Tracking',
+                    value: (m: Material) => {
+                        const flags = [
+                            m.batchManaged ? 'Batch' : null,
+                            m.serialManaged ? 'Serial' : null,
+                            m.qualityInspectionRequired ? 'QC' : null,
+                            m.expiryManaged ? 'Expiry' : null,
+                        ].filter(Boolean)
+                        return flags.length ? flags.join(', ') : '—'
+                    },
+                },
+                {
+                    label: 'Planning',
+                    value: (m: Material) =>
+                        m.inventoryManaged
+                            ? `ROP ${Number(m.reorderPoint).toLocaleString()} · Safe ${Number(m.safetyStock).toLocaleString()}`
+                            : 'Non-stock',
+                },
+            ],
+        }),
+        [],
     )
 
     return (
@@ -483,11 +538,11 @@ const MaterialsPage = () => {
                 </div>
 
                 {canDelete && selectedRows.size > 0 && (
-                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">
                             {selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected
                         </span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear selection</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>
                                 Delete selected
@@ -497,16 +552,18 @@ const MaterialsPage = () => {
                 )}
 
                 <div className="mt-4">
-                    <DataTable<Material>
+                    <MaterialMasterResponsiveTable<Material>
                         columns={columns}
                         data={materials}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
                         noData={!loading && materials.length === 0}
                         customNoDataIcon={
                             <EmptyState
@@ -518,7 +575,13 @@ const MaterialsPage = () => {
                         }
                         pagingData={{ total: meta.total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        onSelectChange={(size) => {
+                            setPageSize(size)
+                            setPage(1)
+                        }}
+                        tableMinWidthClass="min-w-[1040px]"
+                        mobile={materialsMobile}
+                        instanceId="materials-skus"
                     />
                 </div>
             </AdaptiveCard>

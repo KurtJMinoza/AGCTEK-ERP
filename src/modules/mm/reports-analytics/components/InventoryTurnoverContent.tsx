@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import Pagination from '@/components/ui/Pagination'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import ReportsResponsiveTable from './ReportsResponsiveTable'
+import { turnoverBadgeTone } from './reportsTableUi'
 import { HiOutlineCube } from 'react-icons/hi'
 
 export type TurnoverRow = {
@@ -20,11 +21,6 @@ export type TurnoverReportPayload = {
 }
 
 const PAGE_SIZE = 15
-
-function rowEnterClass(index: number) {
-    const delay = Math.min(index, 14) * 40
-    return `animate-mm-row-in motion-reduce:animate-none opacity-0 [animation-delay:${delay}ms]`
-}
 
 function formatQty(n: number) {
     return Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 })
@@ -124,41 +120,79 @@ export default function InventoryTurnoverContent({ data, loading }: Props) {
         [safePage],
     )
 
+    const turnoverMobile = useMemo(
+        () => ({
+            title: (row: TurnoverRow) => row.materialCode ?? 'Material',
+            subtitle: (row: TurnoverRow) => row.materialName ?? undefined,
+            status: (row: TurnoverRow) => {
+                const t = Number(row.turnover)
+                return {
+                    text: formatTurnover(t),
+                    tone: turnoverBadgeTone(t),
+                }
+            },
+            fields: [
+                {
+                    label: 'Issue qty',
+                    value: (row: TurnoverRow) => formatQty(Number(row.issueQty)),
+                },
+                {
+                    label: 'Avg on-hand',
+                    value: (row: TurnoverRow) =>
+                        formatQty(Number(row.averageOnHand)),
+                },
+            ],
+        }),
+        [],
+    )
+
+    const periodHint =
+        data?.period?.from || data?.period?.to
+            ? [
+                  data.period.from
+                      ? new Date(data.period.from).toLocaleDateString()
+                      : '…',
+                  data.period.to
+                      ? new Date(data.period.to).toLocaleDateString()
+                      : '…',
+              ].join(' – ')
+            : null
+
     return (
         <div className="space-y-4">
-            <div className="-mx-1 overflow-x-auto sm:mx-0">
-                <DataTable
-                    loading={loading}
-                    columns={columns}
-                    data={rows}
-                    getRowId={(row, i) => row.materialId ?? `row-${i}`}
-                    rowClassName={(_, index) => rowEnterClass(index)}
-                    hidePagination
-                    fit={false}
-                />
-            </div>
-
-            {!loading && allRows.length === 0 && (
-                <p className="py-6 text-center text-sm text-gray-500">
-                    No turnover data for the selected filters.
+            {periodHint ? (
+                <p className="text-xs text-gray-500">Period: {periodHint}</p>
+            ) : null}
+            {!loading && allRows.length > 0 ? (
+                <p className="text-xs text-gray-500">
+                    {allRows.length.toLocaleString()} material
+                    {allRows.length === 1 ? '' : 's'} in report
                 </p>
-            )}
+            ) : null}
 
-            {allRows.length > PAGE_SIZE && (
-                <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-200 pt-4 dark:border-gray-700 sm:flex-row">
-                    <p className="text-sm text-gray-500">
-                        {(safePage - 1) * PAGE_SIZE + 1}–
-                        {Math.min(safePage * PAGE_SIZE, allRows.length)} of{' '}
-                        {allRows.length.toLocaleString()}
+            <ReportsResponsiveTable<TurnoverRow>
+                loading={loading}
+                columns={columns}
+                data={rows}
+                compact
+                getRowId={(row, i) => row.materialId ?? `row-${i}`}
+                noData={!loading && allRows.length === 0}
+                customNoDataIcon={
+                    <p className="py-6 text-center text-sm text-gray-500">
+                        No turnover data for the selected filters.
                     </p>
-                    <Pagination
-                        currentPage={safePage}
-                        total={allRows.length}
-                        pageSize={PAGE_SIZE}
-                        onChange={setPage}
-                    />
-                </div>
-            )}
+                }
+                pagingData={{
+                    total: allRows.length,
+                    pageIndex: safePage,
+                    pageSize: PAGE_SIZE,
+                }}
+                onPaginationChange={setPage}
+                hidePagination={allRows.length <= PAGE_SIZE}
+                tableMinWidthClass="min-w-[640px]"
+                mobile={turnoverMobile}
+                instanceId="inventory-turnover"
+            />
         </div>
     )
 }
