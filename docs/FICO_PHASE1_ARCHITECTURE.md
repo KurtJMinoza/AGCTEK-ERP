@@ -1,6 +1,6 @@
 # FICO Phase 1 — Foundation, Company Settings, COA, G/L, Posting Periods, MM Integration
 
-Status: **implemented and verified** (backend + frontend, database-backed).
+Status: **implemented** (backend + frontend, database-backed; see known limitations for the asynchronous MM bridge).
 
 This document is the authoritative reference for the FICO Phase 1 delivery inside the
 existing AGCTEK ERP. It follows `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`: FICO owns the
@@ -34,6 +34,11 @@ Rules enforced by code:
 
 Migration: `backend/prisma/migrations/20261023120000_fico_phase1_foundation/migration.sql`
 (applied with `prisma migrate deploy`; no table was dropped or renamed).
+
+Follow-up (additive): `20261116120000_fico_coa_ranges_fyv_year_assignment` adds
+`fico_charts_of_accounts.accountCodeLength`, `fico_gl_account_groups.rangeFrom/rangeTo`
+and `fico_fiscal_year_variants.yearAssignment` (default `YEAR_START`, so existing
+calendars are unchanged), each guarded by a `CHECK` constraint.
 
 New tables (Prisma models in `backend/prisma/schema.prisma`):
 
@@ -85,7 +90,26 @@ Database guarantees:
 * Company-level assignment (`FicoCompanyGlAccount`): posting enabled, manual blocked,
   effective dates. Inactive/blocked/company-mismatched accounts are rejected at posting time.
 * Account codes are stored as strings so leading zeros survive.
-* A chart can be duplicated (groups + accounts) into a `DRAFT` copy for review.
+* A chart can be duplicated (groups, ranges + accounts) into a new chart for review. The copy
+  is `ACTIVE` (charts have no draft state) but unassigned until company settings select it.
+* Optional **account-code length** per chart (e.g. 4 for `AGCTEK_COA`). Every account code
+  and group range must have exactly that many characters; the length cannot be set if
+  existing codes do not fit.
+* Optional **account range** per group (`rangeFrom`–`rangeTo`, inclusive, same length,
+  compared in code-unit order to match the `COLLATE "C"` check). A subgroup range must sit
+  inside its parent's, sibling ranges may not overlap, and a range cannot be narrowed past
+  an existing subgroup or account. Account create, import and group moves reject codes
+  outside the group range. Rules live in `backend/src/fico/fico-coa-rules.ts`.
+* Mixed ranges are split by type rather than adding an `OTHER` account type — e.g.
+  `OTHER_INC` (7000–7099, REVENUE) and `OTHER_EXP` (7100–7199, EXPENSE) — so every account
+  keeps an unambiguous statement classification. Contra accounts keep their type and flip
+  the normal balance (Accumulated Depreciation = ASSET/CREDIT, Sales Returns = REVENUE/DEBIT).
+* **Import** (`POST /fico/gl-accounts/import`) validates every row with the same builder as
+  single create. Rows are `CREATE`, `DUPLICATE_EXISTING` (skipped, never overwritten),
+  `DUPLICATE_IN_FILE` or `ERROR`. `dryRun: true` only reports; a commit is refused while any
+  error/in-file duplicate remains and otherwise runs in one transaction with per-account
+  `GL_ACCOUNT_CREATE` audits plus a `GL_ACCOUNT_IMPORT` summary. Max 1,000 rows. The UI
+  parses CSV and exports the list in the same column layout (round-trippable).
 * Account usage is tracked: the G/L list returns journal-line, debit-mapping and
   credit-mapping counts, and the Usage column drills through to the journal lines
   of that account (`/modules/fico/journal-details?glAccountId=…`). Deleting an
@@ -93,10 +117,26 @@ Database guarantees:
 
 ## 5. Fiscal years and posting periods
 
-* Variants support calendar and non-calendar fiscal years (`startMonth`/`startDay`).
+* Variants support calendar and non-calendar fiscal years (`startMonth`/`startDay`). The end
+  date is derived (the day before the next start) and `calendarYearBased` is derived from a
+  January 1 start.
+* Regular periods must be 1, 2, 3, 4, 6 or 12 so each period covers whole months (12 =
+  monthly, 4 = quarterly, …); zero or uneven counts are rejected. Monthly periods that start
+  on day 1 are named after the month (`January` …), others `Period 01` ….
+* `yearAssignment` decides which calendar year labels a fiscal year that spans two:
+  `YEAR_START` (Apr 2027 – Mar 2028 = FY 2027, the original behaviour) or `YEAR_END`
+  (= FY 2028). Both are identical for a January 1 start.
+* Start date, period counts and year assignment are frozen once a variant has generated
+  periods; duplicate the variant (`POST /fico/fiscal-years/variants/:id/duplicate`) to define
+  a different calendar.
+* `POST /fico/fiscal-years/preview` returns the periods for a saved variant or an unsaved
+  configuration without writing anything; the UI shows it in the variant form, the variant
+  preview, and the generate dialog.
 * Generation is calendar-aware (leap years included), non-overlapping, idempotent for the
   same calendar, and refuses to overwrite a different existing calendar.
-* Special periods are year-end adjustments (max 4), not extra calendar months.
+* Special periods are year-end adjustments (max 4), not extra calendar months. They share
+  the last regular period's dates and are never resolved from a posting date (date-based
+  resolution only considers `NORMAL` periods).
 * Period statuses: `FUTURE`, `OPEN`, `RESTRICTED`, `CLOSED`, `LOCKED`.
   Transitions are validated against `FICO_STATUS_TRANSITIONS`.
 * Closing is transactional and checks for incomplete/unbalanced documents. Open GR/IR
@@ -153,16 +193,22 @@ company assignments and wrong-company accounts. There is **no** silent fallback.
 
 ## 8. MM integration
 
-`MmFicoPostingService` is the only bridge:
+The existing MM outbox is the only bridge:
 
-1. `prepare()` resolves mappings, validates posting accounts and checks the fiscal period
-   **before** stock is touched. No settings ⇒ legacy behaviour; `DRAFT`/`INACTIVE` ⇒ blocked.
-2. The MM service posts stock through `InventoryPostingService`.
-3. The journal is posted with the value the inventory engine actually booked
-   (valuation-aligned, so the G/L and the sub-ledger agree).
-4. If the journal fails, the stock transactions are compensated (reversed) and the
-   accounting event is marked `FAILED`.
-5. `MmAccountingEvent` links the business document to the accounting document in both
+1. MM posts physical stock only through `InventoryPostingService`, then emits the typed
+   `MmAccountingEvent` / `accounting.entry.requested` event.
+2. `FicoAccountingConsumerService` calls the sole FICO posting engine,
+   `FicoJournalService`. For an `ACTIVE` FICO company it resolves explicit mappings with
+   `FicoAccountDeterminationService`, then calls `FicoPostingValidationService` for
+   company configuration, fiscal period, account assignment and posting eligibility.
+3. The journal is created `DRAFT`, receives balanced debit/credit lines, receives an
+   append-only `JOURNAL_POST` audit record, and becomes `POSTED` in one transaction.
+   Period rows are shared-locked during this transaction so period close cannot interleave.
+4. Companies without FICO settings retain the documented legacy header-only bridge. A
+   `DRAFT` or `INACTIVE` configuration, a missing mapping, or a failed validation blocks
+   the FICO posting and marks the accounting event `FAILED`; it never silently selects an
+   account or bypasses a period restriction.
+5. `MmAccountingEvent` links the source document and the accounting document in both
    directions (`mmAccountingEventId` ↔ journal).
 
 Coverage:
@@ -185,8 +231,8 @@ close any pending accounting event so the legacy consumer cannot post a second d
 | --- | --- |
 | Company settings | `GET/POST/PUT /fico/company-settings`, `GET /fico/company-settings/companies`, `GET /fico/company-settings/defaults`, `POST /fico/company-settings/validate|activate|deactivate` |
 | Chart of accounts | `GET/POST /fico/chart-of-accounts`, `GET/PATCH/DELETE /fico/chart-of-accounts/:id`, `POST /fico/chart-of-accounts/:id/duplicate`, `GET /fico/chart-of-accounts/:id/groups`, `POST/PATCH/DELETE /fico/chart-of-accounts/groups...` |
-| G/L accounts | `GET/POST /fico/gl-accounts`, `GET/PATCH/DELETE /fico/gl-accounts/:id`, `PUT/DELETE /fico/gl-accounts/:id/companies...` |
-| Fiscal years | `GET /fico/fiscal-years`, `GET /fico/fiscal-years/variants`, `POST /fico/fiscal-years/generate` |
+| G/L accounts | `GET/POST /fico/gl-accounts`, `POST /fico/gl-accounts/import`, `GET/PATCH/DELETE /fico/gl-accounts/:id`, `PUT/DELETE /fico/gl-accounts/:id/companies...` |
+| Fiscal years | `GET /fico/fiscal-years`, `GET/POST /fico/fiscal-years/variants`, `PATCH /fico/fiscal-years/variants/:id`, `POST /fico/fiscal-years/variants/:id/duplicate`, `POST /fico/fiscal-years/preview`, `POST /fico/fiscal-years/generate` |
 | Posting periods | `GET /fico/posting-periods`, `GET /fico/posting-periods/resolve`, `POST /fico/posting-periods/:id/open|restrict|close|lock|reopen|unlock` |
 | Account determination | `GET /fico/account-determination/transaction-keys|profiles|mappings`, `POST/PATCH/DELETE .../mappings` |
 | General ledger | `GET /fico/journals`, `GET /fico/journals/:id`, `POST /fico/journals`, `POST /fico/journals/:id/reverse`, `GET /fico/journal-lines`, `GET /fico/reports/trial-balance`, `GET /fico/overview` |
@@ -236,6 +282,14 @@ Seeded role templates (`backend/prisma/seed-fico-phase1.ts`, idempotent):
 * `backend/prisma/seed-fico-phase1.ts` — idempotent seed: fiscal/posting variants,
   transaction keys, valuation classes, `PH_MM_STARTER` COA (12 accounts), AGCTEK settings,
   `DEFAULT` determination profile + mappings, company G/L assignments, role templates.
+* `backend/prisma/seed-fico-coa-fyv-samples.ts` (`npm run prisma:seed-fico-coa-fyv-samples`)
+  — **sample, not production**: `AGCTEK_COA` (4-digit codes, 8 ranged groups, 38 accounts
+  with contra and reconciliation flags) and the `AGCTEK_FY` / `APR_MAR_FY` variants.
+  Create-only (never updates existing rows; a second run changes nothing), audited with
+  `metadata.source`, and assigned to no company. AGCTEK Corporation keeps
+  `PH_MM_STARTER` / `PH_CALENDAR` because posted journals and MM mappings reference them;
+  `AGCTEK_COA` also lacks the GR/IR clearing and input VAT accounts the MM bridge needs, so it
+  needs accounting review and mappings before any company could adopt it.
 * `backend/prisma/backups/fico-pre-phase1-2026-10-23T03-05-52-311Z.json` — logical
   (JSON) backup taken before the migration, because `pg_dump`/`psql` are unavailable here.
 
@@ -304,6 +358,13 @@ the documented approval flow.
 * Purchase price variance is recorded by the valuation engine but is not yet posted to the
   G/L automatically (the `PRICE_VARIANCE` mapping exists for a later phase).
 * No AP/AR sub-ledger documents, no asset accounting, no cost-centre allocation.
+* MM accounting is asynchronous through the existing outbox. A failed FICO consumer marks
+  the accounting event for remediation/replay; it does **not** compensate an already-posted
+  physical MM movement. Synchronous stock-plus-accounting compensation is a future
+  cross-module workflow and must not be introduced as a second stock posting path.
+* Automatic MM journal documents currently use the immutable journal identifier and source
+  references; document-sequence allocation for those documents remains a follow-up before
+  a statutory document-numbering rollout.
 * Historical back-posting is modelled (`FicoHistoricalBackpostingRun`) but disabled by
   default and requires explicit approval.
 * Journal documents are stored with a `LEGACY` marker for the 57 pre-existing header-only

@@ -459,9 +459,69 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
     ]),
     ...group('fico', [
         [
+            'overview',
+            'Finance Overview',
+            'Company accounting health, open periods, and recent activity.',
+        ],
+        [
+            'company-settings',
+            'Company Accounting Settings',
+            'Base currency, chart of accounts, fiscal variants, and activation.',
+        ],
+        [
             'chart-of-accounts',
             'Chart of Accounts',
-            'G/L accounts and account groups.',
+            'Charts of accounts and account groups.',
+        ],
+        [
+            'gl-accounts',
+            'G/L Accounts',
+            'G/L account master data and company assignments.',
+        ],
+        [
+            'periods',
+            'Fiscal Years & Periods',
+            'Fiscal calendar generation and posting period control.',
+        ],
+        [
+            'period-reopen',
+            'Period Reopen',
+            'Reopen a closed posting period (reason required).',
+        ],
+        [
+            'period-unlock',
+            'Period Unlock',
+            'Unlock a locked posting period (privileged action).',
+        ],
+        [
+            'account-determination',
+            'Account Determination',
+            'Transaction keys, profiles, and MM account mappings.',
+        ],
+        [
+            'journal-entries',
+            'Journal Entries',
+            'Post and reverse accounting documents.',
+        ],
+        [
+            'journal-reversal',
+            'Journal Reversal',
+            'Reverse posted accounting documents with an audit reason.',
+        ],
+        [
+            'reports',
+            'Reports & Analytics',
+            'Financial statements and cost center reporting.',
+        ],
+        [
+            'audit',
+            'Accounting Audit Trail',
+            'Read the append-only accounting audit log.',
+        ],
+        [
+            'configuration',
+            'Configuration',
+            'Fiscal year variants and FI document configuration.',
         ],
         [
             'cost-centers',
@@ -474,11 +534,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Profit centers for internal reporting.',
         ],
         [
-            'journal-entries',
-            'Journal Entries',
-            'Post and reverse accounting documents.',
-        ],
-        [
             'accounts-payable',
             'Accounts Payable',
             'Vendor invoices and outgoing payments.',
@@ -487,16 +542,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'accounts-receivable',
             'Accounts Receivable',
             'Customer invoices and incoming payments.',
-        ],
-        [
-            'reports',
-            'Reports & Analytics',
-            'Financial statements and cost center reporting.',
-        ],
-        [
-            'configuration',
-            'Configuration',
-            'Fiscal year variants and FI document types.',
         ],
     ]),
     ...group('scm', [

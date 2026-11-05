@@ -327,6 +327,17 @@ model Company {
 
   sdProductVariants SdProductVariant[] @relation("SdVariantCompany")
 
+  ficoCompanyAccountingSettings FicoCompanyAccountingSettings?
+  ficoCompanyGlAccounts         FicoCompanyGlAccount[]
+  ficoAccountDeterminationProfiles FicoAccountDeterminationProfile[]
+  ficoMmAccountMappings         FicoMmAccountMapping[]
+  ficoPostingPeriodControls     FicoPostingPeriodControl[]
+  ficoPostingPeriodAuditLogs    FicoPostingPeriodAuditLog[]
+  ficoJournalEntryLines         FicoJournalEntryLine[]
+  ficoDocumentSequences         FicoDocumentSequence[]
+  ficoAccountingAuditLogs       FicoAccountingAuditLog[]
+  ficoHistoricalBackpostingRuns FicoHistoricalBackpostingRun[]
+
   @@map("companies")
 }
 
@@ -3798,25 +3809,46 @@ model MmAccountingEvent {
   @@map("mm_accounting_events")
 }
 
-/// Phase 3D — FICO fiscal period control (FICO owns period state).
+/// Phase 1 — FICO fiscal period control (FICO owns period state).
 model FicoFinancialPeriod {
-  id           String   @id @default(cuid())
-  companyId    String
-  company      Company  @relation(fields: [companyId], references: [id])
-  fiscalYear   Int
-  periodNumber Int
-  startDate    DateTime @db.Date
-  endDate      DateTime @db.Date
-  status       String   @default("OPEN") // OPEN | CLOSED
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String                         @id @default(cuid())
+  companyId          String
+  company            Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalYear         Int
+  periodNumber       Int
+  name               String                         @default("")
+  periodType         String                         @default("NORMAL") // NORMAL | SPECIAL
+  startDate          DateTime                       @db.Date
+  endDate            DateTime                       @db.Date
+  status             String                         @default("FUTURE") // FUTURE | OPEN | RESTRICTED | CLOSED | LOCKED
+  fiscalYearVariantId String?
+  fiscalYearVariant  FicoFiscalYearVariant?         @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
+  isYearEndAdjustment Boolean                       @default(false)
+  closeChecklist     Json?
+  statusReason       String?
+  openedAt           DateTime?
+  openedBy           String?
+  restrictedAt       DateTime?
+  restrictedBy       String?
+  closedAt           DateTime?
+  closedBy           String?
+  lockedAt           DateTime?
+  lockedBy           String?
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  journalEntries     FicoJournalEntry[]
+  controls           FicoPostingPeriodControl[]
+  auditLogs          FicoPostingPeriodAuditLog[]
 
   @@unique([companyId, fiscalYear, periodNumber])
   @@index([companyId, status])
+  @@index([companyId, startDate, endDate])
   @@map("fico_financial_periods")
 }
 
-/// Phase 3D — FICO journal stub (account determination resolved by FICO, not MM).
+/// Phase 1 — FICO journal header (single posting engine).
 model FicoJournalEntry {
   id                  String             @id @default(cuid())
   idempotencyKey      String             @unique
@@ -3825,17 +3857,421 @@ model FicoJournalEntry {
   mmAccountingEventId String?            @unique
   mmAccountingEvent   MmAccountingEvent? @relation(fields: [mmAccountingEventId], references: [id])
   companyId           String
-  company             Company            @relation(fields: [companyId], references: [id])
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  documentNumber      String?
+  documentType        String             @default("JOURNAL")
+  documentDate        DateTime?          @db.Date
   postingDate         DateTime           @db.Date
+  fiscalYear          Int?
+  fiscalPeriodId      String?
+  fiscalPeriod        FicoFinancialPeriod? @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  description         String?
   totalAmount         Decimal            @db.Decimal(18, 4)
-  currencyCode        String
-  status              String             @default("POSTED")
+  currencyCode        String             @db.VarChar(3)
+  exchangeRate        Decimal?           @db.Decimal(18, 6)
+  status              String             @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY
+  sourceModule        String?
+  sourceDocumentType  String?
+  sourceDocumentId    String?
+  sourcePostingKey    String?            @unique
+  reversalOfId        String?            @unique
+  reversalOf          FicoJournalEntry?  @relation("FicoJournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy          FicoJournalEntry?  @relation("FicoJournalReversal")
   metadata            Json?
+  postedAt            DateTime?
+  postedBy            String?
+  createdBy           String?
   createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  lines               FicoJournalEntryLine[]
 
   @@index([companyId, postingDate])
+  @@index([companyId, status])
+  @@index([fiscalPeriodId])
   @@index([sourceEventId])
+  @@index([sourceModule, sourceDocumentType, sourceDocumentId])
+  @@index([documentNumber])
+  @@unique([companyId, documentNumber])
   @@map("fico_journal_entries")
+}
+
+/// Phase 1 — every company has exactly one accounting configuration.
+model FicoCompanyAccountingSettings {
+  id                            String   @id @default(cuid())
+  companyId                     String   @unique
+  company                       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  legalName                     String   @default("")
+  baseCurrency                  String   @default("PHP") @db.VarChar(3)
+  countryCode                   String   @default("PH") @db.VarChar(2)
+  timezone                      String   @default("Asia/Manila")
+  accountingMethod              String   @default("ACCRUAL") // ACCRUAL | CASH
+  chartOfAccountsId             String?
+  chartOfAccounts               FicoChartOfAccounts? @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  fiscalYearVariantId           String?
+  fiscalYearVariant             FicoFiscalYearVariant? @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
+  postingPeriodVariantId        String?
+  postingPeriodVariant          FicoPostingPeriodVariant? @relation(fields: [postingPeriodVariantId], references: [id], onDelete: Restrict)
+  accountDeterminationProfileId String?  @unique
+  accountDeterminationProfile   FicoAccountDeterminationProfile? @relation(fields: [accountDeterminationProfileId], references: [id], onDelete: Restrict)
+  status                        String   @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
+  taxCountryCode                String?  @db.VarChar(2)
+  taxRegistrationNumber         String?
+  taxJurisdiction               String?
+  defaultTaxCode                String?
+  documentNumberPrefix          String   @default("JE")
+  documentNumberPadding         Int      @default(6)
+  closeChecklist                Json?
+  activatedAt                   DateTime?
+  activatedBy                   String?
+  deactivatedAt                 DateTime?
+  deactivatedBy                 String?
+  createdBy                     String?
+  updatedBy                     String?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  @@index([status])
+  @@map("fico_company_accounting_settings")
+}
+
+/// Phase 1 — chart of accounts (global, reusable across companies).
+model FicoChartOfAccounts {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  description   String   @default("")
+  countryCode   String   @default("PH") @db.VarChar(2)
+  accountCodeLength Int? // null = free-length codes; otherwise every account code has exactly this many characters
+  status        String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  groups        FicoGlAccountGroup[]
+  accounts      FicoGlAccount[]
+  settings      FicoCompanyAccountingSettings[]
+
+  @@index([status])
+  @@map("fico_charts_of_accounts")
+}
+
+/// Phase 1 — hierarchical G/L account group inside one chart.
+model FicoGlAccountGroup {
+  id                String              @id @default(cuid())
+  chartOfAccountsId String
+  chartOfAccounts   FicoChartOfAccounts @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  parentGroupId     String?
+  parentGroup       FicoGlAccountGroup? @relation("FicoGlAccountGroupTree", fields: [parentGroupId], references: [id], onDelete: Restrict)
+  children          FicoGlAccountGroup[] @relation("FicoGlAccountGroupTree")
+  code              String
+  name              String
+  category          String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  rangeFrom         String? // inclusive account-code range; both bounds set or both null
+  rangeTo           String?
+  sortOrder         Int                 @default(0)
+  status            String              @default("ACTIVE")
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  accounts          FicoGlAccount[]
+
+  @@unique([chartOfAccountsId, code])
+  @@index([chartOfAccountsId, parentGroupId, sortOrder])
+  @@map("fico_gl_account_groups")
+}
+
+/// Phase 1 — G/L account master data.
+model FicoGlAccount {
+  id                    String                  @id @default(cuid())
+  chartOfAccountsId     String
+  chartOfAccounts       FicoChartOfAccounts     @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  accountGroupId        String
+  accountGroup          FicoGlAccountGroup      @relation(fields: [accountGroupId], references: [id], onDelete: Restrict)
+  accountCode           String
+  accountName           String
+  description           String                  @default("")
+  accountType           String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  normalBalance         String // DEBIT | CREDIT
+  isPostingAccount      Boolean                 @default(true)
+  allowManualPosting    Boolean                 @default(true)
+  allowAutomaticPosting Boolean                 @default(true)
+  isReconciliationAccount Boolean               @default(false)
+  reconciliationType    String?
+  openItemManagement    Boolean                 @default(false)
+  currencyRestriction   String?                 @db.VarChar(3)
+  status                String                  @default("ACTIVE")
+  createdBy             String?
+  updatedBy             String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  companyAssignments    FicoCompanyGlAccount[]
+  journalLines          FicoJournalEntryLine[]
+  debitMappings         FicoMmAccountMapping[]  @relation("FicoMappingDebit")
+  creditMappings        FicoMmAccountMapping[]  @relation("FicoMappingCredit")
+
+  @@unique([chartOfAccountsId, accountCode])
+  @@index([chartOfAccountsId])
+  @@index([accountCode])
+  @@index([accountType, status])
+  @@map("fico_gl_accounts")
+}
+
+/// Phase 1 — company-level G/L account assignment and posting controls.
+model FicoCompanyGlAccount {
+  id                  String        @id @default(cuid())
+  companyId           String
+  company             Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  glAccountId         String
+  glAccount           FicoGlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  postingEnabled      Boolean       @default(true)
+  manualPostingBlocked Boolean      @default(false)
+  effectiveFrom       DateTime?     @db.Date
+  effectiveTo         DateTime?     @db.Date
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@unique([companyId, glAccountId])
+  @@index([companyId, postingEnabled])
+  @@map("fico_company_gl_accounts")
+}
+
+/// Phase 1 — fiscal year variant (calendar or non-calendar year).
+model FicoFiscalYearVariant {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  name               String
+  description        String   @default("")
+  startMonth         Int      @default(1)
+  startDay           Int      @default(1)
+  normalPeriodCount  Int      @default(12)
+  specialPeriodCount Int      @default(0)
+  calendarYearBased  Boolean  @default(true)
+  yearAssignment     String   @default("YEAR_START") // YEAR_START | YEAR_END — which calendar year labels a fiscal year that spans two
+  status             String   @default("ACTIVE")
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  periods            FicoFinancialPeriod[]
+  settings           FicoCompanyAccountingSettings[]
+
+  @@index([status])
+  @@map("fico_fiscal_year_variants")
+}
+
+/// Phase 1 — posting period variant (close checklist and special-period policy).
+model FicoPostingPeriodVariant {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  name                String
+  description         String   @default("")
+  allowSpecialPeriods Boolean  @default(true)
+  closeChecklist      Json?
+  status              String   @default("ACTIVE")
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  settings            FicoCompanyAccountingSettings[]
+
+  @@index([status])
+  @@map("fico_posting_period_variants")
+}
+
+/// Phase 1 — account determination profile (consumed by the posting engine).
+model FicoAccountDeterminationProfile {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  description String   @default("")
+  isDefault   Boolean  @default(true)
+  status      String   @default("ACTIVE")
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  mappings    FicoMmAccountMapping[]
+  settings    FicoCompanyAccountingSettings?
+
+  @@unique([companyId, code])
+  @@index([companyId, isDefault])
+  @@map("fico_account_determination_profiles")
+}
+
+/// Phase 1 — transaction keys resolved to explicit G/L account pairs.
+model FicoTransactionKey {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  description          String   @default("")
+  requiresValuationClass Boolean @default(false)
+  inventorySide        String   @default("NONE")
+  sortOrder            Int      @default(0)
+  status               String   @default("ACTIVE")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  mappings             FicoMmAccountMapping[]
+
+  @@index([status, sortOrder])
+  @@map("fico_transaction_keys")
+}
+
+/// Phase 1 — explicit debit/credit account mapping per company/profile/key/valuation scope.
+model FicoMmAccountMapping {
+  id                  String                      @id @default(cuid())
+  companyId           String
+  company             Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  profileId           String
+  profile             FicoAccountDeterminationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  transactionKeyCode  String
+  transactionKey      FicoTransactionKey          @relation(fields: [transactionKeyCode], references: [code], onDelete: Restrict)
+  valuationClassId    String?
+  valuationScopeKey   String
+  debitAccountId      String
+  debitAccount        FicoGlAccount              @relation("FicoMappingDebit", fields: [debitAccountId], references: [id], onDelete: Restrict)
+  creditAccountId     String
+  creditAccount       FicoGlAccount              @relation("FicoMappingCredit", fields: [creditAccountId], references: [id], onDelete: Restrict)
+  effectiveFrom       DateTime?                   @db.Date
+  effectiveTo         DateTime?                   @db.Date
+  status              String                      @default("ACTIVE")
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@unique([companyId, profileId, transactionKeyCode, valuationScopeKey])
+  @@index([companyId, transactionKeyCode, status])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+  @@map("fico_mm_account_mappings")
+}
+
+/// Phase 1 — per-period, per-account-type posting controls.
+model FicoPostingPeriodControl {
+  id              String              @id @default(cuid())
+  companyId       String
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalPeriodId  String
+  fiscalPeriod    FicoFinancialPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  accountTypeScope String             @default("ALL")
+  status          String
+  restrictionRules Json?
+  reason          String?
+  changedBy       String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([companyId, fiscalPeriodId, accountTypeScope])
+  @@index([companyId, status])
+  @@map("fico_posting_period_controls")
+}
+
+/// Phase 1 — immutable period status history.
+model FicoPostingPeriodAuditLog {
+  id             String              @id @default(cuid())
+  companyId      String
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalPeriodId String
+  fiscalPeriod   FicoFinancialPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  action         String
+  fromStatus     String?
+  toStatus       String?
+  reason         String?
+  actorId        String?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+
+  @@index([companyId, fiscalPeriodId, createdAt])
+  @@map("fico_posting_period_audit_logs")
+}
+
+/// Phase 1 — journal lines (double-entry detail).
+model FicoJournalEntryLine {
+  id             String        @id @default(cuid())
+  journalEntryId String
+  journalEntry   FicoJournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  lineNumber     Int
+  glAccountId    String
+  glAccount      FicoGlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  debitAmount    Decimal       @default(0) @db.Decimal(18, 4)
+  creditAmount   Decimal       @default(0) @db.Decimal(18, 4)
+  currency       String        @db.VarChar(3)
+  description    String?
+  materialId     String?
+  warehouseId    String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([journalEntryId, lineNumber])
+  @@index([journalEntryId])
+  @@index([companyId, glAccountId])
+  @@map("fico_journal_entry_lines")
+}
+
+/// Phase 1 — per-company document number sequence.
+model FicoDocumentSequence {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  documentType String
+  fiscalYear   Int
+  prefix       String   @default("JE")
+  nextNumber   Int      @default(1)
+  padding      Int      @default(6)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([companyId, documentType, fiscalYear])
+  @@map("fico_document_sequences")
+}
+
+/// Phase 1 — append-only accounting audit trail.
+model FicoAccountingAuditLog {
+  id             String   @id @default(cuid())
+  companyId      String?
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String?
+  previousValues Json?
+  newValues      Json?
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("fico_accounting_audit_logs")
+}
+
+/// Phase 1 — controlled historical back-posting runs (disabled by default).
+model FicoHistoricalBackpostingRun {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  status      String    @default("PREVIEW")
+  fromDate    DateTime? @db.Date
+  toDate      DateTime? @db.Date
+  dryRun      Boolean   @default(true)
+  requestedBy String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  executedBy  String?
+  executedAt  DateTime?
+  summary     Json?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@map("fico_historical_backposting_runs")
 }
 
 /// Phase 3A — transactional outbox for MM integration events (all domains).

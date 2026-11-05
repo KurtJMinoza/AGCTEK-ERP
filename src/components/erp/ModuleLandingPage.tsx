@@ -16,16 +16,25 @@ import type { ErpModule, ErpModuleCode } from '@/types/erp-modules'
 type ModuleLandingPageProps = {
     moduleCode: string
     permissions: MyPermissions | null
+    /** Limit the landing page to these submodule codes (e.g. a module still in rollout). */
+    submoduleCodes?: string[]
 }
 
 /** Keeps only submodules the user can read; categories left empty are dropped. */
-function visibleCategories(module: ErpModule, permissions: MyPermissions | null): ErpModule {
+function visibleCategories(
+    module: ErpModule,
+    permissions: MyPermissions | null,
+    submoduleCodes?: string[],
+): ErpModule {
     return {
         ...module,
         categories: module.categories
             .map((category) => ({
                 ...category,
                 submodules: category.submodules.filter((submodule) => {
+                    if (submoduleCodes && !submoduleCodes.includes(submodule.code)) {
+                        return false
+                    }
                     const code = submodulePermissionCode(module.code, submodule)
                     return !code || hasPermission(permissions, code, 'read')
                 }),
@@ -34,7 +43,11 @@ function visibleCategories(module: ErpModule, permissions: MyPermissions | null)
     }
 }
 
-export default function ModuleLandingPage({ moduleCode, permissions }: ModuleLandingPageProps) {
+export default function ModuleLandingPage({
+    moduleCode,
+    permissions,
+    submoduleCodes,
+}: ModuleLandingPageProps) {
     const module = getErpModule(moduleCode)
 
     if (!module) {
@@ -45,6 +58,7 @@ export default function ModuleLandingPage({ moduleCode, permissions }: ModuleLan
     const resolvedModule = visibleCategories(
         resolvedModules.find((m) => m.code === moduleCode) ?? module,
         permissions,
+        submoduleCodes,
     )
     const totalSubmodules = getAllSubmodules(resolvedModule).length
     const breadcrumbItems = buildErpBreadcrumbs(resolvedModule.path)

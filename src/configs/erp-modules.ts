@@ -181,7 +181,7 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'FICO',
         title: 'Finance & Controlling',
         description:
-            'General ledger, accounts payable/receivable, asset accounting, and cost controlling.',
+            'Financial controller setup: chart of accounts and fiscal calendar configuration.',
         path: '/modules/fico',
         icon: 'calculator',
         categories: [
@@ -190,12 +190,31 @@ export const ERP_MODULES: ErpModule[] = [
                 title: 'Master Data',
                 submodules: [
                     {
+                        code: 'company-settings',
+                        permissionCode: 'fico.company-settings',
+                        title: 'Company Accounting Settings',
+                        description:
+                            'Assign the chart, fiscal calendar, currency, and accounting configuration for each company.',
+                        path: '/modules/fico/company-settings',
+                        icon: 'building',
+                    },
+                    {
                         code: 'chart-of-accounts',
+                        permissionCode: 'fico.chart-of-accounts',
                         title: 'Chart of Accounts',
                         description:
-                            'Maintain G/L accounts and account groups.',
+                            'Define the shared ledger structure: charts, account groups, G/L accounts, and posting controls.',
                         path: '/modules/fico/chart-of-accounts',
                         icon: 'landmark',
+                    },
+                    {
+                        code: 'gl-accounts',
+                        permissionCode: 'fico.gl-accounts',
+                        title: 'G/L Accounts',
+                        description:
+                            'Maintain posting controls and company assignments for G/L accounts.',
+                        path: '/modules/fico/gl-accounts',
+                        icon: 'fileText',
                     },
                     {
                         code: 'cost-centers',
@@ -273,6 +292,24 @@ export const ERP_MODULES: ErpModule[] = [
                 code: 'configuration',
                 title: 'Configuration',
                 submodules: [
+                    {
+                        code: 'fiscal-years',
+                        permissionCode: 'fico.periods',
+                        title: 'Fiscal Years & Variants',
+                        description:
+                            'Define the shared financial calendar, generate company fiscal years, and control when posting is allowed.',
+                        path: '/modules/fico/fiscal-years',
+                        icon: 'calendar',
+                    },
+                    {
+                        code: 'fiscal-periods',
+                        permissionCode: 'fico.periods',
+                        title: 'Posting Periods',
+                        description:
+                            'Open, restrict, close, lock, and audit fiscal posting periods.',
+                        path: '/modules/fico/fiscal-periods',
+                        icon: 'calendar',
+                    },
                     {
                         code: 'fiscal-year-variant',
                         permissionCode: 'fico.configuration',

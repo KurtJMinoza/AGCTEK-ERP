@@ -45,6 +45,7 @@
     "prisma:clean-crm-temp": "ts-node --transpile-only --project prisma/tsconfig.seed.json prisma/seed-crm-temp.ts --clean",
     "prisma:seed-billing-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-billing-demo.ts",
     "prisma:clean-billing-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-billing-demo.ts --clean",
+    "prisma:seed-fico-coa-fyv-samples": "ts-node --project prisma/tsconfig.seed.json prisma/seed-fico-coa-fyv-samples.ts",
     "prisma:seed-cod-delivery-demo": "ts-node --project prisma/tsconfig.seed.json prisma/seed-cod-delivery-demo.ts",
     "test": "jest --runInBand --forceExit",
     "test:architecture": "jest src/mm/architecture --runInBand --forceExit",
