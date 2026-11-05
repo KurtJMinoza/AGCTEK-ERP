@@ -85,6 +85,7 @@ type FicoCompanySelectProps = {
     onChange: (value: string) => void
     loading?: boolean
     className?: string
+    isClearable?: boolean
 }
 
 export function FicoCompanySelect({
@@ -93,6 +94,7 @@ export function FicoCompanySelect({
     onChange,
     loading,
     className,
+    isClearable = false,
 }: FicoCompanySelectProps) {
     const options = companies.map((company) => ({
         value: company.id,
@@ -101,7 +103,7 @@ export function FicoCompanySelect({
     return (
         <div className={className ?? 'w-full sm:w-80'}>
             <Select
-                isClearable={false}
+                isClearable={isClearable}
                 isLoading={loading}
                 options={options}
                 value={options.find((option) => option.value === value) ?? null}

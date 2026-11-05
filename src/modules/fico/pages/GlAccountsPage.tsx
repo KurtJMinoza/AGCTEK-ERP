@@ -114,9 +114,14 @@ const GlAccountsPage = () => {
     const [chartFilter, setChartFilter] = useState(
         () => searchParams.get('chartOfAccountsId') ?? '',
     )
+    const [companyFilter, setCompanyFilter] = useState('')
     const [typeFilter, setTypeFilter] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
     const [search, setSearch] = useState('')
+
+    // G/L accounts are chart-level master data and only optionally assigned to a
+    // company, so the company filter only applies when the user explicitly selects one.
+    const activeCompanyId = companyFilter || (companyFilter ? companyId : undefined)
 
     const [importOpen, setImportOpen] = useState(false)
     const [dialog, setDialog] = useState<'create' | 'edit' | null>(null)
@@ -140,7 +145,6 @@ const GlAccountsPage = () => {
             .list()
             .then((rows) => {
                 setCharts(rows)
-                setChartFilter((current) => current || rows[0]?.id || '')
             })
             .catch((error) => notifyError(error, 'Unable to load charts of accounts.'))
     }, [])
@@ -153,12 +157,12 @@ const GlAccountsPage = () => {
                 accountType: typeFilter || undefined,
                 status: statusFilter || undefined,
                 search: search || undefined,
-                companyId: companyId || undefined,
+                companyId: activeCompanyId || undefined,
             })
             .then(setAccounts)
             .catch((error) => notifyError(error, 'Unable to load G/L accounts.'))
             .finally(() => setLoading(false))
-    }, [chartFilter, typeFilter, statusFilter, search, companyId])
+    }, [chartFilter, typeFilter, statusFilter, search, activeCompanyId])
 
     useEffect(() => {
         load()
@@ -275,13 +279,15 @@ const GlAccountsPage = () => {
     }
 
     const openAssignment = async (account: FicoGlAccount) => {
-        if (!companyId) {
+        if (!activeCompanyId) {
             notifyError(null, 'Select a company first.')
             return
         }
         try {
             const assignments =
-                await ficoGlAccountService.listCompanyAssignments(companyId)
+                await ficoGlAccountService.listCompanyAssignments(
+                    activeCompanyId,
+                )
             const existing = assignments.find(
                 (row) => row.glAccountId === account.id,
             )
@@ -299,12 +305,12 @@ const GlAccountsPage = () => {
     }
 
     const saveAssignment = async () => {
-        if (!assignmentFor || !companyId) return
+        if (!assignmentFor || !activeCompanyId) return
         setSaving(true)
         try {
             await ficoGlAccountService.upsertCompanyAssignment(
                 assignmentFor.id,
-                companyId,
+                activeCompanyId,
                 {
                     postingEnabled: assignmentForm.postingEnabled,
                     manualPostingBlocked: assignmentForm.manualPostingBlocked,
@@ -323,13 +329,13 @@ const GlAccountsPage = () => {
     }
 
     const removeAssignment = async () => {
-        if (!assignmentFor || !companyId) return
+        if (!assignmentFor || !activeCompanyId) return
         setConfirmUnassign(false)
         setSaving(true)
         try {
             await ficoGlAccountService.removeCompanyAssignment(
                 assignmentFor.id,
-                companyId,
+                activeCompanyId,
             )
             notifySuccess('Company account assignment removed.')
             setAssignmentFor(null)
@@ -458,7 +464,7 @@ const GlAccountsPage = () => {
                 ),
             },
         ],
-        [companyId],
+        [companyId, companyFilter],
     )
 
     const accountMobile = useMemo(
@@ -597,9 +603,13 @@ const GlAccountsPage = () => {
                     />
                     <FicoCompanySelect
                         companies={companies}
-                        value={companyId}
-                        onChange={setCompanyId}
+                        value={companyFilter}
+                        onChange={(value) => {
+                            setCompanyFilter(value)
+                            setCompanyId(value)
+                        }}
                         loading={companyLoading}
+                        isClearable
                     />
                     <Button
                         size="sm"
@@ -614,7 +624,7 @@ const GlAccountsPage = () => {
                 <p className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
                     <HiOutlineHashtag />
                     {accounts.length} account{accounts.length === 1 ? '' : 's'}
-                    {companyId ? ' assigned to the selected company' : ''}
+                    {activeCompanyId ? ' assigned to the selected company' : ''}
                 </p>
 
                 <FicoResponsiveTable<FicoGlAccount>
