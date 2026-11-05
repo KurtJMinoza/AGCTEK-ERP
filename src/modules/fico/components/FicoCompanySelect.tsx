@@ -20,6 +20,18 @@ export function useFicoCompanies() {
         let cancelled = false
         ficoSettingsService
             .listCompanies()
+            .catch((err: unknown) => {
+                const status = (err as { response?: { status?: number } })?.response?.status
+                if (status !== 403) throw err
+                // Without company-settings access, still offer the user's companies.
+                return ficoSettingsService.listAccessibleCompanies().then((list) =>
+                    list.map((company) => ({
+                        company,
+                        settings: null,
+                        status: 'UNKNOWN',
+                    })),
+                )
+            })
             .then((items) => {
                 if (cancelled) return
                 setRows(items)

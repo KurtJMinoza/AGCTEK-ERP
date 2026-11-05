@@ -13,6 +13,9 @@ import type { AuthRequestUser } from '../auth/auth.decorator'
 import { CurrentUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import {
+    FicoAccountMappingCreateDto,
+    FicoAccountMappingUpdateDto,
+    FicoAccountingEventQueryDto,
     FicoAuditQueryDto,
     FicoChartCreateDto,
     FicoChartDuplicateDto,
@@ -38,6 +41,8 @@ import {
     FicoPostingValidationDto,
     FicoReasonDto,
 } from './dto/fico-phase1.dto'
+import { FicoAccountMappingService } from './fico-account-mapping.service'
+import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
@@ -60,7 +65,50 @@ export class FicoPhase1Controller {
         private readonly overview: FicoOverviewService,
         private readonly audit: FicoAuditService,
         private readonly access: FicoCompanyAccessService,
+        private readonly mappings: FicoAccountMappingService,
+        private readonly accountingEvents: FicoAccountingEventsService,
     ) {}
+
+    // ---------------------------------------------------------------------
+    // Account determination (MM transaction key → G/L accounts)
+    // ---------------------------------------------------------------------
+
+    @Get('account-determination')
+    @RequirePermission('fico.account-determination', 'read')
+    getAccountDetermination(
+        @Query('companyId') companyId: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.mappings.overview(companyId, user)
+    }
+
+    @Post('account-determination/mappings')
+    @RequirePermission('fico.account-determination', 'create')
+    createAccountMapping(
+        @Body() dto: FicoAccountMappingCreateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.mappings.create(dto, user)
+    }
+
+    @Patch('account-determination/mappings/:id')
+    @RequirePermission('fico.account-determination', 'update')
+    updateAccountMapping(
+        @Param('id') id: string,
+        @Body() dto: FicoAccountMappingUpdateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.mappings.update(id, dto, user)
+    }
+
+    @Delete('account-determination/mappings/:id')
+    @RequirePermission('fico.account-determination', 'delete')
+    deleteAccountMapping(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.mappings.remove(id, user)
+    }
 
     @Get('overview')
     @RequirePermission('fico.overview', 'read')
@@ -79,6 +127,13 @@ export class FicoPhase1Controller {
     @RequirePermission('fico.company-settings', 'read')
     listCompanies(@CurrentUser() user: AuthRequestUser) {
         return this.settings.listCompanies(user)
+    }
+
+    /** Company picker for any FICO reader: identity only, no accounting settings. */
+    @Get('companies')
+    @RequirePermission('fico', 'read')
+    listAccessibleCompanies(@CurrentUser() user: AuthRequestUser) {
+        return this.access.listAccessibleCompanies(user)
     }
 
     @Get('company-settings/defaults')
@@ -530,6 +585,24 @@ export class FicoPhase1Controller {
     // ---------------------------------------------------------------------
     // Audit
     // ---------------------------------------------------------------------
+
+    @Get('accounting-events')
+    @RequirePermission('fico.journal-entries', 'read')
+    listAccountingEvents(
+        @Query() query: FicoAccountingEventQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountingEvents.list(query, user)
+    }
+
+    @Get('accounting-events/:id')
+    @RequirePermission('fico.journal-entries', 'read')
+    getAccountingEvent(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountingEvents.get(id, user)
+    }
 
     @Get('audit')
     @RequirePermission('fico.audit', 'read')

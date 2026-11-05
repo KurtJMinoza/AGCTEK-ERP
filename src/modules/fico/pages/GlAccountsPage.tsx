@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import usePermissions from '@/utils/hooks/usePermissions'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
@@ -47,6 +48,8 @@ import {
     accountTypeLabel,
     ficoStatusTone,
 } from '../components/ficoTableUi'
+import AccountDeterminationPanel from '../components/AccountDeterminationPanel'
+import AccountingEventsPanel from '../components/AccountingEventsPanel'
 import GlAccountImportDialog from '../components/GlAccountImportDialog'
 import GlAccountUsageDialog from '../components/GlAccountUsageDialog'
 import { ficoChartService, ficoGlAccountService } from '../services/ficoService'
@@ -54,6 +57,15 @@ import type { FicoAccountGroup, FicoChart, FicoGlAccount } from '../types'
 import { downloadGlAccountsCsv } from '../utils/glAccountCsv'
 
 const ROUTE = '/modules/fico/gl-accounts'
+
+type WorkspaceTab = 'accounts' | 'determination' | 'events'
+
+/** Each tab shows only when the user can read the data behind it. */
+const WORKSPACE_TABS: { value: WorkspaceTab; label: string; permission: string }[] = [
+    { value: 'accounts', label: 'G/L Accounts', permission: 'fico.gl-accounts' },
+    { value: 'determination', label: 'Account Determination', permission: 'fico.account-determination' },
+    { value: 'events', label: 'MM → FICO Posting Monitor', permission: 'fico.journal-entries' },
+]
 const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 const RECONCILIATION_TYPES = ['AP', 'AR', 'GRIR', 'BANK', 'ASSET', 'TAX']
 
@@ -111,6 +123,26 @@ const GlAccountsPage = () => {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const searchParams = useSearchParams()
+    const router = useRouter()
+    const { can, loading: permissionsLoading } = usePermissions()
+    const [requestedTab, setRequestedTab] = useState<WorkspaceTab>(() => {
+        const value = searchParams.get('tab')
+        return WORKSPACE_TABS.some((item) => item.value === value)
+            ? (value as WorkspaceTab)
+            : 'accounts'
+    })
+    const visibleTabs = permissionsLoading
+        ? WORKSPACE_TABS
+        : WORKSPACE_TABS.filter((item) => can(item.permission))
+    const workspaceTab = visibleTabs.some((item) => item.value === requestedTab)
+        ? requestedTab
+        : (visibleTabs[0]?.value ?? 'accounts')
+    const changeWorkspaceTab = (value: WorkspaceTab) => {
+        setRequestedTab(value)
+        router.replace(value === 'accounts' ? ROUTE : `${ROUTE}?tab=${value}`, {
+            scroll: false,
+        })
+    }
     const [chartFilter, setChartFilter] = useState(
         () => searchParams.get('chartOfAccountsId') ?? '',
     )
@@ -161,8 +193,8 @@ const GlAccountsPage = () => {
     }, [chartFilter, typeFilter, statusFilter, search, companyId])
 
     useEffect(() => {
-        load()
-    }, [load])
+        if (workspaceTab === 'accounts') load()
+    }, [load, workspaceTab])
 
     const loadGroups = useCallback((chartId: string) => {
         if (!chartId) {
@@ -512,49 +544,70 @@ const GlAccountsPage = () => {
         <PageContainer>
             <PageHeader
                 title="G/L Accounts"
-                description="Chart-scoped G/L master data: classification, normal balance, posting controls and company assignment."
+                description="Maintain G/L accounts, configure MM account determination, and monitor MM postings reaching FICO."
                 breadcrumbs={buildErpBreadcrumbs(ROUTE).slice(0, -1)}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                            size="sm"
-                            icon={<HiOutlineDownload />}
-                            disabled={!accounts.length}
-                            onClick={() => downloadGlAccountsCsv(accounts)}
-                        >
-                            Export
-                        </Button>
-                        <Button
-                            size="sm"
-                            icon={<HiOutlineUpload />}
-                            onClick={() => setImportOpen(true)}
-                        >
-                            Import
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="solid"
-                            icon={<HiOutlinePlus />}
-                            onClick={openCreate}
-                        >
-                            New account
-                        </Button>
+                        <FicoCompanySelect
+                            companies={companies}
+                            value={companyId}
+                            onChange={setCompanyId}
+                            loading={companyLoading}
+                        />
+                        {workspaceTab === 'accounts' ? (
+                            <>
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlineDownload />}
+                                    disabled={!accounts.length}
+                                    onClick={() => downloadGlAccountsCsv(accounts)}
+                                >
+                                    Export
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlineUpload />}
+                                    onClick={() => setImportOpen(true)}
+                                >
+                                    Import
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    icon={<HiOutlinePlus />}
+                                    onClick={openCreate}
+                                >
+                                    New account
+                                </Button>
+                            </>
+                        ) : null}
                     </div>
                 }
             />
-            <AdaptiveCard>
-                <Tabs value={typeFilter} onChange={(value) => setTypeFilter(value as string)}>
-                    <Tabs.TabList className="flex flex-wrap gap-1">
-                        <Tabs.TabNav value="">All types</Tabs.TabNav>
-                        {ACCOUNT_TYPES.map((type) => (
-                            <Tabs.TabNav key={type} value={type}>
-                                {accountTypeLabel(type)}
-                            </Tabs.TabNav>
-                        ))}
-                    </Tabs.TabList>
-                </Tabs>
 
-                <div className="mb-4 mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,20rem)_minmax(0,12rem)_minmax(0,16rem)_minmax(0,14rem)_auto] xl:items-center">
+            <Tabs
+                value={workspaceTab}
+                onChange={(value) => changeWorkspaceTab(value as WorkspaceTab)}
+            >
+                <Tabs.TabList className="mb-4 flex flex-wrap gap-1">
+                    {visibleTabs.map((item) => (
+                        <Tabs.TabNav key={item.value} value={item.value}>
+                            {item.label}
+                        </Tabs.TabNav>
+                    ))}
+                </Tabs.TabList>
+            </Tabs>
+
+            {workspaceTab === 'determination' ? (
+                <AccountDeterminationPanel key={companyId} companyId={companyId} />
+            ) : null}
+            {workspaceTab === 'events' ? (
+                <AccountingEventsPanel key={companyId} companyId={companyId} />
+            ) : null}
+
+            {workspaceTab === 'accounts' ? (
+            <AdaptiveCard>
+                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,20rem)_minmax(0,12rem)_minmax(0,12rem)_minmax(0,16rem)_auto] xl:items-center">
                     <Select
                         size="sm"
                         placeholder="All charts"
@@ -566,6 +619,23 @@ const GlAccountsPage = () => {
                         }
                         onChange={(option) =>
                             setChartFilter((option as { value: string } | null)?.value ?? '')
+                        }
+                    />
+                    <Select
+                        size="sm"
+                        placeholder="All types"
+                        isClearable
+                        options={ACCOUNT_TYPES.map((type) => ({
+                            value: type,
+                            label: accountTypeLabel(type),
+                        }))}
+                        value={
+                            typeFilter
+                                ? { value: typeFilter, label: accountTypeLabel(typeFilter) }
+                                : null
+                        }
+                        onChange={(option) =>
+                            setTypeFilter((option as { value: string } | null)?.value ?? '')
                         }
                     />
                     <Select
@@ -594,12 +664,6 @@ const GlAccountsPage = () => {
                         placeholder="Search code or name"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                    />
-                    <FicoCompanySelect
-                        companies={companies}
-                        value={companyId}
-                        onChange={setCompanyId}
-                        loading={companyLoading}
                     />
                     <Button
                         size="sm"
@@ -630,6 +694,7 @@ const GlAccountsPage = () => {
                     instanceId="fico-gl-accounts"
                 />
             </AdaptiveCard>
+            ) : null}
 
             <GlAccountUsageDialog account={usageFor} onClose={() => setUsageFor(null)} />
 

@@ -7,6 +7,20 @@ import type {
 } from '../mm/common/mm-accounting-event.types'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
 
+/**
+ * Transaction keys `transactionKey()` below can return. Other keys (e.g. supplier
+ * invoice) may have mappings, but no MM event resolves to them yet.
+ */
+export const FICO_RESOLVED_TRANSACTION_KEYS = [
+    'GR_IR',
+    'GI_COGS',
+    'GI_EXPENSE',
+    'INVENTORY_SHRINKAGE',
+    'INVENTORY_INCREASE_ADJ',
+    'LANDED_COST',
+    'PRICE_VARIANCE',
+] as const
+
 export type ResolvedMmJournalLine = {
     debitAccountId: string
     creditAccountId: string

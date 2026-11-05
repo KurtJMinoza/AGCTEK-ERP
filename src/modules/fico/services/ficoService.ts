@@ -1,8 +1,13 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import type {
+    FicoAccountDetermination,
     FicoAccountGroup,
+    FicoAccountMapping,
+    FicoAccountingEventDetail,
+    FicoAccountingEventList,
     FicoAuditEntry,
     FicoChart,
+    FicoCompany,
     FicoCompanyGlAccount,
     FicoCompanySettings,
     FicoCompanySettingsRow,
@@ -37,6 +42,9 @@ export const ficoSettingsService = {
         ErpAxiosBase.get<FicoCompanySettingsRow[]>(
             `${API}/company-settings/companies`,
         ).then((r) => r.data),
+    /** Companies the user belongs to, for readers without company-settings access. */
+    listAccessibleCompanies: () =>
+        ErpAxiosBase.get<FicoCompany[]>(`${API}/companies`).then((r) => r.data),
     defaults: () =>
         ErpAxiosBase.get<Record<string, unknown>>(
             `${API}/company-settings/defaults`,
@@ -189,6 +197,45 @@ export const ficoGlAccountService = {
         ErpAxiosBase.delete(
             `${API}/gl-accounts/${glAccountId}/companies/${companyId}`,
         ).then((r) => r.data),
+}
+
+export const ficoAccountingEventService = {
+    list: (query: {
+        companyId: string
+        status?: string
+        sourceModule?: string
+        search?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<FicoAccountingEventList>(
+            `${API}/accounting-events${queryString(query)}`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoAccountingEventDetail>(`${API}/accounting-events/${id}`).then(
+            (r) => r.data,
+        ),
+}
+
+export const ficoAccountDeterminationService = {
+    get: (companyId: string) =>
+        ErpAxiosBase.get<FicoAccountDetermination>(
+            `${API}/account-determination${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    createMapping: (data: Record<string, unknown>) =>
+        ErpAxiosBase.post<FicoAccountMapping>(
+            `${API}/account-determination/mappings`,
+            data,
+        ).then((r) => r.data),
+    updateMapping: (id: string, data: Record<string, unknown>) =>
+        ErpAxiosBase.patch<FicoAccountMapping>(
+            `${API}/account-determination/mappings/${id}`,
+            data,
+        ).then((r) => r.data),
+    removeMapping: (id: string) =>
+        ErpAxiosBase.delete(`${API}/account-determination/mappings/${id}`).then(
+            (r) => r.data,
+        ),
 }
 
 export const ficoCalendarService = {
