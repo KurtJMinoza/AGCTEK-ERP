@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
@@ -24,6 +25,7 @@ import {
     HiOutlinePlus,
     HiOutlineRefresh,
     HiOutlineSearch,
+    HiOutlineSearchCircle,
     HiOutlineTrash,
     HiOutlineUpload,
 } from 'react-icons/hi'
@@ -46,6 +48,7 @@ import {
     ficoStatusTone,
 } from '../components/ficoTableUi'
 import GlAccountImportDialog from '../components/GlAccountImportDialog'
+import GlAccountUsageDialog from '../components/GlAccountUsageDialog'
 import { ficoChartService, ficoGlAccountService } from '../services/ficoService'
 import type { FicoAccountGroup, FicoChart, FicoGlAccount } from '../types'
 import { downloadGlAccountsCsv } from '../utils/glAccountCsv'
@@ -95,14 +98,22 @@ function normalBalanceFor(accountType: string) {
 }
 
 const GlAccountsPage = () => {
-    const { companies, companyId, setCompanyId, loading: companyLoading } =
-        useFicoCompanies()
+    const {
+        companies,
+        companyId,
+        selectedRow,
+        setCompanyId,
+        loading: companyLoading,
+    } = useFicoCompanies()
     const [charts, setCharts] = useState<FicoChart[]>([])
     const [groups, setGroups] = useState<FicoAccountGroup[]>([])
     const [accounts, setAccounts] = useState<FicoGlAccount[]>([])
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
-    const [chartFilter, setChartFilter] = useState('')
+    const searchParams = useSearchParams()
+    const [chartFilter, setChartFilter] = useState(
+        () => searchParams.get('chartOfAccountsId') ?? '',
+    )
     const [typeFilter, setTypeFilter] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
     const [search, setSearch] = useState('')
@@ -113,8 +124,10 @@ const GlAccountsPage = () => {
     const [form, setForm] = useState<AccountForm>(emptyAccount)
 
     const [deleting, setDeleting] = useState<FicoGlAccount | null>(null)
+    const [usageFor, setUsageFor] = useState<FicoGlAccount | null>(null)
     const [confirmUnassign, setConfirmUnassign] = useState(false)
     const [assignmentFor, setAssignmentFor] = useState<FicoGlAccount | null>(null)
+    const [assignmentExists, setAssignmentExists] = useState(false)
     const [assignmentForm, setAssignmentForm] = useState({
         postingEnabled: true,
         manualPostingBlocked: false,
@@ -278,6 +291,7 @@ const GlAccountsPage = () => {
                 effectiveFrom: existing?.effectiveFrom?.slice(0, 10) ?? '',
                 effectiveTo: existing?.effectiveTo?.slice(0, 10) ?? '',
             })
+            setAssignmentExists(Boolean(existing))
             setAssignmentFor(account)
         } catch (error) {
             notifyError(error, 'Unable to load company assignments.')
@@ -382,16 +396,27 @@ const GlAccountsPage = () => {
             {
                 header: 'Usage',
                 id: 'usage',
-                cell: ({ row }) => (
-                    <div
-                        title={`${row.original.usage?.journalLines ?? 0} journal lines, ${
-                            (row.original.usage?.debitMappings ?? 0) +
-                            (row.original.usage?.creditMappings ?? 0)
-                        } mappings`}
-                    >
-                        <FicoCountCell value={row.original.usage?.total} label="references" />
-                    </div>
-                ),
+                cell: ({ row }) => {
+                    const total = row.original.usage?.total ?? 0
+                    const summary = `${row.original.usage?.journalLines ?? 0} journal lines, ${
+                        (row.original.usage?.debitMappings ?? 0) +
+                        (row.original.usage?.creditMappings ?? 0)
+                    } mappings`
+                    if (!total) {
+                        return <FicoCountCell value={0} label="references" />
+                    }
+                    return (
+                        <button
+                            type="button"
+                            title={`${summary} — click to see them`}
+                            onClick={() => setUsageFor(row.original)}
+                            className="group/usage inline-flex items-end gap-1 rounded-md text-left hover:text-primary"
+                        >
+                            <FicoCountCell value={total} label="view" />
+                            <HiOutlineSearchCircle className="mb-1 text-gray-400 group-hover/usage:text-primary" />
+                        </button>
+                    )
+                },
             },
             {
                 header: 'Status',
@@ -407,6 +432,10 @@ const GlAccountsPage = () => {
                         <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
                             <HiOutlinePencil className="text-base" />
                             <span>Edit account</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item eventKey="usage" onClick={() => setUsageFor(row.original)}>
+                            <HiOutlineSearchCircle className="text-base" />
+                            <span>Where used</span>
                         </Dropdown.Item>
                         <Dropdown.Item
                             eventKey="company"
@@ -601,6 +630,8 @@ const GlAccountsPage = () => {
                     instanceId="fico-gl-accounts"
                 />
             </AdaptiveCard>
+
+            <GlAccountUsageDialog account={usageFor} onClose={() => setUsageFor(null)} />
 
             <GlAccountImportDialog
                 isOpen={importOpen}
@@ -846,37 +877,92 @@ const GlAccountsPage = () => {
             <FormDialog
                 isOpen={Boolean(assignmentFor)}
                 onClose={() => setAssignmentFor(null)}
-                title={`Company assignment — ${assignmentFor?.accountCode ?? ''} ${assignmentFor?.accountName ?? ''}`}
-                description="The assignment controls whether the company may post to this account."
-                onSubmit={saveAssignment}
-                confirmText="Save assignment"
-                confirmLoading={saving}
+                icon={<HiOutlineOfficeBuilding />}
+                title="Company assignment"
+                description={
+                    <span className="block break-words">
+                        <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">
+                            {assignmentFor?.accountCode}
+                        </span>{' '}
+                        {assignmentFor?.accountName}
+                        {selectedRow?.company.name ? (
+                            <>
+                                {' · '}
+                                {selectedRow.company.name}
+                            </>
+                        ) : null}
+                    </span>
+                }
+                footerClassName={assignmentExists ? '!justify-between' : undefined}
+                footer={
+                    <>
+                        {assignmentExists ? (
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="plain"
+                                icon={<HiOutlineTrash />}
+                                className="text-red-600 hover:text-red-700 dark:text-red-400"
+                                disabled={saving}
+                                onClick={() => setConfirmUnassign(true)}
+                            >
+                                Remove
+                            </Button>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button type="button" onClick={() => setAssignmentFor(null)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="solid"
+                                loading={saving}
+                                onClick={() => void saveAssignment()}
+                            >
+                                {assignmentExists ? 'Save changes' : 'Assign account'}
+                            </Button>
+                        </div>
+                    </>
+                }
             >
-                <div className="space-y-4">
-                    <Checkbox
-                        checked={assignmentForm.postingEnabled}
-                        onChange={(checked) =>
-                            setAssignmentForm((current) => ({
-                                ...current,
-                                postingEnabled: checked,
-                            }))
-                        }
-                    >
-                        Posting enabled for this company
-                    </Checkbox>
-                    <Checkbox
-                        checked={assignmentForm.manualPostingBlocked}
-                        onChange={(checked) =>
-                            setAssignmentForm((current) => ({
-                                ...current,
-                                manualPostingBlocked: checked,
-                            }))
-                        }
-                    >
-                        Block manual postings
-                    </Checkbox>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <FormItem label="Effective from">
+                <div className="space-y-5">
+                    <div className="space-y-3">
+                        {[
+                            {
+                                key: 'postingEnabled' as const,
+                                label: 'Posting enabled',
+                                help: 'The company may post to this account.',
+                            },
+                            {
+                                key: 'manualPostingBlocked' as const,
+                                label: 'Block manual postings',
+                                help: 'Only automatic postings (e.g. from MM) are accepted.',
+                            },
+                        ].map((option) => (
+                            <Checkbox
+                                key={option.key}
+                                className="!flex w-full cursor-pointer !items-start gap-1 rounded-xl border border-gray-200 p-3 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50"
+                                checked={assignmentForm[option.key]}
+                                onChange={(checked) =>
+                                    setAssignmentForm((current) => ({
+                                        ...current,
+                                        [option.key]: checked,
+                                    }))
+                                }
+                            >
+                                <span className="min-w-0">
+                                    <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                                        {option.label}
+                                    </span>
+                                    <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">
+                                        {option.help}
+                                    </span>
+                                </span>
+                            </Checkbox>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                        <FormItem label="Effective from" className="mb-0 sm:mb-0">
                             <Input
                                 type="date"
                                 value={assignmentForm.effectiveFrom}
@@ -888,7 +974,7 @@ const GlAccountsPage = () => {
                                 }
                             />
                         </FormItem>
-                        <FormItem label="Effective to">
+                        <FormItem label="Effective to" className="mb-0">
                             <Input
                                 type="date"
                                 value={assignmentForm.effectiveTo}
@@ -901,15 +987,9 @@ const GlAccountsPage = () => {
                             />
                         </FormItem>
                     </div>
-                    <Button
-                        type="button"
-                        size="sm"
-                        icon={<HiOutlineTrash />}
-                        onClick={() => setConfirmUnassign(true)}
-                        loading={saving}
-                    >
-                        Remove assignment
-                    </Button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Leave the dates blank for an assignment with no start or end.
+                    </p>
                 </div>
             </FormDialog>
 

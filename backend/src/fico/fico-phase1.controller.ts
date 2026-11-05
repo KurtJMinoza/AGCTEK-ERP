@@ -278,6 +278,15 @@ export class FicoPhase1Controller {
         return this.accounts.get(id)
     }
 
+    @Get('gl-accounts/:id/usage')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountUsage(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.usage(id, user)
+    }
+
     @Patch('gl-accounts/:id')
     @RequirePermission('fico.gl-accounts', 'update')
     updateAccount(

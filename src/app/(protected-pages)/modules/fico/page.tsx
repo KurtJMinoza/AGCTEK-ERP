@@ -7,7 +7,7 @@ export const metadata = {
 }
 
 /** FICO Phase 1 exposes only the chart of accounts and the fiscal calendar. */
-const FICO_PHASE1_SUBMODULES = ['chart-of-accounts', 'fiscal-years']
+const FICO_PHASE1_SUBMODULES = ['chart-of-accounts', 'gl-accounts', 'fiscal-years']
 
 export default async function Page() {
     return (

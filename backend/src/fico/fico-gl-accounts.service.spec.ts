@@ -95,6 +95,55 @@ describe('FicoGlAccountsService create', () => {
     })
 })
 
+describe('FicoGlAccountsService usage', () => {
+    function usageSetup(companyIds: string[] | null) {
+        const prisma = {
+            ficoGlAccount: {
+                findUnique: jest.fn().mockResolvedValue({ id: 'acc-1', accountCode: '110100' }),
+            },
+            ficoJournalEntryLine: {
+                findMany: jest.fn().mockResolvedValue([{ id: 'line-1' }]),
+                count: jest
+                    .fn()
+                    .mockImplementation(({ where }) => (where.companyId ? 1 : 3)),
+                aggregate: jest.fn().mockResolvedValue({
+                    _sum: { debitAmount: 150, creditAmount: 100 },
+                }),
+            },
+            ficoMmAccountMapping: {
+                findMany: jest.fn().mockResolvedValue([
+                    { id: 'm1', debitAccountId: 'acc-1', creditAccountId: 'acc-2' },
+                    { id: 'm2', debitAccountId: 'acc-3', creditAccountId: 'acc-1' },
+                ]),
+            },
+        }
+        const access = { accessibleCompanyIds: jest.fn().mockResolvedValue(companyIds) }
+        const service = new FicoGlAccountsService(prisma as never, access as never, {} as never)
+        return { service, prisma }
+    }
+
+    it('limits journal lines to the companies the user belongs to', async () => {
+        const { service, prisma } = usageSetup(['co-1'])
+        const result = await service.usage('acc-1', user)
+        expect(prisma.ficoJournalEntryLine.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { glAccountId: 'acc-1', companyId: { in: ['co-1'] } },
+            }),
+        )
+        expect(result.journalLines).toMatchObject({ total: 1, hiddenByCompanyScope: 2 })
+        expect(result.mappings.map((m) => m.side)).toEqual(['DEBIT', 'CREDIT'])
+    })
+
+    it('shows every company to a super admin', async () => {
+        const { service, prisma } = usageSetup(null)
+        const result = await service.usage('acc-1', user)
+        expect(prisma.ficoJournalEntryLine.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { glAccountId: 'acc-1' } }),
+        )
+        expect(result.journalLines.hiddenByCompanyScope).toBe(0)
+    })
+})
+
 describe('FicoGlAccountsService import', () => {
     const rows = [
         { accountCode: '1000', accountName: 'Cash on Hand', accountGroupCode: 'ASSET' },

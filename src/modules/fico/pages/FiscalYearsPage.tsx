@@ -18,6 +18,8 @@ import { FormItem } from '@/components/ui/Form'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     HiOutlineCalendar,
+    HiOutlineChevronLeft,
+    HiOutlineChevronRight,
     HiOutlineClipboardList,
     HiOutlineCollection,
     HiOutlineDuplicate,
@@ -46,7 +48,7 @@ import {
     ficoStatusTone,
     formatFicoDate,
 } from '../components/ficoTableUi'
-import FiscalYearPreviewTable from '../components/FiscalYearPreviewTable'
+import FiscalYearPreview from '../components/FiscalYearPreview'
 import { ficoCalendarService } from '../services/ficoService'
 import type {
     FicoFiscalVariant,
@@ -313,6 +315,13 @@ const FiscalYearsPage = () => {
         setPreviewVariant(variant)
         setPreview(null)
         void loadPreview(variant, previewYear)
+    }
+
+    const changePreviewYear = (year: number) => {
+        setPreviewYear(year)
+        if (previewVariant && year >= 2000 && year <= 2100) {
+            void loadPreview(previewVariant, year)
+        }
     }
 
     const previewFormConfig = async () => {
@@ -1121,7 +1130,7 @@ const FiscalYearsPage = () => {
                             Preview next year
                         </Button>
                     </div>
-                    {formPreview ? <FiscalYearPreviewTable preview={formPreview} /> : null}
+                    {formPreview ? <FiscalYearPreview preview={formPreview} compact /> : null}
                 </div>
             </FormDialog>
 
@@ -1142,23 +1151,45 @@ const FiscalYearsPage = () => {
                 }
             >
                 <div className="space-y-4">
-                    <FormItem label="Fiscal year" className="max-w-xs">
-                        <Input
-                            type="number"
-                            min={2000}
-                            max={2100}
-                            placeholder="e.g. 2027"
-                            value={previewYear}
-                            onChange={(event) => {
-                                const year = Number(event.target.value || 0)
-                                setPreviewYear(year)
-                                if (previewVariant && year >= 2000 && year <= 2100) {
-                                    void loadPreview(previewVariant, year)
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                icon={<HiOutlineChevronLeft />}
+                                aria-label="Previous fiscal year"
+                                disabled={previewYear <= 2000}
+                                onClick={() => changePreviewYear(previewYear - 1)}
+                            />
+                            <Input
+                                size="sm"
+                                type="number"
+                                min={2000}
+                                max={2100}
+                                placeholder="e.g. 2027"
+                                className="w-24 text-center font-semibold tabular-nums"
+                                value={previewYear}
+                                onChange={(event) =>
+                                    changePreviewYear(Number(event.target.value || 0))
                                 }
-                            }}
-                        />
-                    </FormItem>
-                    <FiscalYearPreviewTable preview={preview} loading={previewLoading} />
+                            />
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                icon={<HiOutlineChevronRight />}
+                                aria-label="Next fiscal year"
+                                disabled={previewYear >= 2100}
+                                onClick={() => changePreviewYear(previewYear + 1)}
+                            />
+                        </div>
+                        {previewVariant ? (
+                            <p className="text-xs text-gray-500">
+                                {previewVariant.name} · starts{' '}
+                                {dayLabel(previewVariant.startMonth, previewVariant.startDay)}
+                            </p>
+                        ) : null}
+                    </div>
+                    <FiscalYearPreview preview={preview} loading={previewLoading} />
                 </div>
             </FormDialog>
 
@@ -1302,7 +1333,7 @@ const FiscalYearsPage = () => {
                     <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
                         Periods that will be created
                     </p>
-                    <FiscalYearPreviewTable preview={generatePreview} />
+                    <FiscalYearPreview preview={generatePreview} compact />
                 </div>
             </FormDialog>
         </PageContainer>

@@ -95,6 +95,8 @@ export type GlAccountImportReport = {
 
 export const FICO_GL_IMPORT_MAX_ROWS = 1000
 
+export const FICO_GL_USAGE_MAX_LINES = 100
+
 type ChartForAccount = { id: string; status: string; accountCodeLength: number | null }
 
 type GroupForAccount = {
@@ -244,6 +246,106 @@ export class FicoGlAccountsService {
                     account._count.debitMappings +
                     account._count.creditMappings,
             },
+        }
+    }
+
+    /**
+     * Where-used for one account: journal lines (limited to the user's companies)
+     * and account-determination mappings. Read-only.
+     */
+    async usage(id: string, user: AuthRequestUser) {
+        const account = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                accountCode: true,
+                accountName: true,
+                normalBalance: true,
+                chartOfAccounts: { select: { code: true } },
+            },
+        })
+        if (!account) throw new NotFoundException('G/L account not found')
+
+        const companyIds = await this.access.accessibleCompanyIds(user)
+        const companyScope = companyIds === null ? {} : { companyId: { in: companyIds } }
+        const lineWhere = { glAccountId: id, ...companyScope }
+
+        const [lines, visibleCount, totalCount, sums, mappings] = await Promise.all([
+            this.prisma.ficoJournalEntryLine.findMany({
+                where: lineWhere,
+                orderBy: [
+                    { journalEntry: { postingDate: 'desc' } },
+                    { lineNumber: 'asc' },
+                ],
+                take: FICO_GL_USAGE_MAX_LINES,
+                select: {
+                    id: true,
+                    lineNumber: true,
+                    debitAmount: true,
+                    creditAmount: true,
+                    currency: true,
+                    description: true,
+                    company: { select: { code: true, name: true } },
+                    journalEntry: {
+                        select: {
+                            id: true,
+                            documentNumber: true,
+                            documentType: true,
+                            postingDate: true,
+                            status: true,
+                            description: true,
+                            sourceModule: true,
+                            sourceDocumentType: true,
+                            reversalOfId: true,
+                        },
+                    },
+                },
+            }),
+            this.prisma.ficoJournalEntryLine.count({ where: lineWhere }),
+            this.prisma.ficoJournalEntryLine.count({ where: { glAccountId: id } }),
+            this.prisma.ficoJournalEntryLine.aggregate({
+                where: lineWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+            }),
+            this.prisma.ficoMmAccountMapping.findMany({
+                where: {
+                    OR: [{ debitAccountId: id }, { creditAccountId: id }],
+                    ...companyScope,
+                },
+                orderBy: [{ transactionKeyCode: 'asc' }],
+                select: {
+                    id: true,
+                    transactionKeyCode: true,
+                    valuationScopeKey: true,
+                    status: true,
+                    debitAccountId: true,
+                    creditAccountId: true,
+                    transactionKey: { select: { name: true } },
+                    profile: { select: { code: true } },
+                    company: { select: { code: true, name: true } },
+                },
+            }),
+        ])
+
+        return {
+            account,
+            journalLines: {
+                items: lines,
+                shown: lines.length,
+                total: visibleCount,
+                hiddenByCompanyScope: totalCount - visibleCount,
+                debitTotal: (sums._sum.debitAmount ?? new Prisma.Decimal(0)).toString(),
+                creditTotal: (sums._sum.creditAmount ?? new Prisma.Decimal(0)).toString(),
+            },
+            mappings: mappings.map(({ debitAccountId, creditAccountId, ...mapping }) => ({
+                ...mapping,
+                side:
+                    debitAccountId === id && creditAccountId === id
+                        ? 'BOTH'
+                        : debitAccountId === id
+                          ? 'DEBIT'
+                          : 'CREDIT',
+            })),
         }
     }
 

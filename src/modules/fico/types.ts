@@ -153,6 +153,53 @@ export type FicoFiscalYearPreview = {
     }>
 }
 
+export type FicoGlAccountUsage = {
+    account: {
+        id: string
+        accountCode: string
+        accountName: string
+        normalBalance: string
+        chartOfAccounts?: { code: string }
+    }
+    journalLines: {
+        items: Array<{
+            id: string
+            lineNumber: number
+            debitAmount: string | number
+            creditAmount: string | number
+            currency: string
+            description: string | null
+            company?: { code: string; name: string } | null
+            journalEntry: {
+                id: string
+                documentNumber: string | null
+                documentType: string
+                postingDate: string
+                status: string
+                description: string | null
+                sourceModule: string | null
+                sourceDocumentType: string | null
+                reversalOfId: string | null
+            }
+        }>
+        shown: number
+        total: number
+        hiddenByCompanyScope: number
+        debitTotal: string
+        creditTotal: string
+    }
+    mappings: Array<{
+        id: string
+        transactionKeyCode: string
+        valuationScopeKey: string
+        status: string
+        side: 'DEBIT' | 'CREDIT' | 'BOTH'
+        transactionKey?: { name: string } | null
+        profile?: { code: string } | null
+        company?: { code: string; name: string } | null
+    }>
+}
+
 export type FicoGlImportRow = {
     accountCode: string
     accountName: string

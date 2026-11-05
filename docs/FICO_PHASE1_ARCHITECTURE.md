@@ -111,9 +111,13 @@ Database guarantees:
   `GL_ACCOUNT_CREATE` audits plus a `GL_ACCOUNT_IMPORT` summary. Max 1,000 rows. The UI
   parses CSV and exports the list in the same column layout (round-trippable).
 * Account usage is tracked: the G/L list returns journal-line, debit-mapping and
-  credit-mapping counts, and the Usage column drills through to the journal lines
-  of that account (`/modules/fico/journal-details?glAccountId=…`). Deleting an
-  account with usage is refused — deactivate it instead.
+  credit-mapping counts. Clicking the Usage count (or **⋯ → Where used**) opens a
+  read-only dialog backed by `GET /fico/gl-accounts/:id/usage`: the latest 100 journal
+  lines with document, status, source, debit/credit and totals, plus the
+  account-determination mappings and which side they use the account on. Journal lines
+  and mappings are limited to companies the user belongs to (`super_admin` sees all);
+  the dialog states how many lines were hidden by that scope. Deleting an account with
+  usage is refused — deactivate it instead.
 
 ## 5. Fiscal years and posting periods
 
@@ -231,7 +235,7 @@ close any pending accounting event so the legacy consumer cannot post a second d
 | --- | --- |
 | Company settings | `GET/POST/PUT /fico/company-settings`, `GET /fico/company-settings/companies`, `GET /fico/company-settings/defaults`, `POST /fico/company-settings/validate|activate|deactivate` |
 | Chart of accounts | `GET/POST /fico/chart-of-accounts`, `GET/PATCH/DELETE /fico/chart-of-accounts/:id`, `POST /fico/chart-of-accounts/:id/duplicate`, `GET /fico/chart-of-accounts/:id/groups`, `POST/PATCH/DELETE /fico/chart-of-accounts/groups...` |
-| G/L accounts | `GET/POST /fico/gl-accounts`, `POST /fico/gl-accounts/import`, `GET/PATCH/DELETE /fico/gl-accounts/:id`, `PUT/DELETE /fico/gl-accounts/:id/companies...` |
+| G/L accounts | `GET/POST /fico/gl-accounts`, `POST /fico/gl-accounts/import`, `GET/PATCH/DELETE /fico/gl-accounts/:id`, `GET /fico/gl-accounts/:id/usage`, `PUT/DELETE /fico/gl-accounts/:id/companies...` |
 | Fiscal years | `GET /fico/fiscal-years`, `GET/POST /fico/fiscal-years/variants`, `PATCH /fico/fiscal-years/variants/:id`, `POST /fico/fiscal-years/variants/:id/duplicate`, `POST /fico/fiscal-years/preview`, `POST /fico/fiscal-years/generate` |
 | Posting periods | `GET /fico/posting-periods`, `GET /fico/posting-periods/resolve`, `POST /fico/posting-periods/:id/open|restrict|close|lock|reopen|unlock` |
 | Account determination | `GET /fico/account-determination/transaction-keys|profiles|mappings`, `POST/PATCH/DELETE .../mappings` |

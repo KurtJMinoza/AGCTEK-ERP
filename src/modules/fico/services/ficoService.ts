@@ -10,6 +10,7 @@ import type {
     FicoFiscalYearPreview,
     FicoFiscalYearSummary,
     FicoGlAccount,
+    FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
     FicoOverview,
@@ -157,6 +158,10 @@ export const ficoGlAccountService = {
         ).then((r) => r.data),
     remove: (id: string) =>
         ErpAxiosBase.delete(`${API}/gl-accounts/${id}`).then((r) => r.data),
+    usage: (id: string) =>
+        ErpAxiosBase.get<FicoGlAccountUsage>(`${API}/gl-accounts/${id}/usage`).then(
+            (r) => r.data,
+        ),
     /** Dry run validates only; a commit is all-or-nothing on the server. */
     importAccounts: (data: {
         chartOfAccountsId: string

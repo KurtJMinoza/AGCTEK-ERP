@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
@@ -20,6 +22,8 @@ import {
     HiOutlineCheckCircle,
     HiOutlineCollection,
     HiOutlineDuplicate,
+    HiOutlineExternalLink,
+    HiOutlineHashtag,
     HiOutlinePause,
     HiOutlinePencil,
     HiOutlinePencilAlt,
@@ -43,6 +47,9 @@ import { ficoChartService, ficoGlAccountService } from '../services/ficoService'
 import type { FicoAccountGroup, FicoChart, FicoGlAccount } from '../types'
 
 const ROUTE = '/modules/fico/chart-of-accounts'
+
+const glAccountsHref = (chartOfAccountsId: string) =>
+    `/modules/fico/gl-accounts?chartOfAccountsId=${encodeURIComponent(chartOfAccountsId)}`
 const CATEGORIES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 
 type CoaTab = 'charts' | 'groups'
@@ -95,6 +102,7 @@ function codeLengthPayload(value: string) {
 }
 
 const ChartOfAccountsPage = () => {
+    const router = useRouter()
     const [tab, setTab] = useState<CoaTab>('charts')
     const [charts, setCharts] = useState<FicoChart[]>([])
     const [groups, setGroups] = useState<FicoAccountGroup[]>([])
@@ -399,7 +407,16 @@ const ChartOfAccountsPage = () => {
             {
                 header: 'G/L accounts',
                 id: 'accounts',
-                cell: ({ row }) => <FicoCountCell value={row.original._count?.accounts} />,
+                cell: ({ row }) => (
+                    <Link
+                        href={glAccountsHref(row.original.id)}
+                        className="group/link inline-flex items-end gap-1 rounded-md hover:text-primary"
+                        title={`View the G/L accounts in ${row.original.code}`}
+                    >
+                        <FicoCountCell value={row.original._count?.accounts} label="view" />
+                        <HiOutlineExternalLink className="mb-1 text-gray-400 group-hover/link:text-primary" />
+                    </Link>
+                ),
             },
             {
                 header: 'Assigned to',
@@ -427,6 +444,13 @@ const ChartOfAccountsPage = () => {
                         <Dropdown.Item eventKey="groups" onClick={() => manageGroups(row.original)}>
                             <HiOutlineViewList className="text-base" />
                             <span>Manage account groups</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item
+                            eventKey="accounts"
+                            onClick={() => router.push(glAccountsHref(row.original.id))}
+                        >
+                            <HiOutlineHashtag className="text-base" />
+                            <span>View G/L accounts</span>
                         </Dropdown.Item>
                         <Dropdown.Item eventKey="edit" onClick={() => openEditChart(row.original)}>
                             <HiOutlinePencil className="text-base" />
