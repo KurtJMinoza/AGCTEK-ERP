@@ -17,9 +17,18 @@ import { FicoPostingValidationService } from './fico-posting-validation.service'
 import { FicoReconciliationService } from './fico-reconciliation.service'
 import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
+import { DocumentTypesController } from './document-types/document-types.controller'
+import { DocumentTypesService } from './document-types/document-types.service'
+import { JournalEntryController } from './journal-entries/journal-entry.controller'
+import { JournalEntryService } from './journal-entries/journal-entry.service'
 
 @Module({
-    controllers: [FicoController, FicoPhase1Controller],
+    controllers: [
+        FicoController,
+        FicoPhase1Controller,
+        DocumentTypesController,
+        JournalEntryController,
+    ],
     providers: [
         FicoFinancialPeriodService,
         FicoFinancialPeriodAdapter,
@@ -36,6 +45,8 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoPostingPeriodService,
         FicoPostingValidationService,
         FicoOverviewService,
+        DocumentTypesService,
+        JournalEntryService,
         {
             provide: FINANCIAL_PERIOD_PORT,
             useExisting: FicoFinancialPeriodAdapter,

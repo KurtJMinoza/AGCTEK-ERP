@@ -40,6 +40,10 @@ Follow-up (additive): `20261116120000_fico_coa_ranges_fyv_year_assignment` adds
 and `fico_fiscal_year_variants.yearAssignment` (default `YEAR_START`, so existing
 calendars are unchanged), each guarded by a `CHECK` constraint.
 
+Follow-up (additive): `20261117120000_fico_document_types_manual_journal` adds the
+`fico_document_types` master table and nullable `documentTypeId`, `reference`, and
+`headerText` columns on `fico_journal_entries` for manual journals.
+
 New tables (Prisma models in `backend/prisma/schema.prisma`):
 
 * `fico_company_accounting_settings`, `fico_chart_of_accounts`, `fico_gl_account_groups`,
@@ -48,6 +52,7 @@ New tables (Prisma models in `backend/prisma/schema.prisma`):
   `fico_posting_period_controls`, `fico_posting_period_audit_logs`
 * `fico_account_determination_profiles`, `fico_mm_account_mappings`, `fico_transaction_keys`
 * `fico_journal_entries` (extended), `fico_journal_entry_lines`, `fico_document_sequences`
+* `fico_document_types` (manual journal numbering and manual-entry control)
 * `fico_accounting_audit_logs`, `fico_historical_backposting_runs`
 
 Database guarantees:
@@ -182,15 +187,21 @@ company assignments and wrong-company accounts. There is **no** silent fallback.
 
 ## 7. Journal posting engine
 
-`FicoJournalService` is the single posting engine (manual + automatic + reversal).
+`FicoJournalService` posts automatic documents from MM accounting events.
+Manual documents are handled by `JournalEntryService` (`journal-entries`), which reuses
+`FicoPostingValidationService`, `FicoAuditService`, and the same immutable journal tables.
 
-* Double entry enforced by `assertValidJournalLines` (≥2 lines, debit XOR credit, no
-  negative amounts, debits = credits, total > 0).
-* Journals are inserted as `DRAFT` and flipped to `POSTED` in the same transaction (the
-  database immutability trigger forbids line inserts on a posted document).
+* Double entry enforced by `JournalEntryService.validateLines` (≥2 lines, debit XOR credit,
+  no negative amounts, debits = credits, total > 0).
+* Manual journals are inserted as `DRAFT`, with the document number allocated atomically
+  from the selected `FiDocumentType` number range; posting (immediate or later) validates
+  the active company configuration, open fiscal period, and posting controls.
+* Automatic journals are inserted as `DRAFT` and flipped to `POSTED` in the same
+  transaction (the database immutability trigger forbids line inserts on a posted document).
 * Idempotency is enforced by unique `idempotencyKey` / `sourcePostingKey` /
-  `mmAccountingEventId` columns; a repeated request returns the existing document.
-* Document numbers come from `fico_document_sequences` (per company, document type, year).
+  `mmAccountingEventId` columns; a repeated automatic request returns the existing document.
+* Manual document numbers come from `fico_document_types` (per type prefix and range);
+  automatic `fico_document_sequences` allocation remains a follow-up.
 * Posted documents cannot be edited or deleted; corrections are reversals that reference
   the original in both directions (`reversalOfId` / `reversedBy`).
 * Audit entry `JOURNAL_POST` / `JOURNAL_REVERSE` stores actor, company, entity, values and reason.
@@ -239,7 +250,8 @@ close any pending accounting event so the legacy consumer cannot post a second d
 | Fiscal years | `GET /fico/fiscal-years`, `GET/POST /fico/fiscal-years/variants`, `PATCH /fico/fiscal-years/variants/:id`, `POST /fico/fiscal-years/variants/:id/duplicate`, `POST /fico/fiscal-years/preview`, `POST /fico/fiscal-years/generate` |
 | Posting periods | `GET /fico/posting-periods`, `GET /fico/posting-periods/resolve`, `POST /fico/posting-periods/:id/open|restrict|close|lock|reopen|unlock` |
 | Account determination | `GET /fico/account-determination/transaction-keys|profiles|mappings`, `POST/PATCH/DELETE .../mappings` |
-| General ledger | `GET /fico/journals`, `GET /fico/journals/:id`, `POST /fico/journals`, `POST /fico/journals/:id/reverse`, `GET /fico/journal-lines`, `GET /fico/reports/trial-balance`, `GET /fico/overview` |
+| General ledger | `GET/POST /fico/journal-entries`, `GET /fico/journal-entries/:id`, `PATCH /fico/journal-entries/:id/post`, `POST /fico/journal-entries/:id/reverse`, `GET /fico/overview` |
+| FI document types | `GET/POST /fico/document-types`, `PATCH/DELETE /fico/document-types/:id` |
 | Audit | `GET /fico/audit` |
 | Dashboard | `GET /fico/dashboard` |
 | Legacy (kept) | `GET/POST /fico/periods`, `POST /fico/periods/status`, `GET /fico/reconciliation` |
@@ -262,6 +274,7 @@ company membership.
 | `/modules/fico/fiscal-periods` | Period table, open/restrict/close/lock/reopen, history |
 | `/modules/fico/account-determination` | Transaction keys, profiles, mappings |
 | `/modules/fico/journal-entries` | Journal list, manual posting, reversal, document detail |
+| `/modules/fico/document-types-fi` | FI document types and number ranges |
 | `/modules/fico/journal-details` | Line-level drill-down |
 | `/modules/fico/account-balances` | Trial balance / account balances |
 | `/modules/fico/audit-log` | Accounting audit trail |

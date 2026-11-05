@@ -6,8 +6,14 @@ export const metadata = {
     description: 'Chart of accounts and fiscal year configuration.',
 }
 
-/** FICO Phase 1 exposes only the chart of accounts and the fiscal calendar. */
-const FICO_PHASE1_SUBMODULES = ['chart-of-accounts', 'gl-accounts', 'fiscal-years']
+/** FICO Phase 1 exposes the chart, G/L accounts, fiscal calendar, manual journals, and FI document types. */
+const FICO_PHASE1_SUBMODULES = [
+    'chart-of-accounts',
+    'gl-accounts',
+    'journal-entries',
+    'fiscal-years',
+    'document-types-fi',
+]
 
 export default async function Page() {
     return (

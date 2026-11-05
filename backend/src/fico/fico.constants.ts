@@ -161,6 +161,8 @@ export const FICO_AUDIT_ACTIONS = {
     PERIOD_LOCK: 'PERIOD_LOCK',
     PERIOD_REOPEN: 'PERIOD_REOPEN',
     PERIOD_UNLOCK: 'PERIOD_UNLOCK',
+    JOURNAL_POST: 'JOURNAL_POST',
+    JOURNAL_REVERSE: 'JOURNAL_REVERSE',
 } as const
 
 export function formatFicoPeriodKey(

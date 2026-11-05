@@ -313,3 +313,98 @@ export type FicoListResponse<T> = {
     page: number
     pageSize: number
 }
+
+export type FicoDocumentType = {
+    id: string
+    code: string
+    name: string
+    prefix: string | null
+    numberRangeFrom: number
+    numberRangeTo: number
+    nextNumber: number
+    allowsManualEntry: boolean
+    isActive: boolean
+    createdAt: string
+    updatedAt: string
+}
+
+export type FicoDocumentTypeInput = Pick<
+    FicoDocumentType,
+    'code' | 'name' | 'numberRangeFrom' | 'numberRangeTo'
+> &
+    Partial<
+        Pick<
+            FicoDocumentType,
+            'prefix' | 'nextNumber' | 'allowsManualEntry' | 'isActive'
+        >
+    >
+
+export type FicoJournalEntryStatus = 'DRAFT' | 'POSTED' | 'REVERSED'
+
+export type FicoJournalEntryLine = {
+    id: string
+    lineNumber: number
+    glAccountId: string
+    glAccount: { id: string; accountCode: string; accountName: string }
+    debitAmount: string | number
+    creditAmount: string | number
+    currency: string
+    description: string | null
+}
+
+export type FicoJournalEntry = {
+    id: string
+    companyId: string
+    documentTypeId: string | null
+    documentTypeRef: FicoDocumentType | null
+    documentNumber: string | null
+    postingDate: string
+    documentDate: string | null
+    reference: string | null
+    headerText: string | null
+    currencyCode: string
+    status: FicoJournalEntryStatus
+    fiscalYear: number | null
+    postedAt: string | null
+    reversalOfId: string | null
+    reversalOf: { id: string; documentNumber: string | null } | null
+    reversedBy: { id: string; documentNumber: string | null } | null
+    lines: FicoJournalEntryLine[]
+    createdAt: string
+    updatedAt: string
+}
+
+export type FicoJournalEntryLineInput = {
+    glAccountId: string
+    debit: number
+    credit: number
+    text?: string
+}
+
+export type FicoJournalEntryInput = {
+    documentTypeId: string
+    companyId: string
+    postingDate: string
+    documentDate: string
+    reference?: string
+    headerText?: string
+    currencyCode: string
+    status?: 'DRAFT' | 'POSTED'
+    lines: FicoJournalEntryLineInput[]
+}
+
+export type FicoJournalEntryParams = {
+    page?: number
+    pageSize?: number
+    search?: string
+    status?: FicoJournalEntryStatus
+    documentTypeId?: string
+    companyId?: string
+}
+
+export type FicoPaginated<T> = {
+    data: T[]
+    total: number
+    page: number
+    pageSize: number
+}

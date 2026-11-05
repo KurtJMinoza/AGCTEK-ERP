@@ -13,7 +13,13 @@ import type {
     FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
+    FicoDocumentType,
+    FicoDocumentTypeInput,
+    FicoJournalEntry,
+    FicoJournalEntryInput,
+    FicoJournalEntryParams,
     FicoOverview,
+    FicoPaginated,
     FicoPeriod,
     FicoPostingVariant,
 } from '../types'
@@ -350,4 +356,50 @@ export function ficoErrorMessage(error: unknown, fallback: string) {
         return response.error
     }
     return fallback
+}
+
+export const ficoDocumentTypeService = {
+    list: () =>
+        ErpAxiosBase.get<FicoDocumentType[]>(`${API}/document-types`).then(
+            (r) => r.data,
+        ),
+    create: (data: FicoDocumentTypeInput) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types`,
+            data,
+        ).then((r) => r.data),
+    update: (id: string, data: Partial<FicoDocumentTypeInput>) =>
+        ErpAxiosBase.patch<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+            data,
+        ).then((r) => r.data),
+    deactivate: (id: string) =>
+        ErpAxiosBase.delete<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+        ).then((r) => r.data),
+}
+
+export const ficoJournalService = {
+    list: (query: FicoJournalEntryParams = {}) =>
+        ErpAxiosBase.get<FicoPaginated<FicoJournalEntry>>(
+            `${API}/journal-entries${queryString(query)}`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoJournalEntry>(
+            `${API}/journal-entries/${id}`,
+        ).then((r) => r.data),
+    create: (data: FicoJournalEntryInput) =>
+        ErpAxiosBase.post<FicoJournalEntry>(
+            `${API}/journal-entries`,
+            data,
+        ).then((r) => r.data),
+    post: (id: string) =>
+        ErpAxiosBase.patch<FicoJournalEntry>(
+            `${API}/journal-entries/${id}/post`,
+        ).then((r) => r.data),
+    reverse: (id: string, postingDate?: string) =>
+        ErpAxiosBase.post<FicoJournalEntry>(
+            `${API}/journal-entries/${id}/reverse`,
+            { postingDate },
+        ).then((r) => r.data),
 }

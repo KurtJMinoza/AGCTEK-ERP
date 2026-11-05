@@ -3849,6 +3849,25 @@ model FicoFinancialPeriod {
 }
 
 /// Phase 1 — FICO journal header (single posting engine).
+/// Phase 1 — FI document types for manual journal numbering and entry control.
+model FiDocumentType {
+  id                String             @id @default(cuid())
+  code              String             @unique
+  name              String
+  prefix            String?
+  numberRangeFrom   Int                @default(1)
+  numberRangeTo     Int                @default(999999999)
+  nextNumber        Int                @default(1)
+  allowsManualEntry Boolean            @default(true)
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  journalEntries    FicoJournalEntry[]
+
+  @@index([isActive])
+  @@map("fico_document_types")
+}
+
 model FicoJournalEntry {
   id                  String             @id @default(cuid())
   idempotencyKey      String             @unique
@@ -3860,8 +3879,12 @@ model FicoJournalEntry {
   company             Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   documentNumber      String?
   documentType        String             @default("JOURNAL")
+  documentTypeId      String?
+  documentTypeRef     FiDocumentType?        @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
   documentDate        DateTime?          @db.Date
   postingDate         DateTime           @db.Date
+  reference           String?
+  headerText          String?
   fiscalYear          Int?
   fiscalPeriodId      String?
   fiscalPeriod        FicoFinancialPeriod? @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
@@ -3887,6 +3910,7 @@ model FicoJournalEntry {
 
   @@index([companyId, postingDate])
   @@index([companyId, status])
+  @@index([documentTypeId])
   @@index([fiscalPeriodId])
   @@index([sourceEventId])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])
