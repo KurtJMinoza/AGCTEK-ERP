@@ -209,11 +209,21 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'gl-accounts',
-                        permissionCode: 'fico.gl-accounts',
+                        // Hosts three tabs with their own permissions; the page hides the ones the user cannot read.
+                        permissionCode: 'fico',
                         title: 'G/L Accounts',
                         description:
-                            'Maintain posting controls and company assignments for G/L accounts.',
+                            'G/L accounts, MM account determination, and the MM → FICO posting monitor.',
                         path: '/modules/fico/gl-accounts',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'account-determination',
+                        permissionCode: 'fico.account-determination',
+                        title: 'Account Determination',
+                        description:
+                            'Centralized MM and SD rules: debit/credit lines, dimensions, priorities, approval and activation.',
+                        path: '/modules/fico/account-determination-rules',
                         icon: 'fileText',
                     },
                     {

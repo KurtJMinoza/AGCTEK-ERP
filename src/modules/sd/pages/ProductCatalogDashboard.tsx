@@ -272,7 +272,12 @@ const ProductCatalogDashboard = () => {
                 afterChange(created.divisionId)
             } else {
                 const { divisionId: _divisionId, sku: _sku, ...changes } = values
-                const updated = await updateProduct(dialog.product.id, changes)
+                const updated = await updateProduct(dialog.product.id, {
+                    ...changes,
+                    // An emptied compare-at price must clear the stored value
+                    // instead of being dropped as "unchanged".
+                    originalPrice: values.originalPrice ?? null,
+                })
                 if (values.optionsVariants) {
                     try {
                         await productOptionVariantsService.saveForProduct(

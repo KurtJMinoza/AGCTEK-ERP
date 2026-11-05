@@ -260,6 +260,11 @@ describe('MM-12 Valuation Engine', () => {
             expect(txState.acctEvents.some((e: any) => e.eventType === 'InventoryValuationUpdated')).toBe(
                 true,
             )
+            expect(result.accountingDispatches?.map((d) => d.eventType)).toEqual(
+                expect.arrayContaining(['InventoryValuationUpdated', 'PriceVariancePosted']),
+            )
+            // The caller owns the transaction; FICO must not be asked to post yet.
+            expect(mockEvents.emit).not.toHaveBeenCalled()
             expect(txState.priceVariances?.length).toBe(1)
             expect(txState.priceVariances[0].varianceType).toBe('PPV')
         })
@@ -565,6 +570,10 @@ describe('MM-12 Valuation Engine', () => {
             expect(txState.acctEvents.some((e: any) => e.eventType === 'LandedCostAllocated')).toBe(
                 true,
             )
+            expect(mockEvents.emit).toHaveBeenCalledWith(
+                'accounting.entry.requested',
+                expect.objectContaining({ eventType: 'LandedCostAllocated' }),
+            )
         })
 
         it('raises FIFO layer unitCost without changing remaining qty', async () => {
@@ -650,6 +659,10 @@ describe('MM-12 Valuation Engine', () => {
                     (e: any) => e.eventType === 'InventoryRevaluationPosted',
                 ),
             ).toBe(true)
+            expect(mockEvents.emit).toHaveBeenCalledWith(
+                'accounting.entry.requested',
+                expect.objectContaining({ eventType: 'InventoryRevaluationPosted' }),
+            )
         })
     })
 

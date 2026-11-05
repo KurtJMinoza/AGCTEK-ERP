@@ -41,6 +41,10 @@ export const PRODUCT_IN_USE_MESSAGE =
 const DEFAULT_PRODUCT_CATEGORY = 'General'
 
 /** Active MM links, used to resolve the product category from Material Master. */
+/** Internal placeholder variant names that must never reach the storefront. */
+const isGenericVariantName = (name: string | null | undefined) =>
+    !name || /^default$/i.test(name.trim())
+
 const WITH_MATERIAL_CATEGORY = {
     materialAssignments: {
         where: { status: 'ACTIVE' },
@@ -77,6 +81,14 @@ const WITH_MATERIAL_CATEGORY = {
             id: true,
             materialId: true,
             companyId: true,
+            variantName: true,
+            sku: true,
+            price: true,
+            imageUrl: true,
+            isDefault: true,
+            isPublished: true,
+            isHidden: true,
+            sortOrder: true,
             company: {
                 select: {
                     id: true,
@@ -438,6 +450,31 @@ export class ProductService {
         return rows.map((row) => ({
             ...this.withMaterialCategory(row),
             variantCount: row._count?.variants ?? 0,
+            // Storefront cards need the sellable variant names; internal
+            // placeholders ("Default") and unpublished rows never ship.
+            variants: [...row.variants]
+                .filter(
+                    (variant) =>
+                        variant.isPublished &&
+                        !variant.isHidden &&
+                        !isGenericVariantName(variant.variantName),
+                )
+                .sort(
+                    (a, b) =>
+                        Number(b.isDefault) - Number(a.isDefault) ||
+                        a.sortOrder - b.sortOrder,
+                )
+                .map((variant) => ({
+                    id: variant.id,
+                    name: variant.variantName,
+                    sku: variant.sku,
+                    price:
+                        variant.price === null
+                            ? null
+                            : Number(variant.price),
+                    imageUrl: variant.imageUrl,
+                    isDefault: variant.isDefault,
+                })),
         }))
     }
 

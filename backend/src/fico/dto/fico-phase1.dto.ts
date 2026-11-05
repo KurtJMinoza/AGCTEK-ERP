@@ -473,6 +473,56 @@ export class FicoGlAccountImportDto {
     dryRun?: boolean
 }
 
+export class FicoAccountMappingCreateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    @MaxLength(64)
+    transactionKeyCode!: string
+
+    /** Omit for the default mapping that applies to every valuation class. */
+    @IsOptional()
+    @IsString()
+    valuationClassId?: string | null
+
+    @IsString()
+    debitAccountId!: string
+
+    @IsString()
+    creditAccountId!: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string | null
+}
+
+export class FicoAccountMappingUpdateDto {
+    @IsOptional()
+    @IsString()
+    debitAccountId?: string
+
+    @IsOptional()
+    @IsString()
+    creditAccountId?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string | null
+
+    @IsOptional()
+    @IsIn(FICO_CHART_STATUSES)
+    status?: string
+}
+
 export class FicoCompanyGlAccountDto {
     @IsBoolean()
     postingEnabled!: boolean
@@ -786,6 +836,36 @@ export class FicoPostingValidationDto {
     @ValidateNested({ each: true })
     @Type(() => FicoPostingValidationLineDto)
     lines?: FicoPostingValidationLineDto[]
+}
+
+export class FicoAccountingEventQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsIn(['PENDING', 'CONSUMED', 'FAILED'])
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    sourceModule?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    search?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    pageSize?: number
 }
 
 export class FicoAuditQueryDto {

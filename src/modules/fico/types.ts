@@ -153,6 +153,109 @@ export type FicoFiscalYearPreview = {
     }>
 }
 
+export type FicoAccountingEventStatus = 'PENDING' | 'CONSUMED' | 'FAILED'
+
+export type FicoAccountingEvent = {
+    id: string
+    eventType: string
+    sourceModule: string
+    documentType: string
+    documentId: string
+    postingDate: string | null
+    currencyCode: string | null
+    totalValue: string | null
+    accountingEffects: string[] | null
+    status: FicoAccountingEventStatus
+    errorSummary: string | null
+    createdAt: string
+    consumedAt: string | null
+    journal: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postingDate: string
+    } | null
+}
+
+export type FicoAccountingEventDetail = FicoAccountingEvent & {
+    companyId: string | null
+    idempotencyKey: string | null
+    sourceEventId: string | null
+    sourceTransactionId: string | null
+    lastError: string | null
+    lines: Array<{
+        materialId?: string
+        warehouseId?: string | null
+        movementType?: string
+        quantity?: number
+        unitCost?: number
+        totalCost?: number
+        valuationClassCode?: string | null
+    }>
+}
+
+export type FicoAccountingEventList = {
+    items: FicoAccountingEvent[]
+    total: number
+    page: number
+    pageSize: number
+    summary: {
+        byStatus: Partial<Record<FicoAccountingEventStatus, number>>
+        bySource: Array<{ sourceModule: string; count: number }>
+        oldestPendingAt: string | null
+    }
+}
+
+export type FicoMappingAccount = {
+    id: string
+    accountCode: string
+    accountName: string
+    accountType: string
+    status: string
+}
+
+export type FicoTransactionKey = {
+    code: string
+    name: string
+    description: string
+    requiresValuationClass: boolean
+    inventorySide: string
+    status: string
+    /** True when an MM event resolves to this key today. */
+    postsAutomatically: boolean
+    activeMappings: number
+    hasDefaultMapping: boolean
+}
+
+export type FicoAccountMapping = {
+    id: string
+    companyId: string
+    profileId: string
+    transactionKeyCode: string
+    valuationClassId: string | null
+    valuationScopeKey: string
+    debitAccountId: string
+    creditAccountId: string
+    effectiveFrom: string | null
+    effectiveTo: string | null
+    status: string
+    debitAccount: FicoMappingAccount
+    creditAccount: FicoMappingAccount
+    valuationClass: { id: string; code: string; name: string } | null
+}
+
+export type FicoAccountDetermination = {
+    companyId: string
+    settings: {
+        status: string
+        chartOfAccounts: { id: string; code: string; name: string } | null
+        profile: { id: string; code: string; name: string; status: string } | null
+    } | null
+    valuationClasses: Array<{ id: string; code: string; name: string }>
+    transactionKeys: FicoTransactionKey[]
+    mappings: FicoAccountMapping[]
+}
+
 export type FicoGlAccountUsage = {
     account: {
         id: string

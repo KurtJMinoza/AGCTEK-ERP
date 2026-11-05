@@ -2,7 +2,7 @@
 
 Formal accounting event contract between **Materials Management (MM)** and **Financial Accounting (FICO)**.
 
-Related: [MM_INTEGRATION_CONTRACTS.md](./MM_INTEGRATION_CONTRACTS.md) · [MM_INTEGRATION_EVENTS.md](./MM_INTEGRATION_EVENTS.md)
+Related: [MM_INTEGRATION_CONTRACTS.md](./MM_INTEGRATION_CONTRACTS.md) · [MM_INTEGRATION_EVENTS.md](./MM_INTEGRATION_EVENTS.md) · [MM_FICO_LEDGER_MAP.md](./MM_FICO_LEDGER_MAP.md) (flow → ledger structure → transaction keys)
 
 ---
 

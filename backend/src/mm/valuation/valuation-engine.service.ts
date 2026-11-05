@@ -8,7 +8,10 @@ import { CostLayerService, LayerConsumption } from './cost-layer.service'
 import { ValuationMethodRegistry } from './strategies/valuation-method.registry'
 import { PriceVarianceService } from './price-variance.service'
 import { MmAccountingEventService } from '../common/mm-accounting-event.service'
-import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
+import {
+    MM_ACCOUNTING_EFFECT_HINTS,
+    type MmAccountingDispatchPayload,
+} from '../common/mm-accounting-event.types'
 import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 
 const COST_SCALE = 6
@@ -33,6 +36,8 @@ export type ValuationApplyResult = {
     unitCost: Decimal
     totalCost: Decimal
     valuationTxnId: string
+    /** Persisted in the transaction; the caller dispatches these only after commit. */
+    accountingDispatches?: MmAccountingDispatchPayload[]
 }
 
 @Injectable()
@@ -157,7 +162,7 @@ export class ValuationEngineService {
             },
         })
 
-        await this.recordAndDispatchAccounting(tx, {
+        const accountingDispatch = await this.recordAccounting(tx, {
             eventType: 'InventoryValuationReversed',
             sourceModule: 'VALUATION',
             documentType: 'INVENTORY_VALUATION',
@@ -182,6 +187,7 @@ export class ValuationEngineService {
             unitCost: new Decimal(reversal.unitCost),
             totalCost: new Decimal(reversal.totalCost),
             valuationTxnId: reversal.id,
+            accountingDispatches: accountingDispatch ? [accountingDispatch] : [],
         }
     }
 
@@ -235,7 +241,11 @@ export class ValuationEngineService {
             data: { unitCost: result.unitCost, totalCost: result.totalCost },
         })
 
-        await this.emitValuationAccounting(tx, valTxn, result.priceVariance)
+        const accountingDispatches = await this.collectValuationAccounting(
+            tx,
+            valTxn,
+            result.priceVariance,
+        )
 
         if (!result.priceVariance.isZero()) {
             await this.priceVariances.createInTransaction(tx, {
@@ -258,6 +268,7 @@ export class ValuationEngineService {
             unitCost: result.unitCost,
             totalCost: result.totalCost,
             valuationTxnId: valTxn.id,
+            accountingDispatches,
         }
     }
 
@@ -311,12 +322,17 @@ export class ValuationEngineService {
             data: { unitCost: result.unitCost, totalCost: result.totalCost },
         })
 
-        await this.emitValuationAccounting(tx, valTxn, result.priceVariance)
+        const accountingDispatches = await this.collectValuationAccounting(
+            tx,
+            valTxn,
+            result.priceVariance,
+        )
 
         return {
             unitCost: result.unitCost,
             totalCost: result.totalCost,
             valuationTxnId: valTxn.id,
+            accountingDispatches,
         }
     }
 
@@ -361,12 +377,14 @@ export class ValuationEngineService {
         })
     }
 
-    private async emitValuationAccounting(
+    private async collectValuationAccounting(
         tx: Prisma.TransactionClient,
         valTxn: any,
         priceVariance: Decimal,
-    ) {
-        await this.recordAndDispatchAccounting(tx, {
+    ): Promise<MmAccountingDispatchPayload[]> {
+        const dispatches: MmAccountingDispatchPayload[] = []
+
+        const valuationUpdated = await this.recordAccounting(tx, {
             eventType: 'InventoryValuationUpdated',
             sourceModule: 'VALUATION',
             documentType: 'INVENTORY_VALUATION',
@@ -386,9 +404,10 @@ export class ValuationEngineService {
                 },
             ],
         })
+        if (valuationUpdated) dispatches.push(valuationUpdated)
 
         if (!priceVariance.isZero()) {
-            await this.recordAndDispatchAccounting(tx, {
+            const variance = await this.recordAccounting(tx, {
                 eventType: 'PriceVariancePosted',
                 sourceModule: 'VALUATION',
                 documentType: 'PRICE_VARIANCE',
@@ -414,7 +433,10 @@ export class ValuationEngineService {
                 ],
                 extraPayload: { priceVariance: Number(priceVariance) },
             })
+            if (variance) dispatches.push(variance)
         }
+
+        return dispatches
     }
 
     private async onHandQty(
@@ -479,7 +501,7 @@ export class ValuationEngineService {
             params.postingDate ?? new Date(),
         )
 
-        return this.prisma.$transaction(async (tx) => {
+        const result = await this.prisma.$transaction(async (tx) => {
             const valuation = await this.materialValuation.ensureForPosting(
                 params.companyId,
                 params.materialId,
@@ -605,9 +627,17 @@ export class ValuationEngineService {
                 layerConsumptions,
             })
 
-            await this.emitLandedCostAccounting(tx, valTxn, allocated, priceVariance)
-            return valTxn
+            const accountingDispatches = await this.collectLandedCostAccounting(
+                tx,
+                valTxn,
+                allocated,
+                priceVariance,
+            )
+            return { valTxn, accountingDispatches }
         })
+
+        this.dispatchAccounting(result.accountingDispatches)
+        return result.valTxn
     }
 
     /**
@@ -631,7 +661,7 @@ export class ValuationEngineService {
             params.postingDate ?? new Date(),
         )
 
-        return this.prisma.$transaction(async (tx) => {
+        const result = await this.prisma.$transaction(async (tx) => {
             const onHand = await this.onHandQty(
                 tx,
                 params.companyId,
@@ -681,7 +711,7 @@ export class ValuationEngineService {
                 layerConsumptions: null,
             })
 
-            await this.recordAndDispatchAccounting(tx, {
+            const accountingDispatch = await this.recordAccounting(tx, {
                 eventType: 'InventoryRevaluationPosted',
                 sourceModule: 'VALUATION',
                 documentType: 'INVENTORY_VALUATION',
@@ -705,8 +735,16 @@ export class ValuationEngineService {
                     newStandardCost: Number(newCost),
                 },
             })
-            return valTxn
+
+            return {
+                valTxn,
+                accountingDispatches: accountingDispatch ? [accountingDispatch] : [],
+            }
         })
+
+        if (!result) return null
+        this.dispatchAccounting(result.accountingDispatches)
+        return result.valTxn
     }
 
     private async createSyntheticInventoryTxn(
@@ -762,13 +800,15 @@ export class ValuationEngineService {
         })
     }
 
-    private async emitLandedCostAccounting(
+    private async collectLandedCostAccounting(
         tx: Prisma.TransactionClient,
         valTxn: any,
         allocated: Decimal,
         priceVariance: Decimal,
-    ) {
-        await this.recordAndDispatchAccounting(tx, {
+    ): Promise<MmAccountingDispatchPayload[]> {
+        const dispatches: MmAccountingDispatchPayload[] = []
+
+        const landedCost = await this.recordAccounting(tx, {
             eventType: 'LandedCostAllocated',
             sourceModule: 'VALUATION',
             documentType: 'LANDED_COST',
@@ -788,9 +828,10 @@ export class ValuationEngineService {
                 },
             ],
         })
+        if (landedCost) dispatches.push(landedCost)
 
         if (!priceVariance.isZero()) {
-            await this.recordAndDispatchAccounting(tx, {
+            const variance = await this.recordAccounting(tx, {
                 eventType: 'PriceVariancePosted',
                 sourceModule: 'VALUATION',
                 documentType: 'LANDED_COST',
@@ -815,16 +856,22 @@ export class ValuationEngineService {
                     },
                 ],
             })
+            if (variance) dispatches.push(variance)
         }
+
+        return dispatches
     }
 
-    private async recordAndDispatchAccounting(
+    private async recordAccounting(
         tx: Prisma.TransactionClient,
         input: Parameters<MmAccountingEventService['recordStandalone']>[1],
-    ): Promise<void> {
+    ): Promise<MmAccountingDispatchPayload | null> {
         const record = await this.accountingEvents.recordStandalone(tx, input)
-        const dispatch = this.accountingEvents.toDispatchPayload(record)
-        if (dispatch) {
+        return this.accountingEvents.toDispatchPayload(record)
+    }
+
+    private dispatchAccounting(dispatches: MmAccountingDispatchPayload[]): void {
+        for (const dispatch of dispatches) {
             this.events.emit('accounting.entry.requested', dispatch)
         }
     }
