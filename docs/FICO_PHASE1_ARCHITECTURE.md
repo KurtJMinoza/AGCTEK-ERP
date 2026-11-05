@@ -7,6 +7,10 @@ existing AGCTEK ERP. It follows `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`: FICO ow
 financial effect, MM owns physical stock, and the two are bridged by exactly one
 synchronous posting engine.
 
+For the end-to-end view — MM flow, shared ledger structure (charts → groups → G/L accounts →
+posting controls), transaction-key coverage and the fiscal-calendar gate — see
+[MM_FICO_LEDGER_MAP.md](./MM_FICO_LEDGER_MAP.md).
+
 ---
 
 ## 1. Ownership boundaries
