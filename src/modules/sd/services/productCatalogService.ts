@@ -35,8 +35,19 @@ export type SdProductRecord = {
     attributes: ProductAttributes | null
     /** Number of child variants (0 when the product has no variants yet). */
     variantCount?: number
+    /** Sellable variants shown on the storefront card (names only, no placeholders). */
+    variants?: StorefrontProductVariant[]
     createdAt: string
     updatedAt: string
+}
+
+export type StorefrontProductVariant = {
+    id: string
+    name: string
+    sku: string
+    price: number | null
+    imageUrl: string
+    isDefault: boolean
 }
 
 export type ProductLifecycleStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
@@ -153,6 +164,10 @@ const fromApi = (p: ApiProduct): SdProductRecord => ({
     ...p,
     price: Number(p.price),
     originalPrice: p.originalPrice === null ? null : Number(p.originalPrice),
+    variants: p.variants?.map((variant) => ({
+        ...variant,
+        price: variant.price == null ? null : Number(variant.price),
+    })),
 })
 
 export async function listProducts(

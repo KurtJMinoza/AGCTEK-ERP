@@ -164,6 +164,24 @@ const MarketplaceProductCard = ({
                         {product.description}
                     </p>
                 ) : null}
+                {product.variants?.length ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        {product.variants.slice(0, 3).map((variant) => (
+                            <span
+                                key={variant.id}
+                                title={variant.sku}
+                                className="max-w-[9rem] truncate rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600"
+                            >
+                                {variant.name}
+                            </span>
+                        ))}
+                        {product.variants.length > 3 ? (
+                            <span className="text-[11px] font-medium text-gray-400">
+                                +{product.variants.length - 3} more
+                            </span>
+                        ) : null}
+                    </div>
+                ) : null}
                 <div className="mt-auto flex flex-col gap-2 pt-1">
                     {averageRating !== null ? (
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">

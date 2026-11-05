@@ -145,8 +145,16 @@ export const variantLabel = (
     const values = (variant.optionValues ?? [])
         .map((link) => link.value?.trim())
         .filter(Boolean)
-    return values.length ? values.join(' / ') : variant.variantName
+    if (values.length) return values.join(' / ')
+    // A SIMPLE/material-linked variant is stored as "Default": that word is an
+    // internal placeholder and must never be shown to a shopper.
+    const name = variant.variantName?.trim() ?? ''
+    return isGenericVariantName(name) ? '' : name
 }
+
+/** Internal placeholder names that must not reach the storefront. */
+export const isGenericVariantName = (name: string | null | undefined) =>
+    !name || /^default$/i.test(name.trim())
 
 /**
  * A variant's sellable price: its own override when set, otherwise the parent

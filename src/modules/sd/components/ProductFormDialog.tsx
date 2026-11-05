@@ -62,10 +62,12 @@ const productSchema = z
             .number({ message: 'Selling price is required' })
             .min(0.01, 'Enter a selling price greater than zero')
             .max(MAX_PRICE, 'Price is too large'),
+        // Optional: a product without a discount has no compare-at price.
         originalPrice: z
-            .number({ message: 'Original price is required' })
+            .number({ message: 'Enter a number or leave it empty' })
             .min(0.01, 'Enter an original price greater than zero')
-            .max(MAX_PRICE, 'Price is too large'),
+            .max(MAX_PRICE, 'Price is too large')
+            .optional(),
         imageUrl: z
             .string()
             .trim()
@@ -97,7 +99,10 @@ const productSchema = z
             volume: z.string().trim().max(120),
         }),
     })
-    .refine((values) => values.originalPrice > values.price, {
+    .refine(
+        (values) =>
+            values.originalPrice == null || values.originalPrice > values.price,
+        {
         path: ['originalPrice'],
         message: 'Must be higher than the selling price',
     })
@@ -189,9 +194,7 @@ const toFormValues = (
               sku: product.sku,
               name: product.name,
               price: product.price,
-              originalPrice:
-                  product.originalPrice ??
-                  (undefined as unknown as FormShape['originalPrice']),
+              originalPrice: product.originalPrice ?? undefined,
               imageUrl: product.imageUrl,
               imageGallery: productImageGallery(product).filter(
                   (url) => url !== product.imageUrl,
@@ -216,7 +219,7 @@ const toFormValues = (
               sku: '',
               name: '',
               price: undefined as unknown as number,
-              originalPrice: undefined as unknown as number,
+              originalPrice: undefined,
               imageUrl: '',
               imageGallery: [],
               videoUrls: [],
@@ -1274,17 +1277,16 @@ const ProductFormDialog = ({
                                 ? `Original price (${valuationCurrency})`
                                 : 'Original price'
                         }
-                        asterisk
                         extra={
                             valuationCurrency ? (
                                 <span className="text-xs text-gray-500">
-                                    Matches MM valuation currency on the linked
-                                    material
+                                    Optional — matches MM valuation currency on
+                                    the linked material
                                 </span>
                             ) : (
                                 <span className="text-xs text-gray-500">
-                                    Link an MM material to use its valuation
-                                    currency (e.g. PHP)
+                                    Optional — link an MM material to use its
+                                    valuation currency (e.g. PHP)
                                 </span>
                             )
                         }
