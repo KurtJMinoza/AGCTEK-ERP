@@ -218,6 +218,15 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'fileText',
                     },
                     {
+                        code: 'account-determination',
+                        permissionCode: 'fico.account-determination',
+                        title: 'Account Determination',
+                        description:
+                            'Centralized MM and SD rules: debit/credit lines, dimensions, priorities, approval and activation.',
+                        path: '/modules/fico/account-determination-rules',
+                        icon: 'fileText',
+                    },
+                    {
                         code: 'cost-centers',
                         title: 'Cost Centers',
                         description:

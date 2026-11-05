@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
+    "prisma:seed-account-determination": "ts-node --project prisma/tsconfig.seed.json prisma/seed-account-determination.ts",
     "prisma:seed-mm-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-mm-reset.ts",
     "prisma:seed-sd-purge": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-purge.ts",
     "prisma:purge-sd-mm-keep-uom": "ts-node --project prisma/tsconfig.seed.json prisma/seed-sd-mm-purge-keep-uom.ts",

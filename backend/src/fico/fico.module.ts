@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common'
 import { FINANCIAL_PERIOD_PORT } from '../mm/integration/fico/financial-period.port'
 import { FicoAccountingConsumerService } from './fico-accounting-consumer.service'
+import { FicoAccountDeterminationController } from './fico-account-determination.controller'
+import { FicoAccountDeterminationRulesService } from './fico-account-determination-rules.service'
 import { FicoAccountDeterminationService } from './fico-account-determination.service'
+import { FicoAccountResolutionService } from './fico-account-resolution.service'
 import { FicoAccountMappingService } from './fico-account-mapping.service'
 import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
@@ -21,12 +24,18 @@ import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
 
 @Module({
-    controllers: [FicoController, FicoPhase1Controller],
+    controllers: [
+        FicoController,
+        FicoPhase1Controller,
+        FicoAccountDeterminationController,
+    ],
     providers: [
         FicoFinancialPeriodService,
         FicoFinancialPeriodAdapter,
         FicoJournalService,
         FicoAccountDeterminationService,
+        FicoAccountDeterminationRulesService,
+        FicoAccountResolutionService,
         FicoAccountMappingService,
         FicoAccountingEventsService,
         FicoAccountingConsumerService,
@@ -50,6 +59,8 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoFinancialPeriodAdapter,
         FicoJournalService,
         FicoAccountDeterminationService,
+        FicoAccountDeterminationRulesService,
+        FicoAccountResolutionService,
         FicoReconciliationService,
         FicoAuditService,
         FicoCompanyAccessService,

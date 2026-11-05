@@ -395,3 +395,53 @@ the documented approval flow.
   default and requires explicit approval.
 * Journal documents are stored with a `LEGACY` marker for the 57 pre-existing header-only
   journals; they are excluded from the trial balance and from G/L balances.
+
+---
+
+## Centralized G/L account determination (MM + SD)
+
+Implemented 2026-11-05 alongside the existing transaction-key mappings, which stay in
+place for MM journal posting.
+
+**Model** — `fico_account_determination_rules` (unique `determinationCode`, company,
+`sourceModule` MM|SD, `transactionType`, optional `transactionKeyCode`, `priority`,
+effective window, lifecycle status, dimensions) and `fico_account_determination_lines`
+(multiple DEBIT/CREDIT lines per rule, `lineNumber` unique per rule). Dimensions:
+`valuationClassId`, `materialTypeCode`, `movementType` (MM); `customerAccountGroup`,
+`salesOrganization`, `distributionChannel` (SD). Foreign keys cover company, chart
+accounts, transaction keys, valuation classes and material types; CHECK constraints
+enforce module, status, side, priority, effective-date order and the rule that an ACTIVE
+row must carry approval and activation evidence.
+
+**Lifecycle** — `DRAFT → PENDING_APPROVAL → APPROVED → ACTIVE → INACTIVE`, with
+`PENDING_APPROVAL → REJECTED` (reason required) and `REJECTED → PENDING_APPROVAL` on
+resubmit. Only drafts are editable or deletable. Every transition writes the previous and
+new values, actor, timestamp and reason to the append-only
+`fico_accounting_audit_logs` (`entityType = FICO_ACCOUNT_DETERMINATION_RULE`).
+
+**Resolution** — `FicoAccountResolutionService` rejects unknown modules/types, requires
+active company accounting settings and chart, matches only ACTIVE rules effective on the
+posting date, requires every constrained dimension to be supplied and equal, then orders
+candidates by specificity (matched dimensions) → lowest priority → latest effective-from
+→ newest. Two rules that tie on all four raise a conflict instead of guessing. Every
+resolved account is validated through `FicoPostingValidationService` (chart, status,
+posting flags, company assignment, currency, effectivity).
+
+**API** (`/api/v1/fico/account-determination`, permission `fico.account-determination`) —
+`GET rules`, `GET rules/:id`, `POST rules`, `PATCH rules/:id`, `DELETE rules/:id`,
+`POST rules/:id/{submit,resubmit,approve,reject,activate,deactivate}`,
+`GET rules/:id/history`, `GET rules/history`, `POST resolve`, `GET summary`, `GET reference`.
+
+**UI** — `/modules/fico/account-determination-rules`: overview counters, MM and SD rule
+lists with status/search filters, create/edit (multi-line debit/credit, dimensions,
+effective dates), details with approval trail and change history, and the approval actions.
+
+**Seed** — `npm run prisma:seed-account-determination` from `backend/`. Creates the missing
+groups/accounts on the existing chart, enables posting for the accounts it needs, and
+upserts MM-001…MM-005 / SD-001…SD-005 as **drafts**. It never fabricates approvals and
+never overwrites a rule that has left draft.
+
+**Known limitation** — the MM journal path (`FicoJournalService`) still resolves through
+the legacy `FicoMmAccountMapping` pairs, which cannot express multi-line rules. The
+centralized resolver is the resolution API for MM and SD consumers; adapting the journal
+writer to rule lines (and any SD GL posting, which does not exist yet) is the next phase.

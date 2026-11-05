@@ -191,27 +191,27 @@ model SystemSetting {
 }
 
 model Notification {
-  id            String   @id @default(cuid())
-  userId        String?
-  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title         String   @default("")
-  message       String   @default("")
-  isRead        Boolean  @default(false)
-  target        String   @default("")
-  description   String   @default("")
-  type          Int      @default(0)
-  image         String   @default("")
-  location      String   @default("")
-  locationLabel String   @default("")
-  status        String   @default("")
-  readed        Boolean  @default(false)
+  id             String        @id @default(cuid())
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String        @default("")
+  message        String        @default("")
+  isRead         Boolean       @default(false)
+  target         String        @default("")
+  description    String        @default("")
+  type           Int           @default(0)
+  image          String        @default("")
+  location       String        @default("")
+  locationLabel  String        @default("")
+  status         String        @default("")
+  readed         Boolean       @default(false)
   /// Shopper recipient (storefront). Shopper notifications are never shown to staff.
   retailClientId String?
   retailClient   RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: Cascade)
   /// Idempotency key for event-driven notifications (e.g. order-tracking:<so>:IN_TRANSIT:<trip>)
-  dedupeKey     String?  @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  dedupeKey      String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([readed, createdAt])
   @@index([userId, isRead, createdAt])
@@ -327,16 +327,17 @@ model Company {
 
   sdProductVariants SdProductVariant[] @relation("SdVariantCompany")
 
-  ficoCompanyAccountingSettings FicoCompanyAccountingSettings?
-  ficoCompanyGlAccounts         FicoCompanyGlAccount[]
+  ficoCompanyAccountingSettings    FicoCompanyAccountingSettings?
+  ficoCompanyGlAccounts            FicoCompanyGlAccount[]
   ficoAccountDeterminationProfiles FicoAccountDeterminationProfile[]
-  ficoMmAccountMappings         FicoMmAccountMapping[]
-  ficoPostingPeriodControls     FicoPostingPeriodControl[]
-  ficoPostingPeriodAuditLogs    FicoPostingPeriodAuditLog[]
-  ficoJournalEntryLines         FicoJournalEntryLine[]
-  ficoDocumentSequences         FicoDocumentSequence[]
-  ficoAccountingAuditLogs       FicoAccountingAuditLog[]
-  ficoHistoricalBackpostingRuns FicoHistoricalBackpostingRun[]
+  ficoMmAccountMappings            FicoMmAccountMapping[]
+  ficoAccountDeterminationRules    FicoAccountDeterminationRule[]
+  ficoPostingPeriodControls        FicoPostingPeriodControl[]
+  ficoPostingPeriodAuditLogs       FicoPostingPeriodAuditLog[]
+  ficoJournalEntryLines            FicoJournalEntryLine[]
+  ficoDocumentSequences            FicoDocumentSequence[]
+  ficoAccountingAuditLogs          FicoAccountingAuditLog[]
+  ficoHistoricalBackpostingRuns    FicoHistoricalBackpostingRun[]
 
   @@map("companies")
 }
@@ -782,21 +783,21 @@ model WmPutawayTask {
 
 /// ISO 9001 — documented putaway rule master (MM-03)
 model WmPutawayRule {
-  id                 String        @id @default(cuid())
+  id                 String         @id @default(cuid())
   warehouseId        String
-  warehouse          Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  warehouse          Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
   code               String
   name               String
   /// CAPACITY_BASED | FIXED_BIN | NEAREST_BIN | MATERIAL_ZONE | TEMPERATURE_ZONE | FIFO_ZONE | FEFO_ZONE
-  strategyCode       String        @default("CAPACITY_BASED")
-  priority           Int           @default(100)
+  strategyCode       String         @default("CAPACITY_BASED")
+  priority           Int            @default(100)
   storageTypeId      String?
   storageType        WmStorageType? @relation(fields: [storageTypeId], references: [id])
-  enforceBinCapacity Boolean       @default(true)
-  isActive           Boolean       @default(true)
+  enforceBinCapacity Boolean        @default(true)
+  isActive           Boolean        @default(true)
   notes              String?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@unique([warehouseId, code])
   @@index([warehouseId, isActive, priority])
@@ -898,48 +899,48 @@ model WmPickingTask {
 // ΓöÇΓöÇΓöÇ Packing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model WmPackage {
-  id               String                  @id @default(cuid())
-  packageNumber    String                  @unique
-  orderNumber      String?
+  id                String                  @id @default(cuid())
+  packageNumber     String                  @unique
+  orderNumber       String?
   /// Direct commercial-order link for order-level packing and list displays.
   /// `pickingTaskId` remains the task that initiated the package for traceability.
-  salesOrderId     String?
-  salesOrder       SdSalesOrder?           @relation("SdOrderPackages", fields: [salesOrderId], references: [id], onDelete: SetNull)
-  warehouseId      String
-  warehouse        Warehouse               @relation(fields: [warehouseId], references: [id])
-  companyId        String?
-  pickingTaskId    String?
-  pickingTask      WmPickingTask?          @relation("PackageFromPick", fields: [pickingTaskId], references: [id])
-  packingSessionId String?
-  packingSession   WmPackingSession?       @relation(fields: [packingSessionId], references: [id])
-  reservationId    String?
-  reservation      MmInventoryReservation? @relation(fields: [reservationId], references: [id])
+  salesOrderId      String?
+  salesOrder        SdSalesOrder?           @relation("SdOrderPackages", fields: [salesOrderId], references: [id], onDelete: SetNull)
+  warehouseId       String
+  warehouse         Warehouse               @relation(fields: [warehouseId], references: [id])
+  companyId         String?
+  pickingTaskId     String?
+  pickingTask       WmPickingTask?          @relation("PackageFromPick", fields: [pickingTaskId], references: [id])
+  packingSessionId  String?
+  packingSession    WmPackingSession?       @relation(fields: [packingSessionId], references: [id])
+  reservationId     String?
+  reservation       MmInventoryReservation? @relation(fields: [reservationId], references: [id])
   /// DEFAULT is the single automatic package for a packing session. SPLIT and
   /// MANUAL are created only through an explicit user action.
-  packageRole      String                  @default("MANUAL")
-  packageType      String?
-  weight           Decimal?
-  length           Decimal?
-  width            Decimal?
-  height           Decimal?
-  carrier          String?
-  trackingNumber   String?
+  packageRole       String                  @default("MANUAL")
+  packageType       String?
+  weight            Decimal?
+  length            Decimal?
+  width             Decimal?
+  height            Decimal?
+  carrier           String?
+  trackingNumber    String?
   /// Formal packing list issued when packing is completed (ISO 9001 step 2)
-  packingListNumber String?                  @unique
+  packingListNumber String?                 @unique
   /// Timestamp when shipping labels / barcodes were applied to the carton
-  labelsAppliedAt  DateTime?
+  labelsAppliedAt   DateTime?
   /// Customer ship-to for SCM auto-release (required before READY_FOR_DISPATCH → shipment)
-  shipToName       String?
-  shipToAddress    String?
-  shipToLat        Float?
-  shipToLng        Float?
-  status           String                  @default("OPEN") // OPEN | VERIFIED | SEALED | READY_FOR_DISPATCH | DISPATCHED
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  items            WmPackageItem[]
-  scanLogs         WmPackageScanLog[]
-  goodsIssues      MmGoodsIssue[]
-  shipment         Shipment?
+  shipToName        String?
+  shipToAddress     String?
+  shipToLat         Float?
+  shipToLng         Float?
+  status            String                  @default("OPEN") // OPEN | VERIFIED | SEALED | READY_FOR_DISPATCH | DISPATCHED
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  items             WmPackageItem[]
+  scanLogs          WmPackageScanLog[]
+  goodsIssues       MmGoodsIssue[]
+  shipment          Shipment?
 
   @@index([warehouseId, status])
   @@index([pickingTaskId])
@@ -950,22 +951,22 @@ model WmPackage {
 }
 
 model WmPackageItem {
-  id           String     @id @default(cuid())
+  id           String             @id @default(cuid())
   packageId    String
-  package      WmPackage  @relation(fields: [packageId], references: [id])
+  package      WmPackage          @relation(fields: [packageId], references: [id])
   materialId   String
-  material     MmMaterial @relation(fields: [materialId], references: [id])
+  material     MmMaterial         @relation(fields: [materialId], references: [id])
   expectedQty  Decimal
-  scannedQty   Decimal    @default(0)
+  scannedQty   Decimal            @default(0)
   batchId      String?
   serialId     String?
   /// User who packed this item (stamped on first scan — whichever way it was
   /// scanned: dropdown or QR/barcode). Name is a snapshot for display.
   packedById   String?
   packedByName String?
-  status       String     @default("PENDING")
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  status       String             @default("PENDING")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   scanLogs     WmPackageScanLog[]
 
   @@index([packageId])
@@ -976,30 +977,30 @@ model WmPackageItem {
 /// adjustment (+1 / −1 / add quantity / reset / short pack) is recorded so the
 /// "Recently scanned" panel can prove a scan was counted, by whom and when.
 model WmPackageScanLog {
-  id               String     @id @default(cuid())
+  id               String         @id @default(cuid())
   packageId        String
-  package          WmPackage  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package          WmPackage      @relation(fields: [packageId], references: [id], onDelete: Cascade)
   packageItemId    String?
   packageItem      WmPackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
   salesOrderId     String?
   packingSessionId String?
   materialId       String
-  material         MmMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  material         MmMaterial     @relation(fields: [materialId], references: [id], onDelete: Restrict)
   /// SD product / variant this material was sold as (snapshot ids; the product
   /// row may later be archived — logs never depend on it).
   productId        String?
   variantId        String?
-  scannedQuantity  Decimal    @db.Decimal(18, 3)
+  scannedQuantity  Decimal        @db.Decimal(18, 3)
   scannedByUserId  String?
   scannedByName    String?
-  scannedAt        DateTime   @default(now())
+  scannedAt        DateTime       @default(now())
   /// barcode | manual
-  scanType         String     @default("manual")
+  scanType         String         @default("manual")
   /// add | remove | reset
-  action           String     @default("add")
+  action           String         @default("add")
   /// Justification for manual overrides / short packs.
   reason           String?
-  idempotencyKey   String?    @unique
+  idempotencyKey   String?        @unique
 
   @@index([packageId, scannedAt])
   @@index([packageItemId])
@@ -1056,16 +1057,17 @@ model WmWarehouseTransferLine {
 // ΓöÇΓöÇΓöÇ MM Reference masters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 model MmMaterialType {
-  id          String       @id @default(cuid())
-  code        String       @unique
-  name        String
-  description String?
-  isActive    Boolean      @default(true)
-  sortOrder   Int          @default(0)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  deletedAt   DateTime?
-  materials   MmMaterial[]
+  id                        String                         @id @default(cuid())
+  code                      String                         @unique
+  name                      String
+  description               String?
+  isActive                  Boolean                        @default(true)
+  sortOrder                 Int                            @default(0)
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+  deletedAt                 DateTime?
+  materials                 MmMaterial[]
+  accountDeterminationRules FicoAccountDeterminationRule[] @relation("FicoRuleMaterialType")
 
   @@map("mm_material_types")
 }
@@ -1157,12 +1159,13 @@ model MmUomConversion {
 }
 
 model MmValuationClass {
-  id        String       @id @default(cuid())
-  code      String       @unique
-  name      String
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  materials MmMaterial[]
+  id                        String                         @id @default(cuid())
+  code                      String                         @unique
+  name                      String
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+  materials                 MmMaterial[]
+  accountDeterminationRules FicoAccountDeterminationRule[] @relation("FicoRuleValuationClass")
 
   @@map("mm_valuation_classes")
 }
@@ -1223,33 +1226,33 @@ model MmMaterial {
   volume       Decimal?
   volumeUom    String?
 
-  inventoryManaged          Boolean @default(true)
-  purchasable               Boolean @default(true)
-  sellable                  Boolean @default(true)
-  batchManaged              Boolean @default(false)
-  serialManaged             Boolean @default(false)
-  negativeStockAllowed      Boolean @default(false)
-  expiryManaged             Boolean @default(false)
+  inventoryManaged             Boolean  @default(true)
+  purchasable                  Boolean  @default(true)
+  sellable                     Boolean  @default(true)
+  batchManaged                 Boolean  @default(false)
+  serialManaged                Boolean  @default(false)
+  negativeStockAllowed         Boolean  @default(false)
+  expiryManaged                Boolean  @default(false)
   /// Default shelf life in days (manufacture → expiry) when expiryManaged
-  defaultShelfLifeDays      Int?
+  defaultShelfLifeDays         Int?
   /// When true, past-expiry UNRESTRICTED stock may be auto-blocked to EXPIRED
-  autoBlockExpired          Boolean @default(false)
-  qualityInspectionRequired Boolean @default(false)
-  receivingTolerancePct       Decimal?
-  overReceiptTolerancePct     Decimal?
-  underReceiptTolerancePct    Decimal?
-  requiresCoa                 Boolean @default(false)
-  requiresSupplierCertificate Boolean @default(false)
-  damagePhotoRequired         Boolean @default(false)
-  nonconformanceOnRejection   Boolean @default(true)
+  autoBlockExpired             Boolean  @default(false)
+  qualityInspectionRequired    Boolean  @default(false)
+  receivingTolerancePct        Decimal?
+  overReceiptTolerancePct      Decimal?
+  underReceiptTolerancePct     Decimal?
+  requiresCoa                  Boolean  @default(false)
+  requiresSupplierCertificate  Boolean  @default(false)
+  damagePhotoRequired          Boolean  @default(false)
+  nonconformanceOnRejection    Boolean  @default(true)
   defaultQuarantineWarehouseId String?
-  defaultQuarantineBinId      String?
+  defaultQuarantineBinId       String?
   /// A | B | C ΓÇö cycle-count classification
-  abcClass                  String?
+  abcClass                     String?
   /// FAST | MEDIUM | SLOW ΓÇö cycle-count velocity
-  velocityClass             String?
+  velocityClass                String?
   /// LOW | MEDIUM | HIGH ΓÇö cycle-count risk
-  riskClass                 String?
+  riskClass                    String?
 
   /// Commercial on-hand (stock thresholds — source for SD catalog / ecommerce)
   onHandQty            Decimal @default(0)
@@ -1888,34 +1891,34 @@ model MmGoodsReceiptLine {
 }
 
 model MmGoodsIssue {
-  id                  String                        @id @default(cuid())
-  documentNumber      String                        @unique
-  companyId           String
-  company             Company                       @relation(fields: [companyId], references: [id])
-  warehouseId         String
-  warehouse           Warehouse                     @relation(fields: [warehouseId], references: [id])
-  reservationId       String?
-  reservation         MmInventoryReservation?       @relation(fields: [reservationId], references: [id])
-  reservationHeaderId String?
-  reservationHeader   MmInventoryReservationHeader? @relation(fields: [reservationHeaderId], references: [id])
-  packageId           String?
-  package             WmPackage?                    @relation(fields: [packageId], references: [id])
-  sourceDocumentType  String?
-  sourceDocumentId    String?
-  postingDate         DateTime
-  documentDate        DateTime
-  issuePurpose        String                        @default("INTERNAL")
-  remarks             String?
-  createdBy           String?
+  id                          String                        @id @default(cuid())
+  documentNumber              String                        @unique
+  companyId                   String
+  company                     Company                       @relation(fields: [companyId], references: [id])
+  warehouseId                 String
+  warehouse                   Warehouse                     @relation(fields: [warehouseId], references: [id])
+  reservationId               String?
+  reservation                 MmInventoryReservation?       @relation(fields: [reservationId], references: [id])
+  reservationHeaderId         String?
+  reservationHeader           MmInventoryReservationHeader? @relation(fields: [reservationHeaderId], references: [id])
+  packageId                   String?
+  package                     WmPackage?                    @relation(fields: [packageId], references: [id])
+  sourceDocumentType          String?
+  sourceDocumentId            String?
+  postingDate                 DateTime
+  documentDate                DateTime
+  issuePurpose                String                        @default("INTERNAL")
+  remarks                     String?
+  createdBy                   String?
   /// ISO 9001: warehouse supervisor verified physical issue vs SO/DO before posting
   supervisorVerifiedAt        DateTime?
   supervisorVerifiedBy        String?
   verifiedSourceReference     String?
   supervisorVerificationNotes String?
-  status              String                        @default("DRAFT")
-  createdAt           DateTime                      @default(now())
-  updatedAt           DateTime                      @updatedAt
-  lines               MmGoodsIssueLine[]
+  status                      String                        @default("DRAFT")
+  createdAt                   DateTime                      @default(now())
+  updatedAt                   DateTime                      @updatedAt
+  lines                       MmGoodsIssueLine[]
 
   @@index([status])
   @@index([warehouseId])
@@ -3811,36 +3814,36 @@ model MmAccountingEvent {
 
 /// Phase 1 — FICO fiscal period control (FICO owns period state).
 model FicoFinancialPeriod {
-  id                 String                         @id @default(cuid())
-  companyId          String
-  company            Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  fiscalYear         Int
-  periodNumber       Int
-  name               String                         @default("")
-  periodType         String                         @default("NORMAL") // NORMAL | SPECIAL
-  startDate          DateTime                       @db.Date
-  endDate            DateTime                       @db.Date
-  status             String                         @default("FUTURE") // FUTURE | OPEN | RESTRICTED | CLOSED | LOCKED
+  id                  String                      @id @default(cuid())
+  companyId           String
+  company             Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalYear          Int
+  periodNumber        Int
+  name                String                      @default("")
+  periodType          String                      @default("NORMAL") // NORMAL | SPECIAL
+  startDate           DateTime                    @db.Date
+  endDate             DateTime                    @db.Date
+  status              String                      @default("FUTURE") // FUTURE | OPEN | RESTRICTED | CLOSED | LOCKED
   fiscalYearVariantId String?
-  fiscalYearVariant  FicoFiscalYearVariant?         @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
-  isYearEndAdjustment Boolean                       @default(false)
-  closeChecklist     Json?
-  statusReason       String?
-  openedAt           DateTime?
-  openedBy           String?
-  restrictedAt       DateTime?
-  restrictedBy       String?
-  closedAt           DateTime?
-  closedBy           String?
-  lockedAt           DateTime?
-  lockedBy           String?
-  createdBy          String?
-  updatedBy          String?
-  createdAt          DateTime                       @default(now())
-  updatedAt          DateTime                       @updatedAt
-  journalEntries     FicoJournalEntry[]
-  controls           FicoPostingPeriodControl[]
-  auditLogs          FicoPostingPeriodAuditLog[]
+  fiscalYearVariant   FicoFiscalYearVariant?      @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
+  isYearEndAdjustment Boolean                     @default(false)
+  closeChecklist      Json?
+  statusReason        String?
+  openedAt            DateTime?
+  openedBy            String?
+  restrictedAt        DateTime?
+  restrictedBy        String?
+  closedAt            DateTime?
+  closedBy            String?
+  lockedAt            DateTime?
+  lockedBy            String?
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  journalEntries      FicoJournalEntry[]
+  controls            FicoPostingPeriodControl[]
+  auditLogs           FicoPostingPeriodAuditLog[]
 
   @@unique([companyId, fiscalYear, periodNumber])
   @@index([companyId, status])
@@ -3850,76 +3853,76 @@ model FicoFinancialPeriod {
 
 /// Phase 1 — FICO journal header (single posting engine).
 model FicoJournalEntry {
-  id                  String             @id @default(cuid())
-  idempotencyKey      String             @unique
+  id                  String                 @id @default(cuid())
+  idempotencyKey      String                 @unique
   sourceEventId       String?
   sourceTransactionId String?
-  mmAccountingEventId String?            @unique
-  mmAccountingEvent   MmAccountingEvent? @relation(fields: [mmAccountingEventId], references: [id])
+  mmAccountingEventId String?                @unique
+  mmAccountingEvent   MmAccountingEvent?     @relation(fields: [mmAccountingEventId], references: [id])
   companyId           String
-  company             Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
   documentNumber      String?
-  documentType        String             @default("JOURNAL")
-  documentDate        DateTime?          @db.Date
-  postingDate         DateTime           @db.Date
+  documentType        String                 @default("JOURNAL")
+  documentDate        DateTime?              @db.Date
+  postingDate         DateTime               @db.Date
   fiscalYear          Int?
   fiscalPeriodId      String?
-  fiscalPeriod        FicoFinancialPeriod? @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  fiscalPeriod        FicoFinancialPeriod?   @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
   description         String?
-  totalAmount         Decimal            @db.Decimal(18, 4)
-  currencyCode        String             @db.VarChar(3)
-  exchangeRate        Decimal?           @db.Decimal(18, 6)
-  status              String             @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY
+  totalAmount         Decimal                @db.Decimal(18, 4)
+  currencyCode        String                 @db.VarChar(3)
+  exchangeRate        Decimal?               @db.Decimal(18, 6)
+  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY
   sourceModule        String?
   sourceDocumentType  String?
   sourceDocumentId    String?
-  sourcePostingKey    String?            @unique
-  reversalOfId        String?            @unique
-  reversalOf          FicoJournalEntry?  @relation("FicoJournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversedBy          FicoJournalEntry?  @relation("FicoJournalReversal")
+  sourcePostingKey    String?                @unique
+  reversalOfId        String?                @unique
+  reversalOf          FicoJournalEntry?      @relation("FicoJournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy          FicoJournalEntry?      @relation("FicoJournalReversal")
   metadata            Json?
   postedAt            DateTime?
   postedBy            String?
   createdBy           String?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
   lines               FicoJournalEntryLine[]
 
+  @@unique([companyId, documentNumber])
   @@index([companyId, postingDate])
   @@index([companyId, status])
   @@index([fiscalPeriodId])
   @@index([sourceEventId])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])
   @@index([documentNumber])
-  @@unique([companyId, documentNumber])
   @@map("fico_journal_entries")
 }
 
 /// Phase 1 — every company has exactly one accounting configuration.
 model FicoCompanyAccountingSettings {
-  id                            String   @id @default(cuid())
-  companyId                     String   @unique
-  company                       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  legalName                     String   @default("")
-  baseCurrency                  String   @default("PHP") @db.VarChar(3)
-  countryCode                   String   @default("PH") @db.VarChar(2)
-  timezone                      String   @default("Asia/Manila")
-  accountingMethod              String   @default("ACCRUAL") // ACCRUAL | CASH
+  id                            String                           @id @default(cuid())
+  companyId                     String                           @unique
+  company                       Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  legalName                     String                           @default("")
+  baseCurrency                  String                           @default("PHP") @db.VarChar(3)
+  countryCode                   String                           @default("PH") @db.VarChar(2)
+  timezone                      String                           @default("Asia/Manila")
+  accountingMethod              String                           @default("ACCRUAL") // ACCRUAL | CASH
   chartOfAccountsId             String?
-  chartOfAccounts               FicoChartOfAccounts? @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  chartOfAccounts               FicoChartOfAccounts?             @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
   fiscalYearVariantId           String?
-  fiscalYearVariant             FicoFiscalYearVariant? @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
+  fiscalYearVariant             FicoFiscalYearVariant?           @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
   postingPeriodVariantId        String?
-  postingPeriodVariant          FicoPostingPeriodVariant? @relation(fields: [postingPeriodVariantId], references: [id], onDelete: Restrict)
-  accountDeterminationProfileId String?  @unique
+  postingPeriodVariant          FicoPostingPeriodVariant?        @relation(fields: [postingPeriodVariantId], references: [id], onDelete: Restrict)
+  accountDeterminationProfileId String?                          @unique
   accountDeterminationProfile   FicoAccountDeterminationProfile? @relation(fields: [accountDeterminationProfileId], references: [id], onDelete: Restrict)
-  status                        String   @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
-  taxCountryCode                String?  @db.VarChar(2)
+  status                        String                           @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
+  taxCountryCode                String?                          @db.VarChar(2)
   taxRegistrationNumber         String?
   taxJurisdiction               String?
   defaultTaxCode                String?
-  documentNumberPrefix          String   @default("JE")
-  documentNumberPadding         Int      @default(6)
+  documentNumberPrefix          String                           @default("JE")
+  documentNumberPadding         Int                              @default(6)
   closeChecklist                Json?
   activatedAt                   DateTime?
   activatedBy                   String?
@@ -3927,8 +3930,8 @@ model FicoCompanyAccountingSettings {
   deactivatedBy                 String?
   createdBy                     String?
   updatedBy                     String?
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
+  createdAt                     DateTime                         @default(now())
+  updatedAt                     DateTime                         @updatedAt
 
   @@index([status])
   @@map("fico_company_accounting_settings")
@@ -3936,20 +3939,20 @@ model FicoCompanyAccountingSettings {
 
 /// Phase 1 — chart of accounts (global, reusable across companies).
 model FicoChartOfAccounts {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  name          String
-  description   String   @default("")
-  countryCode   String   @default("PH") @db.VarChar(2)
+  id                String                          @id @default(cuid())
+  code              String                          @unique
+  name              String
+  description       String                          @default("")
+  countryCode       String                          @default("PH") @db.VarChar(2)
   accountCodeLength Int? // null = free-length codes; otherwise every account code has exactly this many characters
-  status        String   @default("ACTIVE") // ACTIVE | INACTIVE
-  createdBy     String?
-  updatedBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  groups        FicoGlAccountGroup[]
-  accounts      FicoGlAccount[]
-  settings      FicoCompanyAccountingSettings[]
+  status            String                          @default("ACTIVE") // ACTIVE | INACTIVE
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+  groups            FicoGlAccountGroup[]
+  accounts          FicoGlAccount[]
+  settings          FicoCompanyAccountingSettings[]
 
   @@index([status])
   @@map("fico_charts_of_accounts")
@@ -3957,23 +3960,23 @@ model FicoChartOfAccounts {
 
 /// Phase 1 — hierarchical G/L account group inside one chart.
 model FicoGlAccountGroup {
-  id                String              @id @default(cuid())
+  id                String               @id @default(cuid())
   chartOfAccountsId String
-  chartOfAccounts   FicoChartOfAccounts @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  chartOfAccounts   FicoChartOfAccounts  @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
   parentGroupId     String?
-  parentGroup       FicoGlAccountGroup? @relation("FicoGlAccountGroupTree", fields: [parentGroupId], references: [id], onDelete: Restrict)
+  parentGroup       FicoGlAccountGroup?  @relation("FicoGlAccountGroupTree", fields: [parentGroupId], references: [id], onDelete: Restrict)
   children          FicoGlAccountGroup[] @relation("FicoGlAccountGroupTree")
   code              String
   name              String
   category          String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
   rangeFrom         String? // inclusive account-code range; both bounds set or both null
   rangeTo           String?
-  sortOrder         Int                 @default(0)
-  status            String              @default("ACTIVE")
+  sortOrder         Int                  @default(0)
+  status            String               @default("ACTIVE")
   createdBy         String?
   updatedBy         String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
   accounts          FicoGlAccount[]
 
   @@unique([chartOfAccountsId, code])
@@ -3983,32 +3986,33 @@ model FicoGlAccountGroup {
 
 /// Phase 1 — G/L account master data.
 model FicoGlAccount {
-  id                    String                  @id @default(cuid())
-  chartOfAccountsId     String
-  chartOfAccounts       FicoChartOfAccounts     @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
-  accountGroupId        String
-  accountGroup          FicoGlAccountGroup      @relation(fields: [accountGroupId], references: [id], onDelete: Restrict)
-  accountCode           String
-  accountName           String
-  description           String                  @default("")
-  accountType           String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
-  normalBalance         String // DEBIT | CREDIT
-  isPostingAccount      Boolean                 @default(true)
-  allowManualPosting    Boolean                 @default(true)
-  allowAutomaticPosting Boolean                 @default(true)
-  isReconciliationAccount Boolean               @default(false)
-  reconciliationType    String?
-  openItemManagement    Boolean                 @default(false)
-  currencyRestriction   String?                 @db.VarChar(3)
-  status                String                  @default("ACTIVE")
-  createdBy             String?
-  updatedBy             String?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  companyAssignments    FicoCompanyGlAccount[]
-  journalLines          FicoJournalEntryLine[]
-  debitMappings         FicoMmAccountMapping[]  @relation("FicoMappingDebit")
-  creditMappings        FicoMmAccountMapping[]  @relation("FicoMappingCredit")
+  id                      String                         @id @default(cuid())
+  chartOfAccountsId       String
+  chartOfAccounts         FicoChartOfAccounts            @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  accountGroupId          String
+  accountGroup            FicoGlAccountGroup             @relation(fields: [accountGroupId], references: [id], onDelete: Restrict)
+  accountCode             String
+  accountName             String
+  description             String                         @default("")
+  accountType             String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  normalBalance           String // DEBIT | CREDIT
+  isPostingAccount        Boolean                        @default(true)
+  allowManualPosting      Boolean                        @default(true)
+  allowAutomaticPosting   Boolean                        @default(true)
+  isReconciliationAccount Boolean                        @default(false)
+  reconciliationType      String?
+  openItemManagement      Boolean                        @default(false)
+  currencyRestriction     String?                        @db.VarChar(3)
+  status                  String                         @default("ACTIVE")
+  createdBy               String?
+  updatedBy               String?
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  companyAssignments      FicoCompanyGlAccount[]
+  journalLines            FicoJournalEntryLine[]
+  debitMappings           FicoMmAccountMapping[]         @relation("FicoMappingDebit")
+  creditMappings          FicoMmAccountMapping[]         @relation("FicoMappingCredit")
+  determinationLines      FicoAccountDeterminationLine[] @relation("FicoRuleLineGlAccount")
 
   @@unique([chartOfAccountsId, accountCode])
   @@index([chartOfAccountsId])
@@ -4019,19 +4023,19 @@ model FicoGlAccount {
 
 /// Phase 1 — company-level G/L account assignment and posting controls.
 model FicoCompanyGlAccount {
-  id                  String        @id @default(cuid())
-  companyId           String
-  company             Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  glAccountId         String
-  glAccount           FicoGlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
-  postingEnabled      Boolean       @default(true)
-  manualPostingBlocked Boolean      @default(false)
-  effectiveFrom       DateTime?     @db.Date
-  effectiveTo         DateTime?     @db.Date
-  createdBy           String?
-  updatedBy           String?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  id                   String        @id @default(cuid())
+  companyId            String
+  company              Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  glAccountId          String
+  glAccount            FicoGlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  postingEnabled       Boolean       @default(true)
+  manualPostingBlocked Boolean       @default(false)
+  effectiveFrom        DateTime?     @db.Date
+  effectiveTo          DateTime?     @db.Date
+  createdBy            String?
+  updatedBy            String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@unique([companyId, glAccountId])
   @@index([companyId, postingEnabled])
@@ -4040,21 +4044,21 @@ model FicoCompanyGlAccount {
 
 /// Phase 1 — fiscal year variant (calendar or non-calendar year).
 model FicoFiscalYearVariant {
-  id                 String   @id @default(cuid())
-  code               String   @unique
+  id                 String                          @id @default(cuid())
+  code               String                          @unique
   name               String
-  description        String   @default("")
-  startMonth         Int      @default(1)
-  startDay           Int      @default(1)
-  normalPeriodCount  Int      @default(12)
-  specialPeriodCount Int      @default(0)
-  calendarYearBased  Boolean  @default(true)
-  yearAssignment     String   @default("YEAR_START") // YEAR_START | YEAR_END — which calendar year labels a fiscal year that spans two
-  status             String   @default("ACTIVE")
+  description        String                          @default("")
+  startMonth         Int                             @default(1)
+  startDay           Int                             @default(1)
+  normalPeriodCount  Int                             @default(12)
+  specialPeriodCount Int                             @default(0)
+  calendarYearBased  Boolean                         @default(true)
+  yearAssignment     String                          @default("YEAR_START") // YEAR_START | YEAR_END — which calendar year labels a fiscal year that spans two
+  status             String                          @default("ACTIVE")
   createdBy          String?
   updatedBy          String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
   periods            FicoFinancialPeriod[]
   settings           FicoCompanyAccountingSettings[]
 
@@ -4064,17 +4068,17 @@ model FicoFiscalYearVariant {
 
 /// Phase 1 — posting period variant (close checklist and special-period policy).
 model FicoPostingPeriodVariant {
-  id                  String   @id @default(cuid())
-  code                String   @unique
+  id                  String                          @id @default(cuid())
+  code                String                          @unique
   name                String
-  description         String   @default("")
-  allowSpecialPeriods Boolean  @default(true)
+  description         String                          @default("")
+  allowSpecialPeriods Boolean                         @default(true)
   closeChecklist      Json?
-  status              String   @default("ACTIVE")
+  status              String                          @default("ACTIVE")
   createdBy           String?
   updatedBy           String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
   settings            FicoCompanyAccountingSettings[]
 
   @@index([status])
@@ -4083,18 +4087,18 @@ model FicoPostingPeriodVariant {
 
 /// Phase 1 — account determination profile (consumed by the posting engine).
 model FicoAccountDeterminationProfile {
-  id          String   @id @default(cuid())
+  id          String                         @id @default(cuid())
   companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company     Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   code        String
   name        String
-  description String   @default("")
-  isDefault   Boolean  @default(true)
-  status      String   @default("ACTIVE")
+  description String                         @default("")
+  isDefault   Boolean                        @default(true)
+  status      String                         @default("ACTIVE")
   createdBy   String?
   updatedBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime                       @default(now())
+  updatedAt   DateTime                       @updatedAt
   mappings    FicoMmAccountMapping[]
   settings    FicoCompanyAccountingSettings?
 
@@ -4105,17 +4109,18 @@ model FicoAccountDeterminationProfile {
 
 /// Phase 1 — transaction keys resolved to explicit G/L account pairs.
 model FicoTransactionKey {
-  id                   String   @id @default(cuid())
-  code                 String   @unique
-  name                 String
-  description          String   @default("")
-  requiresValuationClass Boolean @default(false)
-  inventorySide        String   @default("NONE")
-  sortOrder            Int      @default(0)
-  status               String   @default("ACTIVE")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  mappings             FicoMmAccountMapping[]
+  id                     String                         @id @default(cuid())
+  code                   String                         @unique
+  name                   String
+  description            String                         @default("")
+  requiresValuationClass Boolean                        @default(false)
+  inventorySide          String                         @default("NONE")
+  sortOrder              Int                            @default(0)
+  status                 String                         @default("ACTIVE")
+  createdAt              DateTime                       @default(now())
+  updatedAt              DateTime                       @updatedAt
+  mappings               FicoMmAccountMapping[]
+  determinationRules     FicoAccountDeterminationRule[] @relation("FicoDeterminationRuleKey")
 
   @@index([status, sortOrder])
   @@map("fico_transaction_keys")
@@ -4123,26 +4128,26 @@ model FicoTransactionKey {
 
 /// Phase 1 — explicit debit/credit account mapping per company/profile/key/valuation scope.
 model FicoMmAccountMapping {
-  id                  String                      @id @default(cuid())
-  companyId           String
-  company             Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  profileId           String
-  profile             FicoAccountDeterminationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
-  transactionKeyCode  String
-  transactionKey      FicoTransactionKey          @relation(fields: [transactionKeyCode], references: [code], onDelete: Restrict)
-  valuationClassId    String?
-  valuationScopeKey   String
-  debitAccountId      String
-  debitAccount        FicoGlAccount              @relation("FicoMappingDebit", fields: [debitAccountId], references: [id], onDelete: Restrict)
-  creditAccountId     String
-  creditAccount       FicoGlAccount              @relation("FicoMappingCredit", fields: [creditAccountId], references: [id], onDelete: Restrict)
-  effectiveFrom       DateTime?                   @db.Date
-  effectiveTo         DateTime?                   @db.Date
-  status              String                      @default("ACTIVE")
-  createdBy           String?
-  updatedBy           String?
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
+  id                 String                          @id @default(cuid())
+  companyId          String
+  company            Company                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  profileId          String
+  profile            FicoAccountDeterminationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  transactionKeyCode String
+  transactionKey     FicoTransactionKey              @relation(fields: [transactionKeyCode], references: [code], onDelete: Restrict)
+  valuationClassId   String?
+  valuationScopeKey  String
+  debitAccountId     String
+  debitAccount       FicoGlAccount                   @relation("FicoMappingDebit", fields: [debitAccountId], references: [id], onDelete: Restrict)
+  creditAccountId    String
+  creditAccount      FicoGlAccount                   @relation("FicoMappingCredit", fields: [creditAccountId], references: [id], onDelete: Restrict)
+  effectiveFrom      DateTime?                       @db.Date
+  effectiveTo        DateTime?                       @db.Date
+  status             String                          @default("ACTIVE")
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
 
   @@unique([companyId, profileId, transactionKeyCode, valuationScopeKey])
   @@index([companyId, transactionKeyCode, status])
@@ -4151,20 +4156,95 @@ model FicoMmAccountMapping {
   @@map("fico_mm_account_mappings")
 }
 
+/// Phase 1 — centralized G/L account determination rule (MM + SD).
+/// Only ACTIVE rules effective on the posting date can be resolved; DRAFT,
+/// PENDING_APPROVAL, APPROVED, REJECTED and INACTIVE rules never post.
+model FicoAccountDeterminationRule {
+  id                   String                         @id @default(cuid())
+  /// Human-facing unique determination code (e.g. MM-001, SD-002).
+  determinationCode    String                         @unique
+  name                 String
+  description          String                         @default("")
+  companyId            String
+  company              Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// MM | SD — Phase 1 scope only.
+  sourceModule         String
+  transactionType      String
+  /// Optional MM link to the catalogue key (GR_IR, GI_COGS, …).
+  transactionKeyCode   String?
+  transactionKey       FicoTransactionKey?            @relation("FicoDeterminationRuleKey", fields: [transactionKeyCode], references: [code], onDelete: Restrict)
+  /// Lower number wins between equally specific rules.
+  priority             Int                            @default(100)
+  effectiveFrom        DateTime?                      @db.Date
+  effectiveTo          DateTime?                      @db.Date
+  status               String                         @default("DRAFT")
+  valuationClassId     String?
+  valuationClass       MmValuationClass?              @relation("FicoRuleValuationClass", fields: [valuationClassId], references: [id], onDelete: Restrict)
+  materialTypeCode     String?
+  materialType         MmMaterialType?                @relation("FicoRuleMaterialType", fields: [materialTypeCode], references: [code], onDelete: Restrict)
+  movementType         String?
+  customerAccountGroup String?
+  salesOrganization    String?
+  distributionChannel  String?
+  changeReason         String?
+  submittedBy          String?
+  submittedAt          DateTime?
+  approvedBy           String?
+  approvedAt           DateTime?
+  rejectedBy           String?
+  rejectedAt           DateTime?
+  rejectionReason      String?
+  activatedBy          String?
+  activatedAt          DateTime?
+  deactivatedBy        String?
+  deactivatedAt        DateTime?
+  createdBy            String?
+  updatedBy            String?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+  lines                FicoAccountDeterminationLine[]
+
+  @@index([companyId, sourceModule, transactionType, status])
+  @@index([companyId, sourceModule, status, priority])
+  @@index([valuationClassId])
+  @@index([materialTypeCode])
+  @@map("fico_account_determination_rules")
+}
+
+/// Phase 1 — debit/credit lines of a determination rule. Multiple lines per
+/// side are supported (e.g. billing: AR / revenue / output tax).
+model FicoAccountDeterminationLine {
+  id          String                       @id @default(cuid())
+  ruleId      String
+  rule        FicoAccountDeterminationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  lineNumber  Int
+  /// DEBIT | CREDIT
+  side        String
+  glAccountId String
+  glAccount   FicoGlAccount                @relation("FicoRuleLineGlAccount", fields: [glAccountId], references: [id], onDelete: Restrict)
+  description String?
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+
+  @@unique([ruleId, lineNumber])
+  @@index([glAccountId])
+  @@map("fico_account_determination_lines")
+}
+
 /// Phase 1 — per-period, per-account-type posting controls.
 model FicoPostingPeriodControl {
-  id              String              @id @default(cuid())
-  companyId       String
-  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  fiscalPeriodId  String
-  fiscalPeriod    FicoFinancialPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
-  accountTypeScope String             @default("ALL")
-  status          String
+  id               String              @id @default(cuid())
+  companyId        String
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalPeriodId   String
+  fiscalPeriod     FicoFinancialPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  accountTypeScope String              @default("ALL")
+  status           String
   restrictionRules Json?
-  reason          String?
-  changedBy       String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  reason           String?
+  changedBy        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@unique([companyId, fiscalPeriodId, accountTypeScope])
   @@index([companyId, status])
@@ -4192,21 +4272,21 @@ model FicoPostingPeriodAuditLog {
 
 /// Phase 1 — journal lines (double-entry detail).
 model FicoJournalEntryLine {
-  id             String        @id @default(cuid())
+  id             String           @id @default(cuid())
   journalEntryId String
   journalEntry   FicoJournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   lineNumber     Int
   glAccountId    String
-  glAccount      FicoGlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  glAccount      FicoGlAccount    @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
   companyId      String
-  company        Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  debitAmount    Decimal       @default(0) @db.Decimal(18, 4)
-  creditAmount   Decimal       @default(0) @db.Decimal(18, 4)
-  currency       String        @db.VarChar(3)
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  debitAmount    Decimal          @default(0) @db.Decimal(18, 4)
+  creditAmount   Decimal          @default(0) @db.Decimal(18, 4)
+  currency       String           @db.VarChar(3)
   description    String?
   materialId     String?
   warehouseId    String?
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime         @default(now())
 
   @@unique([journalEntryId, lineNumber])
   @@index([journalEntryId])
@@ -4325,27 +4405,27 @@ model MmEventConsumerReceipt {
 /// Phase 3B — SD sales order (SD owns; MM fulfills via reservation/GI).
 /// SD Customer Master — B2B sold-to accounts with commercial credit limit.
 model SdCustomer {
-  id              String   @id @default(cuid())
-  customerNumber  String   @unique
+  id              String        @id @default(cuid())
+  customerNumber  String        @unique
   companyName     String
   contactName     String
-  email           String   @unique
-  phone           String   @default("")
-  currency        String   @default("PHP")
-  creditLimit     Decimal  @default(0) @db.Decimal(18, 2)
+  email           String        @unique
+  phone           String        @default("")
+  currency        String        @default("PHP")
+  creditLimit     Decimal       @default(0) @db.Decimal(18, 2)
   /// creditLimit minus open exposure; server-maintained, negative when over limit.
-  availableCredit Decimal  @default(0) @db.Decimal(18, 2)
+  availableCredit Decimal       @default(0) @db.Decimal(18, 2)
   /// ACTIVE | BLOCKED
-  status          String   @default("ACTIVE")
+  status          String        @default("ACTIVE")
   /// RETAIL (e-commerce shopper) | B2B (corporate account with credit)
-  customerType    String   @default("B2B")
+  customerType    String        @default("B2B")
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
   createdBy       String?
   updatedBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   /// CRM extensions (CRM references SdCustomer; SD remains the customer master).
   crmProfile        CrmProfile?
@@ -4512,44 +4592,44 @@ model SdProductOptionValue {
 /// Sellable variant of an SD product. Parent = display / grouping; variant = the stock item.
 /// Every product has at least one variant (SIMPLE → hidden default; VARIABLE → one per combination).
 model SdProductVariant {
-  id             String                        @id @default(cuid())
-  productId      String
-  product        SdProduct                     @relation("ProductVariants", fields: [productId], references: [id], onDelete: Cascade)
-  variantName    String
+  id               String                        @id @default(cuid())
+  productId        String
+  product          SdProduct                     @relation("ProductVariants", fields: [productId], references: [id], onDelete: Cascade)
+  variantName      String
   /// Normalized option combination key, e.g. "color:black|size:medium". "__default__" for simple products.
-  combinationKey String                        @default("__default__")
-  sku            String                        @unique
-  barcode        String?                       @unique
+  combinationKey   String                        @default("__default__")
+  sku              String                        @unique
+  barcode          String?                       @unique
   /// Sellable price override; null → inherit the parent product price.
-  price          Decimal?                      @db.Decimal(18, 2)
-  compareAtPrice Decimal?                      @db.Decimal(18, 2)
-  cost           Decimal?                      @db.Decimal(18, 2)
-  imageUrl       String                        @default("")
-  weight         Decimal?
-  isActive       Boolean                       @default(true)
+  price            Decimal?                      @db.Decimal(18, 2)
+  compareAtPrice   Decimal?                      @db.Decimal(18, 2)
+  cost             Decimal?                      @db.Decimal(18, 2)
+  imageUrl         String                        @default("")
+  weight           Decimal?
+  isActive         Boolean                       @default(true)
   /// Default preset variant on the storefront / POS (one per product).
-  isDefault      Boolean                       @default(false)
+  isDefault        Boolean                       @default(false)
   /// Whether the variant is visible on the storefront.
-  isPublished    Boolean                       @default(true)
+  isPublished      Boolean                       @default(true)
   /// Hidden variants are not shown to customers (used for SIMPLE product default variants).
-  isHidden       Boolean                       @default(false)
-  sortOrder      Int                           @default(0)
+  isHidden         Boolean                       @default(false)
+  sortOrder        Int                           @default(0)
   /// Client-generated key so a double submit cannot create two variants.
-  idempotencyKey String?                       @unique
+  idempotencyKey   String?                       @unique
   /// MM stock authority for this variant (null = non-stock / service variant)
-  materialId     String?
-  material       MmMaterial?                   @relation("SdVariantMaterial", fields: [materialId], references: [id], onDelete: SetNull)
-  companyId      String?
-  company        Company?                      @relation("SdVariantCompany", fields: [companyId], references: [id], onDelete: SetNull)
-  salesUomId     String?
-  salesUom       MmUom?                        @relation("SdVariantSalesUom", fields: [salesUomId], references: [id], onDelete: SetNull)
-  materialUomId  String?
-  materialUom    MmUom?                        @relation("SdVariantMaterialUom", fields: [materialUomId], references: [id], onDelete: SetNull)
-  createdAt      DateTime                      @default(now())
-  updatedAt      DateTime                      @updatedAt
-  optionValues   SdProductVariantOptionValue[] @relation("VariantOptionValues")
+  materialId       String?
+  material         MmMaterial?                   @relation("SdVariantMaterial", fields: [materialId], references: [id], onDelete: SetNull)
+  companyId        String?
+  company          Company?                      @relation("SdVariantCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  salesUomId       String?
+  salesUom         MmUom?                        @relation("SdVariantSalesUom", fields: [salesUomId], references: [id], onDelete: SetNull)
+  materialUomId    String?
+  materialUom      MmUom?                        @relation("SdVariantMaterialUom", fields: [materialUomId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  optionValues     SdProductVariantOptionValue[] @relation("VariantOptionValues")
   /// Materials auto-created from this variant (source tracking).
-  catalogMaterials MmMaterial[]                @relation("CatalogVariantMaterial")
+  catalogMaterials MmMaterial[]                  @relation("CatalogVariantMaterial")
 
   @@unique([productId, variantName])
   @@unique([productId, combinationKey])
@@ -4769,28 +4849,28 @@ model SdSalesOrderLine {
 /// At most one active (DRAFT | SENT | ACCEPTED) quotation per opportunity: partial unique index
 /// "sd_quotations_one_active_per_opportunity" is raw SQL (migration 20261016120000) that Prisma cannot model.
 model SdQuotation {
-  id                 String            @id @default(cuid())
+  id                 String               @id @default(cuid())
   /// Q-000012; revision 1 takes the next value of sequence sd_quotation_number_seq, later revisions reuse it.
   quotationNumber    String
-  revision           Int               @default(1)
+  revision           Int                  @default(1)
   /// Revision this one was created from (null for revision 1).
-  previousRevisionId String?           @unique
-  previousRevision   SdQuotation?      @relation("SdQuotationRevision", fields: [previousRevisionId], references: [id], onDelete: Restrict)
-  nextRevision       SdQuotation?      @relation("SdQuotationRevision")
+  previousRevisionId String?              @unique
+  previousRevision   SdQuotation?         @relation("SdQuotationRevision", fields: [previousRevisionId], references: [id], onDelete: Restrict)
+  nextRevision       SdQuotation?         @relation("SdQuotationRevision")
   /// CUSTOMER_REQUEST | ERROR_CORRECTION | OTHER (revisions only)
   revisionReason     String?
   revisionNotes      String?
   crmOpportunityId   String
   customerId         String
-  customer           SdCustomer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer           SdCustomer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   divisionId         String?
-  currency           String            @default("PHP")
+  currency           String               @default("PHP")
   /// DRAFT | SENT | ACCEPTED | REJECTED | EXPIRED | CANCELLED | SUPERSEDED | CONVERTED
-  status             String            @default("DRAFT")
+  status             String               @default("DRAFT")
   /// End of the validity day (Asia/Manila); set when sent.
   validUntil         DateTime?
-  subtotal           Decimal           @default(0) @db.Decimal(18, 2)
-  totalAmount        Decimal           @default(0) @db.Decimal(18, 2)
+  subtotal           Decimal              @default(0) @db.Decimal(18, 2)
+  totalAmount        Decimal              @default(0) @db.Decimal(18, 2)
   notes              String?
   sentBy             String?
   sentAt             DateTime?
@@ -4805,8 +4885,8 @@ model SdQuotation {
   convertedAt        DateTime?
   createdBy          String?
   updatedBy          String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   lines              SdQuotationLine[]
   sections           SdQuotationSection[]
   events             SdQuotationEvent[]
@@ -5059,7 +5139,7 @@ model SdSalesInvoice {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  lines       SdSalesInvoiceLine[]
+  lines SdSalesInvoiceLine[]
 
   @@unique([salesOrderId])
   @@index([companyId, status])
@@ -5088,51 +5168,51 @@ model SdSalesInvoiceLine {
 
 /// Customer return request raised from a delivered order (storefront or admin).
 model SdReturnRequest {
-  id                 String       @id @default(cuid())
-  requestNumber      String       @unique
-  companyId          String
-  salesOrderId       String
-  salesOrder         SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
-  customerId         String
+  id                      String        @id @default(cuid())
+  requestNumber           String        @unique
+  companyId               String
+  salesOrderId            String
+  salesOrder              SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  customerId              String
   /// REQUESTED | APPROVED | REJECTED | AWAITING_RETURN | RECEIVED |
   /// UNDER_INSPECTION | RESTOCKED | MARKED_DAMAGED | SCRAPPED | REFUNDED | CLOSED | CANCELLED
-  status             String       @default("REQUESTED")
-  reason             String?
-  rejectReason       String?
-  conditionNote      String?
-  photos             Json?
+  status                  String        @default("REQUESTED")
+  reason                  String?
+  rejectReason            String?
+  conditionNote           String?
+  photos                  Json?
   /// Selling branch snapshot for this order (POS branch / storefront branch).
-  branchId           String?
+  branchId                String?
   /// Receiving warehouse snapshot — routes MM intake without a second lookup.
-  warehouseId        String?
+  warehouseId             String?
   /// Invoice number snapshot when the order was already invoiced.
-  invoiceNumber      String?
+  invoiceNumber           String?
   /// REFUND | REPLACEMENT | STORE_CREDIT
-  preferredResolution String?
+  preferredResolution     String?
   /// NONE | NOT_REQUIRED | PENDING_REFUND | APPROVED | PAID | FAILED (Phase 7 refund flow)
-  refundStatus       String       @default("NONE")
+  refundStatus            String        @default("NONE")
   /// Refund resolution values (settled when the refund is processed).
-  refundAmount       Decimal?     @db.Decimal(18, 2)
-  refundedAt         DateTime?
-  refundedBy         String?
-  rejectedAt         DateTime?
-  closedAt           DateTime?
+  refundAmount            Decimal?      @db.Decimal(18, 2)
+  refundedAt              DateTime?
+  refundedBy              String?
+  rejectedAt              DateTime?
+  closedAt                DateTime?
   /// MM customer return created on approval (link to MM processing).
-  mmCustomerReturnId String?
+  mmCustomerReturnId      String?
   /// SCM damage evidence this return was created from (POD reject / driver report). Unique ⇒ one CR per report.
-  damageReportId     String?       @unique
-  damageReport       DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
+  damageReportId          String?       @unique
+  damageReport            DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
   /// Child sales order opened on approve when preferredResolution = REPLACEMENT (new outbound).
-  replacementSalesOrderId String?  @unique
-  requestedBy        String?
-  approvedBy         String?
-  approvedAt         DateTime?
-  completedAt        DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  replacementSalesOrderId String?       @unique
+  requestedBy             String?
+  approvedBy              String?
+  approvedAt              DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
 
-  lines   SdReturnRequestLine[]
-  refunds SdRefund[]
+  lines     SdReturnRequestLine[]
+  refunds   SdRefund[]
   /// CRM case handling this return (storefront requests); CRM never changes the return directly.
   crmTicket CrmTicket?
 
@@ -5166,26 +5246,26 @@ model SdReturnRequestLine {
  * `refundStatus NOT_REQUIRED` instead of a record.
  */
 model SdRefund {
-  id              String           @id @default(cuid())
-  refundNumber    String           @unique
+  id              String          @id @default(cuid())
+  refundNumber    String          @unique
   companyId       String
   salesOrderId    String
   salesInvoiceId  String?
-  returnRequestId String           @unique
-  returnRequest   SdReturnRequest  @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  returnRequestId String          @unique
+  returnRequest   SdReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
   customerId      String
   /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO (snapshot)
   paymentMethod   String?
   /// CASH_REFUND | BANK_TRANSFER | DIGITAL_WALLET | STORE_CREDIT
   refundMethod    String?
-  amount          Decimal          @db.Decimal(18, 2)
-  currency        String           @default("PHP")
+  amount          Decimal         @db.Decimal(18, 2)
+  currency        String          @default("PHP")
   /// PENDING_REFUND | APPROVED | PAID | FAILED
-  status          String           @default("PENDING_REFUND")
-  returnQuantity  Decimal          @db.Decimal(18, 2)
+  status          String          @default("PENDING_REFUND")
+  returnQuantity  Decimal         @db.Decimal(18, 2)
   returnReason    String?
   /// True for all demo payment plans (mark external behavior as Demo Only).
-  isDemo          Boolean          @default(false)
+  isDemo          Boolean         @default(false)
   approvedBy      String?
   approvedAt      DateTime?
   paidBy          String?
@@ -5193,8 +5273,8 @@ model SdRefund {
   failReason      String?
   failedAt        DateTime?
   createdBy       String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   creditMemo SdCreditMemo?
 
@@ -5209,22 +5289,22 @@ model SdRefund {
  * for audit history.
  */
 model SdCreditMemo {
-  id                String       @id @default(cuid())
-  creditMemoNumber  String       @unique
-  companyId         String
-  salesOrderId      String
-  salesInvoiceId    String?
-  refundId          String       @unique
-  refund            SdRefund     @relation(fields: [refundId], references: [id], onDelete: Restrict)
-  customerId        String
-  branchId          String?
-  amount            Decimal      @db.Decimal(18, 2)
-  currency          String       @default("PHP")
-  returnQuantity    Decimal      @db.Decimal(18, 2)
-  returnReason      String?
-  status            String       @default("ISSUED")
-  createdBy         String?
-  createdAt         DateTime     @default(now())
+  id               String   @id @default(cuid())
+  creditMemoNumber String   @unique
+  companyId        String
+  salesOrderId     String
+  salesInvoiceId   String?
+  refundId         String   @unique
+  refund           SdRefund @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  customerId       String
+  branchId         String?
+  amount           Decimal  @db.Decimal(18, 2)
+  currency         String   @default("PHP")
+  returnQuantity   Decimal  @db.Decimal(18, 2)
+  returnReason     String?
+  status           String   @default("ISSUED")
+  createdBy        String?
+  createdAt        DateTime @default(now())
 
   @@index([companyId, status])
   @@index([salesOrderId])
@@ -5597,31 +5677,31 @@ model MmCountPlan {
 }
 
 model MmCountSession {
-  id                 String                     @id @default(cuid())
-  sessionNumber      String                     @unique
-  planId             String
-  plan               MmCountPlan                @relation(fields: [planId], references: [id], onDelete: Cascade)
-  companyId          String
-  company            Company                    @relation(fields: [companyId], references: [id])
-  warehouseId        String
-  warehouse          Warehouse                  @relation(fields: [warehouseId], references: [id])
-  countType          String
-  status             String                     @default("OPEN")
-  blindMode          Boolean                    @default(false)
-  startedAt          DateTime?
-  closedAt           DateTime?
+  id                        String                     @id @default(cuid())
+  sessionNumber             String                     @unique
+  planId                    String
+  plan                      MmCountPlan                @relation(fields: [planId], references: [id], onDelete: Cascade)
+  companyId                 String
+  company                   Company                    @relation(fields: [companyId], references: [id])
+  warehouseId               String
+  warehouse                 Warehouse                  @relation(fields: [warehouseId], references: [id])
+  countType                 String
+  status                    String                     @default("OPEN")
+  blindMode                 Boolean                    @default(false)
+  startedAt                 DateTime?
+  closedAt                  DateTime?
   /// ISO 9001 formal variance report (step 3 — Inventory Controller)
-  varianceReportNumber       String?   @unique
-  varianceReportSummary      String?
-  varianceReportSubmittedBy  String?
-  varianceReportSubmittedAt  DateTime?
-  inventorySnapshotAt        DateTime?
+  varianceReportNumber      String?                    @unique
+  varianceReportSummary     String?
+  varianceReportSubmittedBy String?
+  varianceReportSubmittedAt DateTime?
+  inventorySnapshotAt       DateTime?
   /// HARD | SOFT | NONE — copied from company config at session start
-  movementControlMode        String?
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
-  tasks              MmCountTask[]
-  adjustmentRequests MmCountAdjustmentRequest[]
+  movementControlMode       String?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  tasks                     MmCountTask[]
+  adjustmentRequests        MmCountAdjustmentRequest[]
 
   @@index([planId])
   @@index([warehouseId, status])
@@ -5730,30 +5810,30 @@ model MmCountRecount {
 }
 
 model MmCountAdjustmentRequest {
-  id                 String                         @id @default(cuid())
-  requestNumber      String                         @unique
-  sessionId          String
-  session            MmCountSession                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  companyId          String
-  company            Company                        @relation(fields: [companyId], references: [id])
-  warehouseId        String
-  warehouse          Warehouse                      @relation(fields: [warehouseId], references: [id])
+  id                   String                         @id @default(cuid())
+  requestNumber        String                         @unique
+  sessionId            String
+  session              MmCountSession                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  companyId            String
+  company              Company                        @relation(fields: [companyId], references: [id])
+  warehouseId          String
+  warehouse            Warehouse                      @relation(fields: [warehouseId], references: [id])
   /// DRAFT | PENDING_APPROVAL | PENDING_FINANCE_APPROVAL | APPROVED | REJECTED | POSTED
-  status             String                         @default("DRAFT")
-  submittedBy        String?
-  approvedBy         String?
+  status               String                         @default("DRAFT")
+  submittedBy          String?
+  approvedBy           String?
   warehouseApprovedBy  String?
   warehouseApprovedAt  DateTime?
   financeApprovedBy    String?
   financeApprovedAt    DateTime?
   totalAdjustmentValue Decimal?
-  rejectedBy         String?
-  rejectionReason    String?
-  legacyAdjustmentId String?                        @unique
-  legacyAdjustment   MmInventoryAdjustment?         @relation(fields: [legacyAdjustmentId], references: [id])
-  createdAt          DateTime                       @default(now())
-  updatedAt          DateTime                       @updatedAt
-  lines              MmCountAdjustmentRequestLine[]
+  rejectedBy           String?
+  rejectionReason      String?
+  legacyAdjustmentId   String?                        @unique
+  legacyAdjustment     MmInventoryAdjustment?         @relation(fields: [legacyAdjustmentId], references: [id])
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+  lines                MmCountAdjustmentRequestLine[]
 
   @@index([sessionId])
   @@index([companyId, status])
@@ -5783,30 +5863,30 @@ model MmCountAdjustmentRequestLine {
 }
 
 model MmCountCompanyConfig {
-  id                             String   @id @default(cuid())
-  companyId                      String   @unique
-  company                        Company  @relation(fields: [companyId], references: [id])
-  blindCountingEnabled           Boolean  @default(true)
-  separationOfDutiesEnabled      Boolean  @default(true)
-  recountOnEveryDiscrepancy      Boolean  @default(false)
-  recountOnToleranceExceeded     Boolean  @default(true)
-  absoluteQtyTolerance           Decimal  @default(0)
-  percentTolerance               Decimal  @default(0)
-  financialValueTolerance        Decimal  @default(0)
-  maxRecounts                    Int      @default(2)
-  differentRecountWorkerRequired Boolean  @default(true)
+  id                               String   @id @default(cuid())
+  companyId                        String   @unique
+  company                          Company  @relation(fields: [companyId], references: [id])
+  blindCountingEnabled             Boolean  @default(true)
+  separationOfDutiesEnabled        Boolean  @default(true)
+  recountOnEveryDiscrepancy        Boolean  @default(false)
+  recountOnToleranceExceeded       Boolean  @default(true)
+  absoluteQtyTolerance             Decimal  @default(0)
+  percentTolerance                 Decimal  @default(0)
+  financialValueTolerance          Decimal  @default(0)
+  maxRecounts                      Int      @default(2)
+  differentRecountWorkerRequired   Boolean  @default(true)
   /// HARD | SOFT | NONE
-  movementControlPolicy          String   @default("SOFT")
-  adjustmentApprovalValueThreshold Decimal @default(0)
-  financeApprovalValueThreshold  Decimal  @default(0)
-  requireVarianceEvidence        Boolean  @default(false)
-  requireRootCauseAnalysis       Boolean  @default(true)
-  allowZeroCountConfirmation     Boolean  @default(true)
-  mobileBarcodeScanningAllowed   Boolean  @default(true)
-  requireBatchLevelCounting      Boolean  @default(false)
-  requireSerialLevelCounting     Boolean  @default(false)
-  createdAt                      DateTime @default(now())
-  updatedAt                      DateTime @updatedAt
+  movementControlPolicy            String   @default("SOFT")
+  adjustmentApprovalValueThreshold Decimal  @default(0)
+  financeApprovalValueThreshold    Decimal  @default(0)
+  requireVarianceEvidence          Boolean  @default(false)
+  requireRootCauseAnalysis         Boolean  @default(true)
+  allowZeroCountConfirmation       Boolean  @default(true)
+  mobileBarcodeScanningAllowed     Boolean  @default(true)
+  requireBatchLevelCounting        Boolean  @default(false)
+  requireSerialLevelCounting       Boolean  @default(false)
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
 
   @@map("mm_count_company_configs")
 }
@@ -7166,27 +7246,27 @@ model MmScanSession {
 }
 
 model MmRfidTag {
-  id               String     @id @default(cuid())
+  id               String          @id @default(cuid())
   tagValue         String
   companyId        String
-  company          Company    @relation(fields: [companyId], references: [id])
+  company          Company         @relation(fields: [companyId], references: [id])
   entityType       String?
   entityId         String?
   materialId       String?
-  material         MmMaterial? @relation(fields: [materialId], references: [id])
+  material         MmMaterial?     @relation(fields: [materialId], references: [id])
   batchId          String?
-  serialNumberId   String?    @unique
+  serialNumberId   String?         @unique
   serialNumber     MmSerialNumber? @relation(fields: [serialNumberId], references: [id])
   /// UNASSIGNED | ASSIGNED | ACTIVE | IN_TRANSIT | ... | ARCHIVED
-  status           String     @default("UNASSIGNED")
+  status           String          @default("UNASSIGNED")
   assignedAt       DateTime?
   lastReadAt       DateTime?
   lastWarehouseId  String?
   lastStorageBinId String?
   lastReaderId     String?
   archivedAt       DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@unique([companyId, tagValue])
   @@index([materialId])
@@ -7195,10 +7275,10 @@ model MmRfidTag {
 }
 
 model MmScanOverride {
-  id                 String   @id @default(cuid())
-  overrideNumber     String   @unique
+  id                 String    @id @default(cuid())
+  overrideNumber     String    @unique
   companyId          String
-  company            Company  @relation(fields: [companyId], references: [id])
+  company            Company   @relation(fields: [companyId], references: [id])
   warehouseId        String?
   businessProcess    String
   sourceDocumentType String?
@@ -7210,41 +7290,41 @@ model MmScanOverride {
   explanation        String
   requestedBy        String
   approvedBy         String?
-  supervisorRequired Boolean  @default(false)
+  supervisorRequired Boolean   @default(false)
   /// PENDING | APPROVED | REJECTED | USED
-  status             String   @default("PENDING")
+  status             String    @default("PENDING")
   approvedAt         DateTime?
   rejectedAt         DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([companyId, status])
   @@map("mm_scan_overrides")
 }
 
 model MmControlledDocument {
-  id                  String   @id @default(cuid())
-  documentNumber      String   @unique
-  title               String
-  documentType        String
-  companyId           String
-  company             Company  @relation(fields: [companyId], references: [id])
-  department          String?
-  processArea         String?
-  ownerUserId         String?
-  currentRevision     String?
+  id                   String    @id @default(cuid())
+  documentNumber       String    @unique
+  title                String
+  documentType         String
+  companyId            String
+  company              Company   @relation(fields: [companyId], references: [id])
+  department           String?
+  processArea          String?
+  ownerUserId          String?
+  currentRevision      String?
   /// DRAFT | UNDER_REVIEW | APPROVED | EFFECTIVE | SUPERSEDED | OBSOLETE | ARCHIVED
-  status              String   @default("DRAFT")
-  effectiveDate       DateTime?
-  reviewDate          DateTime?
-  expirationDate      DateTime?
+  status               String    @default("DRAFT")
+  effectiveDate        DateTime?
+  reviewDate           DateTime?
+  expirationDate       DateTime?
   confidentialityLevel String?
-  retentionPeriodDays Int?
-  createdBy           String?
-  approvedBy          String?
-  archivedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  retentionPeriodDays  Int?
+  createdBy            String?
+  approvedBy           String?
+  archivedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   versions MmControlledDocumentVersion[]
 
@@ -7877,13 +7957,13 @@ model LoadPlanLine {
 
 /// Cargo line references on a generated stop (dedupe by location + stop type).
 model TripStopLine {
-  id             String       @id @default(cuid())
-  tripStopId     String
-  tripStop       TripStop     @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
-  loadPlanLineId String
-  loadPlanLine   LoadPlanLine @relation(fields: [loadPlanLineId], references: [id], onDelete: Cascade)
-  shipmentLineId String
-  shipmentLine   ShipmentLine @relation(fields: [shipmentLineId], references: [id], onDelete: Cascade)
+  id               String       @id @default(cuid())
+  tripStopId       String
+  tripStop         TripStop     @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  loadPlanLineId   String
+  loadPlanLine     LoadPlanLine @relation(fields: [loadPlanLineId], references: [id], onDelete: Cascade)
+  shipmentLineId   String
+  shipmentLine     ShipmentLine @relation(fields: [shipmentLineId], references: [id], onDelete: Cascade)
   /// Qty the customer accepted at POD (null = not recorded; treat as full line qty).
   acceptedQuantity Int?
 
@@ -8404,17 +8484,17 @@ model CrmLead {
 
 /// Sales pipeline opportunity for an SD customer.
 model CrmOpportunity {
-  id                String        @id @default(cuid())
+  id                String          @id @default(cuid())
   customerId        String
-  customer          SdCustomer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer          SdCustomer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   leadId            String?
-  lead              CrmLead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead              CrmLead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
   name              String
   description       String?
-  amount            Decimal?      @db.Decimal(18, 2)
-  currency          String        @default("PHP")
+  amount            Decimal?        @db.Decimal(18, 2)
+  currency          String          @default("PHP")
   /// PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
-  stage             String        @default("PROSPECTING")
+  stage             String          @default("PROSPECTING")
   /// 0–100
   probability       Int?
   expectedCloseDate DateTime?
@@ -8427,8 +8507,8 @@ model CrmOpportunity {
   sdSalesOrderId    String?
   createdBy         String?
   updatedBy         String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   activities        CrmActivity[]
   messages          CrmMessage[]
   attachments       CrmAttachment[]
@@ -8442,34 +8522,34 @@ model CrmOpportunity {
 
 /// Customer support ticket.
 model CrmTicket {
-  id           String             @id @default(cuid())
-  customerId   String
-  customer     SdCustomer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  subject      String
-  description  String?
+  id                  String             @id @default(cuid())
+  customerId          String
+  customer            SdCustomer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  subject             String
+  description         String?
   /// OPEN | IN_PROGRESS | WAITING_CUSTOMER | RESOLVED | CLOSED | CANCELLED
-  status       String             @default("OPEN")
+  status              String             @default("OPEN")
   /// LOW | MEDIUM | HIGH | URGENT
-  priority     String             @default("MEDIUM")
+  priority            String             @default("MEDIUM")
   /// GENERAL | PRODUCT | DELIVERY | BILLING | RETURN | COMPLAINT | TECHNICAL | OTHER
-  category     String             @default("GENERAL")
-  assignedTo   String?
+  category            String             @default("GENERAL")
+  assignedTo          String?
   /// External RMA reference only; RMA execution is owned by SD / MM.
-  rmaReference String?
+  rmaReference        String?
   /// SD customer return this ticket handles (at most one ticket per return); SD owns the return.
-  sdReturnRequestId   String?          @unique
-  sdReturnRequest     SdReturnRequest? @relation(fields: [sdReturnRequestId], references: [id], onDelete: Restrict)
+  sdReturnRequestId   String?            @unique
+  sdReturnRequest     SdReturnRequest?   @relation(fields: [sdReturnRequestId], references: [id], onDelete: Restrict)
   /// Snapshots of the return's order and number for lists and search; the return stays authoritative.
   salesOrderId        String?
   returnRequestNumber String?
-  createdBy    String?
-  updatedBy    String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  comments     CrmTicketComment[]
-  activities   CrmActivity[]
-  messages     CrmMessage[]
-  attachments  CrmAttachment[]
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  comments            CrmTicketComment[]
+  activities          CrmActivity[]
+  messages            CrmMessage[]
+  attachments         CrmAttachment[]
 
   @@index([customerId])
   @@index([status])
