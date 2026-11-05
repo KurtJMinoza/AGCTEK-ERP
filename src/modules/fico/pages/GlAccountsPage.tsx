@@ -179,13 +179,15 @@ const GlAccountsPage = () => {
 
     const load = useCallback(() => {
         setLoading(true)
+        // When a specific chart is selected, show all its accounts regardless of
+        // company assignment. Company filtering only applies when viewing all charts.
         ficoGlAccountService
             .list({
                 chartOfAccountsId: chartFilter || undefined,
                 accountType: typeFilter || undefined,
                 status: statusFilter || undefined,
                 search: search || undefined,
-                companyId: companyId || undefined,
+                companyId: chartFilter ? undefined : (companyId || undefined),
             })
             .then(setAccounts)
             .catch((error) => notifyError(error, 'Unable to load G/L accounts.'))
@@ -264,8 +266,10 @@ const GlAccountsPage = () => {
                 currencyRestriction: form.currencyRestriction || null,
             }
             if (dialog === 'create') {
-                await ficoGlAccountService.create(payload)
+                const created = await ficoGlAccountService.create(payload)
                 notifySuccess('G/L account created.')
+                // Switch to the chart that owns this account so it appears immediately.
+                setChartFilter(created.chartOfAccountsId)
             } else if (editing) {
                 await ficoGlAccountService.update(editing.id, payload)
                 notifySuccess('G/L account updated.')
@@ -678,7 +682,11 @@ const GlAccountsPage = () => {
                 <p className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
                     <HiOutlineHashtag />
                     {accounts.length} account{accounts.length === 1 ? '' : 's'}
-                    {companyId ? ' assigned to the selected company' : ''}
+                    {chartFilter
+                        ? ' in the selected chart'
+                        : companyId
+                          ? ' assigned to the selected company'
+                          : ''}
                 </p>
 
                 <FicoResponsiveTable<FicoGlAccount>
