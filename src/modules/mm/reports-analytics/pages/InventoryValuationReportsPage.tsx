@@ -243,13 +243,19 @@ const InventoryValuationReportsPage = () => {
                     mobile={{
                         title: (row) => row.materialName || row.materialCode,
                         subtitle: (row) => row.warehouseName,
-                        metrics: (row) => [
-                            { label: 'Qty', value: Number(row.quantity).toLocaleString() },
+                        fields: [
+                            {
+                                label: 'Qty',
+                                value: (row) => Number(row.quantity).toLocaleString(),
+                            },
                             {
                                 label: 'Value',
-                                value: Number(row.inventoryValue).toLocaleString(),
+                                value: (row) => Number(row.inventoryValue).toLocaleString(),
                             },
-                            { label: 'Method', value: row.valuationMethod.replace(/_/g, ' ') },
+                            {
+                                label: 'Method',
+                                value: (row) => row.valuationMethod.replace(/_/g, ' '),
+                            },
                         ],
                     }}
                 />
