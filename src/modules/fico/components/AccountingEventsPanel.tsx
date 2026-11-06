@@ -28,9 +28,20 @@ import type {
     FicoAccountingEventDetail,
     FicoAccountingEventList,
     FicoAccountingEventStatus,
+    FicoPostingModule,
 } from '../types'
 
 type StatusTab = '' | FicoAccountingEventStatus
+type ModuleFilter = '' | FicoPostingModule
+
+/** Stable module catalogue; counts are appended from the loaded summary. */
+const MODULE_OPTIONS: Array<{ value: ModuleFilter; label: string }> = [
+    { value: '', label: 'All modules' },
+    { value: 'MM', label: 'MM — Materials Management' },
+    { value: 'SD', label: 'SD — Sales & Distribution' },
+    { value: 'PP', label: 'PP — Production Planning' },
+    { value: 'OTHER', label: 'Other sources' },
+]
 
 const STATUS_LABEL: Record<FicoAccountingEventStatus, string> = {
     CONSUMED: 'Posted',
@@ -95,10 +106,10 @@ function DetailItem({ label, children }: { label: string; children: ReactNode })
     )
 }
 
-/** Read-only MM → FICO Posting Monitor tab; the host page owns the company. */
+/** Read-only Transaction - FICO Posting Monitor tab; the host page owns the company. */
 const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     const [status, setStatus] = useState<StatusTab>('FAILED')
-    const [sourceModule, setSourceModule] = useState('')
+    const [moduleFilter, setModuleFilter] = useState<ModuleFilter>('')
     const [search, setSearch] = useState('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(25)
@@ -116,7 +127,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
             .list({
                 companyId,
                 status: status || undefined,
-                sourceModule: sourceModule || undefined,
+                module: moduleFilter || undefined,
                 search: search.trim() || undefined,
                 page,
                 pageSize,
@@ -127,7 +138,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                 notifyError(error, 'Unable to load accounting events.')
             })
             .finally(() => setLoading(false))
-    }, [companyId, status, sourceModule, search, page, pageSize])
+    }, [companyId, status, moduleFilter, search, page, pageSize])
 
     useEffect(() => {
         const handle = window.setTimeout(load, search ? 300 : 0)
@@ -160,14 +171,17 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     const counts = data?.summary.byStatus ?? {}
     const totalCount = (counts.CONSUMED ?? 0) + (counts.PENDING ?? 0) + (counts.FAILED ?? 0)
 
-    const sourceOptions = useMemo(
-        () => [
-            { value: '', label: 'All sources' },
-            ...(data?.summary.bySource ?? []).map((row) => ({
-                value: row.sourceModule,
-                label: `${humanize(row.sourceModule)} (${row.count})`,
-            })),
-        ],
+    const moduleOptions = useMemo(
+        () =>
+            MODULE_OPTIONS.map((option) => {
+                if (!option.value) return option
+                const count = data?.summary.byModule.find(
+                    (row) => row.module === option.value,
+                )?.count
+                return count === undefined
+                    ? option
+                    : { ...option, label: `${option.label} (${count})` }
+            }),
         [data],
     )
 
@@ -184,7 +198,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                     >
                         <FicoTwoLineCell
                             primary={humanize(row.original.eventType)}
-                            secondary={`${humanize(row.original.sourceModule)} · ${humanize(row.original.documentType)}`}
+                            secondary={`${row.original.module} · ${humanize(row.original.documentType)}`}
                         />
                     </button>
                 ),
@@ -237,7 +251,8 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     const mobile = useMemo(
         () => ({
             title: (event: FicoAccountingEvent) => humanize(event.eventType),
-            subtitle: (event: FicoAccountingEvent) => humanize(event.sourceModule),
+            subtitle: (event: FicoAccountingEvent) =>
+                `${event.module} · ${humanize(event.documentType)}`,
             status: (event: FicoAccountingEvent) => ({
                 text: STATUS_LABEL[event.status],
                 tone: STATUS_TONE[event.status],
@@ -274,9 +289,10 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     return (
         <>
             <div className="mb-4">
-                <h6 className="font-semibold heading-text">MM → FICO Posting Monitor</h6>
+                <h6 className="font-semibold heading-text">Transaction - FICO Posting Monitor</h6>
                 <p className="mt-1 text-sm text-gray-500">
-                    Track whether financially relevant MM movements are posted, pending, or failed in FICO.
+                    Track every financially relevant posting — MM, SD and PP — that is posted,
+                    pending or failed in FICO. Filter by module to inspect one source at a time.
                 </p>
             </div>
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -336,10 +352,17 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                 <div className="mb-4 mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,14rem)_minmax(0,18rem)_1fr] md:items-center">
                     <Select
                         size="sm"
-                        options={sourceOptions}
-                        value={sourceOptions.find((option) => option.value === sourceModule) ?? sourceOptions[0]}
+                        options={moduleOptions}
+                        value={
+                            moduleOptions.find((option) => option.value === moduleFilter) ??
+                            moduleOptions[0]
+                        }
                         onChange={(option) => {
-                            setSourceModule((option as { value: string } | null)?.value ?? '')
+                            setModuleFilter(
+                                ((option as { value: string } | null)?.value as
+                                    | ModuleFilter
+                                    | undefined) ?? '',
+                            )
                             setPage(1)
                         }}
                     />
@@ -366,8 +389,8 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                 </div>
 
                 <p className="mb-3 text-xs text-gray-500">
-                    Read-only. MM records an event for each financially relevant movement; FICO turns it
-                    into a journal. Failed events are not retried from here.
+                    Read-only. Each module records an event for every financially relevant document;
+                    FICO turns it into a journal. Failed events are not retried from here.
                 </p>
 
                 <FicoResponsiveTable<FicoAccountingEvent>
@@ -379,7 +402,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                     customNoDataIcon={
                         <p className="py-8 text-center text-sm text-gray-500">
                             {status === 'FAILED'
-                                ? 'No failed events — every MM posting reached FICO.'
+                                ? 'No failed events — every posting reached FICO.'
                                 : 'No events match these filters.'}
                         </p>
                     }
@@ -405,7 +428,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                 title={detail ? humanize(detail.eventType) : 'Accounting event'}
                 description={
                     detail
-                        ? `${humanize(detail.sourceModule)} · ${humanize(detail.documentType)}`
+                        ? `${detail.module} · ${humanize(detail.documentType)}`
                         : undefined
                 }
                 footer={
@@ -439,6 +462,9 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                             </DetailItem>
                             <DetailItem label="Source document ID">
                                 <span className="font-mono text-xs">{detail.documentId}</span>
+                            </DetailItem>
+                            <DetailItem label="Module / source stream">
+                                {detail.module} · {humanize(detail.sourceModule)}
                             </DetailItem>
                             <DetailItem label="FICO journal">
                                 {detail.journal

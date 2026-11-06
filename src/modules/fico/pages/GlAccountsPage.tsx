@@ -64,7 +64,7 @@ type WorkspaceTab = 'accounts' | 'determination' | 'events'
 const WORKSPACE_TABS: { value: WorkspaceTab; label: string; permission: string }[] = [
     { value: 'accounts', label: 'G/L Accounts', permission: 'fico.gl-accounts' },
     { value: 'determination', label: 'Account Determination', permission: 'fico.account-determination' },
-    { value: 'events', label: 'MM → FICO Posting Monitor', permission: 'fico.journal-entries' },
+    { value: 'events', label: 'Transaction - FICO Posting Monitor', permission: 'fico.journal-entries' },
 ]
 const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 const RECONCILIATION_TYPES = ['AP', 'AR', 'GRIR', 'BANK', 'ASSET', 'TAX']
@@ -150,6 +150,16 @@ const GlAccountsPage = () => {
     const [statusFilter, setStatusFilter] = useState('')
     const [search, setSearch] = useState('')
 
+    /**
+     * The company select is the page-wide scope shared by every tab. A chosen
+     * chart of accounts spans companies, so switching company clears the chart
+     * filter instead of leaving the two filters fighting over the same list.
+     */
+    const changeCompany = (value: string) => {
+        setCompanyId(value)
+        setChartFilter('')
+    }
+
     const [importOpen, setImportOpen] = useState(false)
     const [dialog, setDialog] = useState<'create' | 'edit' | null>(null)
     const [editing, setEditing] = useState<FicoGlAccount | null>(null)
@@ -170,10 +180,7 @@ const GlAccountsPage = () => {
     useEffect(() => {
         ficoChartService
             .list()
-            .then((rows) => {
-                setCharts(rows)
-                setChartFilter((current) => current || rows[0]?.id || '')
-            })
+            .then((rows) => setCharts(rows))
             .catch((error) => notifyError(error, 'Unable to load charts of accounts.'))
     }, [])
 
@@ -548,14 +555,14 @@ const GlAccountsPage = () => {
         <PageContainer>
             <PageHeader
                 title="G/L Accounts"
-                description="Maintain G/L accounts, configure MM account determination, and monitor MM postings reaching FICO."
+                description="Maintain G/L accounts, configure MM transaction-key mappings, and monitor postings from every module reaching FICO."
                 breadcrumbs={buildErpBreadcrumbs(ROUTE).slice(0, -1)}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">
                         <FicoCompanySelect
                             companies={companies}
                             value={companyId}
-                            onChange={setCompanyId}
+                            onChange={changeCompany}
                             loading={companyLoading}
                         />
                         {workspaceTab === 'accounts' ? (
@@ -681,12 +688,12 @@ const GlAccountsPage = () => {
                 </div>
                 <p className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
                     <HiOutlineHashtag />
-                    {accounts.length} account{accounts.length === 1 ? '' : 's'}
+                    {accounts.length} account{accounts.length === 1 ? '' : 's'}{' '}
                     {chartFilter
-                        ? ' in the selected chart'
+                        ? 'in the selected chart of accounts (all companies)'
                         : companyId
-                          ? ' assigned to the selected company'
-                          : ''}
+                          ? 'assigned to the selected company'
+                          : 'across all charts of accounts'}
                 </p>
 
                 <FicoResponsiveTable<FicoGlAccount>
@@ -695,6 +702,15 @@ const GlAccountsPage = () => {
                     compact
                     loading={loading}
                     noData={!loading && !accounts.length}
+                    customNoDataIcon={
+                        <p className="max-w-md py-8 text-center text-sm text-gray-500">
+                            {chartFilter
+                                ? 'No accounts in this chart of accounts match these filters.'
+                                : companyId
+                                  ? 'No accounts match these filters for the selected company. Pick a chart of accounts to see the full master list.'
+                                  : 'No accounts match these filters.'}
+                        </p>
+                    }
                     getRowId={(row) => row.id}
                     hidePagination
                     tableMinWidthClass="min-w-[1080px]"

@@ -75,4 +75,69 @@ describe('FicoAccountingEventsService', () => {
         const { service } = setup(['co-1'])
         await expect(service.get('ev-2', user)).rejects.toBeInstanceOf(ForbiddenException)
     })
+
+    it('shows every module when no module filter is given', async () => {
+        const { service, prisma } = setup()
+        await service.list({ companyId: 'co-1' }, user)
+        const where = prisma.mmAccountingEvent.findMany.mock.calls[0][0].where
+        expect(where).toEqual({ companyId: 'co-1' })
+    })
+
+    it('translates the MM module filter into the MM source streams', async () => {
+        const { service, prisma } = setup()
+        await service.list({ companyId: 'co-1', module: 'MM' }, user)
+        const where = prisma.mmAccountingEvent.findMany.mock.calls[0][0].where
+        expect(where.companyId).toBe('co-1')
+        expect(where.sourceModule.in).toEqual(
+            expect.arrayContaining(['STOCK_OPS', 'INBOUND', 'VALUATION']),
+        )
+        expect(where.sourceModule.in).not.toContain('SD')
+        expect(where.sourceModule.in).not.toContain('PRODUCTION')
+    })
+
+    it('treats an unclaimed source stream as OTHER and labels each row', async () => {
+        const { service, prisma } = setup()
+        prisma.mmAccountingEvent.groupBy.mockImplementation((args: { by: string[] }) =>
+            Promise.resolve(
+                args.by.includes('sourceModule')
+                    ? [
+                          { sourceModule: 'STOCK_OPS', _count: { _all: 2 } },
+                          { sourceModule: 'SD', _count: { _all: 1 } },
+                          { sourceModule: 'PRODUCTION', _count: { _all: 4 } },
+                          { sourceModule: 'SEED', _count: { _all: 1 } },
+                      ]
+                    : [{ status: 'FAILED', _count: { _all: 8 } }],
+            ),
+        )
+        prisma.mmAccountingEvent.findMany.mockResolvedValueOnce([
+            {
+                id: 'ev-pp',
+                sourceModule: 'PRODUCTION',
+                status: 'PENDING',
+                totalValue: null,
+                lastError: null,
+                ficoJournalEntry: null,
+            },
+            {
+                id: 'ev-seed',
+                sourceModule: 'SEED',
+                status: 'PENDING',
+                totalValue: null,
+                lastError: null,
+                ficoJournalEntry: null,
+            },
+        ])
+
+        const result = await service.list({ companyId: 'co-1', module: 'OTHER' }, user)
+
+        const where = prisma.mmAccountingEvent.findMany.mock.calls[0][0].where
+        expect(where.sourceModule.notIn).toEqual(expect.arrayContaining(['STOCK_OPS', 'SD']))
+        expect(result.items.map((item) => item.module)).toEqual(['PP', 'OTHER'])
+        expect(result.summary.byModule).toEqual([
+            { module: 'MM', count: 2 },
+            { module: 'SD', count: 1 },
+            { module: 'PP', count: 4 },
+            { module: 'OTHER', count: 1 },
+        ])
+    })
 })

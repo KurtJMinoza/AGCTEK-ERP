@@ -568,6 +568,18 @@ const AccountDeterminationPanel = ({ companyId }: { companyId: string }) => {
                     matching active mapping is rejected, never posted to a fallback account.
                 </p>
 
+                <p className="mb-3 text-xs text-gray-500">
+                    These transaction-key mappings are the MM journal path. Debit/credit rules for MM,
+                    SD and PP together are maintained in{' '}
+                    <Link
+                        href="/modules/fico/account-determination-rules"
+                        className="font-semibold underline"
+                    >
+                        Account Determination Rules
+                    </Link>
+                    .
+                </p>
+
                 <FicoResponsiveTable<DeterminationRow>
                     columns={columns}
                     data={tab === 'all' ? rows : attentionRows}

@@ -271,11 +271,11 @@ company membership.
 | `/modules/fico/overview` | Finance Overview (live metrics, warnings, recent activity) |
 | `/modules/fico/company-settings` | Company table + configuration form, validate, activate/deactivate |
 | `/modules/fico/chart-of-accounts` | COA list, duplicate, activate/deactivate, assign, group tree |
-| `/modules/fico/gl-accounts` | G/L master with posting controls and company assignment |
+| `/modules/fico/gl-accounts` | G/L master with posting controls and company assignment. The chart-of-accounts filter defaults to **All charts** (so the page-level company scope applies); choosing a chart shows that chart across all companies, and switching company clears the chart filter so the two scopes never fight |
 | `/modules/fico/fiscal-years` | Variants + period generation |
 | `/modules/fico/fiscal-periods` | Period table, open/restrict/close/lock/reopen, history |
 | `/modules/fico/gl-accounts?tab=determination` | Account Determination: transaction keys, profiles, mappings |
-| `/modules/fico/gl-accounts?tab=events` | MM → FICO Posting Monitor: read-only `mm_accounting_events` view of posted / pending / failed events, readable error summary, source lines, resulting journal |
+| `/modules/fico/gl-accounts?tab=events` | Transaction - FICO Posting Monitor: read-only `mm_accounting_events` view of **every** module's postings (MM, SD, PP) with a module filter (`All modules` / MM / SD / PP / Other), posted / pending / failed events, readable error summary, source lines, resulting journal |
 | `/modules/fico/journal-entries` | Journal list, manual posting, reversal, document detail |
 | `/modules/fico/journal-details` | Line-level drill-down |
 | `/modules/fico/account-balances` | Trial balance / account balances |
@@ -398,13 +398,13 @@ the documented approval flow.
 
 ---
 
-## Centralized G/L account determination (MM + SD)
+## Centralized G/L account determination (MM + SD + PP)
 
 Implemented 2026-11-05 alongside the existing transaction-key mappings, which stay in
 place for MM journal posting.
 
 **Model** — `fico_account_determination_rules` (unique `determinationCode`, company,
-`sourceModule` MM|SD, `transactionType`, optional `transactionKeyCode`, `priority`,
+`sourceModule` MM|SD|PP, `transactionType`, optional `transactionKeyCode`, `priority`,
 effective window, lifecycle status, dimensions) and `fico_account_determination_lines`
 (multiple DEBIT/CREDIT lines per rule, `lineNumber` unique per rule). Dimensions:
 `valuationClassId`, `materialTypeCode`, `movementType` (MM); `customerAccountGroup`,
@@ -432,9 +432,13 @@ posting flags, company assignment, currency, effectivity).
 `POST rules/:id/{submit,resubmit,approve,reject,activate,deactivate}`,
 `GET rules/:id/history`, `GET rules/history`, `POST resolve`, `GET summary`, `GET reference`.
 
-**UI** — `/modules/fico/account-determination-rules`: overview counters, MM and SD rule
-lists with status/search filters, create/edit (multi-line debit/credit, dimensions,
+**UI** — `/modules/fico/account-determination-rules`: overview counters, one tab per
+module (MM, SD, PP — built from `GET reference`, so a new module appears without a UI
+change) with status/search filters, create/edit (multi-line debit/credit, dimensions,
 effective dates), details with approval trail and change history, and the approval actions.
+MM and PP rules use the material dimensions (valuation class, material type, movement
+type); SD rules use the customer dimensions (account group, sales organization,
+distribution channel).
 
 **Seed** — `npm run prisma:seed-account-determination` from `backend/`. Creates the missing
 groups/accounts on the existing chart, enables posting for the accounts it needs, and
@@ -443,5 +447,5 @@ never overwrites a rule that has left draft.
 
 **Known limitation** — the MM journal path (`FicoJournalService`) still resolves through
 the legacy `FicoMmAccountMapping` pairs, which cannot express multi-line rules. The
-centralized resolver is the resolution API for MM and SD consumers; adapting the journal
+centralized resolver is the resolution API for MM, SD and PP consumers; adapting the journal
 writer to rule lines (and any SD GL posting, which does not exist yet) is the next phase.
