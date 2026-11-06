@@ -582,3 +582,100 @@ export type FicoJournalReversalResult = {
     reversalDocumentNumber: string | null
     reversalPostedAt: string | null
 }
+
+// ============================================================================
+// FICO Phase 2 — Number Ranges Types
+// ============================================================================
+
+export type FicoNumberRangeStatus = 'ACTIVE' | 'INACTIVE' | 'EXHAUSTED'
+export type FicoNumberRangeNumberingMethod = 'INTERNAL' | 'EXTERNAL'
+export type FicoNumberRangeAssignmentType = 'INTERNAL' | 'EXTERNAL'
+export type FicoNumberRangeResetFrequency = 'NEVER' | 'ANNUALLY' | 'PER_FISCAL_YEAR'
+
+export type FicoNumberRange = {
+    id: string
+    companyId: string
+    company?: {
+        id: string
+        code: string
+        name: string
+    }
+    rangeCode: string
+    rangeName: string
+    description: string | null
+    documentCategory: string
+    assignmentType: FicoNumberRangeAssignmentType
+    numberingMethod: FicoNumberRangeNumberingMethod
+    prefix: string
+    suffix: string
+    startNumber: number
+    endNumber: number
+    currentNumber: number
+    paddingLength: number
+    validFrom: string | null
+    validTo: string | null
+    fiscalYearId: string | null
+    fiscalYear?: {
+        id: string
+        code: string
+        name: string
+        status: string
+    } | null
+    resetFrequency: FicoNumberRangeResetFrequency
+    allowManualAssignment: boolean
+    allowExternalAssignment: boolean
+    allowGaps: boolean
+    status: FicoNumberRangeStatus
+    remarks: string | null
+    createdBy: string | null
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type FicoNumberRangeLog = {
+    id: string
+    numberRangeId: string
+    companyId: string
+    fiscalYearId: string | null
+    generatedNumber: string
+    numericSequence: number
+    assignmentMethod: FicoNumberRangeAssignmentType
+    documentReference: string | null
+    assignedBy: string | null
+    assignedAt: string
+}
+
+export type FicoNumberRangeListResponse = {
+    items: FicoNumberRange[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoNumberRangeHistoryResponse = {
+    items: FicoNumberRangeLog[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoNumberRangeUtilization = {
+    rangeId: string
+    rangeCode: string
+    totalAllocated: number
+    currentSequence: number
+    remaining: number
+    utilizationPercent: number
+    isExhausted: boolean
+    startNumber: number
+    endNumber: number
+}
+
+export type FicoNumberRangeNextNumberResult = {
+    generatedNumber: string
+    numericSequence: number
+    assignmentMethod: FicoNumberRangeAssignmentType
+    documentReference: string | null
+    assignedAt: string
+}

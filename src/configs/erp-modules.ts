@@ -348,6 +348,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/fico/document-types-fi',
                         icon: 'settings',
                     },
+                    {
+                        code: 'number-ranges',
+                        permissionCode: 'fico.number-ranges',
+                        title: 'Number Ranges',
+                        description:
+                            'Configure document number ranges for accounting and financial documents.',
+                        path: '/modules/fico/number-ranges',
+                        icon: 'settings',
+                    },
                 ],
             },
         ],

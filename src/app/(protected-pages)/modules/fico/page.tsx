@@ -5,7 +5,7 @@ export const metadata = {
     title: 'FICO — Finance & Controlling | AGCTEK ERP',
     description: 'Chart of accounts and fiscal year configuration.',
 }/** FICO module submodules. Phase 1: chart of accounts + fiscal calendar.
- * Phase 2: company accounting settings + posting periods (list, details, history).
+ * Phase 2: company accounting settings + posting periods + number ranges.
  * Add further submodules here as their UI is completed.
  */
 const FICO_SUBMODULES = [
@@ -14,6 +14,7 @@ const FICO_SUBMODULES = [
     'fiscal-years',
     'company-settings',
     'fiscal-periods',
+    'number-ranges',
 ]
 export default async function Page() {
     return (

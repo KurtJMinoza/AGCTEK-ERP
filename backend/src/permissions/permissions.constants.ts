@@ -543,6 +543,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Accounts Receivable',
             'Customer invoices and incoming payments.',
         ],
+        [
+            'number-ranges',
+            'Number Ranges',
+            'Document number ranges for accounting and financial documents.',
+        ],
     ]),
     ...group('scm', [
         [

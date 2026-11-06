@@ -983,3 +983,336 @@ export class FicoAuditQueryDto {
     @Max(200)
     pageSize?: number
 }
+
+// ============================================================================
+// FICO Phase 2 — Number Ranges DTOs
+// ============================================================================
+
+export const FICO_NUMBER_RANGE_STATUSES = [
+    'ACTIVE',
+    'INACTIVE',
+    'EXHAUSTED',
+] as const
+export type FicoNumberRangeStatus = (typeof FICO_NUMBER_RANGE_STATUSES)[number]
+
+export const FICO_NUMBER_RANGE_NUMBERING_METHODS = ['INTERNAL', 'EXTERNAL'] as const
+export type FicoNumberRangeNumberingMethod =
+    (typeof FICO_NUMBER_RANGE_NUMBERING_METHODS)[number]
+
+export const FICO_NUMBER_RANGE_RESET_FREQUENCIES = [
+    'NEVER',
+    'ANNUALLY',
+    'PER_FISCAL_YEAR',
+] as const
+export type FicoNumberRangeResetFrequency =
+    (typeof FICO_NUMBER_RANGE_RESET_FREQUENCIES)[number]
+
+export class FicoNumberRangeListQueryDto {
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    documentCategory?: string
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_NUMBERING_METHODS)
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_RESET_FREQUENCIES)
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(500)
+    pageSize?: number
+}
+
+export class FicoNumberRangeCreateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(32)
+    rangeCode!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    rangeName!: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(64)
+    documentCategory!: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    assignmentType?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    prefix?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    suffix?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    startNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    endNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    currentNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(20)
+    paddingLength?: number
+
+    @IsOptional()
+    @IsDateString()
+    validFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    validTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsIn(['NEVER', 'ANNUALLY', 'PER_FISCAL_YEAR'])
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsBoolean()
+    allowManualAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternalAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowGaps?: boolean
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoNumberRangeUpdateDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    rangeName?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(64)
+    documentCategory?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    assignmentType?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    prefix?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    suffix?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    startNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    endNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    currentNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(20)
+    paddingLength?: number
+
+    @IsOptional()
+    @IsDateString()
+    validFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    validTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsIn(['NEVER', 'ANNUALLY', 'PER_FISCAL_YEAR'])
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsBoolean()
+    allowManualAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternalAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowGaps?: boolean
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_STATUSES)
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoNumberRangeActivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoNumberRangeDeactivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoNumberRangeNextNumberDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    documentReference?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternal?: boolean
+
+    @IsOptional()
+    @IsString()
+    externalNumber?: string | null
+}
+
+export class FicoNumberRangeHistoryQueryDto {
+    @IsString()
+    numberRangeId!: string
+
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    assignmentMethod?: string
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
+}

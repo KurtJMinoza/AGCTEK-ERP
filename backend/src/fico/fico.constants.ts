@@ -312,3 +312,49 @@ export function isFicoAccountType(value: string): value is FicoAccountType {
 export function isFicoPeriodStatus(value: string): value is FicoPeriodStatus {
     return (FICO_PERIOD_STATUSES as readonly string[]).includes(value)
 }
+
+/** Number Ranges (FICO Phase 2) constants. */
+
+export const FICO_NUMBER_RANGE_STATUSES = ['ACTIVE', 'INACTIVE', 'EXHAUSTED'] as const
+export type FicoNumberRangeStatus = (typeof FICO_NUMBER_RANGE_STATUSES)[number]
+
+export const FICO_NUMBER_RANGE_NUMBERING_METHODS = ['INTERNAL', 'EXTERNAL'] as const
+export type FicoNumberRangeNumberingMethod = (typeof FICO_NUMBER_RANGE_NUMBERING_METHODS)[number]
+
+export const FICO_NUMBER_RANGE_ASSIGNMENT_TYPES = ['INTERNAL', 'EXTERNAL'] as const
+export type FicoNumberRangeAssignmentType = (typeof FICO_NUMBER_RANGE_ASSIGNMENT_TYPES)[number]
+
+export const FICO_NUMBER_RANGE_RESET_FREQUENCIES = ['NEVER', 'ANNUALLY', 'PER_FISCAL_YEAR'] as const
+export type FicoNumberRangeResetFrequency = (typeof FICO_NUMBER_RANGE_RESET_FREQUENCIES)[number]
+
+export const FICO_NUMBER_RANGE_AUDIT_ACTIONS = {
+    NUMBER_RANGE_CREATE: 'NUMBER_RANGE_CREATE',
+    NUMBER_RANGE_UPDATE: 'NUMBER_RANGE_UPDATE',
+    NUMBER_RANGE_ACTIVATE: 'NUMBER_RANGE_ACTIVATE',
+    NUMBER_RANGE_DEACTIVATE: 'NUMBER_RANGE_DEACTIVATE',
+    NUMBER_RANGE_DELETE: 'NUMBER_RANGE_DELETE',
+    NUMBER_RANGE_ALLOCATE: 'NUMBER_RANGE_ALLOCATE',
+} as const
+
+export function isFicoNumberRangeStatus(value: string): value is FicoNumberRangeStatus {
+    return (FICO_NUMBER_RANGE_STATUSES as readonly string[]).includes(value)
+}
+
+export function isFicoNumberRangeNumberingMethod(value: string): value is FicoNumberRangeNumberingMethod {
+    return (FICO_NUMBER_RANGE_NUMBERING_METHODS as readonly string[]).includes(value)
+}
+
+export function isFicoNumberRangeResetFrequency(value: string): value is FicoNumberRangeResetFrequency {
+    return (FICO_NUMBER_RANGE_RESET_FREQUENCIES as readonly string[]).includes(value)
+}
+
+/** Format a number with zero padding, e.g. prefix='JE-', seq=26, padding=6 → 'JE-000026'. */
+export function formatFicoNumber(
+    prefix: string,
+    sequence: number,
+    padding: number,
+    suffix: string = '',
+): string {
+    const padded = String(sequence).padStart(padding, '0')
+    return `${prefix}${padded}${suffix}`
+}
