@@ -3829,6 +3829,11 @@ model FicoFinancialPeriod {
   isYearEndAdjustment Boolean                     @default(false)
   closeChecklist      Json?
   statusReason        String?
+  remarks             String?
+  closingDate         DateTime?                   @db.Date
+  lockDate            DateTime?                   @db.Date
+  reopenedAt          DateTime?
+  reopenedBy          String?
   openedAt            DateTime?
   openedBy            String?
   restrictedAt        DateTime?
@@ -3905,6 +3910,7 @@ model FicoCompanyAccountingSettings {
   company                       Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   legalName                     String                           @default("")
   baseCurrency                  String                           @default("PHP") @db.VarChar(3)
+  groupCurrency                 String?                          @db.VarChar(3)
   countryCode                   String                           @default("PH") @db.VarChar(2)
   timezone                      String                           @default("Asia/Manila")
   accountingMethod              String                           @default("ACCRUAL") // ACCRUAL | CASH
@@ -3921,8 +3927,29 @@ model FicoCompanyAccountingSettings {
   taxRegistrationNumber         String?
   taxJurisdiction               String?
   defaultTaxCode                String?
+  defaultRetainedEarningsAccountId String?
+  defaultRetainedEarningsAccount FicoGlAccount?                   @relation("FicoDefaultRetainedEarnings", fields: [defaultRetainedEarningsAccountId], references: [id], onDelete: Restrict)
+  defaultCashAccountId          String?
+  defaultCashAccount            FicoGlAccount?                   @relation("FicoDefaultCash", fields: [defaultCashAccountId], references: [id], onDelete: Restrict)
+  defaultReceivableAccountId    String?
+  defaultReceivableAccount      FicoGlAccount?                   @relation("FicoDefaultReceivable", fields: [defaultReceivableAccountId], references: [id], onDelete: Restrict)
+  defaultPayableAccountId       String?
+  defaultPayableAccount         FicoGlAccount?                   @relation("FicoDefaultPayable", fields: [defaultPayableAccountId], references: [id], onDelete: Restrict)
+  defaultInventoryAccountId     String?
+  defaultInventoryAccount       FicoGlAccount?                   @relation("FicoDefaultInventory", fields: [defaultInventoryAccountId], references: [id], onDelete: Restrict)
+  defaultSalesRevenueAccountId  String?
+  defaultSalesRevenueAccount    FicoGlAccount?                   @relation("FicoDefaultSalesRevenue", fields: [defaultSalesRevenueAccountId], references: [id], onDelete: Restrict)
+  defaultCostOfGoodsSoldAccountId String?
+  defaultCostOfGoodsSoldAccount FicoGlAccount?                   @relation("FicoDefaultCostOfGoodsSold", fields: [defaultCostOfGoodsSoldAccountId], references: [id], onDelete: Restrict)
+  defaultTaxInputAccountId      String?
+  defaultTaxInputAccount        FicoGlAccount?                   @relation("FicoDefaultTaxInput", fields: [defaultTaxInputAccountId], references: [id], onDelete: Restrict)
+  defaultTaxOutputAccountId     String?
+  defaultTaxOutputAccount       FicoGlAccount?                   @relation("FicoDefaultTaxOutput", fields: [defaultTaxOutputAccountId], references: [id], onDelete: Restrict)
   documentNumberPrefix          String                           @default("JE")
   documentNumberPadding         Int                              @default(6)
+  allowNegativePostings         Boolean                          @default(false)
+  backdatedPostingAllowed       Boolean                          @default(true)
+  maxBackdatedPostingDays       Int?
   closeChecklist                Json?
   activatedAt                   DateTime?
   activatedBy                   String?
@@ -4013,6 +4040,15 @@ model FicoGlAccount {
   debitMappings           FicoMmAccountMapping[]         @relation("FicoMappingDebit")
   creditMappings          FicoMmAccountMapping[]         @relation("FicoMappingCredit")
   determinationLines      FicoAccountDeterminationLine[] @relation("FicoRuleLineGlAccount")
+  defaultRetainedEarningsSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultRetainedEarnings")
+  defaultCashSettings            FicoCompanyAccountingSettings[] @relation("FicoDefaultCash")
+  defaultReceivableSettings      FicoCompanyAccountingSettings[] @relation("FicoDefaultReceivable")
+  defaultPayableSettings         FicoCompanyAccountingSettings[] @relation("FicoDefaultPayable")
+  defaultInventorySettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultInventory")
+  defaultSalesRevenueSettings    FicoCompanyAccountingSettings[] @relation("FicoDefaultSalesRevenue")
+  defaultCostOfGoodsSoldSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultCostOfGoodsSold")
+  defaultTaxInputSettings        FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxInput")
+  defaultTaxOutputSettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxOutput")
 
   @@unique([chartOfAccountsId, accountCode])
   @@index([chartOfAccountsId])

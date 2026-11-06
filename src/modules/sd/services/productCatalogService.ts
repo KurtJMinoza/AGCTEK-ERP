@@ -30,6 +30,10 @@ export type SdProductRecord = {
     isActive: boolean
     /** ACTIVE | INACTIVE | ARCHIVED. Only ACTIVE products are sellable. */
     status: ProductLifecycleStatus
+    /** STOCK_ITEM | NON_STOCK_ITEM | SERVICE — server-owned item nature. */
+    productType?: SdProductType
+    /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
+    productConfig?: 'SIMPLE' | 'VARIABLE'
     sortOrder: number
     /** Division-specific storefront content (features, specs, reviews, …). */
     attributes: ProductAttributes | null

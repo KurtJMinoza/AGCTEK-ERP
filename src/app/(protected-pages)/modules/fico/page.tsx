@@ -4,17 +4,23 @@ import getMyPermissions from '@/server/actions/permissions/getMyPermissions'
 export const metadata = {
     title: 'FICO — Finance & Controlling | AGCTEK ERP',
     description: 'Chart of accounts and fiscal year configuration.',
-}
-
-/** FICO Phase 1 exposes only the chart of accounts and the fiscal calendar. */
-const FICO_PHASE1_SUBMODULES = ['chart-of-accounts', 'gl-accounts', 'fiscal-years']
-
+}/** FICO module submodules. Phase 1: chart of accounts + fiscal calendar.
+ * Phase 2: company accounting settings + posting periods (list, details, history).
+ * Add further submodules here as their UI is completed.
+ */
+const FICO_SUBMODULES = [
+    'chart-of-accounts',
+    'gl-accounts',
+    'fiscal-years',
+    'company-settings',
+    'fiscal-periods',
+]
 export default async function Page() {
     return (
         <ModuleLandingPage
             moduleCode="fico"
             permissions={await getMyPermissions()}
-            submoduleCodes={FICO_PHASE1_SUBMODULES}
+            submoduleCodes={FICO_SUBMODULES}
         />
     )
 }

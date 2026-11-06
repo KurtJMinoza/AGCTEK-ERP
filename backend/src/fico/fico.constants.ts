@@ -130,11 +130,77 @@ export const FICO_SETTINGS_STRUCTURAL_FIELDS = [
     'postingPeriodVariantId',
 ] as const
 
+/**
+ * Default G/L account slots configured on the company accounting settings.
+ * `expectedType` drives a validation warning (never a hard block) so a chart
+ * that classifies an account differently can still be configured.
+ */
+export const FICO_DEFAULT_ACCOUNT_SLOTS = [
+    {
+        key: 'defaultRetainedEarningsAccountId',
+        relation: 'defaultRetainedEarningsAccount',
+        label: 'Default retained earnings',
+        expectedType: 'EQUITY',
+    },
+    {
+        key: 'defaultCashAccountId',
+        relation: 'defaultCashAccount',
+        label: 'Default cash',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultReceivableAccountId',
+        relation: 'defaultReceivableAccount',
+        label: 'Default accounts receivable',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultPayableAccountId',
+        relation: 'defaultPayableAccount',
+        label: 'Default accounts payable',
+        expectedType: 'LIABILITY',
+    },
+    {
+        key: 'defaultInventoryAccountId',
+        relation: 'defaultInventoryAccount',
+        label: 'Default inventory',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultSalesRevenueAccountId',
+        relation: 'defaultSalesRevenueAccount',
+        label: 'Default sales revenue',
+        expectedType: 'REVENUE',
+    },
+    {
+        key: 'defaultCostOfGoodsSoldAccountId',
+        relation: 'defaultCostOfGoodsSoldAccount',
+        label: 'Default cost of goods sold',
+        expectedType: 'EXPENSE',
+    },
+    {
+        key: 'defaultTaxInputAccountId',
+        relation: 'defaultTaxInputAccount',
+        label: 'Default tax input',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultTaxOutputAccountId',
+        relation: 'defaultTaxOutputAccount',
+        label: 'Default tax output',
+        expectedType: 'LIABILITY',
+    },
+] as const
+
+export type FicoDefaultAccountSlot =
+    (typeof FICO_DEFAULT_ACCOUNT_SLOTS)[number]['key']
+
 export const FICO_AUDIT_ACTIONS = {
     COMPANY_SETTINGS_CREATE: 'COMPANY_SETTINGS_CREATE',
     COMPANY_SETTINGS_UPDATE: 'COMPANY_SETTINGS_UPDATE',
     COMPANY_SETTINGS_ACTIVATE: 'COMPANY_SETTINGS_ACTIVATE',
     COMPANY_SETTINGS_DEACTIVATE: 'COMPANY_SETTINGS_DEACTIVATE',
+    COMPANY_SETTINGS_DELETE: 'COMPANY_SETTINGS_DELETE',
     CHART_CREATE: 'CHART_CREATE',
     CHART_UPDATE: 'CHART_UPDATE',
     CHART_DUPLICATE: 'CHART_DUPLICATE',
@@ -164,6 +230,7 @@ export const FICO_AUDIT_ACTIONS = {
     PERIOD_LOCK: 'PERIOD_LOCK',
     PERIOD_REOPEN: 'PERIOD_REOPEN',
     PERIOD_UNLOCK: 'PERIOD_UNLOCK',
+    PERIOD_UPDATE: 'PERIOD_UPDATE',
 } as const
 
 export function formatFicoPeriodKey(

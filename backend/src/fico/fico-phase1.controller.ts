@@ -36,11 +36,18 @@ import {
     FicoPeriodActionDto,
     FicoPeriodListQueryDto,
     FicoPeriodResolveQueryDto,
+    FicoPeriodUpdateDto,
     FicoPostingVariantCreateDto,
     FicoPostingVariantUpdateDto,
     FicoPostingValidationDto,
     FicoReasonDto,
 } from './dto/fico-phase1.dto'
+import {
+    CreateJournalEntryDto,
+    JournalEntryDetailQueryDto,
+    JournalEntryListQueryDto,
+    ReverseJournalEntryDto,
+} from './dto/fico.dto'
 import { FicoAccountMappingService } from './fico-account-mapping.service'
 import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
@@ -52,6 +59,7 @@ import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoOverviewService } from './fico-overview.service'
 import { FicoPostingPeriodService } from './fico-posting-period.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
+import { FicoJournalService } from './fico-journal.service'
 
 @Controller('fico')
 export class FicoPhase1Controller {
@@ -62,6 +70,7 @@ export class FicoPhase1Controller {
         private readonly calendar: FicoFiscalCalendarService,
         private readonly periods: FicoPostingPeriodService,
         private readonly validation: FicoPostingValidationService,
+        private readonly journal: FicoJournalService,
         private readonly overview: FicoOverviewService,
         private readonly audit: FicoAuditService,
         private readonly access: FicoCompanyAccessService,
@@ -197,6 +206,16 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.settings.deactivate(companyId, user, dto.reason)
+    }
+
+    @Delete('company-settings/:companyId')
+    @RequirePermission('fico.company-settings', 'delete')
+    deleteSettings(
+        @Param('companyId') companyId: string,
+        @Query('reason') reason: string | undefined,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.settings.remove(companyId, user, reason)
     }
 
     // ---------------------------------------------------------------------
@@ -503,6 +522,15 @@ export class FicoPhase1Controller {
         )
     }
 
+    @Get('posting-periods/summary')
+    @RequirePermission('fico.periods', 'read')
+    periodSummary(
+        @Query() query: FicoPeriodListQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.periods.summary(query, user)
+    }
+
     @Get('posting-periods/:id/history')
     @RequirePermission('fico.periods', 'read')
     periodHistory(
@@ -510,6 +538,33 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.periods.history(id, user)
+    }
+
+    @Get('posting-periods/:id')
+    @RequirePermission('fico.periods', 'read')
+    periodDetails(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.periods.get(id, user)
+    }
+
+    @Patch('posting-periods/:id')
+    @RequirePermission('fico.periods', 'update')
+    updatePeriodDetails(
+        @Param('id') id: string,
+        @Body() dto: FicoPeriodUpdateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.periods.updateDetails(
+            id,
+            {
+                remarks: dto.remarks,
+                closingDate: dto.closingDate,
+                lockDate: dto.lockDate,
+            },
+            user,
+        )
     }
 
     @Post('posting-periods/:id/open')
@@ -580,6 +635,63 @@ export class FicoPhase1Controller {
     ) {
         await this.access.assertAccess(user, dto.companyId)
         return this.validation.validate(dto)
+    }
+
+    // ---------------------------------------------------------------------
+    // Journal entries (manual posting)
+    // ---------------------------------------------------------------------
+
+    @Get('journal-entries')
+    @RequirePermission('fico.journal-entries', 'read')
+    listJournalEntries(
+        @Query() query: JournalEntryListQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.access
+            .assertAccess(user, query.companyId)
+            .then(() =>
+                this.journal.listEntries({
+                    companyId: query.companyId,
+                    status: query.status,
+                    dateFrom: query.dateFrom,
+                    dateTo: query.dateTo,
+                    page: query.page ?? 1,
+                    pageSize: query.pageSize ?? 20,
+                }),
+            )
+    }
+
+    @Get('journal-entries/:id')
+    @RequirePermission('fico.journal-entries', 'read')
+    getJournalEntry(
+        @Param('id') id: string,
+        @Query('companyId') companyId: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.access
+            .assertAccess(user, companyId)
+            .then(() => this.journal.getEntry(id))
+    }
+
+    @Post('journal-entries')
+    @RequirePermission('fico.journal-entries', 'create')
+    async createJournalEntry(
+        @Body() dto: CreateJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.createEntry(dto, user)
+    }
+
+    @Post('journal-entries/:id/reverse')
+    @RequirePermission('fico.journal-entries', 'update')
+    async reverseJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: ReverseJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.reverseEntry(id, dto, user)
     }
 
     // ---------------------------------------------------------------------

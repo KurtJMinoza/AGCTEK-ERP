@@ -1,4 +1,5 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsNumber, IsArray, ValidateNested, Min, Max } from 'class-validator'
+import { Type, Transform } from 'class-transformer'
 
 export class FicoPeriodQueryDto {
     @IsString()
@@ -57,4 +58,92 @@ export class FicoReconciliationQueryDto {
     @IsOptional()
     @IsDateString()
     dateTo?: string
+}
+export class CreateJournalEntryDto {
+    @IsString()
+    companyId!: string
+
+    @IsDateString()
+    postingDate!: string
+
+    @IsOptional()
+    @IsString()
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    currencyCode?: string
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateJournalLineDto)
+    lines!: CreateJournalLineDto[]
+}
+
+export class CreateJournalLineDto {
+    @IsString()
+    glAccountId!: string
+
+    @IsOptional()
+    @IsNumber({}, { allowString: true })
+    @Transform(({ value }) => (typeof value === 'string' ? Number(value) : value))
+    @Min(0)
+    debitAmount?: number
+
+    @IsOptional()
+    @IsNumber({}, { allowString: true })
+    @Transform(({ value }) => (typeof value === 'string' ? Number(value) : value))
+    @Min(0)
+    creditAmount?: number
+
+    @IsOptional()
+    @IsString()
+    description?: string
+}
+
+export class JournalEntryListQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number = 1
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    pageSize?: number = 20
+}
+
+export class JournalEntryDetailQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    id!: string
+}
+
+export class ReverseJournalEntryDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    journalEntryId!: string
+
+    @IsString()
+    reason!: string
 }

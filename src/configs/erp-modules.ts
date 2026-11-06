@@ -197,6 +197,16 @@ export const ERP_MODULES: ErpModule[] = [
                             'Assign the chart, fiscal calendar, currency, and accounting configuration for each company.',
                         path: '/modules/fico/company-settings',
                         icon: 'building',
+                        children: [
+                            {
+                                code: 'company-accounting-settings',
+                                title: 'Company Accounting Settings',
+                                description:
+                                    'Configure company-level financial accounting rules and posting controls.',
+                                path: '/modules/fico/company-accounting-settings',
+                                icon: 'building',
+                            },
+                        ],
                     },
                     {
                         code: 'chart-of-accounts',
@@ -316,7 +326,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.periods',
                         title: 'Posting Periods',
                         description:
-                            'Open, restrict, close, lock, and audit fiscal posting periods.',
+                            'Period status dashboard, generation, opening, closing, locking, reopening, details and audit history.',
                         path: '/modules/fico/fiscal-periods',
                         icon: 'calendar',
                     },

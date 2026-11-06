@@ -11,6 +11,7 @@ import { FicoCompanyAccessService } from './fico-company-access.service'
 import {
     FICO_AUDIT_ACTIONS,
     FICO_COMPANY_SETTINGS_STATUSES,
+    FICO_DEFAULT_ACCOUNT_SLOTS,
     FICO_PHILIPPINES_DEFAULTS,
     FICO_SETTINGS_STRUCTURAL_FIELDS,
 } from './fico.constants'
@@ -18,6 +19,7 @@ import {
 export type UpsertCompanySettingsInput = {
     legalName?: string
     baseCurrency?: string
+    groupCurrency?: string | null
     countryCode?: string
     timezone?: string
     accountingMethod?: string
@@ -29,8 +31,20 @@ export type UpsertCompanySettingsInput = {
     taxRegistrationNumber?: string | null
     taxJurisdiction?: string | null
     defaultTaxCode?: string | null
+    defaultRetainedEarningsAccountId?: string | null
+    defaultCashAccountId?: string | null
+    defaultReceivableAccountId?: string | null
+    defaultPayableAccountId?: string | null
+    defaultInventoryAccountId?: string | null
+    defaultSalesRevenueAccountId?: string | null
+    defaultCostOfGoodsSoldAccountId?: string | null
+    defaultTaxInputAccountId?: string | null
+    defaultTaxOutputAccountId?: string | null
     documentNumberPrefix?: string
     documentNumberPadding?: number
+    allowNegativePostings?: boolean
+    backdatedPostingAllowed?: boolean
+    maxBackdatedPostingDays?: number | null
     closeChecklist?: Record<string, unknown> | null
 }
 
@@ -39,6 +53,16 @@ export type FicoValidationIssue = {
     message: string
     field?: string
 }
+
+const GL_ACCOUNT_REF = {
+    id: true,
+    accountCode: true,
+    accountName: true,
+    accountType: true,
+    status: true,
+    chartOfAccountsId: true,
+    isPostingAccount: true,
+} as const
 
 const SETTINGS_INCLUDE = {
     company: { select: { id: true, code: true, name: true, tin: true } },
@@ -54,6 +78,15 @@ const SETTINGS_INCLUDE = {
     accountDeterminationProfile: {
         select: { id: true, code: true, name: true, status: true },
     },
+    defaultRetainedEarningsAccount: { select: GL_ACCOUNT_REF },
+    defaultCashAccount: { select: GL_ACCOUNT_REF },
+    defaultReceivableAccount: { select: GL_ACCOUNT_REF },
+    defaultPayableAccount: { select: GL_ACCOUNT_REF },
+    defaultInventoryAccount: { select: GL_ACCOUNT_REF },
+    defaultSalesRevenueAccount: { select: GL_ACCOUNT_REF },
+    defaultCostOfGoodsSoldAccount: { select: GL_ACCOUNT_REF },
+    defaultTaxInputAccount: { select: GL_ACCOUNT_REF },
+    defaultTaxOutputAccount: { select: GL_ACCOUNT_REF },
 } as const
 
 @Injectable()
@@ -142,6 +175,7 @@ export class FicoCompanySettingsService {
             companyId,
             legalName: input.legalName?.trim() || company.name,
             baseCurrency: (input.baseCurrency || 'PHP').toUpperCase(),
+            groupCurrency: input.groupCurrency?.toUpperCase() ?? null,
             countryCode: (input.countryCode || 'PH').toUpperCase(),
             timezone: input.timezone || FICO_PHILIPPINES_DEFAULTS.timezone,
             accountingMethod:
@@ -155,12 +189,28 @@ export class FicoCompanySettingsService {
             taxRegistrationNumber: input.taxRegistrationNumber ?? null,
             taxJurisdiction: input.taxJurisdiction ?? null,
             defaultTaxCode: input.defaultTaxCode ?? null,
+            defaultRetainedEarningsAccountId:
+                input.defaultRetainedEarningsAccountId ?? null,
+            defaultCashAccountId: input.defaultCashAccountId ?? null,
+            defaultReceivableAccountId:
+                input.defaultReceivableAccountId ?? null,
+            defaultPayableAccountId: input.defaultPayableAccountId ?? null,
+            defaultInventoryAccountId: input.defaultInventoryAccountId ?? null,
+            defaultSalesRevenueAccountId:
+                input.defaultSalesRevenueAccountId ?? null,
+            defaultCostOfGoodsSoldAccountId:
+                input.defaultCostOfGoodsSoldAccountId ?? null,
+            defaultTaxInputAccountId: input.defaultTaxInputAccountId ?? null,
+            defaultTaxOutputAccountId: input.defaultTaxOutputAccountId ?? null,
             documentNumberPrefix:
                 input.documentNumberPrefix?.trim() ||
                 FICO_PHILIPPINES_DEFAULTS.documentNumberPrefix,
             documentNumberPadding:
                 input.documentNumberPadding ??
                 FICO_PHILIPPINES_DEFAULTS.documentNumberPadding,
+            allowNegativePostings: input.allowNegativePostings ?? false,
+            backdatedPostingAllowed: input.backdatedPostingAllowed ?? true,
+            maxBackdatedPostingDays: input.maxBackdatedPostingDays ?? null,
             closeChecklist: (input.closeChecklist ?? null) as never,
             status: 'DRAFT',
             createdBy: user.id,
@@ -168,17 +218,23 @@ export class FicoCompanySettingsService {
         }
 
         this.assertScalarValues(data)
-        const created = await this.prisma.ficoCompanyAccountingSettings.create({
-            data,
-            include: SETTINGS_INCLUDE,
-        })
-        await this.audit.log({
-            companyId,
-            actorId: user.id,
-            action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_CREATE,
-            entityType: 'FicoCompanyAccountingSettings',
-            entityId: created.id,
-            newValues: created as unknown as Record<string, unknown>,
+        const created = await this.prisma.$transaction(async (tx) => {
+            const row = await tx.ficoCompanyAccountingSettings.create({
+                data,
+                include: SETTINGS_INCLUDE,
+            })
+            await this.audit.log(
+                {
+                    companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_CREATE,
+                    entityType: 'FicoCompanyAccountingSettings',
+                    entityId: row.id,
+                    newValues: row as unknown as Record<string, unknown>,
+                },
+                tx,
+            )
+            return row
         })
         return created
     }
@@ -190,7 +246,10 @@ export class FicoCompanySettingsService {
     ) {
         await this.access.assertAccess(user, companyId)
         const current = await this.get(companyId)
-        await this.assertReferences(input)
+        await this.assertReferences({
+            ...(current as unknown as UpsertCompanySettingsInput),
+            ...input,
+        })
 
         const structuralChange = FICO_SETTINGS_STRUCTURAL_FIELDS.some((field) => {
             const next = input[field]
@@ -218,6 +277,12 @@ export class FicoCompanySettingsService {
                 : {}),
             ...(input.baseCurrency !== undefined
                 ? { baseCurrency: input.baseCurrency.toUpperCase() }
+                : {}),
+            ...(input.groupCurrency !== undefined
+                ? {
+                      groupCurrency:
+                          input.groupCurrency?.toUpperCase() ?? null,
+                  }
                 : {}),
             ...(input.countryCode !== undefined
                 ? { countryCode: input.countryCode.toUpperCase() }
@@ -258,6 +323,69 @@ export class FicoCompanySettingsService {
             ...(input.defaultTaxCode !== undefined
                 ? { defaultTaxCode: input.defaultTaxCode }
                 : {}),
+            ...(input.defaultRetainedEarningsAccountId !== undefined
+                ? {
+                      defaultRetainedEarningsAccountId:
+                          input.defaultRetainedEarningsAccountId,
+                  }
+                : {}),
+            ...(input.defaultCashAccountId !== undefined
+                ? { defaultCashAccountId: input.defaultCashAccountId }
+                : {}),
+            ...(input.defaultReceivableAccountId !== undefined
+                ? {
+                      defaultReceivableAccountId:
+                          input.defaultReceivableAccountId,
+                  }
+                : {}),
+            ...(input.defaultPayableAccountId !== undefined
+                ? { defaultPayableAccountId: input.defaultPayableAccountId }
+                : {}),
+            ...(input.defaultInventoryAccountId !== undefined
+                ? {
+                      defaultInventoryAccountId:
+                          input.defaultInventoryAccountId,
+                  }
+                : {}),
+            ...(input.defaultSalesRevenueAccountId !== undefined
+                ? {
+                      defaultSalesRevenueAccountId:
+                          input.defaultSalesRevenueAccountId,
+                  }
+                : {}),
+            ...(input.defaultCostOfGoodsSoldAccountId !== undefined
+                ? {
+                      defaultCostOfGoodsSoldAccountId:
+                          input.defaultCostOfGoodsSoldAccountId,
+                  }
+                : {}),
+            ...(input.defaultTaxInputAccountId !== undefined
+                ? {
+                      defaultTaxInputAccountId:
+                          input.defaultTaxInputAccountId,
+                  }
+                : {}),
+            ...(input.defaultTaxOutputAccountId !== undefined
+                ? {
+                      defaultTaxOutputAccountId:
+                          input.defaultTaxOutputAccountId,
+                  }
+                : {}),
+            ...(input.allowNegativePostings !== undefined
+                ? { allowNegativePostings: input.allowNegativePostings }
+                : {}),
+            ...(input.backdatedPostingAllowed !== undefined
+                ? {
+                      backdatedPostingAllowed:
+                          input.backdatedPostingAllowed,
+                  }
+                : {}),
+            ...(input.maxBackdatedPostingDays !== undefined
+                ? {
+                      maxBackdatedPostingDays:
+                          input.maxBackdatedPostingDays,
+                  }
+                : {}),
             ...(input.documentNumberPrefix !== undefined
                 ? { documentNumberPrefix: input.documentNumberPrefix.trim() }
                 : {}),
@@ -271,19 +399,28 @@ export class FicoCompanySettingsService {
         }
 
         this.assertScalarValues({ ...current, ...data })
-        const updated = await this.prisma.ficoCompanyAccountingSettings.update({
-            where: { companyId },
-            data,
-            include: SETTINGS_INCLUDE,
-        })
-        await this.audit.log({
-            companyId,
-            actorId: user.id,
-            action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_UPDATE,
-            entityType: 'FicoCompanyAccountingSettings',
-            entityId: updated.id,
-            previousValues: current as unknown as Record<string, unknown>,
-            newValues: updated as unknown as Record<string, unknown>,
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const row = await tx.ficoCompanyAccountingSettings.update({
+                where: { companyId },
+                data,
+                include: SETTINGS_INCLUDE,
+            })
+            await this.audit.log(
+                {
+                    companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_UPDATE,
+                    entityType: 'FicoCompanyAccountingSettings',
+                    entityId: row.id,
+                    previousValues: current as unknown as Record<
+                        string,
+                        unknown
+                    >,
+                    newValues: row as unknown as Record<string, unknown>,
+                },
+                tx,
+            )
+            return row
         })
         return updated
     }
@@ -400,6 +537,66 @@ export class FicoCompanySettingsService {
             }
         }
 
+        for (const slot of FICO_DEFAULT_ACCOUNT_SLOTS) {
+            const accountId = settings[slot.key] as string | null
+            const account = settings[slot.relation] as {
+                id: string
+                accountCode: string
+                accountName: string
+                accountType: string
+                status: string
+                chartOfAccountsId: string
+                isPostingAccount: boolean
+            } | null
+            if (!accountId) {
+                warnings.push({
+                    code: 'DEFAULT_ACCOUNT_MISSING',
+                    field: slot.key,
+                    message: `${slot.label} is not configured. Automatic defaulting that uses this slot will be unavailable.`,
+                })
+                continue
+            }
+            if (!account) {
+                errors.push({
+                    code: 'DEFAULT_ACCOUNT_NOT_FOUND',
+                    field: slot.key,
+                    message: `${slot.label}: the selected G/L account no longer exists.`,
+                })
+                continue
+            }
+            if (
+                settings.chartOfAccountsId &&
+                account.chartOfAccountsId !== settings.chartOfAccountsId
+            ) {
+                errors.push({
+                    code: 'DEFAULT_ACCOUNT_WRONG_CHART',
+                    field: slot.key,
+                    message: `${slot.label}: G/L account ${account.accountCode} does not belong to the assigned chart of accounts.`,
+                })
+            }
+            if (account.status !== 'ACTIVE') {
+                errors.push({
+                    code: 'DEFAULT_ACCOUNT_INACTIVE',
+                    field: slot.key,
+                    message: `${slot.label}: G/L account ${account.accountCode} is inactive.`,
+                })
+            }
+            if (!account.isPostingAccount) {
+                errors.push({
+                    code: 'DEFAULT_ACCOUNT_NOT_POSTING',
+                    field: slot.key,
+                    message: `${slot.label}: G/L account ${account.accountCode} is not a posting account.`,
+                })
+            }
+            if (account.accountType !== slot.expectedType) {
+                warnings.push({
+                    code: 'DEFAULT_ACCOUNT_TYPE',
+                    field: slot.key,
+                    message: `${slot.label}: G/L account ${account.accountCode} is ${account.accountType}; expected ${slot.expectedType}.`,
+                })
+            }
+        }
+
         if (!settings.accountDeterminationProfileId) {
             warnings.push({
                 code: 'NO_DETERMINATION_PROFILE',
@@ -443,27 +640,33 @@ export class FicoCompanySettingsService {
             )
         }
         const now = new Date()
-        const updated = await this.prisma.ficoCompanyAccountingSettings.update({
-            where: { companyId },
-            data: {
-                status: 'ACTIVE',
-                activatedAt: now,
-                activatedBy: user.id,
-                deactivatedAt: null,
-                deactivatedBy: null,
-                updatedBy: user.id,
-            },
-            include: SETTINGS_INCLUDE,
-        })
-        await this.audit.log({
-            companyId,
-            actorId: user.id,
-            action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_ACTIVATE,
-            entityType: 'FicoCompanyAccountingSettings',
-            entityId: current.id,
-            previousValues: { status: current.status },
-            newValues: { status: updated.status },
-            metadata: { warnings: result.warnings },
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const row = await tx.ficoCompanyAccountingSettings.update({
+                where: { companyId },
+                data: {
+                    status: 'ACTIVE',
+                    activatedAt: now,
+                    activatedBy: user.id,
+                    deactivatedAt: null,
+                    deactivatedBy: null,
+                    updatedBy: user.id,
+                },
+                include: SETTINGS_INCLUDE,
+            })
+            await this.audit.log(
+                {
+                    companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_ACTIVATE,
+                    entityType: 'FicoCompanyAccountingSettings',
+                    entityId: current.id,
+                    previousValues: { status: current.status },
+                    newValues: { status: row.status },
+                    metadata: { warnings: result.warnings },
+                },
+                tx,
+            )
+            return row
         })
         return updated
     }
@@ -480,39 +683,110 @@ export class FicoCompanySettingsService {
                 'Only an active accounting configuration can be deactivated.',
             )
         }
-        const updated = await this.prisma.ficoCompanyAccountingSettings.update({
-            where: { companyId },
-            data: {
-                status: 'INACTIVE',
-                deactivatedAt: new Date(),
-                deactivatedBy: user.id,
-                updatedBy: user.id,
-            },
-            include: SETTINGS_INCLUDE,
-        })
-        await this.audit.log({
-            companyId,
-            actorId: user.id,
-            action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_DEACTIVATE,
-            entityType: 'FicoCompanyAccountingSettings',
-            entityId: current.id,
-            previousValues: { status: current.status },
-            newValues: { status: updated.status },
-            reason,
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const row = await tx.ficoCompanyAccountingSettings.update({
+                where: { companyId },
+                data: {
+                    status: 'INACTIVE',
+                    deactivatedAt: new Date(),
+                    deactivatedBy: user.id,
+                    updatedBy: user.id,
+                },
+                include: SETTINGS_INCLUDE,
+            })
+            await this.audit.log(
+                {
+                    companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_DEACTIVATE,
+                    entityType: 'FicoCompanyAccountingSettings',
+                    entityId: current.id,
+                    previousValues: { status: current.status },
+                    newValues: { status: row.status },
+                    reason,
+                },
+                tx,
+            )
+            return row
         })
         return updated
     }
 
+    /**
+     * Only an unused DRAFT configuration may be removed. Activated
+     * configurations and any configuration referenced by accounting documents
+     * are retained for auditability.
+     */
+    async remove(
+        companyId: string,
+        user: AuthRequestUser,
+        reason?: string,
+    ) {
+        await this.access.assertAccess(user, companyId)
+        const current = await this.get(companyId)
+        if (current.status === 'ACTIVE') {
+            throw new BadRequestException(
+                'Deactivate the accounting configuration before deleting it.',
+            )
+        }
+        const [documents, periods] = await Promise.all([
+            this.prisma.ficoJournalEntry.count({ where: { companyId } }),
+            this.prisma.ficoFinancialPeriod.count({ where: { companyId } }),
+        ])
+        if (documents > 0) {
+            throw new ConflictException(
+                'The accounting configuration cannot be deleted because accounting documents reference this company.',
+            )
+        }
+        if (periods > 0) {
+            throw new ConflictException(
+                'The accounting configuration cannot be deleted because accounting periods have already been generated for this company.',
+            )
+        }
+        await this.prisma.$transaction(async (tx) => {
+            await this.audit.log(
+                {
+                    companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.COMPANY_SETTINGS_DELETE,
+                    entityType: 'FicoCompanyAccountingSettings',
+                    entityId: current.id,
+                    previousValues: current as unknown as Record<
+                        string,
+                        unknown
+                    >,
+                    reason,
+                },
+                tx,
+            )
+            await tx.ficoCompanyAccountingSettings.delete({
+                where: { companyId },
+            })
+        })
+        return { companyId, deleted: true }
+    }
+
     private assertScalarValues(input: {
         baseCurrency?: string
+        groupCurrency?: string | null
         countryCode?: string
         accountingMethod?: string
         documentNumberPadding?: number
+        maxBackdatedPostingDays?: number | null
         status?: string
     }) {
         if (input.baseCurrency && !/^[A-Z]{3}$/.test(input.baseCurrency)) {
             throw new BadRequestException(
                 'Base currency must be a three-letter ISO code.',
+            )
+        }
+        if (
+            input.groupCurrency !== undefined &&
+            input.groupCurrency !== null &&
+            !/^[A-Z]{3}$/.test(input.groupCurrency)
+        ) {
+            throw new BadRequestException(
+                'Group currency must be a three-letter ISO code.',
             )
         }
         if (input.countryCode && !/^[A-Z]{2}$/.test(input.countryCode)) {
@@ -537,6 +811,16 @@ export class FicoCompanySettingsService {
             )
         }
         if (
+            input.maxBackdatedPostingDays !== undefined &&
+            input.maxBackdatedPostingDays !== null &&
+            (input.maxBackdatedPostingDays < 0 ||
+                input.maxBackdatedPostingDays > 3650)
+        ) {
+            throw new BadRequestException(
+                'Maximum backdated posting days must be between 0 and 3650.',
+            )
+        }
+        if (
             input.status &&
             !(FICO_COMPANY_SETTINGS_STATUSES as readonly string[]).includes(
                 input.status,
@@ -549,10 +833,12 @@ export class FicoCompanySettingsService {
     private collectScalarErrors(
         settings: {
             baseCurrency: string
+            groupCurrency?: string | null
             countryCode: string
             timezone: string
             accountingMethod: string
             documentNumberPadding: number
+            maxBackdatedPostingDays?: number | null
         },
         errors: FicoValidationIssue[],
     ) {
@@ -561,6 +847,16 @@ export class FicoCompanySettingsService {
                 code: 'CURRENCY_INVALID',
                 field: 'baseCurrency',
                 message: 'Base currency must be a three-letter ISO code.',
+            })
+        }
+        if (
+            settings.groupCurrency &&
+            !/^[A-Z]{3}$/.test(settings.groupCurrency)
+        ) {
+            errors.push({
+                code: 'GROUP_CURRENCY_INVALID',
+                field: 'groupCurrency',
+                message: 'Group currency must be a three-letter ISO code.',
             })
         }
         if (!/^[A-Z]{2}$/.test(settings.countryCode || '')) {
@@ -594,6 +890,19 @@ export class FicoCompanySettingsService {
                 message: 'Document number padding must be between 3 and 12.',
             })
         }
+        if (
+            settings.maxBackdatedPostingDays !== null &&
+            settings.maxBackdatedPostingDays !== undefined &&
+            (settings.maxBackdatedPostingDays < 0 ||
+                settings.maxBackdatedPostingDays > 3650)
+        ) {
+            errors.push({
+                code: 'BACKDATED_DAYS_INVALID',
+                field: 'maxBackdatedPostingDays',
+                message:
+                    'Maximum backdated posting days must be between 0 and 3650.',
+            })
+        }
     }
 
     private async assertReferences(input: UpsertCompanySettingsInput) {
@@ -604,6 +913,52 @@ export class FicoCompanySettingsService {
             })
             if (!chart) {
                 throw new BadRequestException('Chart of accounts not found.')
+            }
+        }
+        const defaultAccountIds = FICO_DEFAULT_ACCOUNT_SLOTS.map(
+            (slot) => input[slot.key] as string | null | undefined,
+        ).filter((id): id is string => Boolean(id))
+        if (defaultAccountIds.length > 0) {
+            if (!input.chartOfAccountsId) {
+                throw new BadRequestException(
+                    'Assign a chart of accounts before selecting default G/L accounts.',
+                )
+            }
+            const accounts = await this.prisma.ficoGlAccount.findMany({
+                where: { id: { in: [...new Set(defaultAccountIds)] } },
+                select: {
+                    id: true,
+                    accountCode: true,
+                    chartOfAccountsId: true,
+                    status: true,
+                    isPostingAccount: true,
+                },
+            })
+            const byId = new Map(accounts.map((account) => [account.id, account]))
+            for (const slot of FICO_DEFAULT_ACCOUNT_SLOTS) {
+                const id = input[slot.key] as string | null | undefined
+                if (!id) continue
+                const account = byId.get(id)
+                if (!account) {
+                    throw new BadRequestException(
+                        `${slot.label}: G/L account not found.`,
+                    )
+                }
+                if (account.chartOfAccountsId !== input.chartOfAccountsId) {
+                    throw new BadRequestException(
+                        `${slot.label}: G/L account ${account.accountCode} does not belong to the assigned chart of accounts.`,
+                    )
+                }
+                if (account.status !== 'ACTIVE') {
+                    throw new BadRequestException(
+                        `${slot.label}: G/L account ${account.accountCode} is inactive.`,
+                    )
+                }
+                if (!account.isPostingAccount) {
+                    throw new BadRequestException(
+                        `${slot.label}: G/L account ${account.accountCode} is not a posting account.`,
+                    )
+                }
             }
         }
         if (input.fiscalYearVariantId) {
