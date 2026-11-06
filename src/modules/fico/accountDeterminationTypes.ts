@@ -1,6 +1,6 @@
-/** Types for centralized G/L account determination (FICO Phase 1 — MM + SD). */
+/** Types for centralized G/L account determination (FICO — MM, SD and PP). */
 
-export type FicoDeterminationModule = 'MM' | 'SD'
+export type FicoDeterminationModule = 'MM' | 'SD' | 'PP'
 
 export type FicoDeterminationStatus =
     | 'DRAFT'

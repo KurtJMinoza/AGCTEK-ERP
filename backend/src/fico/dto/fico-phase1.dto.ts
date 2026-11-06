@@ -21,6 +21,7 @@ import {
     FICO_NORMAL_PERIOD_COUNTS,
     FICO_PERIOD_STATUSES,
     FICO_PERIOD_TYPES,
+    FICO_POSTING_MODULES,
     FICO_YEAR_ASSIGNMENTS,
 } from '../fico.constants'
 
@@ -845,6 +846,10 @@ export class FicoAccountingEventQueryDto {
     @IsOptional()
     @IsIn(['PENDING', 'CONSUMED', 'FAILED'])
     status?: string
+
+    @IsOptional()
+    @IsIn(FICO_POSTING_MODULES)
+    module?: string
 
     @IsOptional()
     @IsString()

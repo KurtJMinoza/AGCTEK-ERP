@@ -173,6 +173,71 @@ export function formatFicoPeriodKey(
     return `${fiscalYear}-${String(periodNumber).padStart(2, '0')}`
 }
 
+/**
+ * Business modules that can own an auto-posting. The raw `sourceModule` stored
+ * on `mm_accounting_events` is the granular producer stream (STOCK_OPS,
+ * INBOUND, VALUATION, …); the posting monitor groups those streams into the
+ * module an operator recognises and can filter on.
+ */
+export const FICO_POSTING_MODULES = ['MM', 'SD', 'PP', 'OTHER'] as const
+export type FicoPostingModule = (typeof FICO_POSTING_MODULES)[number]
+
+export const FICO_POSTING_MODULE_LABELS: Record<FicoPostingModule, string> = {
+    MM: 'Materials Management',
+    SD: 'Sales & Distribution',
+    PP: 'Production Planning',
+    OTHER: 'Other sources',
+}
+
+export const FICO_POSTING_MODULE_SOURCES: Record<
+    Exclude<FicoPostingModule, 'OTHER'>,
+    readonly string[]
+> = {
+    MM: [
+        'MM',
+        'STOCK_OPS',
+        'INVENTORY',
+        'INVENTORY_CONTROL',
+        'INBOUND',
+        'QUALITY',
+        'VALUATION',
+        'WAREHOUSE',
+        'RETURNS_DISPOSAL',
+        'THREE_WAY_MATCH',
+        'MATERIAL_MASTER',
+    ],
+    SD: ['SD'],
+    PP: ['PP', 'PRODUCTION'],
+}
+
+/** Owning module for a stored source stream; anything unlisted is `OTHER`. */
+export function ficoPostingModuleOf(
+    sourceModule: string | null | undefined,
+): FicoPostingModule {
+    const code = sourceModule?.trim().toUpperCase()
+    if (!code) return 'OTHER'
+    for (const [module, sources] of Object.entries(FICO_POSTING_MODULE_SOURCES)) {
+        if (sources.includes(code)) return module as FicoPostingModule
+    }
+    return 'OTHER'
+}
+
+/** Source streams behind a module filter; `null` means "everything else". */
+export function ficoPostingModuleSources(
+    module: string,
+): readonly string[] | null {
+    const key = module.trim().toUpperCase()
+    if (key === 'OTHER') return null
+    return (
+        FICO_POSTING_MODULE_SOURCES[key as Exclude<FicoPostingModule, 'OTHER'>] ?? null
+    )
+}
+
+/** Every source stream claimed by a known module. */
+export const FICO_POSTING_MODULE_KNOWN_SOURCES = Object.values(
+    FICO_POSTING_MODULE_SOURCES,
+).flat()
+
 export function isFicoAccountType(value: string): value is FicoAccountType {
     return (FICO_ACCOUNT_TYPES as readonly string[]).includes(value)
 }

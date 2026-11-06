@@ -4156,7 +4156,7 @@ model FicoMmAccountMapping {
   @@map("fico_mm_account_mappings")
 }
 
-/// Phase 1 — centralized G/L account determination rule (MM + SD).
+/// Centralized G/L account determination rule (MM + SD + PP).
 /// Only ACTIVE rules effective on the posting date can be resolved; DRAFT,
 /// PENDING_APPROVAL, APPROVED, REJECTED and INACTIVE rules never post.
 model FicoAccountDeterminationRule {
@@ -4167,7 +4167,7 @@ model FicoAccountDeterminationRule {
   description          String                         @default("")
   companyId            String
   company              Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  /// MM | SD — Phase 1 scope only.
+  /// MM | SD | PP — modules that post automatically.
   sourceModule         String
   transactionType      String
   /// Optional MM link to the catalogue key (GR_IR, GI_COGS, …).

@@ -239,8 +239,7 @@ describe('FicoAccountResolutionService', () => {
 
         await expect(
             service.resolve({ ...request, sourceModule: 'CRM' }),
-        ).rejects.toMatchObject({
-            message: expect.stringContaining('only configured for MM and SD'),
+        ).rejects.toMatchObject({                message: expect.stringContaining('only configured for MM, SD, PP'),
         })
     })
 })

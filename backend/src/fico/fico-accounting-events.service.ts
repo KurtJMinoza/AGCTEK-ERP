@@ -3,10 +3,18 @@ import { Prisma } from '@prisma/client'
 import type { AuthRequestUser } from '../auth/auth.decorator'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import {
+    FICO_POSTING_MODULE_KNOWN_SOURCES,
+    ficoPostingModuleOf,
+    ficoPostingModuleSources,
+    type FicoPostingModule,
+} from './fico.constants'
 
 export type AccountingEventQuery = {
     companyId: string
     status?: string
+    /** Business module filter (MM, SD, PP, OTHER) — see ficoPostingModuleSources. */
+    module?: string
     sourceModule?: string
     search?: string
     page?: number
@@ -53,8 +61,9 @@ export function summarizeAccountingError(error: string | null | undefined) {
 }
 
 /**
- * Read-only view of the MM → FICO accounting bridge (`mm_accounting_events`).
- * MM owns the events; this service never changes them.
+ * Read-only view of the FICO accounting bridge (`mm_accounting_events`) for
+ * every module that posts automatically (MM, SD, PP). The producing module
+ * owns the events; this service never changes them.
  */
 @Injectable()
 export class FicoAccountingEventsService {
@@ -69,8 +78,10 @@ export class FicoAccountingEventsService {
         const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 25))
         const search = query.search?.trim()
         const scope: Prisma.MmAccountingEventWhereInput = { companyId: query.companyId }
+        const moduleScope = this.moduleWhere(query.module)
         const where: Prisma.MmAccountingEventWhereInput = {
             ...scope,
+            ...(moduleScope ?? {}),
             ...(query.status ? { status: query.status } : {}),
             ...(query.sourceModule ? { sourceModule: query.sourceModule } : {}),
             ...(search
@@ -110,9 +121,20 @@ export class FicoAccountingEventsService {
             }),
         ])
 
+        const byModule: Record<FicoPostingModule, number> = {
+            MM: 0,
+            SD: 0,
+            PP: 0,
+            OTHER: 0,
+        }
+        for (const row of bySource) {
+            byModule[ficoPostingModuleOf(row.sourceModule)] += row._count._all
+        }
+
         return {
             items: items.map(({ ficoJournalEntry, totalValue, lastError, ...event }) => ({
                 ...event,
+                module: ficoPostingModuleOf(event.sourceModule),
                 totalValue: totalValue?.toString() ?? null,
                 errorSummary: summarizeAccountingError(lastError),
                 journal: ficoJournalEntry,
@@ -125,11 +147,32 @@ export class FicoAccountingEventsService {
                     byStatus.map((row) => [row.status, row._count._all]),
                 ) as Record<string, number>,
                 bySource: bySource
-                    .map((row) => ({ sourceModule: row.sourceModule, count: row._count._all }))
+                    .map((row) => ({
+                        sourceModule: row.sourceModule,
+                        module: ficoPostingModuleOf(row.sourceModule),
+                        count: row._count._all,
+                    }))
                     .sort((a, b) => b.count - a.count),
+                byModule: (Object.keys(byModule) as FicoPostingModule[]).map((module) => ({
+                    module,
+                    count: byModule[module],
+                })),
                 oldestPendingAt: oldestPending?.createdAt ?? null,
             },
         }
+    }
+
+    /**
+     * Translates the business-module filter into the granular source streams.
+     * `OTHER` covers every stream no module claims, and an absent module leaves
+     * the list unfiltered so the monitor shows all transactions.
+     */
+    private moduleWhere(module?: string): Prisma.MmAccountingEventWhereInput | null {
+        const key = module?.trim()
+        if (!key) return null
+        const sources = ficoPostingModuleSources(key)
+        if (sources) return { sourceModule: { in: [...sources] } }
+        return { sourceModule: { notIn: [...FICO_POSTING_MODULE_KNOWN_SOURCES] } }
     }
 
     async get(id: string, user: AuthRequestUser) {
@@ -154,6 +197,7 @@ export class FicoAccountingEventsService {
         const lines = (payload as { lines?: unknown[] } | null)?.lines
         return {
             ...rest,
+            module: ficoPostingModuleOf(event.sourceModule),
             totalValue: totalValue?.toString() ?? null,
             errorSummary: summarizeAccountingError(event.lastError),
             journal: ficoJournalEntry,

@@ -213,7 +213,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico',
                         title: 'G/L Accounts',
                         description:
-                            'G/L accounts, MM account determination, and the MM → FICO posting monitor.',
+                            'G/L accounts, account determination for MM, SD and PP, and the FICO posting monitor.',
                         path: '/modules/fico/gl-accounts',
                         icon: 'fileText',
                     },
@@ -222,7 +222,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.account-determination',
                         title: 'Account Determination',
                         description:
-                            'Centralized MM and SD rules: debit/credit lines, dimensions, priorities, approval and activation.',
+                            'Centralized MM, SD and PP rules: debit/credit lines, dimensions, priorities, approval and activation.',
                         path: '/modules/fico/account-determination-rules',
                         icon: 'fileText',
                     },

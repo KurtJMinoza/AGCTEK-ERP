@@ -1,14 +1,24 @@
 /**
- * Centralized G/L account determination — Phase 1 (MM + SD).
+ * Centralized G/L account determination for every module that generates
+ * financially relevant documents (MM, SD, PP).
  *
  * Codes are stored as strings with database CHECK constraints; these lists are
  * the single application-side catalogue used by DTO validation, the resolver
  * and the UI.
  */
 
-export const FICO_DETERMINATION_SOURCE_MODULES = ['MM', 'SD'] as const
+export const FICO_DETERMINATION_SOURCE_MODULES = ['MM', 'SD', 'PP'] as const
 export type FicoDeterminationSourceModule =
     (typeof FICO_DETERMINATION_SOURCE_MODULES)[number]
+
+export const FICO_DETERMINATION_MODULE_LABELS: Record<
+    FicoDeterminationSourceModule,
+    string
+> = {
+    MM: 'Materials Management',
+    SD: 'Sales & Distribution',
+    PP: 'Production Planning',
+}
 
 export const FICO_DETERMINATION_RULE_STATUSES = [
     'DRAFT',
@@ -50,9 +60,18 @@ export const FICO_SD_DETERMINATION_TYPES = [
     { code: 'PAYMENT_CLEARING', label: 'Payment Clearing' },
 ] as const
 
+/** PP transaction types: component issue, output receipt, scrap and variance. */
+export const FICO_PP_DETERMINATION_TYPES = [
+    { code: 'PRODUCTION_ISSUE', label: 'Component Issue to Production' },
+    { code: 'PRODUCTION_RECEIPT', label: 'Production Output Receipt' },
+    { code: 'PRODUCTION_SCRAP', label: 'Production Scrap' },
+    { code: 'PRODUCTION_VARIANCE', label: 'Production Variance' },
+] as const
+
 export type FicoDeterminationTransactionType =
     | (typeof FICO_MM_DETERMINATION_TYPES)[number]['code']
     | (typeof FICO_SD_DETERMINATION_TYPES)[number]['code']
+    | (typeof FICO_PP_DETERMINATION_TYPES)[number]['code']
 
 export const FICO_MM_DETERMINATION_TYPE_CODES = FICO_MM_DETERMINATION_TYPES.map(
     (entry) => entry.code,
@@ -60,18 +79,35 @@ export const FICO_MM_DETERMINATION_TYPE_CODES = FICO_MM_DETERMINATION_TYPES.map(
 export const FICO_SD_DETERMINATION_TYPE_CODES = FICO_SD_DETERMINATION_TYPES.map(
     (entry) => entry.code,
 )
+export const FICO_PP_DETERMINATION_TYPE_CODES = FICO_PP_DETERMINATION_TYPES.map(
+    (entry) => entry.code,
+)
 export const FICO_DETERMINATION_TRANSACTION_TYPE_CODES = [
     ...FICO_MM_DETERMINATION_TYPE_CODES,
     ...FICO_SD_DETERMINATION_TYPE_CODES,
+    ...FICO_PP_DETERMINATION_TYPE_CODES,
 ]
+
+const DETERMINATION_TYPES_BY_MODULE: Record<
+    string,
+    ReadonlyArray<{ code: string; label: string }>
+> = {
+    MM: FICO_MM_DETERMINATION_TYPES,
+    SD: FICO_SD_DETERMINATION_TYPES,
+    PP: FICO_PP_DETERMINATION_TYPES,
+}
 
 export function ficoDeterminationTypesForModule(
     sourceModule: string,
 ): ReadonlyArray<{ code: string; label: string }> {
-    return sourceModule === 'SD'
-        ? FICO_SD_DETERMINATION_TYPES
-        : FICO_MM_DETERMINATION_TYPES
+    return DETERMINATION_TYPES_BY_MODULE[sourceModule] ?? FICO_MM_DETERMINATION_TYPES
 }
+
+/** Modules whose rules are constrained by material / production dimensions. */
+export const FICO_MATERIAL_DIMENSION_MODULES = ['MM', 'PP'] as const
+
+/** Modules whose rules are constrained by customer / sales dimensions. */
+export const FICO_SALES_DIMENSION_MODULES = ['SD'] as const
 
 /** Rules may only be edited while they are drafts. */
 export const FICO_DETERMINATION_EDITABLE_STATUS = 'DRAFT'

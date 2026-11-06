@@ -16,9 +16,9 @@ import {
 } from './fico-account-determination.constants'
 
 /**
- * Input needed to resolve accounts for one transaction. MM/SD supply the source
- * module, transaction type and whatever dimension context they actually have;
- * the resolver only ever matches on dimensions the caller provides.
+ * Input needed to resolve accounts for one transaction. MM/SD/PP supply the
+ * source module, transaction type and whatever dimension context they actually
+ * have; the resolver only ever matches on dimensions the caller provides.
  */
 export type AccountResolutionRequest = {
     companyId: string
@@ -147,7 +147,7 @@ export class FicoAccountResolutionService {
         ) {
             throw new BadRequestException(
                 `Account determination is only configured for ${FICO_DETERMINATION_SOURCE_MODULES.join(
-                    ' and ',
+                    ', ',
                 )} source modules.`,
             )
         }

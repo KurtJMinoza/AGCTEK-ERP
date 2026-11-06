@@ -203,6 +203,8 @@ export const ficoAccountingEventService = {
     list: (query: {
         companyId: string
         status?: string
+        /** Business module filter: MM, SD, PP or OTHER. */
+        module?: string
         sourceModule?: string
         search?: string
         page?: number

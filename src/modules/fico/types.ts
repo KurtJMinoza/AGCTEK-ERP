@@ -155,10 +155,14 @@ export type FicoFiscalYearPreview = {
 
 export type FicoAccountingEventStatus = 'PENDING' | 'CONSUMED' | 'FAILED'
 
+/** Business module that owns an auto-posting; `OTHER` covers unclaimed streams. */
+export type FicoPostingModule = 'MM' | 'SD' | 'PP' | 'OTHER'
+
 export type FicoAccountingEvent = {
     id: string
     eventType: string
     sourceModule: string
+    module: FicoPostingModule
     documentType: string
     documentId: string
     postingDate: string | null
@@ -201,7 +205,12 @@ export type FicoAccountingEventList = {
     pageSize: number
     summary: {
         byStatus: Partial<Record<FicoAccountingEventStatus, number>>
-        bySource: Array<{ sourceModule: string; count: number }>
+        bySource: Array<{
+            sourceModule: string
+            module: FicoPostingModule
+            count: number
+        }>
+        byModule: Array<{ module: FicoPostingModule; count: number }>
         oldestPendingAt: string | null
     }
 }
