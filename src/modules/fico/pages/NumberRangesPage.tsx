@@ -118,11 +118,23 @@ const NumberRangesPage = () => {
                 resetFrequency: resetFrequency || undefined,
             })
             .then(({ items, total }) => {
+                const active = items.filter(
+                    (r) => r.status === 'ACTIVE',
+                ).length
+                const inactive = items.filter(
+                    (r) => r.status === 'INACTIVE',
+                ).length
+                const exhausted = items.filter(
+                    (r) => r.status === 'EXHAUSTED',
+                ).length
                 setRanges(items)
-                setSummary((prev) => ({
-                    ...prev,
+                setSummary({
                     total,
-                }))
+                    active,
+                    inactive,
+                    exhausted,
+                    totalAssignments: 0,
+                })
             })
             .catch((error) =>
                 notifyError(error, 'Unable to load number ranges.'),
@@ -137,41 +149,9 @@ const NumberRangesPage = () => {
         resetFrequency,
     ])
 
-    const loadSummary = useCallback(() => {
-        if (!companyId) return
-        ficoNumberRangeService
-            .list({
-                companyId,
-                page: 1,
-                pageSize: 1,
-            })
-            .then(({ total }) => {
-                const active = ranges.filter(
-                    (r) => r.status === 'ACTIVE',
-                ).length
-                const inactive = ranges.filter(
-                    (r) => r.status === 'INACTIVE',
-                ).length
-                const exhausted = ranges.filter(
-                    (r) => r.status === 'EXHAUSTED',
-                ).length
-                setSummary({
-                    total,
-                    active,
-                    inactive,
-                    exhausted,
-                    totalAssignments: 0,
-                })
-            })
-            .catch((error) =>
-                notifyError(error, 'Unable to load summary.'),
-            )
-    }, [companyId, ranges])
-
     useEffect(() => {
         loadRanges()
-        loadSummary()
-    }, [loadRanges, loadSummary])
+    }, [loadRanges])
 
     const columns = useMemo<ColumnDef<FicoNumberRange>[]>(
         () => [
