@@ -42,7 +42,20 @@ import type {
 } from '../accountDeterminationTypes'
 import type { FicoCompany, FicoGlAccount } from '../types'
 
-type TabKey = 'overview' | 'MM' | 'SD' | 'history'
+type TabKey = 'overview' | FicoDeterminationModule | 'history'
+
+/** Fallback module list until the reference endpoint answers. */
+const FALLBACK_MODULES: FicoDeterminationModule[] = ['MM', 'SD', 'PP']
+
+const MODULE_LABEL: Record<FicoDeterminationModule, string> = {
+    MM: 'Materials Management',
+    SD: 'Sales & Distribution',
+    PP: 'Production Planning',
+}
+
+function isModuleTab(tab: TabKey): tab is FicoDeterminationModule {
+    return tab !== 'overview' && tab !== 'history'
+}
 
 type LineForm = {
     side: 'DEBIT' | 'CREDIT'
@@ -161,7 +174,7 @@ export default function AccountDeterminationRulesPage() {
             const [list, summaryData, referenceData, accountRows] = await Promise.all([
                 ficoAccountDeterminationRuleService.list({
                     companyId,
-                    ...(tab === 'MM' || tab === 'SD' ? { sourceModule: tab } : {}),
+                    ...(isModuleTab(tab) ? { sourceModule: tab } : {}),
                     ...(statusFilter ? { status: statusFilter } : {}),
                     ...(search ? { search } : {}),
                     pageSize: 100,
@@ -211,6 +224,25 @@ export default function AccountDeterminationRulesPage() {
         }))
     }, [reference, form.sourceModule])
 
+    const modules = useMemo(
+        () =>
+            (reference?.modules.length ? reference.modules : null)?.map((entry) => ({
+                code: entry.code,
+                label: entry.label,
+            })) ??
+            FALLBACK_MODULES.map((code) => ({ code, label: MODULE_LABEL[code] })),
+        [reference],
+    )
+
+    const moduleOptions = useMemo(
+        () =>
+            modules.map((entry) => ({
+                value: entry.code,
+                label: `${entry.code} — ${entry.label}`,
+            })),
+        [modules],
+    )
+
     const statusOptions = [
         { value: '', label: 'All statuses' },
         { value: 'DRAFT', label: 'Draft' },
@@ -225,7 +257,7 @@ export default function AccountDeterminationRulesPage() {
         setEditing(null)
         setForm({
             ...emptyForm,
-            sourceModule: tab === 'SD' ? 'SD' : 'MM',
+            sourceModule: isModuleTab(tab) ? tab : 'MM',
             lines: [
                 { side: 'DEBIT', glAccountId: '', description: '' },
                 { side: 'CREDIT', glAccountId: '', description: '' },
@@ -591,8 +623,9 @@ export default function AccountDeterminationRulesPage() {
         [],
     )
 
-    const displayRules =
-        tab === 'overview' ? rules : rules.filter((rule) => rule.sourceModule === tab)
+    const displayRules = isModuleTab(tab)
+        ? rules.filter((rule) => rule.sourceModule === tab)
+        : rules
 
     return (
         <>
@@ -676,7 +709,7 @@ export default function AccountDeterminationRulesPage() {
                     </div>
                 </div>
 
-                {summary && !summary.byModule.MM && !summary.byModule.SD ? (
+                {summary && !Object.keys(summary.byModule).length ? (
                     <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
                         No account determinations configured yet. Seed the Phase 1 catalogue or create
                         the first draft; nothing posts automatically until a rule is approved and
@@ -687,18 +720,14 @@ export default function AccountDeterminationRulesPage() {
                 <Tabs value={tab} onChange={(value) => setTab(value as TabKey)}>
                     <Tabs.TabList className="flex flex-wrap gap-1">
                         <Tabs.TabNav value="overview">Overview</Tabs.TabNav>
-                        <Tabs.TabNav value="MM">
-                            MM mappings
-                            <span className="ml-1.5 text-xs text-gray-400">
-                                {summary?.byModule.MM ?? 0}
-                            </span>
-                        </Tabs.TabNav>
-                        <Tabs.TabNav value="SD">
-                            SD mappings
-                            <span className="ml-1.5 text-xs text-gray-400">
-                                {summary?.byModule.SD ?? 0}
-                            </span>
-                        </Tabs.TabNav>
+                        {modules.map((entry) => (
+                            <Tabs.TabNav key={entry.code} value={entry.code}>
+                                {entry.code} mappings
+                                <span className="ml-1.5 text-xs text-gray-400">
+                                    {summary?.byModule[entry.code] ?? 0}
+                                </span>
+                            </Tabs.TabNav>
+                        ))}
                         <Tabs.TabNav value="history">Configuration history</Tabs.TabNav>
                     </Tabs.TabList>
                 </Tabs>
@@ -819,14 +848,11 @@ export default function AccountDeterminationRulesPage() {
                     <FormItem label="Source module" asterisk>
                         <Select
                             isDisabled={dialog === 'edit'}
-                            options={[
-                                { value: 'MM', label: 'MM — Materials Management' },
-                                { value: 'SD', label: 'SD — Sales & Distribution' },
-                            ]}
+                            options={moduleOptions}
                             value={
-                                form.sourceModule === 'SD'
-                                    ? { value: 'SD', label: 'SD — Sales & Distribution' }
-                                    : { value: 'MM', label: 'MM — Materials Management' }
+                                moduleOptions.find(
+                                    (option) => option.value === form.sourceModule,
+                                ) ?? moduleOptions[0]
                             }
                             onChange={(option) =>
                                 setForm((current) => ({
@@ -905,7 +931,7 @@ export default function AccountDeterminationRulesPage() {
                             }
                         />
                     </FormItem>
-                    {form.sourceModule === 'MM' ? (
+                    {form.sourceModule !== 'SD' ? (
                         <>
                             <FormItem label="Valuation class">
                                 <Select

@@ -340,14 +340,14 @@ generic `fico` read; the tabs hide themselves when the user lacks the specific g
 | --- | --- | --- | --- |
 | **G/L Accounts** | `fico.gl-accounts` | `fico_gl_accounts`, company assignments | Create/edit accounts, import/export CSV, set posting controls, assign companies, "where used" |
 | **Account Determination** | `fico.account-determination` | `GET /fico/account-determination?companyId=`, mapping CRUD | See every transaction key with its mapping coverage, maintain debit/credit per valuation scope, flag keys that MM posts through but that have no active default mapping |
-| **MM → FICO Posting Monitor** | `fico.journal-entries` (read) | `GET /fico/accounting-events`, `/:id` | Read-only `mm_accounting_events`: posted / pending / failed counts, source module breakdown, oldest pending, readable error summary, source lines, resulting journal |
+| **Transaction - FICO Posting Monitor** | `fico.journal-entries` (read) | `GET /fico/accounting-events`, `/:id` | Read-only `mm_accounting_events` for **every** module that posts (MM, SD, PP) — the page is not MM-only: `?module=MM` narrows it to MM, `All modules` shows everything. Posted / pending / failed counts, per-module and per-source breakdown, oldest pending, readable error summary, source lines, resulting journal |
 
 Legacy deep links redirect: `/modules/fico/account-determination` → `?tab=determination`,
 `/modules/fico/accounting-events` → `?tab=events`.
 
 ### Triaging a failed posting
 
-1. Open **MM → FICO Posting Monitor**, filter `FAILED`.
+1. Open **Transaction - FICO Posting Monitor**, filter `FAILED` (add the module filter to look at MM only).
 2. Read `errorSummary` (single line) — it names the key or the account, e.g.
    `No active GR_IR account mapping exists for the material valuation class.`
 3. Fix the cause in **Account Determination** (missing/inactive mapping) or in **G/L

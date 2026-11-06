@@ -11,7 +11,10 @@ import {
     FICO_DETERMINATION_AUDIT_ACTIONS,
     FICO_DETERMINATION_DIMENSIONS,
     FICO_DETERMINATION_ENTITY_TYPE,
+    FICO_DETERMINATION_MODULE_LABELS,
     FICO_DETERMINATION_SOURCE_MODULES,
+    FICO_MATERIAL_DIMENSION_MODULES,
+    FICO_SALES_DIMENSION_MODULES,
     ficoDeterminationTypesForModule,
     type FicoDeterminationDimension,
 } from './fico-account-determination.constants'
@@ -198,7 +201,7 @@ export class FicoAccountDeterminationRulesService {
         return {
             modules: FICO_DETERMINATION_SOURCE_MODULES.map((code) => ({
                 code,
-                label: code === 'MM' ? 'Materials Management' : 'Sales & Distribution',
+                label: FICO_DETERMINATION_MODULE_LABELS[code],
                 transactionTypes: ficoDeterminationTypesForModule(code),
             })),
             dimensions: FICO_DETERMINATION_DIMENSIONS,
@@ -681,7 +684,7 @@ export class FicoAccountDeterminationRulesService {
     private assertModuleAndType(sourceModule: string, transactionType: string) {
         if (!(FICO_DETERMINATION_SOURCE_MODULES as readonly string[]).includes(sourceModule)) {
             throw new BadRequestException(
-                `Account determination supports only ${FICO_DETERMINATION_SOURCE_MODULES.join(' and ')} in Phase 1.`,
+                `Account determination supports only ${FICO_DETERMINATION_SOURCE_MODULES.join(', ')} source modules.`,
             )
         }
         const allowed = ficoDeterminationTypesForModule(sourceModule).map(
@@ -706,7 +709,7 @@ export class FicoAccountDeterminationRulesService {
         },
     ) {
         if (
-            sourceModule === 'MM' &&
+            (FICO_MATERIAL_DIMENSION_MODULES as readonly string[]).includes(sourceModule) &&
             (input.customerAccountGroup || input.salesOrganization || input.distributionChannel)
         ) {
             throw new BadRequestException(
@@ -714,11 +717,11 @@ export class FicoAccountDeterminationRulesService {
             )
         }
         if (
-            sourceModule === 'SD' &&
+            (FICO_SALES_DIMENSION_MODULES as readonly string[]).includes(sourceModule) &&
             (input.valuationClassId || input.materialTypeCode || input.movementType)
         ) {
             throw new BadRequestException(
-                'Valuation class, material type and movement type are MM dimensions.',
+                'Valuation class, material type and movement type are material dimensions used by MM and PP.',
             )
         }
     }

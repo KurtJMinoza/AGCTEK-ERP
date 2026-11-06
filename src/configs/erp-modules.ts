@@ -197,6 +197,16 @@ export const ERP_MODULES: ErpModule[] = [
                             'Assign the chart, fiscal calendar, currency, and accounting configuration for each company.',
                         path: '/modules/fico/company-settings',
                         icon: 'building',
+                        children: [
+                            {
+                                code: 'company-accounting-settings',
+                                title: 'Company Accounting Settings',
+                                description:
+                                    'Configure company-level financial accounting rules and posting controls.',
+                                path: '/modules/fico/company-accounting-settings',
+                                icon: 'building',
+                            },
+                        ],
                     },
                     {
                         code: 'chart-of-accounts',
@@ -213,7 +223,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico',
                         title: 'G/L Accounts',
                         description:
-                            'G/L accounts, MM account determination, and the MM → FICO posting monitor.',
+                            'G/L accounts, account determination for MM, SD and PP, and the FICO posting monitor.',
                         path: '/modules/fico/gl-accounts',
                         icon: 'fileText',
                     },
@@ -222,7 +232,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.account-determination',
                         title: 'Account Determination',
                         description:
-                            'Centralized MM and SD rules: debit/credit lines, dimensions, priorities, approval and activation.',
+                            'Centralized MM, SD and PP rules: debit/credit lines, dimensions, priorities, approval and activation.',
                         path: '/modules/fico/account-determination-rules',
                         icon: 'fileText',
                     },
@@ -316,7 +326,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.periods',
                         title: 'Posting Periods',
                         description:
-                            'Open, restrict, close, lock, and audit fiscal posting periods.',
+                            'Period status dashboard, generation, opening, closing, locking, reopening, details and audit history.',
                         path: '/modules/fico/fiscal-periods',
                         icon: 'calendar',
                     },
