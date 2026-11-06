@@ -19,6 +19,8 @@ import type {
     FicoGlImportReport,
     FicoGlImportRow,
     FicoJournalEntry,
+    FicoNumberRange,
+    FicoNumberRangeLog,
     FicoOverview,
     FicoPeriod,
     FicoPeriodDetail,
@@ -489,6 +491,146 @@ export const ficoOverviewService = {
         ErpAxiosBase.get<FicoOverview>(
             `${API}/overview${queryString({ companyId })}`,
         ).then((r) => r.data),
+}
+
+export const ficoNumberRangeService = {
+    list: (query: {
+        companyId: string
+        search?: string
+        status?: string
+        documentCategory?: string
+        numberingMethod?: string
+        resetFrequency?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<{
+            items: FicoNumberRange[]
+            total: number
+            page: number
+            pageSize: number
+        }>(`${API}/number-ranges${queryString(query)}`).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoNumberRange>(
+            `${API}/number-ranges/${id}`,
+        ).then((r) => r.data),
+    create: (dto: {
+        companyId: string
+        rangeCode: string
+        rangeName: string
+        description?: string | null
+        documentCategory: string
+        assignmentType?: string | null
+        numberingMethod?: string | null
+        prefix?: string | null
+        suffix?: string | null
+        startNumber?: number | null
+        endNumber?: number | null
+        currentNumber?: number | null
+        paddingLength?: number | null
+        validFrom?: string | null
+        validTo?: string | null
+        fiscalYearId?: string | null
+        resetFrequency?: string | null
+        allowManualAssignment?: boolean | null
+        allowExternalAssignment?: boolean | null
+        allowGaps?: boolean | null
+        status?: string | null
+        remarks?: string | null
+    }) =>
+        ErpAxiosBase.post<FicoNumberRange>(
+            `${API}/number-ranges`,
+            dto,
+        ).then((r) => r.data),
+    update: (
+        id: string,
+        dto: {
+            rangeName?: string | null
+            description?: string | null
+            documentCategory?: string | null
+            assignmentType?: string | null
+            numberingMethod?: string | null
+            prefix?: string | null
+            suffix?: string | null
+            startNumber?: number | null
+            endNumber?: number | null
+            currentNumber?: number | null
+            paddingLength?: number | null
+            validFrom?: string | null
+            validTo?: string | null
+            fiscalYearId?: string | null
+            resetFrequency?: string | null
+            allowManualAssignment?: boolean | null
+            allowExternalAssignment?: boolean | null
+            allowGaps?: boolean | null
+            status?: string | null
+            remarks?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoNumberRange>(
+            `${API}/number-ranges/${id}`,
+            dto,
+        ).then((r) => r.data),
+    remove: (id: string) =>
+        ErpAxiosBase.delete<{ deleted: boolean }>(
+            `${API}/number-ranges/${id}`,
+        ).then((r) => r.data),
+    activate: (companyId: string, rangeCode: string, reason?: string) =>
+        ErpAxiosBase.post<FicoNumberRange>(
+            `${API}/number-ranges/${rangeCode}/activate`,
+            { companyId, reason },
+        ).then((r) => r.data),
+    deactivate: (companyId: string, rangeCode: string, reason?: string) =>
+        ErpAxiosBase.post<FicoNumberRange>(
+            `${API}/number-ranges/${rangeCode}/deactivate`,
+            { companyId, reason },
+        ).then((r) => r.data),
+    nextNumber: (dto: {
+        companyId: string
+        rangeCode: string
+        documentReference?: string | null
+        allowExternal?: boolean | null
+        externalNumber?: string | null
+    }) =>
+        ErpAxiosBase.post<{
+            generatedNumber: string
+            numericSequence: number
+            assignmentMethod: string
+            documentReference: string | null
+            assignedAt: string
+        }>(`${API}/number-ranges/${dto.rangeCode}/next`, dto).then(
+            (r) => r.data,
+        ),
+    utilization: (id: string) =>
+        ErpAxiosBase.get<{
+            rangeId: string
+            rangeCode: string
+            totalAllocated: number
+            currentSequence: number
+            remaining: number
+            utilizationPercent: number
+            isExhausted: boolean
+            startNumber: number
+            endNumber: number
+        }>(`${API}/number-ranges/${id}/utilization`).then((r) => r.data),
+    history: (query: {
+        numberRangeId: string
+        companyId?: string
+        assignmentMethod?: string
+        fiscalYearId?: string | null
+        dateFrom?: string
+        dateTo?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<{
+            items: FicoNumberRangeLog[]
+            total: number
+            page: number
+            pageSize: number
+        }>(`${API}/number-ranges/${query.numberRangeId}/history${queryString(query)}`).then(
+            (r) => r.data,
+        ),
 }
 
 export function ficoErrorMessage(error: unknown, fallback: string) {

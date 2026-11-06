@@ -338,6 +338,8 @@ model Company {
   ficoDocumentSequences            FicoDocumentSequence[]
   ficoAccountingAuditLogs          FicoAccountingAuditLog[]
   ficoHistoricalBackpostingRuns    FicoHistoricalBackpostingRun[]
+  ficoNumberRanges                 FicoNumberRange[]
+  ficoNumberRangeLogs              FicoNumberRangeLog[]
 
   @@map("companies")
 }
@@ -4097,6 +4099,8 @@ model FicoFiscalYearVariant {
   updatedAt          DateTime                        @updatedAt
   periods            FicoFinancialPeriod[]
   settings           FicoCompanyAccountingSettings[]
+  numberRanges       FicoNumberRange[]
+  numberRangeLogs    FicoNumberRangeLog[]
 
   @@index([status])
   @@map("fico_fiscal_year_variants")
@@ -4388,6 +4392,68 @@ model FicoHistoricalBackpostingRun {
 
   @@index([companyId, status])
   @@map("fico_historical_backposting_runs")
+}
+
+/// Phase 2 — company-specific document number ranges.
+model FicoNumberRange {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rangeCode         String
+  rangeName         String
+  description       String?
+  documentCategory  String
+  assignmentType    String   @default("INTERNAL") // INTERNAL | EXTERNAL
+  numberingMethod   String   @default("INTERNAL") // INTERNAL | EXTERNAL
+  prefix            String   @default("")
+  suffix            String   @default("")
+  startNumber       Int      @default(1)
+  endNumber         Int      @default(999999)
+  currentNumber     Int      @default(1)
+  paddingLength     Int      @default(6)
+  validFrom         DateTime? @db.Date
+  validTo           DateTime? @db.Date
+  fiscalYearId      String?
+  fiscalYear        FicoFiscalYearVariant? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
+  resetFrequency    String   @default("NEVER") // NEVER | ANNUALLY | PER_FISCAL_YEAR
+  allowManualAssignment Boolean @default(true)
+  allowExternalAssignment Boolean @default(false)
+  allowGaps         Boolean @default(false)
+  status            String   @default("ACTIVE") // ACTIVE | INACTIVE | EXHAUSTED
+  remarks           String?
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  numberRangeLogs   FicoNumberRangeLog[]
+
+  @@unique([companyId, rangeCode])
+  @@index([companyId, status])
+  @@index([companyId, documentCategory])
+  @@index([fiscalYearId])
+  @@map("fico_number_ranges")
+}
+
+/// Phase 2 — number range assignment history (append-only audit).
+model FicoNumberRangeLog {
+  id                String   @id @default(cuid())
+  numberRangeId     String
+  numberRange       FicoNumberRange @relation(fields: [numberRangeId], references: [id], onDelete: Restrict)
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalYearId      String?
+  fiscalYear        FicoFiscalYearVariant? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
+  generatedNumber   String
+  numericSequence   Int
+  assignmentMethod  String   @default("INTERNAL") // INTERNAL | EXTERNAL
+  documentReference String?
+  assignedBy        String?
+  assignedAt        DateTime @default(now())
+
+  @@index([numberRangeId, assignedAt])
+  @@index([companyId, generatedNumber])
+  @@index([fiscalYearId])
+  @@map("fico_number_range_logs")
 }
 
 /// Phase 3A — transactional outbox for MM integration events (all domains).
