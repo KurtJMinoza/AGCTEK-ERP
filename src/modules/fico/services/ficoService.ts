@@ -18,8 +18,12 @@ import type {
     FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
+    FicoJournalEntry,
     FicoOverview,
     FicoPeriod,
+    FicoPeriodDetail,
+    FicoPeriodHistoryEntry,
+    FicoPeriodSummary,
     FicoPostingVariant,
 } from '../types'
 
@@ -86,6 +90,10 @@ export const ficoSettingsService = {
         ErpAxiosBase.post<FicoCompanySettings>(
             `${API}/company-settings/${companyId}/deactivate`,
             { reason },
+        ).then((r) => r.data),
+    remove: (companyId: string, reason?: string) =>
+        ErpAxiosBase.delete<{ companyId: string; deleted: boolean }>(
+            `${API}/company-settings/${companyId}${queryString({ reason })}`,
         ).then((r) => r.data),
 }
 
@@ -313,6 +321,26 @@ export const ficoPeriodService = {
         ErpAxiosBase.get<FicoPeriod[]>(
             `${API}/posting-periods${queryString(query)}`,
         ).then((r) => r.data),
+    summary: (query: { companyId: string; fiscalYear?: number }) =>
+        ErpAxiosBase.get<FicoPeriodSummary>(
+            `${API}/posting-periods/summary${queryString(query)}`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoPeriodDetail>(
+            `${API}/posting-periods/${id}`,
+        ).then((r) => r.data),
+    update: (
+        id: string,
+        data: {
+            remarks?: string | null
+            closingDate?: string | null
+            lockDate?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoPeriod>(
+            `${API}/posting-periods/${id}`,
+            data,
+        ).then((r) => r.data),
     resolve: (companyId: string, postingDate: string) =>
         ErpAxiosBase.get<{
             period: FicoPeriod | null
@@ -326,17 +354,9 @@ export const ficoPeriodService = {
             })}`,
         ).then((r) => r.data),
     history: (id: string) =>
-        ErpAxiosBase.get<
-            Array<{
-                id: string
-                action: string
-                fromStatus: string | null
-                toStatus: string | null
-                reason: string | null
-                actorId: string | null
-                createdAt: string
-            }>
-        >(`${API}/posting-periods/${id}/history`).then((r) => r.data),
+        ErpAxiosBase.get<FicoPeriodHistoryEntry[]>(
+            `${API}/posting-periods/${id}/history`,
+        ).then((r) => r.data),
     action: (
         id: string,
         action:
@@ -353,6 +373,96 @@ export const ficoPeriodService = {
             `${API}/posting-periods/${id}/${action}`,
             { companyId, reason },
         ).then((r) => r.data),
+}
+
+export const ficoJournalService = {
+    list: (query: {
+        companyId: string
+        status?: string
+        dateFrom?: string
+        dateTo?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<{
+            items: unknown[]
+            total: number
+            page: number
+            pageSize: number
+            totalPages: number
+        }>(`${API}/journal-entries${queryString(query)}`).then((r) =>
+            r.data,
+        ),
+    get: (id: string, companyId: string) =>
+        ErpAxiosBase.get<{
+            id: string
+            documentNumber: string | null
+            postingDate: string
+            fiscalYear: number | null
+            fiscalPeriodId: string | null
+            totalAmount: string
+            currencyCode: string
+            status: string
+            description: string | null
+            documentType: string
+            postedAt: string | null
+            postedBy: string | null
+            createdAt: string
+            fiscalPeriod: {
+                id: string
+                fiscalYear: number
+                periodNumber: number
+                name: string
+                status: string
+            } | null
+            lines: unknown[]
+        }>(`${API}/journal-entries/${id}?companyId=${companyId}`).then(
+            (r) => r.data,
+        ),
+    create: (
+        dto: {
+            companyId: string
+            postingDate: string
+            description?: string
+            currencyCode?: string
+            lines: {
+                glAccountId: string
+                debitAmount?: number
+                creditAmount?: number
+                description?: string
+            }[]
+        },
+        signal?: AbortSignal,
+    ) =>
+        ErpAxiosBase.post<{
+            id: string
+            documentNumber: string
+            postingDate: string
+            fiscalYear: number | null
+            fiscalPeriodId: string | null
+            totalAmount: string
+            currencyCode: string
+            status: string
+            description: string | null
+            postedAt: string | null
+            lines: unknown[]
+        }>(`${API}/journal-entries`, dto, { signal }).then((r) => r.data),
+    reverse: (
+        id: string,
+        companyId: string,
+        reason: string,
+    ) =>
+        ErpAxiosBase.post<{
+            originalId: string
+            originalStatus: string
+            reversalId: string
+            reversalDocumentNumber: string | null
+            reversalPostedAt: string | null
+        }>(`${API}/journal-entries/${id}/reverse`, {
+            companyId,
+            journalEntryId: id,
+            reason,
+        }).then((r) => r.data),
 }
 
 export const ficoAuditService = {

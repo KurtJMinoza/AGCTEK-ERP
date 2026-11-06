@@ -17,6 +17,7 @@ export type FicoCompanySettings = {
     companyId: string
     legalName: string
     baseCurrency: string
+    groupCurrency: string | null
     countryCode: string
     timezone: string
     accountingMethod: string
@@ -32,11 +33,42 @@ export type FicoCompanySettings = {
     taxRegistrationNumber: string | null
     taxJurisdiction: string | null
     defaultTaxCode: string | null
+    defaultRetainedEarningsAccountId: string | null
+    defaultRetainedEarningsAccount?: FicoGlAccountRef | null
+    defaultCashAccountId: string | null
+    defaultCashAccount?: FicoGlAccountRef | null
+    defaultReceivableAccountId: string | null
+    defaultReceivableAccount?: FicoGlAccountRef | null
+    defaultPayableAccountId: string | null
+    defaultPayableAccount?: FicoGlAccountRef | null
+    defaultInventoryAccountId: string | null
+    defaultInventoryAccount?: FicoGlAccountRef | null
+    defaultSalesRevenueAccountId: string | null
+    defaultSalesRevenueAccount?: FicoGlAccountRef | null
+    defaultCostOfGoodsSoldAccountId: string | null
+    defaultCostOfGoodsSoldAccount?: FicoGlAccountRef | null
+    defaultTaxInputAccountId: string | null
+    defaultTaxInputAccount?: FicoGlAccountRef | null
+    defaultTaxOutputAccountId: string | null
+    defaultTaxOutputAccount?: FicoGlAccountRef | null
     documentNumberPrefix: string
     documentNumberPadding: number
+    allowNegativePostings: boolean
+    backdatedPostingAllowed: boolean
+    maxBackdatedPostingDays: number | null
     activatedAt?: string | null
     deactivatedAt?: string | null
     updatedAt?: string
+}
+
+export type FicoGlAccountRef = {
+    id: string
+    accountCode: string
+    accountName: string
+    accountType: string
+    status: string
+    chartOfAccountsId: string
+    isPostingAccount: boolean
 }
 
 export type FicoCompanySettingsRow = {
@@ -366,12 +398,67 @@ export type FicoPeriod = {
     endDate: string
     status: 'FUTURE' | 'OPEN' | 'RESTRICTED' | 'CLOSED' | 'LOCKED'
     statusReason: string | null
+    remarks: string | null
+    closingDate: string | null
+    lockDate: string | null
+    reopenedAt: string | null
+    reopenedBy: string | null
     isYearEndAdjustment: boolean
     openedAt: string | null
+    openedBy?: string | null
     closedAt: string | null
+    closedBy: string | null
     lockedAt: string | null
+    lockedBy?: string | null
     fiscalYearVariant?: FicoFiscalVariant | null
     _count?: { journalEntries: number }
+}
+
+export type FicoPeriodDetail = FicoPeriod & {
+    company?: FicoCompany
+}
+
+export type FicoPeriodHistoryEntry = {
+    id: string
+    action: string
+    fromStatus: string | null
+    toStatus: string | null
+    reason: string | null
+    actorId: string | null
+    createdAt: string
+}
+
+export type FicoPeriodSummary = {
+    companyId: string
+    fiscalYear: number | null
+    generatedPeriods: number
+    normalPeriods: number
+    specialPeriods: number
+    periodsWithPostings: number
+    journalEntries: number
+    byStatus: Record<string, number>
+    totals: {
+        open: number
+        restricted: number
+        closed: number
+        locked: number
+        future: number
+    }
+    currentPeriod: Pick<
+        FicoPeriod,
+        | 'id'
+        | 'fiscalYear'
+        | 'periodNumber'
+        | 'name'
+        | 'startDate'
+        | 'endDate'
+        | 'status'
+    > | null
+    firstPeriod: Pick<FicoPeriod, 'id' | 'fiscalYear' | 'periodNumber'> | null
+    lastPeriod: Pick<FicoPeriod, 'id' | 'fiscalYear' | 'periodNumber'> | null
+    nextClosingPeriod:
+        | Pick<FicoPeriod, 'id' | 'fiscalYear' | 'periodNumber' | 'status'>
+        | null
 }
 
 export type FicoFiscalYearSummary = {
@@ -424,4 +511,74 @@ export type FicoListResponse<T> = {
     total: number
     page: number
     pageSize: number
+}
+
+export type FicoJournalEntryLineRef = {
+    id: string
+    lineNumber: number
+    glAccountId: string
+    companyId: string
+    debitAmount: string | number
+    creditAmount: string | number
+    currency: string
+    description: string | null
+    glAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+    } | null
+}
+
+export type FicoJournalEntry = {
+    id: string
+    documentNumber: string | null
+    postingDate: string
+    documentDate: string | null
+    fiscalYear: number | null
+    fiscalPeriodId: string | null
+    totalAmount: string | number
+    currencyCode: string
+    status: 'DRAFT' | 'POSTED' | 'REVERSED' | 'LEGACY'
+    description: string | null
+    documentType: string
+    postedAt: string | null
+    postedBy: string | null
+    createdAt: string
+    fiscalPeriod?: {
+        id: string
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+    lines?: FicoJournalEntryLineRef[]
+    _count?: { lines: number }
+}
+
+export type FicoJournalEntryDetail = FicoJournalEntry & {
+    fiscalPeriod: {
+        id: string
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+    lines: FicoJournalEntryLineRef[]
+}
+
+export type FicoJournalEntryList = {
+    items: FicoJournalEntry[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+}
+
+export type FicoJournalReversalResult = {
+    originalId: string
+    originalStatus: string
+    reversalId: string
+    reversalDocumentNumber: string | null
+    reversalPostedAt: string | null
 }

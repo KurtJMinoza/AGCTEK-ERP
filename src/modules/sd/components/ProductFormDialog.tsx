@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -44,7 +44,6 @@ import {
     suggestProductSku,
     type ProductInput,
     type SdProductRecord,
-    type SdProductType,
 } from '../services/productCatalogService'
 
 const MAX_PRICE = 999_999_999.99
@@ -80,7 +79,8 @@ const productSchema = z
         description: z.string().trim().max(2000),
         sortOrder: z.number().int().min(0).max(100_000),
         isActive: z.boolean(),
-        productType: z.literal('STOCK_ITEM'),
+        /** Stored item nature; only STOCK_ITEM is inventory-relevant. */
+        productType: z.enum(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE']),
         /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
         productConfig: z.enum(['SIMPLE', 'VARIABLE']),
         companyId: z.string(),
@@ -106,23 +106,6 @@ const productSchema = z
         path: ['originalPrice'],
         message: 'Must be higher than the selling price',
     })
-    /**
-     * A SIMPLE product must link one existing material. A VARIABLE product
-     * links one material per variant (validated with the variants).
-     */
-    .refine(
-        (values) =>
-            values.productConfig === 'SIMPLE' &&
-            (values.companyId.trim().length === 0 ||
-                values.materialId.trim().length === 0)
-                ? false
-                : true,
-        {
-            path: ['materialId'],
-            message:
-                'Select the company and the existing MM material this product sells',
-        },
-    )
     .refine(
         (values) =>
             values.materialLinkMode !== 'single' ||
@@ -140,6 +123,30 @@ const productSchema = z
         {
             path: ['sku'],
             message: 'Enter a SKU or turn on auto-generate',
+        },
+    )
+
+/**
+ * A SIMPLE stock product must link an existing MM material before it can be
+ * saved. Create links the material through `materialId`; edit links it through
+ * the `materialIds` array populated from the active product–material
+ * assignment. VARIABLE products link one material per variant instead, and
+ * non-stock / service products carry no inventory link at all.
+ */
+const buildProductSchema = (editing: boolean) =>
+    productSchema.refine(
+        (values) =>
+            values.productType !== 'STOCK_ITEM' ||
+            values.productConfig !== 'SIMPLE' ||
+            (values.companyId.trim().length > 0 &&
+                (editing
+                    ? values.materialIds.length > 0
+                    : values.materialId.trim().length > 0)),
+        {
+            path: editing ? ['materialIds'] : ['materialId'],
+            message: editing
+                ? 'Link the existing MM material this product sells'
+                : 'Select the company and the existing MM material this product sells',
         },
     )
 
@@ -205,8 +212,11 @@ const toFormValues = (
               description: product.description,
               sortOrder: product.sortOrder,
               isActive: product.isActive,
-              productType: 'STOCK_ITEM',
-              productConfig: ((product as SdProductRecord & { productConfig?: string }).productConfig === 'VARIABLE' ? 'VARIABLE' : 'SIMPLE') as 'SIMPLE' | 'VARIABLE',
+              // Keep the stored item nature: editing a service / non-stock
+              // product must not turn it into a stock item.
+              productType: product.productType ?? 'STOCK_ITEM',
+              productConfig:
+                  product.productConfig === 'VARIABLE' ? 'VARIABLE' : 'SIMPLE',
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
@@ -362,6 +372,8 @@ const ProductFormDialog = ({
     onClose,
     onSubmit,
 }: ProductFormDialogProps) => {
+    const editing = mode === 'edit'
+    const schema = useMemo(() => buildProductSchema(editing), [editing])
     const {
         control,
         handleSubmit,
@@ -374,7 +386,7 @@ const ProductFormDialog = ({
         formState: { errors },
     } = useForm<FormShape>({
         defaultValues: toFormValues(product, defaultDivisionId),
-        resolver: zodResolver(productSchema),
+        resolver: zodResolver(schema),
     })
 
     /** Primary material whose MM measurements were last applied to the form. */
@@ -416,13 +428,13 @@ const ProductFormDialog = ({
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
     const productConfig = useWatch({ control, name: 'productConfig' })
+    const productType = useWatch({ control, name: 'productType' })
     const materialIds = useWatch({ control, name: 'materialIds' })
     const rawCompanyId = useWatch({ control, name: 'companyId' })
     // The company field holds the option VALUE (a string).
     const companyId =
         typeof rawCompanyId === 'string' ? rawCompanyId : ''
     const CREATE_WIZARD_STEPS = getCreateWizardSteps(productConfig ?? 'SIMPLE')
-    const editing = mode === 'edit'
     const createWizard = !editing
     const [wizardStep, setWizardStep] = useState(0)
     const [uploading, setUploading] = useState(false)
@@ -662,7 +674,6 @@ const ProductFormDialog = ({
         }
         setOptionsAttempted(false)
         const {
-            productType: _productType,
             autoGenerateSku: autoSku,
             imageGallery,
             videoUrls,
@@ -721,7 +732,7 @@ const ProductFormDialog = ({
             ...rest,
             sku: autoSku ? '' : values.sku.toUpperCase(),
             badge: values.badge || null,
-            productType: 'STOCK_ITEM' satisfies SdProductType,
+            productType: values.productType,
             productConfig: values.productConfig,
             autoGenerateSku: !editing && autoSku,
             imageGallery,
@@ -1119,7 +1130,22 @@ const ProductFormDialog = ({
                     {showStep(1) ? (
                     <>
                     {editing ? (
-                        productConfig === 'VARIABLE' ? (
+                        productType !== 'STOCK_ITEM' ? (
+                            <div className="md:col-span-2 rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-gray-700">
+                                <p className="font-semibold text-gray-900">
+                                    No inventory link
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    This is a{' '}
+                                    {productType === 'SERVICE'
+                                        ? 'service'
+                                        : 'non-stock'}{' '}
+                                    product, so it has no Material Master
+                                    link and orders never reserve or fulfill
+                                    stock for it.
+                                </p>
+                            </div>
+                        ) : productConfig === 'VARIABLE' ? (
                             <div className="md:col-span-2 rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-gray-700">
                                 <p className="font-semibold text-gray-900">
                                     Variants own their material
@@ -1459,7 +1485,7 @@ const ProductFormDialog = ({
                         is kept as-is.
                     </p>
                 ) : null}
-                {(productConfig === 'VARIABLE' && showStep(4)) || (editing && (product as SdProductRecord & { productConfig?: string } | undefined)?.productConfig === 'VARIABLE') ? (
+                {(productConfig === 'VARIABLE' && showStep(4)) || (editing && productConfig === 'VARIABLE') ? (
                     <div className="mt-6" ref={optionsSectionRef}>
                         <p className="mb-3 text-sm font-semibold text-gray-900">
                             Options & Variants

@@ -23,6 +23,17 @@ export type PeriodListQuery = {
     periodType?: string
 }
 
+export type PeriodSummaryQuery = {
+    companyId: string
+    fiscalYear?: number
+}
+
+export type PeriodDetailsInput = {
+    remarks?: string | null
+    closingDate?: string | null
+    lockDate?: string | null
+}
+
 export type PeriodAction =
     | 'open'
     | 'restrict'
@@ -47,6 +58,16 @@ const ACTION_AUDIT: Record<PeriodAction, string> = {
     lock: FICO_AUDIT_ACTIONS.PERIOD_LOCK,
     reopen: FICO_AUDIT_ACTIONS.PERIOD_REOPEN,
     unlock: FICO_AUDIT_ACTIONS.PERIOD_UNLOCK,
+}
+
+function startOfUtcDay(date: Date): Date {
+    return new Date(
+        Date.UTC(
+            date.getUTCFullYear(),
+            date.getUTCMonth(),
+            date.getUTCDate(),
+        ),
+    )
 }
 
 @Injectable()
@@ -102,6 +123,208 @@ export class FicoPostingPeriodService {
         }
     }
 
+    async get(periodId: string, user: AuthRequestUser) {
+        const period = await this.prisma.ficoFinancialPeriod.findUnique({
+            where: { id: periodId },
+            include: {
+                company: { select: { id: true, code: true, name: true } },
+                fiscalYearVariant: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        startMonth: true,
+                        startDay: true,
+                    },
+                },
+                _count: { select: { journalEntries: true } },
+            },
+        })
+        if (!period) throw new NotFoundException('Fiscal period not found')
+        await this.access.assertAccess(user, period.companyId)
+        return period
+    }
+
+    /**
+     * Period status dashboard for one company (optionally one fiscal year).
+     * Counts come from the database; the frontend never derives period state.
+     */
+    async summary(query: PeriodSummaryQuery, user: AuthRequestUser) {
+        await this.access.assertAccess(user, query.companyId)
+        const where: Prisma.FicoFinancialPeriodWhereInput = {
+            companyId: query.companyId,
+            ...(query.fiscalYear ? { fiscalYear: query.fiscalYear } : {}),
+        }
+        const now = new Date()
+        const today = startOfUtcDay(now)
+        const [grouped, periods, journalEntries, currentPeriod] =
+            await Promise.all([
+                this.prisma.ficoFinancialPeriod.groupBy({
+                    by: ['status'],
+                    where,
+                    _count: { _all: true },
+                }),
+                this.prisma.ficoFinancialPeriod.findMany({
+                    where,
+                    select: {
+                        id: true,
+                        fiscalYear: true,
+                        periodNumber: true,
+                        name: true,
+                        periodType: true,
+                        startDate: true,
+                        endDate: true,
+                        status: true,
+                        closingDate: true,
+                        lockDate: true,
+                    },
+                    orderBy: [
+                        { fiscalYear: 'desc' },
+                        { periodNumber: 'asc' },
+                    ],
+                }),
+                this.prisma.ficoJournalEntry.count({
+                    where: {
+                        companyId: query.companyId,
+                        ...(query.fiscalYear
+                            ? { fiscalYear: query.fiscalYear }
+                            : {}),
+                    },
+                }),
+                this.prisma.ficoFinancialPeriod.findFirst({
+                    where: {
+                        companyId: query.companyId,
+                        startDate: { lte: today },
+                        endDate: { gte: today },
+                    },
+                    orderBy: [{ fiscalYear: 'desc' }, { periodNumber: 'desc' }],
+                }),
+            ])
+
+        const byStatus: Record<string, number> = {
+            FUTURE: 0,
+            OPEN: 0,
+            RESTRICTED: 0,
+            CLOSED: 0,
+            LOCKED: 0,
+        }
+        for (const row of grouped) {
+            byStatus[row.status] = row._count._all
+        }
+        const normal = periods.filter((item) => item.periodType !== 'SPECIAL')
+        const special = periods.filter((item) => item.periodType === 'SPECIAL')
+        const withJournals = await this.prisma.ficoFinancialPeriod.findMany({
+            where: { ...where, journalEntries: { some: {} } },
+            select: { id: true },
+        })
+        const openPeriods = periods.filter(
+            (item) => item.status === 'OPEN' || item.status === 'RESTRICTED',
+        )
+        return {
+            companyId: query.companyId,
+            fiscalYear: query.fiscalYear ?? null,
+            generatedPeriods: periods.length,
+            normalPeriods: normal.length,
+            specialPeriods: special.length,
+            periodsWithPostings: withJournals.length,
+            journalEntries,
+            byStatus,
+            totals: {
+                open: byStatus.OPEN,
+                restricted: byStatus.RESTRICTED,
+                closed: byStatus.CLOSED,
+                locked: byStatus.LOCKED,
+                future: byStatus.FUTURE,
+            },
+            currentPeriod: currentPeriod ?? null,
+            firstPeriod: periods.length ? periods[periods.length - 1] : null,
+            lastPeriod: periods.length ? periods[0] : null,
+            nextClosingPeriod: openPeriods.length
+                ? openPeriods[openPeriods.length - 1]
+                : null,
+        }
+    }
+
+    async updateDetails(
+        periodId: string,
+        input: PeriodDetailsInput,
+        user: AuthRequestUser,
+    ) {
+        const period = await this.requirePeriod(periodId)
+        await this.access.assertAccess(user, period.companyId)
+
+        const data: Prisma.FicoFinancialPeriodUpdateInput = {}
+        if (input.remarks !== undefined) {
+            data.remarks = input.remarks?.trim() || null
+        }
+        if (input.closingDate !== undefined) {
+            const closingDate = this.parseDate(input.closingDate)
+            if (closingDate && closingDate < period.startDate) {
+                throw new BadRequestException(
+                    'The closing date cannot be before the period start date.',
+                )
+            }
+            data.closingDate = closingDate
+        }
+        if (input.lockDate !== undefined) {
+            const lockDate = this.parseDate(input.lockDate)
+            if (lockDate && lockDate < period.startDate) {
+                throw new BadRequestException(
+                    'The lock date cannot be before the period start date.',
+                )
+            }
+            data.lockDate = lockDate
+        }
+        if (Object.keys(data).length === 0) {
+            throw new BadRequestException('No period details were supplied.')
+        }
+        data.updatedBy = user.id
+
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const saved = await tx.ficoFinancialPeriod.update({
+                where: { id: periodId },
+                data,
+            })
+            await tx.ficoPostingPeriodAuditLog.create({
+                data: {
+                    companyId: period.companyId,
+                    fiscalPeriodId: periodId,
+                    action: FICO_AUDIT_ACTIONS.PERIOD_UPDATE,
+                    fromStatus: period.status,
+                    toStatus: saved.status,
+                    reason: input.remarks?.trim() || null,
+                    actorId: user.id,
+                },
+            })
+            await this.audit.log(
+                {
+                    companyId: period.companyId,
+                    actorId: user.id,
+                    action: FICO_AUDIT_ACTIONS.PERIOD_UPDATE,
+                    entityType: 'FicoFinancialPeriod',
+                    entityId: periodId,
+                    previousValues: {
+                        remarks: period.remarks,
+                        closingDate: period.closingDate,
+                        lockDate: period.lockDate,
+                    },
+                    newValues: {
+                        remarks: saved.remarks,
+                        closingDate: saved.closingDate,
+                        lockDate: saved.lockDate,
+                    },
+                    metadata: {
+                        fiscalYear: period.fiscalYear,
+                        periodNumber: period.periodNumber,
+                    },
+                },
+                tx,
+            )
+            return saved
+        })
+        return updated
+    }
+
     async history(periodId: string, user: AuthRequestUser) {
         const period = await this.requirePeriod(periodId)
         await this.access.assertAccess(user, period.companyId)
@@ -143,6 +366,7 @@ export class FicoPostingPeriodService {
         }
 
         const now = new Date()
+        const today = startOfUtcDay(now)
         const updated = await this.prisma.$transaction(async (tx) => {
             if (action === 'close') {
                 await tx.$queryRaw`
@@ -163,7 +387,13 @@ export class FicoPostingPeriodService {
                               openedAt: now,
                               openedBy: user.id,
                               ...(action === 'reopen'
-                                  ? { closedAt: null, closedBy: null }
+                                  ? {
+                                        closedAt: null,
+                                        closedBy: null,
+                                        closingDate: null,
+                                        reopenedAt: now,
+                                        reopenedBy: user.id,
+                                    }
                                   : {}),
                           }
                         : {}),
@@ -174,13 +404,22 @@ export class FicoPostingPeriodService {
                         ? {
                               closedAt: now,
                               closedBy: user.id,
+                              closingDate: period.closingDate ?? today,
                               ...(action === 'unlock'
-                                  ? { lockedAt: null, lockedBy: null }
+                                  ? {
+                                        lockedAt: null,
+                                        lockedBy: null,
+                                        lockDate: null,
+                                    }
                                   : {}),
                           }
                         : {}),
                     ...(target === 'LOCKED'
-                        ? { lockedAt: now, lockedBy: user.id }
+                        ? {
+                              lockedAt: now,
+                              lockedBy: user.id,
+                              lockDate: period.lockDate ?? today,
+                          }
                         : {}),
                     updatedBy: user.id,
                 },
@@ -301,6 +540,16 @@ export class FicoPostingPeriodService {
         })
         if (!period) throw new NotFoundException('Fiscal period not found')
         return period
+    }
+
+    private parseDate(value: string | null | undefined): Date | null {
+        if (value === undefined || value === null || value === '') return null
+        const text = String(value).slice(0, 10)
+        const parsed = new Date(`${text}T00:00:00.000Z`)
+        if (Number.isNaN(parsed.getTime())) {
+            throw new BadRequestException(`Invalid date: ${value}`)
+        }
+        return parsed
     }
 
     private async assertClosable(

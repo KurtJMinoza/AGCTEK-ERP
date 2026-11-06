@@ -66,6 +66,51 @@ export class FicoPostingValidationService {
             )
         }
 
+        const postingDay = new Date(
+            Date.UTC(
+                postingDate.getUTCFullYear(),
+                postingDate.getUTCMonth(),
+                postingDate.getUTCDate(),
+            ),
+        )
+        const today = new Date()
+        const todayDay = new Date(
+            Date.UTC(
+                today.getUTCFullYear(),
+                today.getUTCMonth(),
+                today.getUTCDate(),
+            ),
+        )
+        if (!settings.backdatedPostingAllowed && postingDay < todayDay) {
+            throw new BadRequestException(
+                'Backdated accounting postings are not allowed for this company.',
+            )
+        }
+        if (settings.maxBackdatedPostingDays !== null) {
+            const earliest = new Date(todayDay)
+            earliest.setUTCDate(
+                earliest.getUTCDate() - settings.maxBackdatedPostingDays,
+            )
+            if (postingDay < earliest) {
+                throw new BadRequestException(
+                    `The posting date is more than ${settings.maxBackdatedPostingDays} day(s) before today. Backdated postings are restricted for this company.`,
+                )
+            }
+        }
+
+        if (!settings.allowNegativePostings) {
+            const negative = (input.lines ?? []).find(
+                (line) =>
+                    (line.debitAmount ?? 0) < 0 ||
+                    (line.creditAmount ?? 0) < 0,
+            )
+            if (negative) {
+                throw new BadRequestException(
+                    'Negative posting amounts are not allowed for this company.',
+                )
+            }
+        }
+
         const period = await this.periods.assertPostingAllowed(
             input.companyId,
             postingDate,

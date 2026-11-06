@@ -78,6 +78,11 @@ export class FicoCompanySettingsUpsertDto {
 
     @IsOptional()
     @IsString()
+    @MaxLength(3)
+    groupCurrency?: string | null
+
+    @IsOptional()
+    @IsString()
     @MaxLength(2)
     countryCode?: string
 
@@ -121,6 +126,56 @@ export class FicoCompanySettingsUpsertDto {
     @IsOptional()
     @IsString()
     defaultTaxCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultRetainedEarningsAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultCashAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultReceivableAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultPayableAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultInventoryAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultSalesRevenueAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultCostOfGoodsSoldAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultTaxInputAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    defaultTaxOutputAccountId?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    allowNegativePostings?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    backdatedPostingAllowed?: boolean
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(3650)
+    maxBackdatedPostingDays?: number | null
 
     @IsOptional()
     @IsString()
@@ -796,6 +851,21 @@ export class FicoPeriodActionDto {
     @IsString()
     @MinLength(3)
     reason?: string
+}
+
+export class FicoPeriodUpdateDto {
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    closingDate?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    lockDate?: string | null
 }
 
 export class FicoPostingValidationLineDto {
