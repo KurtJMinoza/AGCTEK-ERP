@@ -83,6 +83,7 @@ const NumberRangesPage = () => {
     const [numberingMethod, setNumberingMethod] = useState('')
     const [resetFrequency, setResetFrequency] = useState('')
     const [editing, setEditing] = useState<FicoNumberRange | null>(null)
+    const [isFormOpen, setIsFormOpen] = useState(false)
     const [form, setForm] = useState({
         rangeCode: '',
         rangeName: '',
@@ -345,8 +346,11 @@ const NumberRangesPage = () => {
                     <div className="flex flex-wrap items-center gap-2">
                         <Button
                             variant="solid"
-                            onClick={() => setEditing(null)}
-                            disabled={!companyId}
+                            onClick={() => {
+                                setEditing(null)
+                                setIsFormOpen(true)
+                            }}
+                            className="w-full sm:w-auto px-4 py-2"
                         >
                             <HiOutlinePlus className="w-4 h-4 mr-1.5" />
                             Create Number Range
@@ -388,7 +392,7 @@ const NumberRangesPage = () => {
                 />
             </div>
 
-            <AdaptiveCard className="mb-6">
+            <AdaptiveCard className="mb-6 p-4">
                 <FilterBar
                     fields={[
                         {
@@ -532,8 +536,11 @@ const NumberRangesPage = () => {
             </AdaptiveCard>
 
             <FormDialog
-                isOpen={Boolean(editing)}
-                onClose={() => setEditing(null)}
+                isOpen={isFormOpen}
+                onClose={() => {
+                    setIsFormOpen(false)
+                    setEditing(null)
+                }}
                 title={
                     editing
                         ? `Edit Number Range — ${editing.rangeCode}`
@@ -598,10 +605,9 @@ const NumberRangesPage = () => {
                                 'Number range created successfully.',
                             )
                         }
+                        setIsFormOpen(false)
                         setEditing(null)
-                        setSaving(false)
                         loadRanges()
-                        loadSummary()
                     } catch (error) {
                         setSaving(false)
                         notifyError(
