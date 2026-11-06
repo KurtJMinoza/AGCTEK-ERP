@@ -334,8 +334,6 @@ const NumberRangesPage = () => {
         [],
     )
 
-    const isCreating = !editing
-
     return (
         <PageContainer>
             <PageHeader
@@ -350,7 +348,7 @@ const NumberRangesPage = () => {
                                 setEditing(null)
                                 setIsFormOpen(true)
                             }}
-                            className="w-full sm:w-auto px-4 py-2"
+                            className="px-4 py-2.5 text-sm font-medium"
                         >
                             <HiOutlinePlus className="w-4 h-4 mr-1.5" />
                             Create Number Range
@@ -359,7 +357,8 @@ const NumberRangesPage = () => {
                 }
             />
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+            {/* Summary StatCards */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
                 <StatCard
                     label="Total Number Ranges"
                     value={summary.total}
@@ -392,147 +391,153 @@ const NumberRangesPage = () => {
                 />
             </div>
 
-            <AdaptiveCard className="mb-6 p-4">
-                <FilterBar
-                    fields={[
-                        {
-                            key: 'search',
-                            label: 'Search',
-                            kind: 'text',
-                            value: search,
-                            placeholder: 'Code, name, or category',
-                            onChange: setSearch,
-                        },
-                        {
-                            key: 'documentCategory',
-                            label: 'Document Category',
-                            kind: 'text',
-                            value: documentCategory,
-                            placeholder: 'e.g. Journal Entry',
-                            onChange: setDocumentCategory,
-                        },
-                        {
-                            key: 'status',
-                            label: 'Status',
-                            kind: 'select',
-                            value: status,
-                            options: [
-                                { value: '', label: 'All' },
-                                { value: 'ACTIVE', label: 'Active' },
-                                { value: 'INACTIVE', label: 'Inactive' },
-                                { value: 'EXHAUSTED', label: 'Exhausted' },
-                            ],
-                            onChange: setStatus,
-                        },
-                        {
-                            key: 'numberingMethod',
-                            label: 'Numbering Method',
-                            kind: 'select',
-                            value: numberingMethod,
-                            options: [
-                                { value: '', label: 'All' },
-                                { value: 'INTERNAL', label: 'Internal' },
-                                { value: 'EXTERNAL', label: 'External' },
-                            ],
-                            onChange: setNumberingMethod,
-                        },
-                        {
-                            key: 'resetFrequency',
-                            label: 'Reset Frequency',
-                            kind: 'select',
-                            value: resetFrequency,
-                            options: [
-                                { value: '', label: 'All' },
-                                { value: 'NEVER', label: 'Never' },
-                                { value: 'ANNUALLY', label: 'Annually' },
-                                { value: 'PER_FISCAL_YEAR', label: 'Per Fiscal Year' },
-                            ],
-                            onChange: setResetFrequency,
-                        },
-                    ]}
-                    chips={[
-                        ...(search
-                            ? [
-                                  {
-                                      key: 'search',
-                                      label: `Search: ${search}`,
-                                      onRemove: () => setSearch(''),
-                                  },
-                              ]
-                            : []),
-                        ...(documentCategory
-                            ? [
-                                  {
-                                      key: 'documentCategory',
-                                      label: `Category: ${documentCategory}`,
-                                      onRemove: () => setDocumentCategory(''),
-                                  },
-                              ]
-                            : []),
-                        ...(status
-                            ? [
-                                  {
-                                      key: 'status',
-                                      label: `Status: ${status}`,
-                                      onRemove: () => setStatus(''),
-                                  },
-                              ]
-                            : []),
-                    ]}
-                    onClear={() => {
-                        setSearch('')
-                        setStatus('')
-                        setDocumentCategory('')
-                        setNumberingMethod('')
-                        setResetFrequency('')
-                    }}
-                    actions={
-                        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                            <Button
-                                onClick={loadRanges}
-                                loading={loading}
-                                variant="solid"
-                                className="w-full sm:w-auto"
-                            >
-                                <HiOutlineRefresh className="w-4 h-4 mr-1.5" />
-                                Apply filters
-                            </Button>
-                            <Button
-                                variant="default"
-                                onClick={() => {
-                                    setSearch('')
-                                    setStatus('')
-                                    setDocumentCategory('')
-                                    setNumberingMethod('')
-                                    setResetFrequency('')
-                                    loadRanges()
-                                }}
-                                className="w-full sm:w-auto"
-                            >
-                                Reset filters
-                            </Button>
-                        </div>
-                    }
-                />
-                <FicoResponsiveTable<FicoNumberRange>
-                    columns={columns}
-                    data={ranges}
-                    compact
-                    loading={loading}
-                    noData={!loading && !ranges.length}
-                    getRowId={(row) => row.id}
-                    rowClassName={(row) =>
-                        row.status === 'EXHAUSTED'
-                            ? 'bg-red-50/40 dark:bg-red-950/10'
-                            : row.status === 'INACTIVE'
-                              ? 'bg-gray-50/40 dark:bg-gray-900/20'
-                              : undefined
-                    }
-                    tableMinWidthClass="min-w-[950px]"
-                    hidePagination
-                    mobile={rangeMobile}
-                    instanceId="fico-number-ranges"
-                />
+            {/* Filters & Data Table */}
+            <AdaptiveCard className="mb-6 p-0">
+                <div className="p-4">
+                    <FilterBar
+                        fields={[
+                            {
+                                key: 'search',
+                                label: 'Search',
+                                kind: 'text',
+                                value: search,
+                                placeholder: 'Code, name, or category',
+                                onChange: setSearch,
+                            },
+                            {
+                                key: 'documentCategory',
+                                label: 'Document Category',
+                                kind: 'text',
+                                value: documentCategory,
+                                placeholder: 'e.g. Journal Entry',
+                                onChange: setDocumentCategory,
+                            },
+                            {
+                                key: 'status',
+                                label: 'Status',
+                                kind: 'select',
+                                value: status,
+                                options: [
+                                    { value: '', label: 'All' },
+                                    { value: 'ACTIVE', label: 'Active' },
+                                    { value: 'INACTIVE', label: 'Inactive' },
+                                    { value: 'EXHAUSTED', label: 'Exhausted' },
+                                ],
+                                onChange: setStatus,
+                            },
+                            {
+                                key: 'numberingMethod',
+                                label: 'Numbering Method',
+                                kind: 'select',
+                                value: numberingMethod,
+                                options: [
+                                    { value: '', label: 'All' },
+                                    { value: 'INTERNAL', label: 'Internal' },
+                                    { value: 'EXTERNAL', label: 'External' },
+                                ],
+                                onChange: setNumberingMethod,
+                            },
+                            {
+                                key: 'resetFrequency',
+                                label: 'Reset Frequency',
+                                kind: 'select',
+                                value: resetFrequency,
+                                options: [
+                                    { value: '', label: 'All' },
+                                    { value: 'NEVER', label: 'Never' },
+                                    { value: 'ANNUALLY', label: 'Annually' },
+                                    { value: 'PER_FISCAL_YEAR', label: 'Per Fiscal Year' },
+                                ],
+                                onChange: setResetFrequency,
+                            },
+                        ]}
+                        chips={[
+                            ...(search
+                                ? [
+                                      {
+                                          key: 'search',
+                                          label: `Search: ${search}`,
+                                          onRemove: () => setSearch(''),
+                                      },
+                                  ]
+                                : []),
+                            ...(documentCategory
+                                ? [
+                                      {
+                                          key: 'documentCategory',
+                                          label: `Category: ${documentCategory}`,
+                                          onRemove: () =>
+                                              setDocumentCategory(''),
+                                      },
+                                  ]
+                                : []),
+                            ...(status
+                                ? [
+                                      {
+                                          key: 'status',
+                                          label: `Status: ${status}`,
+                                          onRemove: () => setStatus(''),
+                                      },
+                                  ]
+                                : []),
+                        ]}
+                        onClear={() => {
+                            setSearch('')
+                            setStatus('')
+                            setDocumentCategory('')
+                            setNumberingMethod('')
+                            setResetFrequency('')
+                        }}
+                        actions={
+                            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                <Button
+                                    onClick={loadRanges}
+                                    loading={loading}
+                                    variant="solid"
+                                    className="w-full sm:w-auto px-4 py-2"
+                                >
+                                    <HiOutlineRefresh className="w-4 h-4 mr-1.5" />
+                                    Apply filters
+                                </Button>
+                                <Button
+                                    variant="default"
+                                    onClick={() => {
+                                        setSearch('')
+                                        setStatus('')
+                                        setDocumentCategory('')
+                                        setNumberingMethod('')
+                                        setResetFrequency('')
+                                        loadRanges()
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2"
+                                >
+                                    Reset filters
+                                </Button>
+                            </div>
+                        }
+                    />
+                </div>
+                <div className="px-4 pb-4">
+                    <FicoResponsiveTable<FicoNumberRange>
+                        columns={columns}
+                        data={ranges}
+                        compact
+                        loading={loading}
+                        noData={!loading && !ranges.length}
+                        getRowId={(row) => row.id}
+                        rowClassName={(row) =>
+                            row.status === 'EXHAUSTED'
+                                ? 'bg-red-50/40 dark:bg-red-950/10'
+                                : row.status === 'INACTIVE'
+                                  ? 'bg-gray-50/40 dark:bg-gray-900/20'
+                                  : undefined
+                        }
+                        tableMinWidthClass="min-w-[950px]"
+                        hidePagination
+                        mobile={rangeMobile}
+                        instanceId="fico-number-ranges"
+                    />
+                </div>
             </AdaptiveCard>
 
             <FormDialog
@@ -890,7 +895,6 @@ const NumberRangesPage = () => {
                         notifySuccess('Number range deactivated.')
                         setDeleting(null)
                         loadRanges()
-                        loadSummary()
                     } catch (error) {
                         notifyError(
                             error,
