@@ -358,3 +358,103 @@ export function formatFicoNumber(
     const padded = String(sequence).padStart(padding, '0')
     return `${prefix}${padded}${suffix}`
 }
+
+/** -------------------------------------------------------------------------- */
+/*  FICO Phase 2 — Tax Code constants                                         */
+/* -------------------------------------------------------------------------- */
+
+export const FICO_TAX_CODE_CATEGORIES = [
+    'SALES_TAX',
+    'PURCHASE_TAX',
+    'INPUT_TAX',
+    'OUTPUT_TAX',
+    'WITHHOLDING_TAX',
+    'OTHER_TAX',
+] as const
+export type FicoTaxCodeCategory = (typeof FICO_TAX_CODE_CATEGORIES)[number]
+
+export const FICO_TAX_CODE_TYPES = [
+    'VAT',
+    'PERCENTAGE_TAX',
+    'WITHHOLDING_TAX',
+    'ZERO_RATED_TAX',
+    'EXEMPT_TAX',
+    'NON_TAXABLE',
+    'OTHER_TAX',
+] as const
+export type FicoTaxCodeType = (typeof FICO_TAX_CODE_TYPES)[number]
+
+export const FICO_TAX_CODE_STATUSES = ['DRAFT', 'ACTIVE', 'INACTIVE'] as const
+export type FicoTaxCodeStatus = (typeof FICO_TAX_CODE_STATUSES)[number]
+
+export const FICO_TAX_RATE_UNITS = ['PERCENTAGE', 'FIXED_AMOUNT'] as const
+export type FicoTaxRateUnit = (typeof FICO_TAX_RATE_UNITS)[number]
+
+export const FICO_TAX_CALCULATION_METHODS = ['TAX_EXCLUSIVE', 'TAX_INCLUSIVE', 'NOT_APPLICABLE'] as const
+export type FicoTaxCalculationMethod = (typeof FICO_TAX_CALCULATION_METHODS)[number]
+
+export const FICO_TAX_ROUNDING_METHODS = ['HALF_UP', 'HALF_DOWN', 'HALF_EVEN', 'UP', 'DOWN'] as const
+export type FicoTaxRoundingMethod = (typeof FICO_TAX_ROUNDING_METHODS)[number]
+
+export const FICO_TAX_ROUNDING_LEVELS = ['PER_LINE_ITEM', 'PER_DOCUMENT'] as const
+export type FicoTaxRoundingLevel = (typeof FICO_TAX_ROUNDING_LEVELS)[number]
+
+export const FICO_TAX_RATE_STATUSES = ['ACTIVE', 'INACTIVE', 'EXPIRED', 'SCHEDULED'] as const
+export type FicoTaxRateStatus = (typeof FICO_TAX_RATE_STATUSES)[number]
+
+/** Transaction types a tax code can be filtered/validated against. */
+export const FICO_TAX_APPLICATION_TYPES = [
+    'SALES',
+    'PURCHASE',
+    'SERVICE',
+    'INVENTORY',
+    'CUSTOMER_INVOICE',
+    'SUPPLIER_INVOICE',
+    'INVENTORY_PURCHASE',
+    'OTHER',
+] as const
+export type FicoTaxApplicationType = (typeof FICO_TAX_APPLICATION_TYPES)[number]
+
+export const FICO_TAX_AUDIT_ACTIONS = {
+    TAX_CODE_CREATE: 'TAX_CODE_CREATE',
+    TAX_CODE_UPDATE: 'TAX_CODE_UPDATE',
+    TAX_CODE_ACTIVATE: 'TAX_CODE_ACTIVATE',
+    TAX_CODE_DEACTIVATE: 'TAX_CODE_DEACTIVATE',
+    TAX_CODE_DELETE: 'TAX_CODE_DELETE',
+    TAX_CODE_RATE_CREATE: 'TAX_CODE_RATE_CREATE',
+    TAX_CODE_RATE_UPDATE: 'TAX_CODE_RATE_UPDATE',
+    TAX_CODE_RATE_DEACTIVATE: 'TAX_CODE_RATE_DEACTIVATE',
+    TAX_CODE_DUPLICATE: 'TAX_CODE_DUPLICATE',
+} as const
+
+export function isFicoTaxCodeCategory(value: string): value is FicoTaxCodeCategory {
+    return (FICO_TAX_CODE_CATEGORIES as readonly string[]).includes(value)
+}
+
+export function isFicoTaxCodeType(value: string): value is FicoTaxCodeType {
+    return (FICO_TAX_CODE_TYPES as readonly string[]).includes(value)
+}
+
+export function isFicoTaxCodeStatus(value: string): value is FicoTaxCodeStatus {
+    return (FICO_TAX_CODE_STATUSES as readonly string[]).includes(value)
+}
+
+export function isFicoTaxRateUnit(value: string): value is FicoTaxRateUnit {
+    return (FICO_TAX_RATE_UNITS as readonly string[]).includes(value)
+}
+
+export function isFicoTaxCalculationMethod(value: string): value is FicoTaxCalculationMethod {
+    return (FICO_TAX_CALCULATION_METHODS as readonly string[]).includes(value)
+}
+
+export function isFicoTaxRoundingMethod(value: string): value is FicoTaxRoundingMethod {
+    return (FICO_TAX_ROUNDING_METHODS as readonly string[]).includes(value)
+}
+
+export function isFicoTaxRoundingLevel(value: string): value is FicoTaxRoundingLevel {
+    return (FICO_TAX_ROUNDING_LEVELS as readonly string[]).includes(value)
+}
+
+export function isFicoTaxRateStatus(value: string): value is FicoTaxRateStatus {
+    return (FICO_TAX_RATE_STATUSES as readonly string[]).includes(value)
+}

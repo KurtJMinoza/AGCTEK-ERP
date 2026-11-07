@@ -15,6 +15,7 @@ const FICO_SUBMODULES = [
     'company-settings',
     'fiscal-periods',
     'number-ranges',
+    'tax-codes',
 ]
 export default async function Page() {
     return (

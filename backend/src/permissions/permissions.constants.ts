@@ -548,6 +548,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Number Ranges',
             'Document number ranges for accounting and financial documents.',
         ],
+        [
+            'tax-codes',
+            'Tax Codes',
+            'Tax codes, rates, calculation, and G/L account mappings for financial documents.',
+        ],
     ]),
     ...group('scm', [
         [
