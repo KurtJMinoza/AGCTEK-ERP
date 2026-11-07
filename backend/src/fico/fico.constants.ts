@@ -130,11 +130,77 @@ export const FICO_SETTINGS_STRUCTURAL_FIELDS = [
     'postingPeriodVariantId',
 ] as const
 
+/**
+ * Default G/L account slots configured on the company accounting settings.
+ * `expectedType` drives a validation warning (never a hard block) so a chart
+ * that classifies an account differently can still be configured.
+ */
+export const FICO_DEFAULT_ACCOUNT_SLOTS = [
+    {
+        key: 'defaultRetainedEarningsAccountId',
+        relation: 'defaultRetainedEarningsAccount',
+        label: 'Default retained earnings',
+        expectedType: 'EQUITY',
+    },
+    {
+        key: 'defaultCashAccountId',
+        relation: 'defaultCashAccount',
+        label: 'Default cash',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultReceivableAccountId',
+        relation: 'defaultReceivableAccount',
+        label: 'Default accounts receivable',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultPayableAccountId',
+        relation: 'defaultPayableAccount',
+        label: 'Default accounts payable',
+        expectedType: 'LIABILITY',
+    },
+    {
+        key: 'defaultInventoryAccountId',
+        relation: 'defaultInventoryAccount',
+        label: 'Default inventory',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultSalesRevenueAccountId',
+        relation: 'defaultSalesRevenueAccount',
+        label: 'Default sales revenue',
+        expectedType: 'REVENUE',
+    },
+    {
+        key: 'defaultCostOfGoodsSoldAccountId',
+        relation: 'defaultCostOfGoodsSoldAccount',
+        label: 'Default cost of goods sold',
+        expectedType: 'EXPENSE',
+    },
+    {
+        key: 'defaultTaxInputAccountId',
+        relation: 'defaultTaxInputAccount',
+        label: 'Default tax input',
+        expectedType: 'ASSET',
+    },
+    {
+        key: 'defaultTaxOutputAccountId',
+        relation: 'defaultTaxOutputAccount',
+        label: 'Default tax output',
+        expectedType: 'LIABILITY',
+    },
+] as const
+
+export type FicoDefaultAccountSlot =
+    (typeof FICO_DEFAULT_ACCOUNT_SLOTS)[number]['key']
+
 export const FICO_AUDIT_ACTIONS = {
     COMPANY_SETTINGS_CREATE: 'COMPANY_SETTINGS_CREATE',
     COMPANY_SETTINGS_UPDATE: 'COMPANY_SETTINGS_UPDATE',
     COMPANY_SETTINGS_ACTIVATE: 'COMPANY_SETTINGS_ACTIVATE',
     COMPANY_SETTINGS_DEACTIVATE: 'COMPANY_SETTINGS_DEACTIVATE',
+    COMPANY_SETTINGS_DELETE: 'COMPANY_SETTINGS_DELETE',
     CHART_CREATE: 'CHART_CREATE',
     CHART_UPDATE: 'CHART_UPDATE',
     CHART_DUPLICATE: 'CHART_DUPLICATE',
@@ -164,6 +230,7 @@ export const FICO_AUDIT_ACTIONS = {
     PERIOD_LOCK: 'PERIOD_LOCK',
     PERIOD_REOPEN: 'PERIOD_REOPEN',
     PERIOD_UNLOCK: 'PERIOD_UNLOCK',
+    PERIOD_UPDATE: 'PERIOD_UPDATE',
     JOURNAL_POST: 'JOURNAL_POST',
     JOURNAL_REVERSE: 'JOURNAL_REVERSE',
 } as const
@@ -182,3 +249,68 @@ export function isFicoAccountType(value: string): value is FicoAccountType {
 export function isFicoPeriodStatus(value: string): value is FicoPeriodStatus {
     return (FICO_PERIOD_STATUSES as readonly string[]).includes(value)
 }
+
+/**
+ * Business modules that can own an auto-posting. The raw `sourceModule` stored
+ * on `mm_accounting_events` is the granular producer stream (STOCK_OPS,
+ * INBOUND, VALUATION, …); the posting monitor groups those streams into the
+ * module an operator recognises and can filter on.
+ */
+export const FICO_POSTING_MODULES = ['MM', 'SD', 'PP', 'OTHER'] as const
+export type FicoPostingModule = (typeof FICO_POSTING_MODULES)[number]
+
+export const FICO_POSTING_MODULE_LABELS: Record<FicoPostingModule, string> = {
+    MM: 'Materials Management',
+    SD: 'Sales & Distribution',
+    PP: 'Production Planning',
+    OTHER: 'Other sources',
+}
+
+export const FICO_POSTING_MODULE_SOURCES: Record<
+    Exclude<FicoPostingModule, 'OTHER'>,
+    readonly string[]
+> = {
+    MM: [
+        'MM',
+        'STOCK_OPS',
+        'INVENTORY',
+        'INVENTORY_CONTROL',
+        'INBOUND',
+        'QUALITY',
+        'VALUATION',
+        'WAREHOUSE',
+        'RETURNS_DISPOSAL',
+        'THREE_WAY_MATCH',
+        'MATERIAL_MASTER',
+    ],
+    SD: ['SD'],
+    PP: ['PP', 'PRODUCTION'],
+}
+
+/** Owning module for a stored source stream; anything unlisted is `OTHER`. */
+export function ficoPostingModuleOf(
+    sourceModule: string | null | undefined,
+): FicoPostingModule {
+    const code = sourceModule?.trim().toUpperCase()
+    if (!code) return 'OTHER'
+    for (const [module, sources] of Object.entries(FICO_POSTING_MODULE_SOURCES)) {
+        if (sources.includes(code)) return module as FicoPostingModule
+    }
+    return 'OTHER'
+}
+
+/** Source streams behind a module filter; `null` means "everything else". */
+export function ficoPostingModuleSources(
+    module: string,
+): readonly string[] | null {
+    const key = module.trim().toUpperCase()
+    if (key === 'OTHER') return null
+    return (
+        FICO_POSTING_MODULE_SOURCES[key as Exclude<FicoPostingModule, 'OTHER'>] ?? null
+    )
+}
+
+/** Every source stream claimed by a known module. */
+export const FICO_POSTING_MODULE_KNOWN_SOURCES = Object.values(
+    FICO_POSTING_MODULE_SOURCES,
+).flat()

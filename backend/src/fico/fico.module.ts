@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common'
 import { FINANCIAL_PERIOD_PORT } from '../mm/integration/fico/financial-period.port'
 import { FicoAccountingConsumerService } from './fico-accounting-consumer.service'
+import { FicoAccountDeterminationController } from './fico-account-determination.controller'
+import { FicoAccountDeterminationRulesService } from './fico-account-determination-rules.service'
 import { FicoAccountDeterminationService } from './fico-account-determination.service'
+import { FicoAccountResolutionService } from './fico-account-resolution.service'
+import { FicoAccountMappingService } from './fico-account-mapping.service'
+import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
@@ -26,6 +31,7 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
     controllers: [
         FicoController,
         FicoPhase1Controller,
+        FicoAccountDeterminationController,
         DocumentTypesController,
         JournalEntryController,
     ],
@@ -34,6 +40,10 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoFinancialPeriodAdapter,
         FicoJournalService,
         FicoAccountDeterminationService,
+        FicoAccountDeterminationRulesService,
+        FicoAccountResolutionService,
+        FicoAccountMappingService,
+        FicoAccountingEventsService,
         FicoAccountingConsumerService,
         FicoReconciliationService,
         FicoAuditService,
@@ -57,6 +67,8 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoFinancialPeriodAdapter,
         FicoJournalService,
         FicoAccountDeterminationService,
+        FicoAccountDeterminationRulesService,
+        FicoAccountResolutionService,
         FicoReconciliationService,
         FicoAuditService,
         FicoCompanyAccessService,

@@ -331,6 +331,7 @@ model Company {
   ficoCompanyGlAccounts         FicoCompanyGlAccount[]
   ficoAccountDeterminationProfiles FicoAccountDeterminationProfile[]
   ficoMmAccountMappings         FicoMmAccountMapping[]
+  ficoAccountDeterminationRules FicoAccountDeterminationRule[]
   ficoPostingPeriodControls     FicoPostingPeriodControl[]
   ficoPostingPeriodAuditLogs    FicoPostingPeriodAuditLog[]
   ficoJournalEntryLines         FicoJournalEntryLine[]
@@ -1066,6 +1067,7 @@ model MmMaterialType {
   updatedAt   DateTime     @updatedAt
   deletedAt   DateTime?
   materials   MmMaterial[]
+  accountDeterminationRules FicoAccountDeterminationRule[] @relation("FicoRuleMaterialType")
 
   @@map("mm_material_types")
 }
@@ -1163,6 +1165,7 @@ model MmValuationClass {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   materials MmMaterial[]
+  accountDeterminationRules FicoAccountDeterminationRule[] @relation("FicoRuleValuationClass")
 
   @@map("mm_valuation_classes")
 }
@@ -3817,6 +3820,7 @@ model FicoFinancialPeriod {
   fiscalYear         Int
   periodNumber       Int
   name               String                         @default("")
+  remarks            String?
   periodType         String                         @default("NORMAL") // NORMAL | SPECIAL
   startDate          DateTime                       @db.Date
   endDate            DateTime                       @db.Date
@@ -3826,6 +3830,10 @@ model FicoFinancialPeriod {
   isYearEndAdjustment Boolean                       @default(false)
   closeChecklist     Json?
   statusReason       String?
+  closingDate        DateTime?                      @db.Date
+  lockDate           DateTime?                      @db.Date
+  reopenedAt         DateTime?
+  reopenedBy         String?
   openedAt           DateTime?
   openedBy           String?
   restrictedAt       DateTime?
@@ -3854,17 +3862,22 @@ model FiDocumentType {
   id                String             @id @default(cuid())
   code              String             @unique
   name              String
+  category          String             @default("GENERAL")
   prefix            String?
+  padding           Int?
   numberRangeFrom   Int                @default(1)
   numberRangeTo     Int                @default(999999999)
   nextNumber        Int                @default(1)
   allowsManualEntry Boolean            @default(true)
+  allowsReversal    Boolean            @default(true)
+  isSystem          Boolean            @default(false)
   isActive          Boolean            @default(true)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   journalEntries    FicoJournalEntry[]
 
   @@index([isActive])
+  @@index([category])
   @@map("fico_document_types")
 }
 
@@ -3926,6 +3939,7 @@ model FicoCompanyAccountingSettings {
   company                       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   legalName                     String   @default("")
   baseCurrency                  String   @default("PHP") @db.VarChar(3)
+  groupCurrency                 String?  @db.VarChar(3)
   countryCode                   String   @default("PH") @db.VarChar(2)
   timezone                      String   @default("Asia/Manila")
   accountingMethod              String   @default("ACCRUAL") // ACCRUAL | CASH
@@ -3942,9 +3956,30 @@ model FicoCompanyAccountingSettings {
   taxRegistrationNumber         String?
   taxJurisdiction               String?
   defaultTaxCode                String?
+  defaultRetainedEarningsAccountId String?
+  defaultRetainedEarningsAccount FicoGlAccount? @relation("FicoDefaultRetainedEarnings", fields: [defaultRetainedEarningsAccountId], references: [id], onDelete: Restrict)
+  defaultCashAccountId          String?
+  defaultCashAccount            FicoGlAccount? @relation("FicoDefaultCash", fields: [defaultCashAccountId], references: [id], onDelete: Restrict)
+  defaultReceivableAccountId    String?
+  defaultReceivableAccount      FicoGlAccount? @relation("FicoDefaultReceivable", fields: [defaultReceivableAccountId], references: [id], onDelete: Restrict)
+  defaultPayableAccountId       String?
+  defaultPayableAccount         FicoGlAccount? @relation("FicoDefaultPayable", fields: [defaultPayableAccountId], references: [id], onDelete: Restrict)
+  defaultInventoryAccountId     String?
+  defaultInventoryAccount       FicoGlAccount? @relation("FicoDefaultInventory", fields: [defaultInventoryAccountId], references: [id], onDelete: Restrict)
+  defaultSalesRevenueAccountId  String?
+  defaultSalesRevenueAccount    FicoGlAccount? @relation("FicoDefaultSalesRevenue", fields: [defaultSalesRevenueAccountId], references: [id], onDelete: Restrict)
+  defaultCostOfGoodsSoldAccountId String?
+  defaultCostOfGoodsSoldAccount FicoGlAccount? @relation("FicoDefaultCostOfGoodsSold", fields: [defaultCostOfGoodsSoldAccountId], references: [id], onDelete: Restrict)
+  defaultTaxInputAccountId      String?
+  defaultTaxInputAccount        FicoGlAccount? @relation("FicoDefaultTaxInput", fields: [defaultTaxInputAccountId], references: [id], onDelete: Restrict)
+  defaultTaxOutputAccountId     String?
+  defaultTaxOutputAccount       FicoGlAccount? @relation("FicoDefaultTaxOutput", fields: [defaultTaxOutputAccountId], references: [id], onDelete: Restrict)
   documentNumberPrefix          String   @default("JE")
   documentNumberPadding         Int      @default(6)
   closeChecklist                Json?
+  allowNegativePostings         Boolean  @default(false)
+  backdatedPostingAllowed       Boolean  @default(true)
+  maxBackdatedPostingDays       Int?
   activatedAt                   DateTime?
   activatedBy                   String?
   deactivatedAt                 DateTime?
@@ -4033,6 +4068,16 @@ model FicoGlAccount {
   journalLines          FicoJournalEntryLine[]
   debitMappings         FicoMmAccountMapping[]  @relation("FicoMappingDebit")
   creditMappings        FicoMmAccountMapping[]  @relation("FicoMappingCredit")
+  determinationLines      FicoAccountDeterminationLine[] @relation("FicoRuleLineGlAccount")
+  defaultRetainedEarningsSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultRetainedEarnings")
+  defaultCashSettings            FicoCompanyAccountingSettings[] @relation("FicoDefaultCash")
+  defaultReceivableSettings      FicoCompanyAccountingSettings[] @relation("FicoDefaultReceivable")
+  defaultPayableSettings         FicoCompanyAccountingSettings[] @relation("FicoDefaultPayable")
+  defaultInventorySettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultInventory")
+  defaultSalesRevenueSettings    FicoCompanyAccountingSettings[] @relation("FicoDefaultSalesRevenue")
+  defaultCostOfGoodsSoldSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultCostOfGoodsSold")
+  defaultTaxInputSettings        FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxInput")
+  defaultTaxOutputSettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxOutput")
 
   @@unique([chartOfAccountsId, accountCode])
   @@index([chartOfAccountsId])
@@ -4140,6 +4185,7 @@ model FicoTransactionKey {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   mappings             FicoMmAccountMapping[]
+  determinationRules     FicoAccountDeterminationRule[] @relation("FicoDeterminationRuleKey")
 
   @@index([status, sortOrder])
   @@map("fico_transaction_keys")
@@ -4173,6 +4219,81 @@ model FicoMmAccountMapping {
   @@index([debitAccountId])
   @@index([creditAccountId])
   @@map("fico_mm_account_mappings")
+}
+
+/// Phase 1 — centralized G/L account determination rule (MM + SD + PP).
+/// Only ACTIVE rules effective on the posting date can be resolved; DRAFT,
+/// PENDING_APPROVAL, APPROVED, REJECTED and INACTIVE rules never post.
+model FicoAccountDeterminationRule {
+  id                   String                         @id @default(cuid())
+  /// Human-facing unique determination code (e.g. MM-001, SD-002).
+  determinationCode    String                         @unique
+  name                 String
+  description          String                         @default("")
+  companyId            String
+  company              Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// MM | SD | PP — Phase 1 scope.
+  sourceModule         String
+  transactionType      String
+  /// Optional MM link to the catalogue key (GR_IR, GI_COGS, …).
+  transactionKeyCode   String?
+  transactionKey       FicoTransactionKey?            @relation("FicoDeterminationRuleKey", fields: [transactionKeyCode], references: [code], onDelete: Restrict)
+  /// Lower number wins between equally specific rules.
+  priority             Int                            @default(100)
+  effectiveFrom        DateTime?                      @db.Date
+  effectiveTo          DateTime?                      @db.Date
+  status               String                         @default("DRAFT")
+  valuationClassId     String?
+  valuationClass       MmValuationClass?              @relation("FicoRuleValuationClass", fields: [valuationClassId], references: [id], onDelete: Restrict)
+  materialTypeCode     String?
+  materialType         MmMaterialType?                @relation("FicoRuleMaterialType", fields: [materialTypeCode], references: [code], onDelete: Restrict)
+  movementType         String?
+  customerAccountGroup String?
+  salesOrganization    String?
+  distributionChannel  String?
+  changeReason         String?
+  submittedBy          String?
+  submittedAt          DateTime?
+  approvedBy           String?
+  approvedAt           DateTime?
+  rejectedBy           String?
+  rejectedAt           DateTime?
+  rejectionReason      String?
+  activatedBy          String?
+  activatedAt          DateTime?
+  deactivatedBy        String?
+  deactivatedAt        DateTime?
+  createdBy            String?
+  updatedBy            String?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+  lines                FicoAccountDeterminationLine[]
+
+  @@index([companyId, sourceModule, transactionType, status])
+  @@index([companyId, sourceModule, status, priority])
+  @@index([valuationClassId])
+  @@index([materialTypeCode])
+  @@map("fico_account_determination_rules")
+}
+
+/// Phase 1 — debit/credit lines of a determination rule. Multiple lines per
+/// side are supported (e.g. billing: AR / revenue / output tax).
+model FicoAccountDeterminationLine {
+  id          String                       @id @default(cuid())
+  ruleId      String
+  rule        FicoAccountDeterminationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  lineNumber  Int
+  /// DEBIT | CREDIT
+  side        String
+  glAccountId String
+  glAccount   FicoGlAccount                @relation("FicoRuleLineGlAccount", fields: [glAccountId], references: [id], onDelete: Restrict)
+  description String?
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+
+  @@unique([ruleId, lineNumber])
+  @@index([glAccountId])
+  @@map("fico_account_determination_lines")
 }
 
 /// Phase 1 — per-period, per-account-type posting controls.

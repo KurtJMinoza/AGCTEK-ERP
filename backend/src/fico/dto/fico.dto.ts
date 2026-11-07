@@ -85,13 +85,13 @@ export class CreateJournalLineDto {
     glAccountId!: string
 
     @IsOptional()
-    @IsNumber({}, { allowString: true })
+    @IsNumber()
     @Transform(({ value }) => (typeof value === 'string' ? Number(value) : value))
     @Min(0)
     debitAmount?: number
 
     @IsOptional()
-    @IsNumber({}, { allowString: true })
+    @IsNumber()
     @Transform(({ value }) => (typeof value === 'string' ? Number(value) : value))
     @Min(0)
     creditAmount?: number
