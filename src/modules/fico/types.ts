@@ -679,3 +679,419 @@ export type FicoNumberRangeNextNumberResult = {
     documentReference: string | null
     assignedAt: string
 }
+
+// ============================================================================
+// FICO Phase 2 — Tax Codes Types
+// ============================================================================
+
+export type FicoTaxCodeCategory =
+    | 'SALES_TAX'
+    | 'PURCHASE_TAX'
+    | 'INPUT_TAX'
+    | 'OUTPUT_TAX'
+    | 'WITHHOLDING_TAX'
+    | 'OTHER_TAX'
+
+export type FicoTaxCodeType =
+    | 'VAT'
+    | 'PERCENTAGE_TAX'
+    | 'WITHHOLDING_TAX'
+    | 'ZERO_RATED_TAX'
+    | 'EXEMPT_TAX'
+    | 'NON_TAXABLE'
+    | 'OTHER_TAX'
+
+export type FicoTaxCodeStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE'
+
+export type FicoTaxCodeEffectiveStatus =
+    | FicoTaxCodeStatus
+    | 'SCHEDULED'
+    | 'EXPIRED'
+
+export type FicoTaxRateUnit = 'PERCENTAGE' | 'FIXED_AMOUNT'
+
+export type FicoTaxCalculationMethod = 'TAX_EXCLUSIVE' | 'TAX_INCLUSIVE' | 'NOT_APPLICABLE'
+
+export type FicoTaxRoundingMethod = 'HALF_UP' | 'HALF_DOWN' | 'HALF_EVEN' | 'UP' | 'DOWN'
+
+export type FicoTaxRoundingLevel = 'PER_LINE_ITEM' | 'PER_DOCUMENT'
+
+export type FicoTaxRateStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'SCHEDULED'
+
+export type FicoTaxRate = {
+    id: string
+    taxCodeId: string
+    companyId: string
+    rate: number
+    rateUnit: FicoTaxRateUnit
+    effectiveFrom: string
+    effectiveTo: string | null
+    description: string | null
+    status: FicoTaxRateStatus
+    effectiveStatus?: FicoTaxRateStatus
+    createdBy: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type FicoTaxCode = {
+    id: string
+    companyId: string | null
+    company?: {
+        id: string
+        code: string
+        name: string
+    } | null
+    code: string
+    name: string
+    description: string | null
+    taxCategory: FicoTaxCodeCategory
+    taxType: FicoTaxCodeType
+    taxJurisdiction: string | null
+    countryCode: string | null
+    calculationMethod: FicoTaxCalculationMethod
+    rateUnit: FicoTaxRateUnit
+    roundingMethod: FicoTaxRoundingMethod
+    decimalPrecision: number
+    roundingLevel: FicoTaxRoundingLevel
+    calculationPriority: number
+    isSalesApplicable: boolean
+    isPurchaseApplicable: boolean
+    isServiceApplicable: boolean
+    isInventoryApplicable: boolean
+    isRecoverable: boolean
+    inputTaxGlAccountId: string | null
+    inputTaxGlAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+        status: string
+    } | null
+    outputTaxGlAccountId: string | null
+    outputTaxGlAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+        status: string
+    } | null
+    withholdingPayableGlAccountId: string | null
+    withholdingPayableGlAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+        status: string
+    } | null
+    withholdingReceivableGlAccountId: string | null
+    withholdingReceivableGlAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+        status: string
+    } | null
+    nonRecoverableTaxGlAccountId: string | null
+    nonRecoverableTaxGlAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+        status: string
+    } | null
+    status: FicoTaxCodeStatus
+    remarks: string | null
+    createdBy: string | null
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+    taxRates?: FicoTaxRate[]
+    rateCount?: number
+    effectiveStatus?: FicoTaxCodeEffectiveStatus
+    currentRate?: FicoTaxRate | null
+    nextRate?: FicoTaxRate | null
+    latestRate?: FicoTaxRate | null
+    effectiveFrom?: string | null
+    effectiveTo?: string | null
+    effectiveRate?: number | null
+    effectiveRateUnit?: FicoTaxRateUnit
+}
+
+export type FicoTaxCodeSummary = {
+    total: number
+    active: number
+    inactive: number
+    draft: number
+    expired: number
+    scheduled: number
+    upcomingRateChanges: number
+    generatedAt: string
+}
+
+export type FicoTaxCodeHistoryActor = {
+    id: string
+    name: string | null
+    email: string | null
+    userName: string | null
+}
+
+export type FicoTaxCodeHistoryItem = FicoTaxCodeAuditEntry & {
+    taxCodeId: string
+    performer?: FicoTaxCodeHistoryActor | null
+}
+
+export type FicoTaxCodeHistoryResponse = {
+    items: FicoTaxCodeHistoryItem[]
+    total: number
+    page: number
+    pageSize: number
+    taxCode: {
+        id: string
+        code: string
+        name: string
+        companyId: string | null
+    }
+    actions: string[]
+    actors?: FicoTaxCodeHistoryActor[]
+}
+
+export type FicoTaxRateListResponse = {
+    items: FicoTaxRate[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoTaxCodeListResponse = {
+    items: FicoTaxCode[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoTaxCodeListQuery = {
+    companyId?: string
+    search?: string
+    status?: string
+    taxCategory?: string
+    taxType?: string
+    taxJurisdiction?: string
+    countryCode?: string
+    calculationMethod?: string
+    effectiveDate?: string
+    transactionType?: string
+    page?: number
+    pageSize?: number
+}
+
+export type FicoTaxCalculationBreakdown = {
+    componentName: string
+    lineRate: number
+    taxAmount: number
+    recoverableAmount: number
+    nonRecoverableAmount: number
+}
+
+export type FicoTaxCalculationResult = {
+    taxCodeId: string
+    taxCode: string
+    companyId: string
+    transactionDate: string
+    transactionType: string
+    netAmount: number
+    taxableBase: number
+    taxRate: number
+    rateUnit: string
+    taxAmount: number
+    grossAmount: number
+    recoverableTax: number
+    nonRecoverableTax: number
+    calculationMethod: string
+    classification:
+        | 'STANDARD'
+        | 'ZERO_RATED'
+        | 'EXEMPT'
+        | 'NON_TAXABLE'
+        | 'WITHHOLDING'
+    taxType: string
+    appliedRateId: string | null
+    appliedRateEffectiveFrom: string | null
+    appliedRateEffectiveTo: string | null
+    breakdown: FicoTaxCalculationBreakdown[]
+}
+
+export type FicoTaxCodeAuditEntry = {
+    id: string
+    companyId: string
+    actorId: string | null
+    action: string
+    entityType: string
+    entityId: string | null
+    previousValues: Record<string, unknown> | null
+    newValues: Record<string, unknown> | null
+    reason: string | null
+    metadata: Record<string, unknown> | null
+    createdAt: string
+}
+
+// ============================================================================
+// FICO Phase 2 - Document Types
+// ============================================================================
+
+export type FicoDocumentCategory =
+    | 'GENERAL_JOURNAL'
+    | 'ADJUSTMENT'
+    | 'VENDOR_INVOICE'
+    | 'VENDOR_CREDIT'
+    | 'VENDOR_PAYMENT'
+    | 'CUSTOMER_INVOICE'
+    | 'CUSTOMER_CREDIT'
+    | 'CUSTOMER_RECEIPT'
+    | 'ASSET_ACCOUNTING'
+    | 'REVERSAL'
+    | 'INVENTORY_ACCOUNTING'
+    | 'SALES_ACCOUNTING'
+    | 'OTHER'
+
+export type FicoDocumentAccountType =
+    | 'GL_ACCOUNT'
+    | 'VENDOR'
+    | 'CUSTOMER'
+    | 'ASSET'
+    | 'BANK'
+    | 'INVENTORY'
+
+export type FicoDocumentTypeStatus = 'ACTIVE' | 'INACTIVE'
+export type FicoDocumentNumberAssignment = 'INTERNAL' | 'EXTERNAL'
+
+export type FicoDocumentNumberRange = {
+    id: string
+    rangeCode: string
+    rangeName: string
+    documentCategory: string
+    numberingMethod: string
+    allowExternalAssignment: boolean
+    validFrom: string | null
+    validTo: string | null
+    status: string
+}
+
+export type FicoDocumentTypeUsage = {
+    journalEntries: number
+    documentSequences: number
+    reversalReferences: number
+    canDelete: boolean
+}
+
+export type FicoDocumentType = {
+    id: string
+    companyId: string
+    company?: {
+        id: string
+        code: string
+        name: string
+    }
+    code: string
+    name: string
+    description: string | null
+    documentCategory: FicoDocumentCategory | string
+    numberRangeId: string | null
+    numberRange?: FicoDocumentNumberRange | null
+    numberAssignment: FicoDocumentNumberAssignment
+    externalNumberAllowed: boolean
+    numberRangeRequired: boolean
+    allowedAccountTypes: FicoDocumentAccountType[] | string[]
+    debitPostingAllowed: boolean
+    creditPostingAllowed: boolean
+    negativePostingAllowed: boolean
+    reversalAllowed: boolean
+    reversalDocumentTypeId: string | null
+    reversalDocumentType?: {
+        id: string
+        code: string
+        name: string
+        status: string
+    } | null
+    originalDocumentReferenceRequired: boolean
+    reversalReasonRequired: boolean
+    referenceRequired: boolean
+    headerTextRequired: boolean
+    lineTextRequired: boolean
+    status: FicoDocumentTypeStatus
+    remarks: string | null
+    createdBy: string | null
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+    usage?: FicoDocumentTypeUsage
+}
+
+export type FicoDocumentTypeSummary = {
+    total: number
+    active: number
+    inactive: number
+    categories: number
+    reversalAllowed: number
+    generatedAt: string
+}
+
+export type FicoDocumentTypeReferenceOption = {
+    value: string
+    label: string
+}
+
+export type FicoDocumentTypeReferenceData = {
+    categories: FicoDocumentTypeReferenceOption[]
+    accountTypes: FicoDocumentTypeReferenceOption[]
+    numberAssignments: FicoDocumentTypeReferenceOption[]
+    statuses: FicoDocumentTypeReferenceOption[]
+}
+
+export type FicoDocumentTypeListQuery = {
+    companyId: string
+    search?: string
+    status?: string
+    documentCategory?: string
+    reversalAllowed?: string
+    numberRangeId?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
+    page?: number
+    pageSize?: number
+}
+
+export type FicoDocumentTypeListResponse = {
+    items: FicoDocumentType[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoDocumentTypeHistoryItem = {
+    id: string
+    companyId: string | null
+    actorId: string | null
+    action: string
+    entityType: string
+    entityId: string | null
+    previousValues: Record<string, unknown> | null
+    newValues: Record<string, unknown> | null
+    reason: string | null
+    metadata: Record<string, unknown> | null
+    createdAt: string
+    performer?: {
+        id: string
+        email: string
+        userName: string
+        firstName: string
+        lastName: string
+    } | null
+}
+
+export type FicoDocumentTypeHistoryResponse = {
+    items: FicoDocumentTypeHistoryItem[]
+    total: number
+    page: number
+    pageSize: number
+}

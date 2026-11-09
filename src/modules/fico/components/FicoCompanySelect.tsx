@@ -106,17 +106,25 @@ export function FicoCompanySelect({
     loading,
     className,
 }: FicoCompanySelectProps) {
-    const options = companies.map((company) => ({
-        value: company.id,
-        label: `${company.code} — ${company.name}`,
-    }))
+    const options = useMemo(
+        () => [
+            { value: '', label: 'All companies' },
+            ...companies.map((company) => ({
+                value: company.id,
+                label: `${company.code} — ${company.name}`,
+            })),
+        ],
+        [companies],
+    )
     return (
         <div className={className ?? 'w-full sm:w-80'}>
             <Select
-                isClearable={false}
+                isClearable={true}
                 isLoading={loading}
                 options={options}
-                value={options.find((option) => option.value === value) ?? null}
+                value={
+                    options.find((option) => option.value === value) ?? null
+                }
                 onChange={(option) =>
                     onChange(
                         (option as { value: string } | null)?.value ?? '',

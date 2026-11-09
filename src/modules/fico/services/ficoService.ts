@@ -11,6 +11,11 @@ import type {
     FicoCompanyGlAccount,
     FicoCompanySettings,
     FicoCompanySettingsRow,
+    FicoDocumentType,
+    FicoDocumentTypeHistoryResponse,
+    FicoDocumentTypeListResponse,
+    FicoDocumentTypeReferenceData,
+    FicoDocumentTypeSummary,
     FicoFiscalVariant,
     FicoFiscalYearPreview,
     FicoFiscalYearSummary,
@@ -18,7 +23,6 @@ import type {
     FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
-    FicoJournalEntry,
     FicoNumberRange,
     FicoNumberRangeLog,
     FicoOverview,
@@ -27,6 +31,13 @@ import type {
     FicoPeriodHistoryEntry,
     FicoPeriodSummary,
     FicoPostingVariant,
+    FicoTaxCode,
+    FicoTaxCodeHistoryResponse,
+    FicoTaxCodeListResponse,
+    FicoTaxCodeSummary,
+    FicoTaxCalculationResult,
+    FicoTaxRate,
+    FicoTaxRateListResponse,
 } from '../types'
 
 const API = '/fico'
@@ -631,6 +642,321 @@ export const ficoNumberRangeService = {
         }>(`${API}/number-ranges/${query.numberRangeId}/history${queryString(query)}`).then(
             (r) => r.data,
         ),
+}
+
+export const ficoTaxService = {
+    list: (query: {
+        companyId?: string
+        search?: string
+        status?: string
+        taxCategory?: string
+        taxType?: string
+        taxJurisdiction?: string
+        countryCode?: string
+        calculationMethod?: string
+        effectiveDate?: string
+        transactionType?: string
+        page?: number
+        pageSize?: number
+    } = {}) =>
+        ErpAxiosBase.get<FicoTaxCodeListResponse>(
+            `${API}/tax-codes${queryString(query)}`,
+        ).then((r) => r.data),
+    summary: (companyId: string) =>
+        ErpAxiosBase.get<FicoTaxCodeSummary>(
+            `${API}/tax-codes/summary${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoTaxCode>(`${API}/tax-codes/${id}`).then(
+            (r) => r.data,
+        ),
+    create: (data: {
+        companyId?: string | null
+        code: string
+        name: string
+        description?: string | null
+        taxCategory: string
+        taxType: string
+        taxJurisdiction?: string | null
+        countryCode?: string | null
+        calculationMethod?: string | null
+        rateUnit?: string | null
+        roundingMethod?: string | null
+        decimalPrecision?: number | null
+        roundingLevel?: string | null
+        calculationPriority?: number | null
+        isSalesApplicable?: boolean | null
+        isPurchaseApplicable?: boolean | null
+        isServiceApplicable?: boolean | null
+        isInventoryApplicable?: boolean | null
+        isRecoverable?: boolean | null
+        inputTaxGlAccountId?: string | null
+        outputTaxGlAccountId?: string | null
+        withholdingPayableGlAccountId?: string | null
+        withholdingReceivableGlAccountId?: string | null
+        nonRecoverableTaxGlAccountId?: string | null
+        initialRate?: number | null
+        initialRateUnit?: string | null
+        effectiveFrom?: string | null
+        effectiveTo?: string | null
+        rateDescription?: string | null
+        status?: string | null
+        remarks?: string | null
+    }) =>
+        ErpAxiosBase.post<FicoTaxCode>(`${API}/tax-codes`, data).then(
+            (r) => r.data,
+        ),
+    update: (
+        id: string,
+        data: {
+            name?: string | null
+            description?: string | null
+            taxJurisdiction?: string | null
+            countryCode?: string | null
+            calculationMethod?: string | null
+            rateUnit?: string | null
+            roundingMethod?: string | null
+            decimalPrecision?: number | null
+            roundingLevel?: string | null
+            calculationPriority?: number | null
+            isSalesApplicable?: boolean | null
+            isPurchaseApplicable?: boolean | null
+            isServiceApplicable?: boolean | null
+            isInventoryApplicable?: boolean | null
+            isRecoverable?: boolean | null
+            inputTaxGlAccountId?: string | null
+            outputTaxGlAccountId?: string | null
+            withholdingPayableGlAccountId?: string | null
+            withholdingReceivableGlAccountId?: string | null
+            nonRecoverableTaxGlAccountId?: string | null
+            status?: string | null
+            remarks?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoTaxCode>(`${API}/tax-codes/${id}`, data).then(
+            (r) => r.data,
+        ),
+    remove: (id: string) =>
+        ErpAxiosBase.delete<{ deleted: boolean }>(
+            `${API}/tax-codes/${id}`,
+        ).then((r) => r.data),
+    activate: (
+        id: string,
+        dto: { companyId: string; taxCodeId: string; reason?: string },
+    ) =>
+        ErpAxiosBase.post<FicoTaxCode>(
+            `${API}/tax-codes/${id}/activate`,
+            dto,
+        ).then((r) => r.data),
+    deactivate: (
+        id: string,
+        dto: { companyId: string; taxCodeId: string; reason?: string },
+    ) =>
+        ErpAxiosBase.post<FicoTaxCode>(
+            `${API}/tax-codes/${id}/deactivate`,
+            dto,
+        ).then((r) => r.data),
+    duplicate: (
+        id: string,
+        data: {
+            companyId?: string
+            code: string
+            name?: string
+            includeRates?: boolean
+        },
+    ) =>
+        ErpAxiosBase.post<{ taxCode: FicoTaxCode; warnings: string[] }>(
+            `${API}/tax-codes/${id}/duplicate`,
+            data,
+        ).then((r) => r.data),
+    history: (
+        taxCodeId: string,
+        query: {
+            search?: string
+            action?: string
+            actorId?: string
+            dateFrom?: string
+            dateTo?: string
+            page?: number
+            pageSize?: number
+        } = {},
+    ) =>
+        ErpAxiosBase.get<FicoTaxCodeHistoryResponse>(
+            `${API}/tax-codes/${taxCodeId}/history${queryString(query)}`,
+        ).then((r) => r.data),
+    listRates: (query: {
+        taxCodeId: string
+        companyId?: string
+        status?: string
+        effectiveFrom?: string
+        effectiveTo?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<FicoTaxRateListResponse>(
+            `${API}/tax-codes/${query.taxCodeId}/rates${queryString(query)}`,
+        ).then((r) => r.data),
+    createRate: (taxCodeId: string, data: {
+        taxCodeId: string
+        companyId: string
+        rate: number
+        rateUnit?: string | null
+        effectiveFrom: string
+        effectiveTo?: string | null
+        description?: string | null
+    }) =>
+        ErpAxiosBase.post<FicoTaxRate>(
+            `${API}/tax-codes/${taxCodeId}/rates`,
+            data,
+        ).then((r) => r.data),
+    updateRate: (
+        taxCodeId: string,
+        rateId: string,
+        data: {
+            rate?: number | null
+            rateUnit?: string | null
+            effectiveFrom?: string | null
+            effectiveTo?: string | null
+            description?: string | null
+            status?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoTaxRate>(
+            `${API}/tax-codes/${taxCodeId}/rates/${rateId}`,
+            data,
+        ).then((r) => r.data),
+    calculate: (data: {
+        taxCodeId: string
+        companyId: string
+        transactionDate: string
+        transactionType: string
+        amount: number | string
+        documentReference?: string | null
+        dryRun?: boolean
+    }) =>
+        ErpAxiosBase.post<FicoTaxCalculationResult>(
+            `${API}/tax-codes/calculate`,
+            data,
+        ).then((r) => r.data),
+    utilization: (id: string) =>
+        ErpAxiosBase.get<{
+            taxCodeId: string
+            taxCode: string
+            taxCodeName: string
+            rateCount: number
+            auditLogCount: number
+            isActive: boolean
+            status: string
+            canDelete: boolean
+        }>(`${API}/tax-codes/${id}/utilization`).then((r) => r.data),
+}
+
+export const ficoDocumentTypeService = {
+    list: (query: {
+        companyId: string
+        search?: string
+        status?: string
+        documentCategory?: string
+        reversalAllowed?: string
+        numberRangeId?: string
+        sortBy?: string
+        sortOrder?: 'asc' | 'desc'
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<FicoDocumentTypeListResponse>(
+            `${API}/document-types${queryString(query)}`,
+        ).then((r) => r.data),
+    summary: (companyId: string) =>
+        ErpAxiosBase.get<FicoDocumentTypeSummary>(
+            `${API}/document-types/summary${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    referenceData: () =>
+        ErpAxiosBase.get<FicoDocumentTypeReferenceData>(
+            `${API}/document-types/reference-data`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+        ).then((r) => r.data),
+    create: (data: {
+        companyId: string
+        code: string
+        name: string
+        description?: string | null
+        documentCategory: string
+        numberRangeId?: string | null
+        numberAssignment?: string
+        externalNumberAllowed?: boolean
+        numberRangeRequired?: boolean
+        allowedAccountTypes: string[]
+        debitPostingAllowed?: boolean
+        creditPostingAllowed?: boolean
+        negativePostingAllowed?: boolean
+        reversalAllowed?: boolean
+        reversalDocumentTypeId?: string | null
+        originalDocumentReferenceRequired?: boolean
+        reversalReasonRequired?: boolean
+        referenceRequired?: boolean
+        headerTextRequired?: boolean
+        lineTextRequired?: boolean
+        status?: string
+        remarks?: string | null
+    }) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types`,
+            data,
+        ).then((r) => r.data),
+    update: (
+        id: string,
+        data: {
+            name?: string
+            description?: string | null
+            documentCategory?: string
+            numberRangeId?: string | null
+            numberAssignment?: string
+            externalNumberAllowed?: boolean
+            numberRangeRequired?: boolean
+            allowedAccountTypes?: string[]
+            debitPostingAllowed?: boolean
+            creditPostingAllowed?: boolean
+            negativePostingAllowed?: boolean
+            reversalAllowed?: boolean
+            reversalDocumentTypeId?: string | null
+            originalDocumentReferenceRequired?: boolean
+            reversalReasonRequired?: boolean
+            referenceRequired?: boolean
+            headerTextRequired?: boolean
+            lineTextRequired?: boolean
+            status?: string
+            remarks?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+            data,
+        ).then((r) => r.data),
+    activate: (id: string, dto: { reason?: string } = {}) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types/${id}/activate`,
+            dto,
+        ).then((r) => r.data),
+    deactivate: (id: string, dto: { reason?: string } = {}) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types/${id}/deactivate`,
+            dto,
+        ).then((r) => r.data),
+    remove: (id: string) =>
+        ErpAxiosBase.delete<{ deleted: boolean }>(
+            `${API}/document-types/${id}`,
+        ).then((r) => r.data),
+    history: (
+        id: string,
+        query: { page?: number; pageSize?: number } = {},
+    ) =>
+        ErpAxiosBase.get<FicoDocumentTypeHistoryResponse>(
+            `${API}/document-types/${id}/history${queryString(query)}`,
+        ).then((r) => r.data),
 }
 
 export function ficoErrorMessage(error: unknown, fallback: string) {

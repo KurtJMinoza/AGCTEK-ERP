@@ -340,6 +340,10 @@ model Company {
   ficoHistoricalBackpostingRuns    FicoHistoricalBackpostingRun[]
   ficoNumberRanges                 FicoNumberRange[]
   ficoNumberRangeLogs              FicoNumberRangeLog[]
+  ficoTaxCodes                     FicoTaxCode[]
+  ficoTaxCodeAuditLogs             FicoTaxCodeAuditLog[]
+  ficoDocumentTypes                FicoDocumentType[]
+  ficoTaxRates                     FicoTaxRate[]
 
   @@map("companies")
 }
@@ -3907,60 +3911,60 @@ model FicoJournalEntry {
 
 /// Phase 1 — every company has exactly one accounting configuration.
 model FicoCompanyAccountingSettings {
-  id                            String                           @id @default(cuid())
-  companyId                     String                           @unique
-  company                       Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  legalName                     String                           @default("")
-  baseCurrency                  String                           @default("PHP") @db.VarChar(3)
-  groupCurrency                 String?                          @db.VarChar(3)
-  countryCode                   String                           @default("PH") @db.VarChar(2)
-  timezone                      String                           @default("Asia/Manila")
-  accountingMethod              String                           @default("ACCRUAL") // ACCRUAL | CASH
-  chartOfAccountsId             String?
-  chartOfAccounts               FicoChartOfAccounts?             @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
-  fiscalYearVariantId           String?
-  fiscalYearVariant             FicoFiscalYearVariant?           @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
-  postingPeriodVariantId        String?
-  postingPeriodVariant          FicoPostingPeriodVariant?        @relation(fields: [postingPeriodVariantId], references: [id], onDelete: Restrict)
-  accountDeterminationProfileId String?                          @unique
-  accountDeterminationProfile   FicoAccountDeterminationProfile? @relation(fields: [accountDeterminationProfileId], references: [id], onDelete: Restrict)
-  status                        String                           @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
-  taxCountryCode                String?                          @db.VarChar(2)
-  taxRegistrationNumber         String?
-  taxJurisdiction               String?
-  defaultTaxCode                String?
+  id                               String                           @id @default(cuid())
+  companyId                        String                           @unique
+  company                          Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  legalName                        String                           @default("")
+  baseCurrency                     String                           @default("PHP") @db.VarChar(3)
+  groupCurrency                    String?                          @db.VarChar(3)
+  countryCode                      String                           @default("PH") @db.VarChar(2)
+  timezone                         String                           @default("Asia/Manila")
+  accountingMethod                 String                           @default("ACCRUAL") // ACCRUAL | CASH
+  chartOfAccountsId                String?
+  chartOfAccounts                  FicoChartOfAccounts?             @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  fiscalYearVariantId              String?
+  fiscalYearVariant                FicoFiscalYearVariant?           @relation(fields: [fiscalYearVariantId], references: [id], onDelete: Restrict)
+  postingPeriodVariantId           String?
+  postingPeriodVariant             FicoPostingPeriodVariant?        @relation(fields: [postingPeriodVariantId], references: [id], onDelete: Restrict)
+  accountDeterminationProfileId    String?                          @unique
+  accountDeterminationProfile      FicoAccountDeterminationProfile? @relation(fields: [accountDeterminationProfileId], references: [id], onDelete: Restrict)
+  status                           String                           @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
+  taxCountryCode                   String?                          @db.VarChar(2)
+  taxRegistrationNumber            String?
+  taxJurisdiction                  String?
+  defaultTaxCode                   String?
   defaultRetainedEarningsAccountId String?
-  defaultRetainedEarningsAccount FicoGlAccount?                   @relation("FicoDefaultRetainedEarnings", fields: [defaultRetainedEarningsAccountId], references: [id], onDelete: Restrict)
-  defaultCashAccountId          String?
-  defaultCashAccount            FicoGlAccount?                   @relation("FicoDefaultCash", fields: [defaultCashAccountId], references: [id], onDelete: Restrict)
-  defaultReceivableAccountId    String?
-  defaultReceivableAccount      FicoGlAccount?                   @relation("FicoDefaultReceivable", fields: [defaultReceivableAccountId], references: [id], onDelete: Restrict)
-  defaultPayableAccountId       String?
-  defaultPayableAccount         FicoGlAccount?                   @relation("FicoDefaultPayable", fields: [defaultPayableAccountId], references: [id], onDelete: Restrict)
-  defaultInventoryAccountId     String?
-  defaultInventoryAccount       FicoGlAccount?                   @relation("FicoDefaultInventory", fields: [defaultInventoryAccountId], references: [id], onDelete: Restrict)
-  defaultSalesRevenueAccountId  String?
-  defaultSalesRevenueAccount    FicoGlAccount?                   @relation("FicoDefaultSalesRevenue", fields: [defaultSalesRevenueAccountId], references: [id], onDelete: Restrict)
-  defaultCostOfGoodsSoldAccountId String?
-  defaultCostOfGoodsSoldAccount FicoGlAccount?                   @relation("FicoDefaultCostOfGoodsSold", fields: [defaultCostOfGoodsSoldAccountId], references: [id], onDelete: Restrict)
-  defaultTaxInputAccountId      String?
-  defaultTaxInputAccount        FicoGlAccount?                   @relation("FicoDefaultTaxInput", fields: [defaultTaxInputAccountId], references: [id], onDelete: Restrict)
-  defaultTaxOutputAccountId     String?
-  defaultTaxOutputAccount       FicoGlAccount?                   @relation("FicoDefaultTaxOutput", fields: [defaultTaxOutputAccountId], references: [id], onDelete: Restrict)
-  documentNumberPrefix          String                           @default("JE")
-  documentNumberPadding         Int                              @default(6)
-  allowNegativePostings         Boolean                          @default(false)
-  backdatedPostingAllowed       Boolean                          @default(true)
-  maxBackdatedPostingDays       Int?
-  closeChecklist                Json?
-  activatedAt                   DateTime?
-  activatedBy                   String?
-  deactivatedAt                 DateTime?
-  deactivatedBy                 String?
-  createdBy                     String?
-  updatedBy                     String?
-  createdAt                     DateTime                         @default(now())
-  updatedAt                     DateTime                         @updatedAt
+  defaultRetainedEarningsAccount   FicoGlAccount?                   @relation("FicoDefaultRetainedEarnings", fields: [defaultRetainedEarningsAccountId], references: [id], onDelete: Restrict)
+  defaultCashAccountId             String?
+  defaultCashAccount               FicoGlAccount?                   @relation("FicoDefaultCash", fields: [defaultCashAccountId], references: [id], onDelete: Restrict)
+  defaultReceivableAccountId       String?
+  defaultReceivableAccount         FicoGlAccount?                   @relation("FicoDefaultReceivable", fields: [defaultReceivableAccountId], references: [id], onDelete: Restrict)
+  defaultPayableAccountId          String?
+  defaultPayableAccount            FicoGlAccount?                   @relation("FicoDefaultPayable", fields: [defaultPayableAccountId], references: [id], onDelete: Restrict)
+  defaultInventoryAccountId        String?
+  defaultInventoryAccount          FicoGlAccount?                   @relation("FicoDefaultInventory", fields: [defaultInventoryAccountId], references: [id], onDelete: Restrict)
+  defaultSalesRevenueAccountId     String?
+  defaultSalesRevenueAccount       FicoGlAccount?                   @relation("FicoDefaultSalesRevenue", fields: [defaultSalesRevenueAccountId], references: [id], onDelete: Restrict)
+  defaultCostOfGoodsSoldAccountId  String?
+  defaultCostOfGoodsSoldAccount    FicoGlAccount?                   @relation("FicoDefaultCostOfGoodsSold", fields: [defaultCostOfGoodsSoldAccountId], references: [id], onDelete: Restrict)
+  defaultTaxInputAccountId         String?
+  defaultTaxInputAccount           FicoGlAccount?                   @relation("FicoDefaultTaxInput", fields: [defaultTaxInputAccountId], references: [id], onDelete: Restrict)
+  defaultTaxOutputAccountId        String?
+  defaultTaxOutputAccount          FicoGlAccount?                   @relation("FicoDefaultTaxOutput", fields: [defaultTaxOutputAccountId], references: [id], onDelete: Restrict)
+  documentNumberPrefix             String                           @default("JE")
+  documentNumberPadding            Int                              @default(6)
+  allowNegativePostings            Boolean                          @default(false)
+  backdatedPostingAllowed          Boolean                          @default(true)
+  maxBackdatedPostingDays          Int?
+  closeChecklist                   Json?
+  activatedAt                      DateTime?
+  activatedBy                      String?
+  deactivatedAt                    DateTime?
+  deactivatedBy                    String?
+  createdBy                        String?
+  updatedBy                        String?
+  createdAt                        DateTime                         @default(now())
+  updatedAt                        DateTime                         @updatedAt
 
   @@index([status])
   @@map("fico_company_accounting_settings")
@@ -4015,42 +4019,47 @@ model FicoGlAccountGroup {
 
 /// Phase 1 — G/L account master data.
 model FicoGlAccount {
-  id                      String                         @id @default(cuid())
-  chartOfAccountsId       String
-  chartOfAccounts         FicoChartOfAccounts            @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
-  accountGroupId          String
-  accountGroup            FicoGlAccountGroup             @relation(fields: [accountGroupId], references: [id], onDelete: Restrict)
-  accountCode             String
-  accountName             String
-  description             String                         @default("")
-  accountType             String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
-  normalBalance           String // DEBIT | CREDIT
-  isPostingAccount        Boolean                        @default(true)
-  allowManualPosting      Boolean                        @default(true)
-  allowAutomaticPosting   Boolean                        @default(true)
-  isReconciliationAccount Boolean                        @default(false)
-  reconciliationType      String?
-  openItemManagement      Boolean                        @default(false)
-  currencyRestriction     String?                        @db.VarChar(3)
-  status                  String                         @default("ACTIVE")
-  createdBy               String?
-  updatedBy               String?
-  createdAt               DateTime                       @default(now())
-  updatedAt               DateTime                       @updatedAt
-  companyAssignments      FicoCompanyGlAccount[]
-  journalLines            FicoJournalEntryLine[]
-  debitMappings           FicoMmAccountMapping[]         @relation("FicoMappingDebit")
-  creditMappings          FicoMmAccountMapping[]         @relation("FicoMappingCredit")
-  determinationLines      FicoAccountDeterminationLine[] @relation("FicoRuleLineGlAccount")
+  id                              String                          @id @default(cuid())
+  chartOfAccountsId               String
+  chartOfAccounts                 FicoChartOfAccounts             @relation(fields: [chartOfAccountsId], references: [id], onDelete: Restrict)
+  accountGroupId                  String
+  accountGroup                    FicoGlAccountGroup              @relation(fields: [accountGroupId], references: [id], onDelete: Restrict)
+  accountCode                     String
+  accountName                     String
+  description                     String                          @default("")
+  accountType                     String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  normalBalance                   String // DEBIT | CREDIT
+  isPostingAccount                Boolean                         @default(true)
+  allowManualPosting              Boolean                         @default(true)
+  allowAutomaticPosting           Boolean                         @default(true)
+  isReconciliationAccount         Boolean                         @default(false)
+  reconciliationType              String?
+  openItemManagement              Boolean                         @default(false)
+  currencyRestriction             String?                         @db.VarChar(3)
+  status                          String                          @default("ACTIVE")
+  createdBy                       String?
+  updatedBy                       String?
+  createdAt                       DateTime                        @default(now())
+  updatedAt                       DateTime                        @updatedAt
+  companyAssignments              FicoCompanyGlAccount[]
+  journalLines                    FicoJournalEntryLine[]
+  debitMappings                   FicoMmAccountMapping[]          @relation("FicoMappingDebit")
+  creditMappings                  FicoMmAccountMapping[]          @relation("FicoMappingCredit")
+  determinationLines              FicoAccountDeterminationLine[]  @relation("FicoRuleLineGlAccount")
   defaultRetainedEarningsSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultRetainedEarnings")
-  defaultCashSettings            FicoCompanyAccountingSettings[] @relation("FicoDefaultCash")
-  defaultReceivableSettings      FicoCompanyAccountingSettings[] @relation("FicoDefaultReceivable")
-  defaultPayableSettings         FicoCompanyAccountingSettings[] @relation("FicoDefaultPayable")
-  defaultInventorySettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultInventory")
-  defaultSalesRevenueSettings    FicoCompanyAccountingSettings[] @relation("FicoDefaultSalesRevenue")
-  defaultCostOfGoodsSoldSettings FicoCompanyAccountingSettings[] @relation("FicoDefaultCostOfGoodsSold")
-  defaultTaxInputSettings        FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxInput")
-  defaultTaxOutputSettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxOutput")
+  defaultCashSettings             FicoCompanyAccountingSettings[] @relation("FicoDefaultCash")
+  defaultReceivableSettings       FicoCompanyAccountingSettings[] @relation("FicoDefaultReceivable")
+  defaultPayableSettings          FicoCompanyAccountingSettings[] @relation("FicoDefaultPayable")
+  defaultInventorySettings        FicoCompanyAccountingSettings[] @relation("FicoDefaultInventory")
+  defaultSalesRevenueSettings     FicoCompanyAccountingSettings[] @relation("FicoDefaultSalesRevenue")
+  defaultCostOfGoodsSoldSettings  FicoCompanyAccountingSettings[] @relation("FicoDefaultCostOfGoodsSold")
+  defaultTaxInputSettings         FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxInput")
+  defaultTaxOutputSettings        FicoCompanyAccountingSettings[] @relation("FicoDefaultTaxOutput")
+  taxCodesInput                   FicoTaxCode[]                   @relation("FicoTaxInput")
+  taxCodesOutput                  FicoTaxCode[]                   @relation("FicoTaxOutput")
+  taxCodeWithholdingPayable       FicoTaxCode[]                   @relation("FicoTaxWHTPayable")
+  taxCodeWithholdingReceivable    FicoTaxCode[]                   @relation("FicoTaxWHTReceivable")
+  taxCodeNonRecoverable           FicoTaxCode[]                   @relation("FicoTaxNonRecoverable")
 
   @@unique([chartOfAccountsId, accountCode])
   @@index([chartOfAccountsId])
@@ -4396,36 +4405,37 @@ model FicoHistoricalBackpostingRun {
 
 /// Phase 2 — company-specific document number ranges.
 model FicoNumberRange {
-  id                String   @id @default(cuid())
-  companyId         String
-  company           Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  rangeCode         String
-  rangeName         String
-  description       String?
-  documentCategory  String
-  assignmentType    String   @default("INTERNAL") // INTERNAL | EXTERNAL
-  numberingMethod   String   @default("INTERNAL") // INTERNAL | EXTERNAL
-  prefix            String   @default("")
-  suffix            String   @default("")
-  startNumber       Int      @default(1)
-  endNumber         Int      @default(999999)
-  currentNumber     Int      @default(1)
-  paddingLength     Int      @default(6)
-  validFrom         DateTime? @db.Date
-  validTo           DateTime? @db.Date
-  fiscalYearId      String?
-  fiscalYear        FicoFiscalYearVariant? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
-  resetFrequency    String   @default("NEVER") // NEVER | ANNUALLY | PER_FISCAL_YEAR
-  allowManualAssignment Boolean @default(true)
-  allowExternalAssignment Boolean @default(false)
-  allowGaps         Boolean @default(false)
-  status            String   @default("ACTIVE") // ACTIVE | INACTIVE | EXHAUSTED
-  remarks           String?
-  createdBy         String?
-  updatedBy         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  numberRangeLogs   FicoNumberRangeLog[]
+  id                      String                 @id @default(cuid())
+  companyId               String
+  company                 Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rangeCode               String
+  rangeName               String
+  description             String?
+  documentCategory        String
+  assignmentType          String                 @default("INTERNAL") // INTERNAL | EXTERNAL
+  numberingMethod         String                 @default("INTERNAL") // INTERNAL | EXTERNAL
+  prefix                  String                 @default("")
+  suffix                  String                 @default("")
+  startNumber             Int                    @default(1)
+  endNumber               Int                    @default(999999)
+  currentNumber           Int                    @default(1)
+  paddingLength           Int                    @default(6)
+  validFrom               DateTime?              @db.Date
+  validTo                 DateTime?              @db.Date
+  fiscalYearId            String?
+  fiscalYear              FicoFiscalYearVariant? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
+  resetFrequency          String                 @default("NEVER") // NEVER | ANNUALLY | PER_FISCAL_YEAR
+  allowManualAssignment   Boolean                @default(true)
+  allowExternalAssignment Boolean                @default(false)
+  allowGaps               Boolean                @default(false)
+  status                  String                 @default("ACTIVE") // ACTIVE | INACTIVE | EXHAUSTED
+  remarks                 String?
+  createdBy               String?
+  updatedBy               String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  numberRangeLogs         FicoNumberRangeLog[]
+  documentTypes           FicoDocumentType[]
 
   @@unique([companyId, rangeCode])
   @@index([companyId, status])
@@ -4436,24 +4446,166 @@ model FicoNumberRange {
 
 /// Phase 2 — number range assignment history (append-only audit).
 model FicoNumberRangeLog {
-  id                String   @id @default(cuid())
+  id                String                 @id @default(cuid())
   numberRangeId     String
-  numberRange       FicoNumberRange @relation(fields: [numberRangeId], references: [id], onDelete: Restrict)
+  numberRange       FicoNumberRange        @relation(fields: [numberRangeId], references: [id], onDelete: Restrict)
   companyId         String
-  company           Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company           Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
   fiscalYearId      String?
   fiscalYear        FicoFiscalYearVariant? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
   generatedNumber   String
   numericSequence   Int
-  assignmentMethod  String   @default("INTERNAL") // INTERNAL | EXTERNAL
+  assignmentMethod  String                 @default("INTERNAL") // INTERNAL | EXTERNAL
   documentReference String?
   assignedBy        String?
-  assignedAt        DateTime @default(now())
+  assignedAt        DateTime               @default(now())
 
   @@index([numberRangeId, assignedAt])
   @@index([companyId, generatedNumber])
   @@index([fiscalYearId])
   @@map("fico_number_range_logs")
+}
+
+/// Phase 2 - accounting document type classification master.
+/// Referenced by journal entry processing, AP, AR, assets, MM and SD postings.
+model FicoDocumentType {
+  id                                String             @id @default(cuid())
+  companyId                         String
+  company                           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code                              String
+  name                              String
+  description                       String?
+  documentCategory                  String
+  numberRangeId                     String?
+  numberRange                       FicoNumberRange?   @relation(fields: [numberRangeId], references: [id], onDelete: Restrict)
+  numberAssignment                  String             @default("INTERNAL") // INTERNAL | EXTERNAL
+  externalNumberAllowed             Boolean            @default(false)
+  numberRangeRequired               Boolean            @default(true)
+  allowedAccountTypes               String[]           @default([])
+  debitPostingAllowed               Boolean            @default(true)
+  creditPostingAllowed              Boolean            @default(true)
+  negativePostingAllowed            Boolean            @default(false)
+  reversalAllowed                   Boolean            @default(true)
+  reversalDocumentTypeId            String?
+  reversalDocumentType              FicoDocumentType?  @relation("FicoDocumentTypeReversal", fields: [reversalDocumentTypeId], references: [id], onDelete: Restrict)
+  reversalDocumentTypes             FicoDocumentType[] @relation("FicoDocumentTypeReversal")
+  originalDocumentReferenceRequired Boolean            @default(false)
+  reversalReasonRequired            Boolean            @default(false)
+  referenceRequired                 Boolean            @default(false)
+  headerTextRequired                Boolean            @default(false)
+  lineTextRequired                  Boolean            @default(false)
+  status                            String             @default("INACTIVE") // ACTIVE | INACTIVE
+  remarks                           String?
+  createdBy                         String?
+  updatedBy                         String?
+  createdAt                         DateTime           @default(now())
+  updatedAt                         DateTime           @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, documentCategory])
+  @@index([numberRangeId])
+  @@index([reversalDocumentTypeId])
+  @@map("fico_document_types")
+}
+
+/// Phase 2 - company-specific tax codes for VAT, withholding, and other taxes.
+model FicoTaxCode {
+  id                               String                @id @default(cuid())
+  companyId                        String?
+  company                          Company?              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code                             String
+  name                             String
+  description                      String?
+  taxCategory                      String // SALES_TAX | PURCHASE_TAX | INPUT_TAX | OUTPUT_TAX | WITHHOLDING_TAX | OTHER_TAX
+  taxType                          String // VAT | PERCENTAGE_TAX | WITHHOLDING_TAX | ZERO_RATED_TAX | EXEMPT_TAX | NON_TAXABLE | OTHER_TAX
+  taxJurisdiction                  String?
+  countryCode                      String?               @db.VarChar(2)
+  calculationMethod                String                @default("TAX_EXCLUSIVE") // TAX_EXCLUSIVE | TAX_INCLUSIVE | NOT_APPLICABLE
+  rateUnit                         String                @default("PERCENTAGE") // PERCENTAGE | FIXED_AMOUNT
+  roundingMethod                   String                @default("HALF_UP") // HALF_UP | HALF_DOWN | HALF_EVEN | UP | DOWN
+  decimalPrecision                 Int                   @default(2)
+  roundingLevel                    String                @default("PER_LINE_ITEM") // PER_LINE_ITEM | PER_DOCUMENT
+  calculationPriority              Int                   @default(0)
+  isSalesApplicable                Boolean               @default(false)
+  isPurchaseApplicable             Boolean               @default(false)
+  isServiceApplicable              Boolean               @default(false)
+  isInventoryApplicable            Boolean               @default(false)
+  isRecoverable                    Boolean               @default(true)
+  inputTaxGlAccountId              String?
+  inputTaxGlAccount                FicoGlAccount?        @relation("FicoTaxInput", fields: [inputTaxGlAccountId], references: [id], onDelete: Restrict)
+  outputTaxGlAccountId             String?
+  outputTaxGlAccount               FicoGlAccount?        @relation("FicoTaxOutput", fields: [outputTaxGlAccountId], references: [id], onDelete: Restrict)
+  withholdingPayableGlAccountId    String?
+  withholdingPayableGlAccount      FicoGlAccount?        @relation("FicoTaxWHTPayable", fields: [withholdingPayableGlAccountId], references: [id], onDelete: Restrict)
+  withholdingReceivableGlAccountId String?
+  withholdingReceivableGlAccount   FicoGlAccount?        @relation("FicoTaxWHTReceivable", fields: [withholdingReceivableGlAccountId], references: [id], onDelete: Restrict)
+  nonRecoverableTaxGlAccountId     String?
+  nonRecoverableTaxGlAccount       FicoGlAccount?        @relation("FicoTaxNonRecoverable", fields: [nonRecoverableTaxGlAccountId], references: [id], onDelete: Restrict)
+  status                           String                @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
+  remarks                          String?
+  createdBy                        String?
+  updatedBy                        String?
+  createdAt                        DateTime              @default(now())
+  updatedAt                        DateTime              @updatedAt
+  taxRates                         FicoTaxRate[]
+  auditLogs                        FicoTaxCodeAuditLog[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, taxCategory])
+  @@index([companyId, taxType])
+  @@index([companyId, isSalesApplicable])
+  @@index([companyId, isPurchaseApplicable])
+  @@index([companyId, taxJurisdiction])
+  @@map("fico_tax_codes")
+}
+
+/// Phase 2 — effective-dated tax rates for a tax code.
+model FicoTaxRate {
+  id            String      @id @default(cuid())
+  taxCodeId     String
+  taxCode       FicoTaxCode @relation(fields: [taxCodeId], references: [id], onDelete: Restrict)
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rate          Decimal     @db.Decimal(18, 6)
+  rateUnit      String      @default("PERCENTAGE") // PERCENTAGE | FIXED_AMOUNT
+  effectiveFrom DateTime    @db.Date
+  effectiveTo   DateTime?   @db.Date
+  description   String?
+  status        String      @default("ACTIVE") // ACTIVE | INACTIVE | EXPIRED | SCHEDULED
+  createdBy     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([taxCodeId, effectiveFrom])
+  @@index([taxCodeId, effectiveTo])
+  @@index([companyId, status])
+  @@index([companyId, rateUnit])
+  @@map("fico_tax_rates")
+}
+
+/// Phase 2 — tax code audit trail (append-only).
+model FicoTaxCodeAuditLog {
+  id             String      @id @default(cuid())
+  taxCodeId      String
+  taxCode        FicoTaxCode @relation(fields: [taxCodeId], references: [id], onDelete: Restrict)
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String?
+  previousValues Json?
+  newValues      Json?
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+
+  @@index([taxCodeId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([action, createdAt])
+  @@map("fico_tax_code_audit_logs")
 }
 
 /// Phase 3A — transactional outbox for MM integration events (all domains).

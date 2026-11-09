@@ -341,11 +341,11 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'document-types-fi',
-                        permissionCode: 'fico.configuration',
-                        title: 'FI Document Types',
+                        permissionCode: 'fico.document-types',
+                        title: 'Document Types',
                         description:
-                            'Configure financial document types and number ranges.',
-                        path: '/modules/fico/document-types-fi',
+                            'Configure accounting document types, numbering, posting controls, and reversal settings.',
+                        path: '/modules/fico/document-types',
                         icon: 'settings',
                     },
                     {
@@ -356,6 +356,15 @@ export const ERP_MODULES: ErpModule[] = [
                             'Configure document number ranges for accounting and financial documents.',
                         path: '/modules/fico/number-ranges',
                         icon: 'settings',
+                    },
+                    {
+                        code: 'tax-codes',
+                        permissionCode: 'fico.tax-codes',
+                        title: 'Tax Codes',
+                        description:
+                            'Configure tax classifications, rates, calculation methods, and General Ledger mappings for financial transactions.',
+                        path: '/modules/fico/tax-codes',
+                        icon: 'receipt',
                     },
                 ],
             },
