@@ -169,9 +169,10 @@ function describeError(error: unknown, fallback: string): string {
     if (Array.isArray(message)) return message.join(', ')
     if (typeof message === 'string' && message.trim()) return message
     if (message && typeof message === 'object') {
+        const errObj = message as { errors?: Array<{ message?: string }> }
         const parts = [
             message.message,
-            ...(data.errors ?? []).map((entry) => entry.message),
+            ...(errObj.errors ?? []).map((entry) => entry.message),
         ].filter((part): part is string => Boolean(part?.trim()))
         if (parts.length) return parts.join(' ')
     }
@@ -464,7 +465,7 @@ export default function TaxCodeCreateModal({
                 if (entry.field && entry.message) {
                     setFieldErrors((previous) => ({
                         ...previous,
-                        [entry.field]: entry.message,
+                        [entry.field as string]: entry.message!,
                     }))
                 }
             })
@@ -527,7 +528,6 @@ export default function TaxCodeCreateModal({
     return (
         <Dialog
             isOpen={isOpen}
-            onOpenAutoFocus={undefined}
             width={1000}
             onClose={onClose}
         >

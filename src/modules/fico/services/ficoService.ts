@@ -11,6 +11,11 @@ import type {
     FicoCompanyGlAccount,
     FicoCompanySettings,
     FicoCompanySettingsRow,
+    FicoDocumentType,
+    FicoDocumentTypeHistoryResponse,
+    FicoDocumentTypeListResponse,
+    FicoDocumentTypeReferenceData,
+    FicoDocumentTypeSummary,
     FicoFiscalVariant,
     FicoFiscalYearPreview,
     FicoFiscalYearSummary,
@@ -844,6 +849,114 @@ export const ficoTaxService = {
             status: string
             canDelete: boolean
         }>(`${API}/tax-codes/${id}/utilization`).then((r) => r.data),
+}
+
+export const ficoDocumentTypeService = {
+    list: (query: {
+        companyId: string
+        search?: string
+        status?: string
+        documentCategory?: string
+        reversalAllowed?: string
+        numberRangeId?: string
+        sortBy?: string
+        sortOrder?: 'asc' | 'desc'
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<FicoDocumentTypeListResponse>(
+            `${API}/document-types${queryString(query)}`,
+        ).then((r) => r.data),
+    summary: (companyId: string) =>
+        ErpAxiosBase.get<FicoDocumentTypeSummary>(
+            `${API}/document-types/summary${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    referenceData: () =>
+        ErpAxiosBase.get<FicoDocumentTypeReferenceData>(
+            `${API}/document-types/reference-data`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+        ).then((r) => r.data),
+    create: (data: {
+        companyId: string
+        code: string
+        name: string
+        description?: string | null
+        documentCategory: string
+        numberRangeId?: string | null
+        numberAssignment?: string
+        externalNumberAllowed?: boolean
+        numberRangeRequired?: boolean
+        allowedAccountTypes: string[]
+        debitPostingAllowed?: boolean
+        creditPostingAllowed?: boolean
+        negativePostingAllowed?: boolean
+        reversalAllowed?: boolean
+        reversalDocumentTypeId?: string | null
+        originalDocumentReferenceRequired?: boolean
+        reversalReasonRequired?: boolean
+        referenceRequired?: boolean
+        headerTextRequired?: boolean
+        lineTextRequired?: boolean
+        status?: string
+        remarks?: string | null
+    }) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types`,
+            data,
+        ).then((r) => r.data),
+    update: (
+        id: string,
+        data: {
+            name?: string
+            description?: string | null
+            documentCategory?: string
+            numberRangeId?: string | null
+            numberAssignment?: string
+            externalNumberAllowed?: boolean
+            numberRangeRequired?: boolean
+            allowedAccountTypes?: string[]
+            debitPostingAllowed?: boolean
+            creditPostingAllowed?: boolean
+            negativePostingAllowed?: boolean
+            reversalAllowed?: boolean
+            reversalDocumentTypeId?: string | null
+            originalDocumentReferenceRequired?: boolean
+            reversalReasonRequired?: boolean
+            referenceRequired?: boolean
+            headerTextRequired?: boolean
+            lineTextRequired?: boolean
+            status?: string
+            remarks?: string | null
+        },
+    ) =>
+        ErpAxiosBase.patch<FicoDocumentType>(
+            `${API}/document-types/${id}`,
+            data,
+        ).then((r) => r.data),
+    activate: (id: string, dto: { reason?: string } = {}) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types/${id}/activate`,
+            dto,
+        ).then((r) => r.data),
+    deactivate: (id: string, dto: { reason?: string } = {}) =>
+        ErpAxiosBase.post<FicoDocumentType>(
+            `${API}/document-types/${id}/deactivate`,
+            dto,
+        ).then((r) => r.data),
+    remove: (id: string) =>
+        ErpAxiosBase.delete<{ deleted: boolean }>(
+            `${API}/document-types/${id}`,
+        ).then((r) => r.data),
+    history: (
+        id: string,
+        query: { page?: number; pageSize?: number } = {},
+    ) =>
+        ErpAxiosBase.get<FicoDocumentTypeHistoryResponse>(
+            `${API}/document-types/${id}/history${queryString(query)}`,
+        ).then((r) => r.data),
 }
 
 export function ficoErrorMessage(error: unknown, fallback: string) {

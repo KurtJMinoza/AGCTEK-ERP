@@ -504,7 +504,7 @@ const TaxCodeFormPage = () => {
                 if (entry.field && entry.message) {
                     setFieldErrors((previous) => ({
                         ...previous,
-                        [entry.field]: entry.message,
+                        [entry.field as string]: entry.message!,
                     }))
                 }
             })

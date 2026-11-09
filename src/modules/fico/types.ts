@@ -934,3 +934,164 @@ export type FicoTaxCodeAuditEntry = {
     metadata: Record<string, unknown> | null
     createdAt: string
 }
+
+// ============================================================================
+// FICO Phase 2 - Document Types
+// ============================================================================
+
+export type FicoDocumentCategory =
+    | 'GENERAL_JOURNAL'
+    | 'ADJUSTMENT'
+    | 'VENDOR_INVOICE'
+    | 'VENDOR_CREDIT'
+    | 'VENDOR_PAYMENT'
+    | 'CUSTOMER_INVOICE'
+    | 'CUSTOMER_CREDIT'
+    | 'CUSTOMER_RECEIPT'
+    | 'ASSET_ACCOUNTING'
+    | 'REVERSAL'
+    | 'INVENTORY_ACCOUNTING'
+    | 'SALES_ACCOUNTING'
+    | 'OTHER'
+
+export type FicoDocumentAccountType =
+    | 'GL_ACCOUNT'
+    | 'VENDOR'
+    | 'CUSTOMER'
+    | 'ASSET'
+    | 'BANK'
+    | 'INVENTORY'
+
+export type FicoDocumentTypeStatus = 'ACTIVE' | 'INACTIVE'
+export type FicoDocumentNumberAssignment = 'INTERNAL' | 'EXTERNAL'
+
+export type FicoDocumentNumberRange = {
+    id: string
+    rangeCode: string
+    rangeName: string
+    documentCategory: string
+    numberingMethod: string
+    allowExternalAssignment: boolean
+    validFrom: string | null
+    validTo: string | null
+    status: string
+}
+
+export type FicoDocumentTypeUsage = {
+    journalEntries: number
+    documentSequences: number
+    reversalReferences: number
+    canDelete: boolean
+}
+
+export type FicoDocumentType = {
+    id: string
+    companyId: string
+    company?: {
+        id: string
+        code: string
+        name: string
+    }
+    code: string
+    name: string
+    description: string | null
+    documentCategory: FicoDocumentCategory | string
+    numberRangeId: string | null
+    numberRange?: FicoDocumentNumberRange | null
+    numberAssignment: FicoDocumentNumberAssignment
+    externalNumberAllowed: boolean
+    numberRangeRequired: boolean
+    allowedAccountTypes: FicoDocumentAccountType[] | string[]
+    debitPostingAllowed: boolean
+    creditPostingAllowed: boolean
+    negativePostingAllowed: boolean
+    reversalAllowed: boolean
+    reversalDocumentTypeId: string | null
+    reversalDocumentType?: {
+        id: string
+        code: string
+        name: string
+        status: string
+    } | null
+    originalDocumentReferenceRequired: boolean
+    reversalReasonRequired: boolean
+    referenceRequired: boolean
+    headerTextRequired: boolean
+    lineTextRequired: boolean
+    status: FicoDocumentTypeStatus
+    remarks: string | null
+    createdBy: string | null
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+    usage?: FicoDocumentTypeUsage
+}
+
+export type FicoDocumentTypeSummary = {
+    total: number
+    active: number
+    inactive: number
+    categories: number
+    reversalAllowed: number
+    generatedAt: string
+}
+
+export type FicoDocumentTypeReferenceOption = {
+    value: string
+    label: string
+}
+
+export type FicoDocumentTypeReferenceData = {
+    categories: FicoDocumentTypeReferenceOption[]
+    accountTypes: FicoDocumentTypeReferenceOption[]
+    numberAssignments: FicoDocumentTypeReferenceOption[]
+    statuses: FicoDocumentTypeReferenceOption[]
+}
+
+export type FicoDocumentTypeListQuery = {
+    companyId: string
+    search?: string
+    status?: string
+    documentCategory?: string
+    reversalAllowed?: string
+    numberRangeId?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
+    page?: number
+    pageSize?: number
+}
+
+export type FicoDocumentTypeListResponse = {
+    items: FicoDocumentType[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoDocumentTypeHistoryItem = {
+    id: string
+    companyId: string | null
+    actorId: string | null
+    action: string
+    entityType: string
+    entityId: string | null
+    previousValues: Record<string, unknown> | null
+    newValues: Record<string, unknown> | null
+    reason: string | null
+    metadata: Record<string, unknown> | null
+    createdAt: string
+    performer?: {
+        id: string
+        email: string
+        userName: string
+        firstName: string
+        lastName: string
+    } | null
+}
+
+export type FicoDocumentTypeHistoryResponse = {
+    items: FicoDocumentTypeHistoryItem[]
+    total: number
+    page: number
+    pageSize: number
+}

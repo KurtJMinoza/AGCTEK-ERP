@@ -12,6 +12,8 @@ import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
 import { FicoCompanySettingsService } from './fico-company-settings.service'
 import { FicoController } from './fico.controller'
+import { FicoDocumentTypeController } from './fico-document-type.controller'
+import { FicoDocumentTypeService } from './fico-document-type.service'
 import { FicoFiscalCalendarService } from './fico-fiscal-calendar.service'
 import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoJournalService } from './fico-journal.service'
@@ -35,6 +37,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoAccountDeterminationController,
         FicoNumberRangeController,
         FicoTaxCodeController,
+        FicoDocumentTypeController,
     ],
     providers: [
         FicoFinancialPeriodService,
@@ -59,6 +62,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoNumberRangeService,
         FicoTaxCalculationService,
         FicoTaxCodeService,
+        FicoDocumentTypeService,
         {
             provide: FINANCIAL_PERIOD_PORT,
             useExisting: FicoFinancialPeriodAdapter,
@@ -83,6 +87,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoNumberRangeService,
         FicoTaxCalculationService,
         FicoTaxCodeService,
+        FicoDocumentTypeService,
         FINANCIAL_PERIOD_PORT,
     ],
 })
