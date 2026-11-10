@@ -23,6 +23,7 @@ import type {
     FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
+    FicoJournalEntryList,
     FicoNumberRange,
     FicoNumberRangeLog,
     FicoOverview,
@@ -391,21 +392,16 @@ export const ficoPeriodService = {
 export const ficoJournalService = {
     list: (query: {
         companyId: string
+        search?: string
         status?: string
         dateFrom?: string
         dateTo?: string
         page?: number
         pageSize?: number
     }) =>
-        ErpAxiosBase.get<{
-            items: unknown[]
-            total: number
-            page: number
-            pageSize: number
-            totalPages: number
-        }>(`${API}/journal-entries${queryString(query)}`).then((r) =>
-            r.data,
-        ),
+        ErpAxiosBase.get<FicoJournalEntryList>(
+            `${API}/journal-entries${queryString(query)}`,
+        ).then((r) => r.data),
     get: (id: string, companyId: string) =>
         ErpAxiosBase.get<{
             id: string
@@ -438,6 +434,8 @@ export const ficoJournalService = {
             postingDate: string
             description?: string
             currencyCode?: string
+            requiresApproval?: boolean
+            autoPost?: boolean
             lines: {
                 glAccountId: string
                 debitAmount?: number
@@ -476,6 +474,47 @@ export const ficoJournalService = {
             journalEntryId: id,
             reason,
         }).then((r) => r.data),
+
+    submit: (id: string, reason?: string) =>
+        ErpAxiosBase.post<{
+            id: string
+            status: string
+            approvalStatus: string
+        }>(`${API}/journal-entries/${id}/submit`, { reason }).then((r) =>
+            r.data,
+        ),
+
+    approve: (id: string, reason?: string) =>
+        ErpAxiosBase.post<{
+            id: string
+            status: string
+            approvalStatus: string
+        }>(`${API}/journal-entries/${id}/approve`, { reason }).then((r) =>
+            r.data,
+        ),
+
+    reject: (id: string, reason: string) =>
+        ErpAxiosBase.post<{
+            id: string
+            status: string
+            approvalStatus: string
+        }>(`${API}/journal-entries/${id}/reject`, { reason }).then((r) =>
+            r.data,
+        ),
+
+    resubmit: (id: string) =>
+        ErpAxiosBase.post<{
+            id: string
+            status: string
+            approvalStatus: string
+        }>(`${API}/journal-entries/${id}/resubmit`).then((r) => r.data),
+
+    post: (id: string) =>
+        ErpAxiosBase.post<{
+            id: string
+            status: string
+            approvalStatus: string
+        }>(`${API}/journal-entries/${id}/post`, {}).then((r) => r.data),
 }
 
 export const ficoAuditService = {

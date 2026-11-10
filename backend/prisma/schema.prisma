@@ -3881,7 +3881,17 @@ model FicoJournalEntry {
   totalAmount         Decimal                @db.Decimal(18, 4)
   currencyCode        String                 @db.VarChar(3)
   exchangeRate        Decimal?               @db.Decimal(18, 6)
-  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY
+  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY (GL posting state)
+  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | REVERSED
+  requiresApproval    Boolean                @default(true)
+  preparedBy          String?
+  preparedAt          DateTime?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  approvedBy          String?
+  approvedAt          DateTime?
+  rejectionReason     String?
+  rejectedAt          DateTime?
   sourceModule        String?
   sourceDocumentType  String?
   sourceDocumentId    String?
@@ -3900,6 +3910,7 @@ model FicoJournalEntry {
   @@unique([companyId, documentNumber])
   @@index([companyId, postingDate])
   @@index([companyId, status])
+  @@index([companyId, approvalStatus])
   @@index([fiscalPeriodId])
   @@index([sourceEventId])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])

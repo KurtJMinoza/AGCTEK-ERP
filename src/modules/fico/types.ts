@@ -540,6 +540,8 @@ export type FicoJournalEntry = {
     totalAmount: string | number
     currencyCode: string
     status: 'DRAFT' | 'POSTED' | 'REVERSED' | 'LEGACY'
+    approvalStatus: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'POSTED' | 'REJECTED' | 'REVERSED'
+    requiresApproval: boolean
     description: string | null
     documentType: string
     postedAt: string | null

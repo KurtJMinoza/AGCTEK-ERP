@@ -47,6 +47,9 @@ import {
     JournalEntryDetailQueryDto,
     JournalEntryListQueryDto,
     ReverseJournalEntryDto,
+    SubmitJournalEntryDto,
+    ApproveJournalEntryDto,
+    RejectJournalEntryDto,
 } from './dto/fico.dto'
 import { FicoAccountMappingService } from './fico-account-mapping.service'
 import { FicoAccountingEventsService } from './fico-accounting-events.service'
@@ -692,6 +695,68 @@ export class FicoPhase1Controller {
     ) {
         await this.access.assertAccess(user, dto.companyId)
         return this.journal.reverseEntry(id, dto, user)
+    }
+
+    // ---------------------------------------------------------------------
+    // Journal entry approval workflow
+    // ---------------------------------------------------------------------
+
+    @Post('journal-entries/:id/submit')
+    @RequirePermission('fico.journal-entries', 'update')
+    async submitForApproval(
+        @Param('id') id: string,
+        @Body() dto: SubmitJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        const journal = await this.journal.getEntry(id)
+        await this.access.assertAccess(user, journal.companyId)
+        return this.journal.submitForApproval(id, user, dto.reason)
+    }
+
+    @Post('journal-entries/:id/approve')
+    @RequirePermission('fico.journal-entries', 'update')
+    async approveJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: ApproveJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        const journal = await this.journal.getEntry(id)
+        await this.access.assertAccess(user, journal.companyId)
+        return this.journal.approve(id, user, dto.reason)
+    }
+
+    @Post('journal-entries/:id/reject')
+    @RequirePermission('fico.journal-entries', 'update')
+    async rejectJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: RejectJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        const journal = await this.journal.getEntry(id)
+        await this.access.assertAccess(user, journal.companyId)
+        return this.journal.reject(id, user, dto.reason)
+    }
+
+    @Post('journal-entries/:id/resubmit')
+    @RequirePermission('fico.journal-entries', 'update')
+    async resubmitJournalEntry(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        const journal = await this.journal.getEntry(id)
+        await this.access.assertAccess(user, journal.companyId)
+        return this.journal.resubmit(id, user)
+    }
+
+    @Post('journal-entries/:id/post')
+    @RequirePermission('fico.journal-entries', 'update')
+    async postApprovedJournalEntry(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        const journal = await this.journal.getEntry(id)
+        await this.access.assertAccess(user, journal.companyId)
+        return this.journal.postApproved(id, user)
     }
 
     // ---------------------------------------------------------------------
