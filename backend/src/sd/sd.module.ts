@@ -43,6 +43,7 @@ import { ProductVariantService } from './product-variant.service'
 import { ProductMaterialLinkService } from './product-material-link.service'
 import { PricingConditionController } from './pricing-condition.controller'
 import { PricingConditionService } from './pricing-condition.service'
+import { PricingResolutionService } from './pricing-resolution.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
 import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
@@ -102,6 +103,7 @@ import { BackorderReportService } from './backorder-report.service'
         ProductVariantService,
         ProductMaterialLinkService,
         PricingConditionService,
+         PricingResolutionService,
         SalesAnalyticsService,
         BackorderReportService,
     ],

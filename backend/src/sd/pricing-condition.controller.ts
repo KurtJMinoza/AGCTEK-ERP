@@ -16,8 +16,11 @@ import {
     ListPricingConditionsQueryDto,
     UpdateBasePriceDto,
     UpdatePricingConditionDto,
+    ResolvePricingInput,
+    ResolvePricingOutput,
 } from './dto/pricing-condition.dto'
 import { PricingConditionService } from './pricing-condition.service'
+import { PricingResolutionService } from './pricing-resolution.service'
 
 /**
  * SD pricing conditions: base price list (PR00 = catalog price), quantity tier
@@ -26,7 +29,10 @@ import { PricingConditionService } from './pricing-condition.service'
  */
 @Controller('sd/pricing-conditions')
 export class PricingConditionController {
-    constructor(private readonly pricing: PricingConditionService) {}
+    constructor(
+        private readonly pricing: PricingConditionService,
+        private readonly pricingResolution: PricingResolutionService,
+    ) {}
 
     @Get()
     @RequirePermission('sd.pricing-conditions', 'read')
@@ -68,5 +74,32 @@ export class PricingConditionController {
     @RequirePermission('sd.pricing-conditions', 'update')
     expire(@Param('id') id: string, @CurrentUser() user: AuthRequestUser) {
         return this.pricing.expire(id, user)
+    }
+
+    @Post('resolve')
+    @HttpCode(200)
+    @RequirePermission('sd.pricing-conditions', 'read')
+    async resolve(
+        @Body() input: ResolvePricingInput,
+        @CurrentUser() user: AuthRequestUser,
+    ): Promise<ResolvePricingOutput> {
+        const result = await this.pricingResolution.resolveUnitPrice({
+            productId: input.productId,
+            sku: input.sku,
+            variantId: input.variantId,
+            quantity: input.quantity,
+            customerType: input.customerType,
+            promoCode: input.promoCode,
+        })
+
+        return {
+            baseUnitPrice: result.baseUnitPrice,
+            unitPrice: result.unitPrice,
+            discountPerUnit: result.discountPerUnit,
+            appliedConditionId: result.appliedConditionId,
+            appliedConditionCode: result.appliedConditionCode,
+            appliedValueType: result.appliedValueType,
+            appliedValue: result.appliedValue,
+        }
     }
 }

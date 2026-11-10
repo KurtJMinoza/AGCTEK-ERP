@@ -2,6 +2,7 @@ import { Type } from 'class-transformer'
 import {
     IsDateString,
     IsIn,
+    IsInt,
     IsNumber,
     IsOptional,
     IsPositive,
@@ -153,4 +154,54 @@ export class UpdateBasePriceDto {
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
     price!: number
+}
+
+export class ResolvePricingInput {
+    @IsString()
+    productId!: string
+
+    @IsString()
+    sku!: string
+
+    @IsOptional()
+    @IsString()
+    variantId?: string | null
+
+    @IsInt()
+    @Min(1)
+    quantity!: number
+
+    @IsIn(['RETAIL', 'B2B', 'ALL'])
+    customerType!: 'RETAIL' | 'B2B' | 'ALL'
+
+    @IsOptional()
+    @IsString()
+    promoCode?: string | null
+}
+
+export class ResolvePricingOutput {
+    @Type(() => Number)
+    @IsNumber()
+    baseUnitPrice!: number
+
+    @Type(() => Number)
+    @IsNumber()
+    unitPrice!: number
+
+    @Type(() => Number)
+    @IsNumber()
+    discountPerUnit!: number
+
+    @IsString()
+    appliedConditionId!: string | null
+
+    @IsString()
+    appliedConditionCode!: string | null
+
+    @IsIn(['PERCENT_OFF', 'FIXED_PRICE', null])
+    appliedValueType!: 'PERCENT_OFF' | 'FIXED_PRICE' | null
+
+    @Type(() => Number)
+    @IsNumber()
+    appliedValue!: number | null
 }
