@@ -54,17 +54,10 @@ export type CreateCustomerInput = {
     customerCategory?: CustomerCategory
     paymentTerms?: PaymentTerm
     creditStatus?: CreditStatus
-    /** RETAIL: link an existing shop login… */
-    retailClientId?: string
-    /** …or create one with the customer's email and this password. */
-    password?: string
 }
 
 export type UpdateCustomerInput = Partial<
-    Omit<
-        CreateCustomerInput,
-        'customerAccountType' | 'customerCategory' | 'retailClientId' | 'password'
-    >
+    Omit<CreateCustomerInput, 'customerAccountType' | 'customerCategory'>
 >
 
 /** Shop (storefront) account shown in the Add New Customer reference picker. */

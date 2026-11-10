@@ -5,11 +5,9 @@ import {
     IsNumber,
     IsOptional,
     IsString,
-    Matches,
     Max,
     MaxLength,
     Min,
-    MinLength,
     ValidateIf,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
@@ -106,25 +104,6 @@ export class CreateCustomerDto {
     @IsIn(CREDIT_STATUSES)
     creditStatus?: CreditStatus
 
-    /** RETAIL: link an existing shop login (mutually exclusive with password). */
-    @IsOptional()
-    @Transform(trim)
-    @IsString()
-    @IsNotEmpty()
-    retailClientId?: string
-
-    /**
-     * RETAIL: create a new shop login with the customer's email and this password.
-     * Mirrors the Shop sign-up password policy.
-     */
-    @IsOptional()
-    @IsString()
-    @MinLength(8)
-    @MaxLength(72)
-    @Matches(/[A-Za-z]/, { message: 'Password must include at least one letter' })
-    @Matches(/\d/, { message: 'Password must include at least one number' })
-    password?: string
-
     @IsOptional()
     @IsString()
     createdBy?: string
@@ -162,11 +141,6 @@ export class UpdateCustomerDto {
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
     creditLimit?: number
-
-    /** Shop (storefront) account to link (nullable clears the link). */
-    @IsOptional()
-    @IsString()
-    retailClientId?: string
 
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)

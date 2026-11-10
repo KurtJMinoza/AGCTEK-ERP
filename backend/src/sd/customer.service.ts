@@ -7,7 +7,6 @@ import {
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
-import { RetailClientService } from '../retail/retail-client.service'
 import {
     CreateCustomerDto,
     CustomerAccountType,
@@ -28,10 +27,7 @@ type Client = PrismaService | Prisma.TransactionClient
 
 @Injectable()
 export class CustomerService {
-    constructor(
-        private prisma: PrismaService,
-        private retailClients: RetailClientService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     list(query: ListCustomersQueryDto) {
         const search = query.search?.trim()
@@ -124,23 +120,12 @@ export class CustomerService {
         const attempts = onRoot ? MAX_CREATE_ATTEMPTS : 1
         for (let attempt = 0; attempt < attempts; attempt++) {
             try {
-                // A new shop login must not outlive a failed customer insert.
-                if (dto.password && onRoot) {
-                    return await this.prisma.$transaction((tx) =>
-                        this.insert(dto, account, attempt, tx),
-                    )
-                }
                 return await this.insert(dto, account, attempt, client)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('email')) {
                     throw new ConflictException(
                         `A customer with email ${dto.email} already exists`,
-                    )
-                }
-                if (target?.includes('retailClientId')) {
-                    throw new ConflictException(
-                        'This shop account is already linked to another customer',
                     )
                 }
                 if (target?.includes('customerNumber')) continue
@@ -163,19 +148,6 @@ export class CustomerService {
         const customerAccountType =
             dto.customerAccountType ?? 'NON_CREDIT'
         const customerCategory = dto.customerCategory ?? 'RETAIL'
-        const linksAccount = Boolean(dto.retailClientId)
-        const createsAccount = Boolean(dto.password)
-
-        if (linksAccount && createsAccount) {
-            throw new BadRequestException(
-                'Reference an existing shop account or set a new shop login password, not both',
-            )
-        }
-        if ((linksAccount || createsAccount) && customerCategory !== 'RETAIL') {
-            throw new BadRequestException(
-                'Shop accounts apply only to RETAIL category customers',
-            )
-        }
 
         if (customerAccountType === 'NON_CREDIT') {
             if ((dto.creditLimit ?? 0) > 0) {
@@ -203,37 +175,6 @@ export class CustomerService {
         }
     }
 
-    /**
-     * Links the referenced shop account, provisions a new shop login from the
-     * supplied password, or auto-links a shop account that already uses the email.
-     */
-    private async resolveShopAccountId(
-        dto: CreateCustomerDto,
-        client: Client,
-    ): Promise<string | undefined> {
-        if (dto.retailClientId) {
-            return (await this.retailClients.requireAccount(dto.retailClientId, client)).id
-        }
-        if (dto.password) {
-            const account = await this.retailClients.createAccount(
-                {
-                    email: dto.email,
-                    password: dto.password,
-                    fullName: dto.contactName,
-                    phone: dto.phone,
-                },
-                client,
-            )
-            return account.id
-        }
-        const byEmail = await client.retailClient.findUnique({
-            where: { email: dto.email },
-            select: { id: true },
-        })
-        if (byEmail) return byEmail.id
-        return undefined
-    }
-
     private async insert(
         dto: CreateCustomerDto,
         account: {
@@ -245,7 +186,6 @@ export class CustomerService {
         attempt: number,
         client: Client,
     ) {
-        const retailClientId = await this.resolveShopAccountId(dto, client)
         const customerNumber = await this.nextCustomerNumber(attempt, client)
         const creditLimit = new Decimal(dto.creditLimit ?? 0)
         return client.sdCustomer.create({
@@ -262,7 +202,6 @@ export class CustomerService {
                 customerCategory: account.customerCategory,
                 paymentTerms: account.paymentTerms,
                 creditStatus: account.creditStatus,
-                retailClientId,
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -284,12 +223,6 @@ export class CustomerService {
         if (dto.email !== undefined) data.email = dto.email
         if (dto.phone !== undefined) data.phone = dto.phone
         if (dto.status !== undefined) data.status = dto.status
-        if (dto.retailClientId !== undefined) {
-            if (dto.retailClientId) {
-                await this.retailClients.requireAccount(dto.retailClientId)
-            }
-            data.retailClientId = dto.retailClientId || null
-        }
         if (
             current.customerAccountType === 'NON_CREDIT' &&
             dto.creditLimit !== undefined &&

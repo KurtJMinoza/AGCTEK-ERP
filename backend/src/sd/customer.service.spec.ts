@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
-import type { RetailClientService } from '../retail/retail-client.service'
 import { CustomerService } from './customer.service'
 
 const numberCollision = () =>
@@ -13,9 +12,6 @@ const numberCollision = () =>
 
 function mockClient() {
     const client = {
-        retailClient: {
-            findUnique: jest.fn().mockResolvedValue(null),
-        },
         sdCustomer: {
             count: jest.fn().mockResolvedValue(4),
             create: jest.fn((args: { data: Record<string, unknown> }) =>
@@ -28,20 +24,15 @@ function mockClient() {
     return client
 }
 
-function mockRetailClients() {
-    return {
-        createAccount: jest.fn().mockResolvedValue({ id: 'shop-new' }),
-        requireAccount: jest.fn().mockResolvedValue({ id: 'shop-existing' }),
-    }
+const makeService = (root: ReturnType<typeof mockClient>) =>
+    new CustomerService(root as unknown as PrismaService)
+
+const dto = {
+    companyName: 'Acme',
+    contactName: 'Ann',
+    email: 'ann@acme.test',
+    creditLimit: 0,
 }
-
-const makeService = (root: ReturnType<typeof mockClient>, retail = mockRetailClients()) =>
-    new CustomerService(
-        root as unknown as PrismaService,
-        retail as unknown as RetailClientService,
-    )
-
-const dto = { companyName: 'Acme', contactName: 'Ann', email: 'ann@acme.test', creditLimit: 0 }
 
 describe('CustomerService.create', () => {
     it('writes through a caller-supplied transaction client', async () => {
@@ -79,7 +70,7 @@ describe('CustomerService.create', () => {
         expect(tx.sdCustomer.create).toHaveBeenCalledTimes(1)
     })
 
-    it('defaults to a NON_CREDIT customer with no shop account', async () => {
+    it('defaults to a NON_CREDIT walk-in customer', async () => {
         const root = mockClient()
         const created = await makeService(root).create({ ...dto })
 
@@ -88,63 +79,32 @@ describe('CustomerService.create', () => {
             customerCategory: 'RETAIL',
             paymentTerms: 'IMMEDIATE',
             creditStatus: 'NOT_APPLICABLE',
-            retailClientId: undefined,
         })
         expect(root.$transaction).not.toHaveBeenCalled()
     })
 
-    it('creates the shop login and RETAIL customer in one transaction', async () => {
+    it('creates a CREDIT customer with a limit and pending status', async () => {
         const root = mockClient()
-        const retail = mockRetailClients()
-
-        const created = await makeService(root, retail).create({
+        const created = await makeService(root).create({
             ...dto,
-            customerCategory: 'RETAIL',
-            password: 'secret123',
+            customerAccountType: 'CREDIT',
+            customerCategory: 'CORPORATE',
+            creditLimit: 50000,
+            paymentTerms: 'NET_30',
+            creditStatus: 'PENDING',
         })
 
-        expect(root.$transaction).toHaveBeenCalledTimes(1)
-        expect(retail.createAccount).toHaveBeenCalledWith(
-            expect.objectContaining({ email: dto.email, password: 'secret123', fullName: 'Ann' }),
-            root,
-        )
         expect(created).toMatchObject({
-            customerAccountType: 'NON_CREDIT',
-            customerCategory: 'RETAIL',
-            creditStatus: 'NOT_APPLICABLE',
-            retailClientId: 'shop-new',
+            customerAccountType: 'CREDIT',
+            customerCategory: 'CORPORATE',
+            paymentTerms: 'NET_30',
+            creditStatus: 'PENDING',
         })
-    })
-
-    it('links an existing shop account to a RETAIL customer', async () => {
-        const root = mockClient()
-        const retail = mockRetailClients()
-
-        const created = await makeService(root, retail).create({
-            ...dto,
-            customerCategory: 'RETAIL',
-            retailClientId: 'shop-existing',
-        })
-
-        expect(retail.requireAccount).toHaveBeenCalledWith('shop-existing', root)
-        expect(retail.createAccount).not.toHaveBeenCalled()
-        expect(created).toMatchObject({ retailClientId: 'shop-existing' })
     })
 
     it.each([
-        [
-            'both shop options',
-            { customerCategory: 'RETAIL', retailClientId: 'x', password: 'secret123' },
-        ],
-        [
-            'NON_CREDIT with credit limit',
-            { customerAccountType: 'NON_CREDIT', creditLimit: 100 },
-        ],
+        ['NON_CREDIT with credit limit', { customerAccountType: 'NON_CREDIT', creditLimit: 100 }],
         ['CREDIT without credit limit', { customerAccountType: 'CREDIT' }],
-        [
-            'shop account on non-RETAIL category',
-            { customerCategory: 'CORPORATE', retailClientId: 'x' },
-        ],
     ] as const)('rejects invalid account setup: %s', async (_label, overrides) => {
         const root = mockClient()
         await expect(
@@ -153,36 +113,14 @@ describe('CustomerService.create', () => {
         expect(root.sdCustomer.create).not.toHaveBeenCalled()
     })
 
-    it('auto-links a shop account that already uses the customer email', async () => {
+    it('auto-links nothing: shop login is created through E-Commerce registration, not SD Customer Master', async () => {
         const root = mockClient()
-        root.retailClient.findUnique.mockResolvedValue({ id: 'shop-by-email' })
-
-        const created = await makeService(root).create({
-            ...dto,
-            customerCategory: 'RETAIL',
-        })
+        const created = await makeService(root).create({ ...dto })
 
         expect(created).toMatchObject({
             customerAccountType: 'NON_CREDIT',
             customerCategory: 'RETAIL',
-            retailClientId: 'shop-by-email',
         })
-    })
-
-    it('does not create the customer when the new shop login is rejected', async () => {
-        const root = mockClient()
-        const retail = mockRetailClients()
-        retail.createAccount.mockRejectedValue(
-            new ConflictException('An account with this email already exists.'),
-        )
-
-        await expect(
-            makeService(root, retail).create({
-                ...dto,
-                customerCategory: 'RETAIL',
-                password: 'shopPass123',
-            }),
-        ).rejects.toThrow(ConflictException)
-        expect(root.sdCustomer.create).not.toHaveBeenCalled()
+        expect(root.sdCustomer.create).toHaveBeenCalledTimes(1)
     })
 })
