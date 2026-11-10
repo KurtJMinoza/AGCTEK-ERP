@@ -40,6 +40,7 @@ export type CustomerListParams = {
     /** Customer number, company, contact or email. */
     search?: string
     status?: CustomerStatus
+    customerAccountType?: CustomerAccountType | 'ALL'
 }
 
 export type CreateCustomerInput = {
@@ -140,7 +141,14 @@ export async function getCustomers(
     const search = params.search?.trim()
     try {
         const { data } = await ErpAxiosBase.get<ApiCustomer[]>(BASE_PATH, {
-            params: { search: search || undefined, status: params.status },
+            params: {
+                search: search || undefined,
+                status: params.status === 'ALL' ? undefined : params.status,
+                customerAccountType:
+                    params.customerAccountType === 'ALL'
+                        ? undefined
+                        : params.customerAccountType,
+            },
         })
         return data.map(toCustomer)
     } catch (error) {

@@ -47,6 +47,17 @@ const STATUS_FILTER_OPTIONS: StatusFilterOption[] = [
     { value: 'BLOCKED', label: 'Blocked' },
 ]
 
+type AccountTypeFilterOption = {
+    value: CustomerFilters['customerAccountType']
+    label: string
+}
+
+const ACCOUNT_TYPE_FILTER_OPTIONS: AccountTypeFilterOption[] = [
+    { value: 'ALL', label: 'All account types' },
+    { value: 'NON_CREDIT', label: 'Cash (Non-Credit)' },
+    { value: 'CREDIT', label: 'Credit' },
+]
+
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
         value,
@@ -310,6 +321,22 @@ const CustomerMasterDashboard = () => {
                         )}
                         onChange={(option) =>
                             void setFilters({ status: option?.value ?? 'ALL' })
+                        }
+                    />
+                </div>
+                <div className="md:w-48">
+                    <Select<AccountTypeFilterOption>
+                        isSearchable={false}
+                        options={ACCOUNT_TYPE_FILTER_OPTIONS}
+                        value={ACCOUNT_TYPE_FILTER_OPTIONS.find(
+                            (option) =>
+                                option.value === filters.customerAccountType,
+                        )}
+                        onChange={(option) =>
+                            void setFilters({
+                                customerAccountType:
+                                    option?.value ?? 'ALL',
+                            })
                         }
                     />
                 </div>

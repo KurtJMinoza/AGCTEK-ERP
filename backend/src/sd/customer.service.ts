@@ -33,6 +33,9 @@ export class CustomerService {
         const search = query.search?.trim()
         const where: Prisma.SdCustomerWhereInput = {
             ...(query.status ? { status: query.status } : {}),
+            ...(query.customerAccountType
+                ? { customerAccountType: query.customerAccountType }
+                : {}),
             ...(search
                 ? {
                       OR: [

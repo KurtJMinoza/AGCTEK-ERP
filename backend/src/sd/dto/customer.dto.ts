@@ -44,6 +44,10 @@ export class ListCustomersQueryDto {
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)
     status?: CustomerStatus
+
+    @IsOptional()
+    @IsIn(CUSTOMER_ACCOUNT_TYPES)
+    customerAccountType?: CustomerAccountType
 }
 
 export class CreateCustomerDto {
