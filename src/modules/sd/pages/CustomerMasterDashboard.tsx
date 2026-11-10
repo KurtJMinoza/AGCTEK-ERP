@@ -71,15 +71,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         { placement: 'top-end' },
     )
 
-const SummaryStat = ({ label, value }: { label: string; value: string | number }) => (
-    <Card>
-        <div className="text-sm text-gray-500">{label}</div>
-        <div className="mt-1 break-words text-xl font-bold sm:text-2xl">
-            {value}
-        </div>
-    </Card>
-)
-
 type DialogState =
     | { mode: 'create' }
     | { mode: 'edit'; customer: Customer }
@@ -113,19 +104,6 @@ const CustomerMasterDashboard = () => {
         )
         return () => window.clearTimeout(timer)
     }, [searchInput, filters.search, setFilters])
-
-    const summary = useMemo(
-        () => ({
-            total: customers.length,
-            blocked: customers.filter((c) => c.status === 'BLOCKED').length,
-            creditLimit: customers.reduce((sum, c) => sum + c.creditLimit, 0),
-            availableCredit: customers.reduce(
-                (sum, c) => sum + c.availableCredit,
-                0,
-            ),
-        }),
-        [customers],
-    )
 
     const handleSubmit = async (values: CreateCustomerInput) => {
         if (!dialog) return
@@ -340,19 +318,6 @@ const CustomerMasterDashboard = () => {
                         }
                     />
                 </div>
-            </div>
-
-            <div className="my-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <SummaryStat label="Customers" value={summary.total} />
-                <SummaryStat label="Blocked" value={summary.blocked} />
-                <SummaryStat
-                    label="Total Credit Limit"
-                    value={formatPrice(summary.creditLimit)}
-                />
-                <SummaryStat
-                    label="Total Available Credit"
-                    value={formatPrice(summary.availableCredit)}
-                />
             </div>
 
             <Card>
