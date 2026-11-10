@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
+import { PricingResolutionService } from './pricing-resolution.service'
 import {
     ChangeSalesOrderLineQtyDto,
     CheckoutPaymentMethod,
@@ -161,6 +162,7 @@ export class SalesOrderService {
         private quotations: QuotationService,
         private commercialAvailability: CommercialAvailabilityService,
         private invoices: SalesInvoiceService,
+        private pricingResolution: PricingResolutionService,
     ) {}
 
     private readonly includes = {
@@ -497,7 +499,7 @@ export class SalesOrderService {
         })
         if (existing) return existing
 
-        await this.verifyCatalogPrices(dto.divisionId, dto.lines)
+        await this.resolveAndSetUnitPrices(dto.divisionId, dto.lines, dto.channel, dto.promoCode)
         const totals = this.verifyRetailTotals(dto)
         const isPos = dto.channel === 'POS'
         if (isPos && !dto.branchId) {
@@ -1768,31 +1770,108 @@ export class SalesOrderService {
         return start
     }
 
-    /** Each line must be an active SdProduct of `divisionId`, at its current price. */
+    /**
+     * Resolve unit prices for each order line using active pricing conditions,
+     * then set the resolved unitPrice on each line for subsequent verification.
+     *
+     * Channel → customerType mapping:
+     *   POS / ecommerce walk-in → 'RETAIL'
+     *   B2B / wholesale customer → 'B2B'
+     *   Unknown → 'RETAIL' (prefer retail for storefront)
+     */
+    private async resolveAndSetUnitPrices(
+        divisionId: string,
+        lines: ReadonlyArray<CreateRetailSalesOrderLineDto>,
+        channel: string,
+        promoCode?: string | null,
+    ) {
+        // Map channel to customerType
+        const customerType = channel === 'POS' || channel === 'WEBSITE'
+            ? 'RETAIL'
+            : 'RETAIL' // default; B2B path should pass customerType explicitly
+
+        for (const line of lines) {
+            // Load product to get productId for resolver
+            const product = await this.prisma.sdProduct.findFirst({
+                where: { divisionId, sku: line.sku },
+                select: { id: true, sku: true },
+            })
+
+            if (!product) {
+                throw new BadRequestException(
+                    `Line with sku ${line.sku} is not an active ${divisionId} product`,
+                )
+            }
+
+            const resolved = await this.pricingResolution.resolveUnitPrice({
+                productId: product.id,
+                sku: line.sku,
+                variantId: line.variantId ?? undefined,
+                quantity: line.quantity,
+                customerType,
+                promoCode,
+            })
+
+            // Store resolved price on the line - we'll use a type assertion
+            // since CreateRetailSalesOrderLineDto has unitPrice as required
+            ;(line as any)._resolvedUnitPrice = resolved.unitPrice
+            ;(line as any)._resolvedDiscountPerUnit = resolved.discountPerUnit
+            ;(line as any)._resolvedAppliedConditionId = resolved.appliedConditionId
+            ;(line as any)._resolvedAppliedConditionCode = resolved.appliedConditionCode
+            ;(line as any)._resolvedAppliedValueType = resolved.appliedValueType
+            ;(line as any)._resolvedAppliedValue = resolved.appliedValue
+        }
+    }
+
+    /** Each line must be an active SdProduct of `divisionId`, at its resolved price. */
     private async verifyCatalogPrices(
         divisionId: string,
         lines: ReadonlyArray<
             CreateRetailSalesOrderLineDto & { lineNumber?: number }
         >,
     ) {
-        const prices = await this.products.activePriceMap(
-            divisionId,
-            lines.map((line) => line.sku),
-        )
-        lines.forEach((line, idx) => {
+        const pricePromises = lines.map(async (line, idx) => {
             const lineNumber = line.lineNumber ?? idx + 1
-            const price = prices.get(line.sku)
-            if (!price) {
-                throw new BadRequestException(
-                    `Line ${lineNumber}: ${line.sku} is not an active ${divisionId} product`,
+
+            // Use resolved price from pricing conditions; falls back to catalog base if no conditions
+            const resolvedPrice = Number(
+                (line as any)?._resolvedUnitPrice,
+            )
+
+            if (resolvedPrice <= 0) {
+                // No conditions applied; verify against catalog base price
+                const prices = await this.products.activePriceMap(
+                    divisionId,
+                    lines.map((l) => l.sku),
                 )
-            }
-            if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(price)) {
-                throw new BadRequestException(
-                    `Line ${lineNumber}: price for ${line.sku} changed to ${price.toFixed(2)}, refresh and try again`,
-                )
+                const price = prices.get(line.sku)
+                if (!price) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: ${line.sku} is not an active ${divisionId} product`,
+                    )
+                }
+                if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(price)) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: price for ${line.sku} changed to ${price.toFixed(
+                            2,
+                        )}, refresh and try again`,
+                    )
+                }
+            } else {
+                // Conditions applied; verify submitted unitPrice matches resolved price
+                if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(resolvedPrice)) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: price for ${line.sku} is ${line.unitPrice.toFixed(
+                            2,
+                        )} but resolved price (with conditions) is ${resolvedPrice.toFixed(
+                            2,
+                        )}. Please verify the line price reflects active pricing conditions.`,
+                    )
+                }
             }
         })
+
+        await Promise.all(pricePromises)
     }
 
     private verifyRetailTotals(

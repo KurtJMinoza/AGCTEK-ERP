@@ -8,6 +8,7 @@ import { productSellerLabel } from '@/modules/sd/utils/productSellerLabel'
 import { productReviews } from './product/productContent'
 import { productImageGallery } from '@/modules/sd/services/productCatalogService'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
+import { ErpAxios } from '@/services/axios/ErpAxios'
 import {
     PRIMARY_BUTTON,
     PRIMARY_BUTTON_CLASS,
@@ -32,8 +33,13 @@ type MarketplaceProductCardProps = {
     onIncrease: () => void
     onDecrease: () => void
     onToggleFavorite: () => void
+    /** Optional promo code to check for condition discount. */
+    promoCode?: string
+    /** Optional customer type to determine which conditions apply. */
+    customerType?: 'RETAIL' | 'B2B' | 'ALL'
 }
 
+/** Calculate discount percent from original price and current price. */
 export const discountPercent = (product: SdProductRecord) =>
     product.originalPrice !== null && product.originalPrice > product.price
         ? Math.round((1 - product.price / product.originalPrice) * 100)
@@ -42,6 +48,83 @@ export const discountPercent = (product: SdProductRecord) =>
 const stopCardClick = {
     onClick: (event: React.MouseEvent) => event.stopPropagation(),
     onKeyDown: (event: React.KeyboardEvent) => event.stopPropagation(),
+}
+
+const usePricingResolve = ({
+    product,
+    promoCode,
+    customerType,
+}: {
+    product: SdProductRecord
+    promoCode?: string
+    customerType?: 'RETAIL' | 'B2B' | 'ALL'
+}) => {
+    const [resolved, setResolved] = React.useState<{
+        baseUnitPrice: number
+        unitPrice: number
+        discountPerUnit: number
+        hasActiveCondition: boolean
+        appliedConditionId: string | null
+        appliedConditionCode: string | null
+        appliedValueType: 'PERCENT_OFF' | 'FIXED_PRICE' | null
+        appliedValue: number | null
+    } | null>(null)
+
+    const [loading, setLoading] = React.useState(true)
+
+    React.useEffect(() => {
+        let cancelled = false
+
+        const resolve = async () => {
+            if (!product.sku) {
+                setResolved(null)
+                setLoading(false)
+                return
+            }
+
+            setLoading(true)
+            try {
+                const response = await fetch(
+                    '/api/v1/sd/pricing-conditions/resolve',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            productId: product.id,
+                            sku: product.sku,
+                            quantity: 1,
+                            customerType: customerType ?? 'RETAIL',
+                            promoCode,
+                        }),
+                    }
+                )
+
+                if (!response.ok) {
+                    throw new Error('Failed to resolve pricing')
+                }
+                const data = await response.json()
+                if (!cancelled) {
+                    setResolved(data)
+                    setLoading(false)
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setResolved(null)
+                    setLoading(false)
+                }
+            }
+        }
+
+        resolve()
+
+        return () => {
+            cancelled = true
+        }
+    }, [product.id, product.sku, promoCode, customerType])
+
+    return { resolved, loading }
 }
 
 const MarketplaceProductCard = ({
@@ -53,8 +136,13 @@ const MarketplaceProductCard = ({
     onIncrease,
     onDecrease,
     onToggleFavorite,
+    promoCode,
+    customerType,
 }: MarketplaceProductCardProps) => {
-    const discount = discountPercent(product)
+    const { resolved, loading } = usePricingResolve({ product, promoCode, customerType })
+    const discount = product.originalPrice !== null && product.originalPrice > product.price
+        ? Math.round((1 - product.price / product.originalPrice) * 100)
+        : null
     const reviews = productReviews(product)
     const averageRating = reviews.length
         ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
@@ -64,6 +152,13 @@ const MarketplaceProductCard = ({
     const hoverImage = gallery.length > 1 ? gallery[1] : null
     const IMAGE_SIZES =
         '(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 380px'
+
+    // Determine the charge price: resolved if conditions apply, otherwise catalog price
+    const chargePrice = resolved?.unitPrice ?? product.price
+    const basePrice = resolved?.baseUnitPrice ?? product.price
+    const hasActiveCondition = resolved?.hasActiveCondition ?? false
+    const appliedConditionCode = resolved?.appliedConditionCode
+
     return (
         <Card
             clickable
@@ -199,34 +294,71 @@ const MarketplaceProductCard = ({
                         </span>
                     )}
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
-                        <span
-                            className={classNames(
-                                'text-xl font-bold',
-                                discount ? 'text-rose-600' : 'text-gray-900',
-                            )}
-                        >
-                            {formatPrice(product.price)}
-                        </span>
-                        {product.originalPrice !== null ? (
-                            <span className="text-sm text-gray-400 line-through">
-                                {formatPrice(product.originalPrice)}
-                            </span>
-                        ) : null}
-                    </div>
-                    {discount && product.originalPrice !== null ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
-                                <Tag aria-hidden className="h-3 w-3" />
-                                −{discount}%
-                            </span>
-                            <span className="text-xs font-medium text-shop-700">
-                                You save{' '}
-                                {formatPrice(
-                                    product.originalPrice - product.price,
+                        {/* Show resolved price if conditions apply, otherwise catalog price */}
+                        {hasActiveCondition && basePrice > 0 ? (
+                            <>
+                                <span
+                                    className={classNames(
+                                        'text-xl font-bold',
+                                        chargePrice < basePrice ? 'text-rose-600' : 'text-gray-900',
+                                    )}
+                                >
+                                    {formatPrice(chargePrice)}
+                                </span>
+                                {chargePrice < basePrice && (
+                                    <span className="text-sm text-gray-400 line-through me-1">
+                                        {formatPrice(basePrice)}
+                                    </span>
                                 )}
-                            </span>
-                        </div>
-                    ) : null}
+                                {appliedConditionCode && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                                            <Tag aria-hidden className="h-3 w-3" />
+                                            {appliedConditionCode}
+                                        </span>
+                                        <span className="text-xs font-medium text-shop-700">
+                                            You save{' '}
+                                            {formatPrice(basePrice - chargePrice)}
+                                        </span>
+                                    </div>
+                                )}
+                                <span className="text-xs text-gray-400">
+                                    {appliedConditionCode ? `(${appliedConditionCode} applied)` : ''}
+                                </span>
+                            </>
+                        ) : (
+                            /* Original catalog price display when no active condition */
+                            <>
+                                <span
+                                    className={classNames(
+                                        'text-xl font-bold',
+                                        discount ? 'text-rose-600' : 'text-gray-900',
+                                    )}
+                                >
+                                    {formatPrice(product.price)}
+                                </span>
+                                {discount && product.originalPrice !== null ? (
+                                    <span className="text-sm text-gray-400 line-through">
+                                        {formatPrice(product.originalPrice)}
+                                    </span>
+                                ) : null}
+                                {discount && product.originalPrice !== null ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                                            <Tag aria-hidden className="h-3 w-3" />
+                                            −{discount}%
+                                        </span>
+                                        <span className="text-xs font-medium text-shop-700">
+                                            You save{' '}
+                                            {formatPrice(
+                                                product.originalPrice - product.price,
+                                            )}
+                                        </span>
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
 
