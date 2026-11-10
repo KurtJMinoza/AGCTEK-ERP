@@ -5,14 +5,10 @@ import {
     NotFoundException,
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ComplianceAuditService } from './compliance-audit.service'
 
 @Injectable()
 export class ScanOverrideService {
-    constructor(
-        private prisma: PrismaService,
-        private complianceAudit: ComplianceAuditService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     async create(input: {
         companyId: string
@@ -50,17 +46,6 @@ export class ScanOverrideService {
                 status: 'PENDING',
             },
         })
-        await this.complianceAudit.record({
-            companyId: input.companyId,
-            domain: 'scan_override',
-            action: 'OVERRIDE_REQUESTED',
-            entityType: 'SCAN_OVERRIDE',
-            entityId: row.id,
-            entityNumber: overrideNumber,
-            performedBy: input.requestedBy,
-            reason: input.reasonCode,
-            metadata: { businessProcess: input.businessProcess },
-        })
         return row
     }
 
@@ -80,15 +65,6 @@ export class ScanOverrideService {
                 where: { id },
                 data: { status: 'REJECTED', rejectedAt: new Date() },
             })
-            await this.complianceAudit.record({
-                companyId: row.companyId,
-                domain: 'scan_override',
-                action: 'OVERRIDE_REJECTED',
-                entityType: 'SCAN_OVERRIDE',
-                entityId: row.id,
-                entityNumber: row.overrideNumber,
-                performedBy: approverId,
-            })
             return updated
         }
         const updated = await this.prisma.mmScanOverride.update({
@@ -99,19 +75,10 @@ export class ScanOverrideService {
                 approvedAt: new Date(),
             },
         })
-        await this.complianceAudit.record({
-            companyId: row.companyId,
-            domain: 'scan_override',
-            action: 'OVERRIDE_APPROVED',
-            entityType: 'SCAN_OVERRIDE',
-            entityId: row.id,
-            entityNumber: row.overrideNumber,
-            performedBy: approverId,
-        })
         return updated
     }
 
-    async assertApprovedForUse(id: string, userId: string) {
+    async assertApprovedForUse(id: string) {
         const row = await this.prisma.mmScanOverride.findUnique({ where: { id } })
         if (!row || row.status !== 'APPROVED') {
             throw new BadRequestException('Valid approved scan override is required')
@@ -119,15 +86,6 @@ export class ScanOverrideService {
         await this.prisma.mmScanOverride.update({
             where: { id },
             data: { status: 'USED' },
-        })
-        await this.complianceAudit.record({
-            companyId: row.companyId,
-            domain: 'scan_override',
-            action: 'OVERRIDE_USED',
-            entityType: 'SCAN_OVERRIDE',
-            entityId: row.id,
-            entityNumber: row.overrideNumber,
-            performedBy: userId,
         })
         return row
     }

@@ -262,12 +262,6 @@ export const MM_FEATURES = {
         ['mobile-packing', 'Mobile Packing'],
         ['warehouse-devices', 'Warehouse Devices'],
     ],
-    'supporting-operations': [
-        ['document-management', 'Document Management'],
-        ['audit-trail', 'Audit Trail'],
-        ['workflow-admin', 'Workflow & Approvals'],
-        ['compliance-dashboard', 'Compliance Dashboard'],
-    ],
     'reports-analytics': [
         ['stock-reports', 'Stock Reports'],
         ['inventory-valuation-reports', 'Inventory Valuation'],
@@ -450,11 +444,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'reports-analytics',
             'MM Reports & Analytics',
             'Stock, valuation, procurement, and warehouse analytics.',
-        ],
-        [
-            'supporting-operations',
-            'Supporting Operations',
-            'Controlled documents, audit trail, and compliance monitoring.',
         ],
     ]),
     ...group('fico', [

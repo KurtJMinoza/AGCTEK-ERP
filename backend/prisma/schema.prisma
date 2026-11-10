@@ -305,8 +305,6 @@ model Company {
   scanSessions                 MmScanSession[]
   rfidTags                     MmRfidTag[]
   scanOverrides                MmScanOverride[]
-  controlledDocuments          MmControlledDocument[]
-  complianceAuditEntries       MmComplianceAuditEntry[]
   dashboardAnalyticsCaches     MmDashboardAnalyticsCache[]
   sdSalesOrders                SdSalesOrder[]
   sdShipments                  SdShipment[]
@@ -7554,85 +7552,6 @@ model MmScanOverride {
 
   @@index([companyId, status])
   @@map("mm_scan_overrides")
-}
-
-model MmControlledDocument {
-  id                   String    @id @default(cuid())
-  documentNumber       String    @unique
-  title                String
-  documentType         String
-  companyId            String
-  company              Company   @relation(fields: [companyId], references: [id])
-  department           String?
-  processArea          String?
-  ownerUserId          String?
-  currentRevision      String?
-  /// DRAFT | UNDER_REVIEW | APPROVED | EFFECTIVE | SUPERSEDED | OBSOLETE | ARCHIVED
-  status               String    @default("DRAFT")
-  effectiveDate        DateTime?
-  reviewDate           DateTime?
-  expirationDate       DateTime?
-  confidentialityLevel String?
-  retentionPeriodDays  Int?
-  createdBy            String?
-  approvedBy           String?
-  archivedAt           DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  versions MmControlledDocumentVersion[]
-
-  @@index([companyId, status])
-  @@map("mm_controlled_documents")
-}
-
-model MmControlledDocumentVersion {
-  id             String               @id @default(cuid())
-  documentId     String
-  document       MmControlledDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  revisionNumber String
-  fileName       String
-  storageKey     String
-  mimeType       String?
-  fileSize       Int
-  fileChecksum   String
-  changeSummary  String?
-  authorUserId   String?
-  reviewerUserId String?
-  approverUserId String?
-  status         String               @default("DRAFT")
-  approvedAt     DateTime?
-  effectiveDate  DateTime?
-  obsoleteDate   DateTime?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-
-  @@unique([documentId, revisionNumber])
-  @@index([documentId])
-  @@map("mm_controlled_document_versions")
-}
-
-/// Append-only compliance audit read model (no update/delete from application)
-model MmComplianceAuditEntry {
-  id              String   @id @default(cuid())
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  domain          String
-  action          String
-  entityType      String?
-  entityId        String?
-  entityNumber    String?
-  performedBy     String?
-  performedByRole String?
-  previousValue   String?
-  newValue        String?
-  reason          String?
-  metadata        Json?
-  performedAt     DateTime @default(now())
-
-  @@index([companyId, performedAt])
-  @@index([domain])
-  @@map("mm_compliance_audit_entries")
 }
 
 /// Offline foundation — local queue replay validated server-side (never blind overwrite)

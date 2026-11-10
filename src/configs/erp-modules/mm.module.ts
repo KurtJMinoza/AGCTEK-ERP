@@ -736,30 +736,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                 ],
             ),
             mmHub(
-                'supporting-operations',
-                'Supporting Operations',
-                'Controlled documents, audit trail, and compliance monitoring.',
-                'clipboard',
-                'Supporting Operations',
-                [
-                    {
-                        code: 'document-management',
-                        title: 'Document Management',
-                        icon: 'fileText',
-                    },
-                    {
-                        code: 'audit-trail',
-                        title: 'Audit Trail',
-                        icon: 'search',
-                    },
-                    {
-                        code: 'compliance-dashboard',
-                        title: 'Compliance Dashboard',
-                        icon: 'barChart',
-                    },
-                ],
-            ),
-            mmHub(
                 'reports-analytics',
                 'MM Reports & Analytics',
                 'Stock, valuation, aging, procurement, supplier, and warehouse analytics.',

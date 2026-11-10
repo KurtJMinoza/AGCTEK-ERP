@@ -245,9 +245,6 @@ import { BarcodeRegistryService } from './supporting-ops/barcode-registry.servic
 import { RfidTagService } from './supporting-ops/rfid-tag.service'
 import { ScanSessionService } from './supporting-ops/scan-session.service'
 import { ScanOverrideService } from './supporting-ops/scan-override.service'
-import { ControlledDocumentService } from './supporting-ops/controlled-document.service'
-import { ComplianceAuditService } from './supporting-ops/compliance-audit.service'
-import { ComplianceDashboardService } from './supporting-ops/compliance-dashboard.service'
 import { PutawayService } from './warehouse/putaway/putaway.service'
 import { PutawayStrategyRegistry } from './warehouse/tasks/strategies/putaway-strategy.registry'
 import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capacity-based-putaway.strategy'
@@ -508,9 +505,6 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         RfidTagService,
         ScanSessionService,
         ScanOverrideService,
-        ControlledDocumentService,
-        ComplianceAuditService,
-        ComplianceDashboardService,
     ],
     exports: [
         SdIntegrationModule,
