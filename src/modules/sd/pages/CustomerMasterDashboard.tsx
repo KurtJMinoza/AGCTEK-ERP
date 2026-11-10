@@ -162,15 +162,15 @@ const CustomerMasterDashboard = () => {
                 ),
             },
             {
-                header: 'Type',
-                id: 'customerType',
-                size: 88,
+                header: 'Account type',
+                id: 'customerAccountType',
+                size: 110,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
-                        <SdStatusBadgeCell label="Retail" tone="info" />
+                    row.original.customerAccountType === 'CREDIT' ? (
+                        <SdStatusBadgeCell label="Credit" tone="warning" />
                     ) : (
-                        <SdStatusBadgeCell label="B2B" />
+                        <SdStatusBadgeCell label="Cash" tone="info" />
                     ),
             },
             {
@@ -193,7 +193,7 @@ const CustomerMasterDashboard = () => {
                 size: 120,
                 meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
+                    row.original.customerAccountType === 'NON_CREDIT' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
                         <SdMoneyCell amount={row.original.creditLimit} />
@@ -205,7 +205,7 @@ const CustomerMasterDashboard = () => {
                 size: 130,
                 meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
+                    row.original.customerAccountType === 'NON_CREDIT' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
                         <SdMoneyCell

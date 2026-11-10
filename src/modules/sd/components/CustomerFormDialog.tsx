@@ -17,8 +17,11 @@ import {
     getShopAccounts,
     type CreateCustomerInput,
     type Customer,
+    type CustomerAccountType,
+    type CustomerCategory,
+    type CreditStatus,
     type CustomerStatus,
-    type CustomerType,
+    type PaymentTerm,
     type ShopAccount,
 } from '../services/customerMasterService'
 
@@ -26,7 +29,20 @@ const MAX_CREDIT_LIMIT = 999_999_999_999.99
 const NEW_SHOP_LOGIN = ''
 
 const customerSchema = z.object({
-    customerType: z.enum(['RETAIL', 'B2B']),
+    customerAccountType: z.enum(['NON_CREDIT', 'CREDIT']),
+    customerCategory: z.enum([
+        'RETAIL',
+        'CORPORATE',
+        'EMPLOYEE',
+        'WHOLESALE',
+    ]),
+    paymentTerms: z.enum(['IMMEDIATE', 'NET_30']),
+    creditStatus: z.enum([
+        'NOT_APPLICABLE',
+        'PENDING',
+        'APPROVED',
+        'SUSPENDED',
+    ]),
     companyName: z.string().trim().min(2, 'At least 2 characters').max(200),
     contactName: z.string().trim().min(2, 'At least 2 characters').max(120),
     email: z.string().trim().email('Enter a valid email').max(200),
@@ -37,7 +53,7 @@ const customerSchema = z.object({
         .number({ message: 'Credit limit is required' })
         .min(0, 'Cannot be negative')
         .max(MAX_CREDIT_LIMIT, 'Credit limit is too large'),
-    status: z.enum(['ACTIVE', 'BLOCKED']),
+    status: z.enum(['ACTIVE', 'BLOCKED', 'INACTIVE']),
 })
 
 /** Matches the storefront password policy enforced by the backend. */
@@ -48,8 +64,15 @@ const isValidShopPassword = (password: string) =>
     /\d/.test(password)
 
 const createCustomerSchema = customerSchema.superRefine((values, ctx) => {
+    const isCredit = values.customerAccountType === 'CREDIT'
+    if (isCredit && !values.creditLimit && values.creditLimit !== 0) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['creditLimit'],
+            message: 'CREDIT customers need a credit limit',
+        })
+    }
     if (
-        values.customerType === 'RETAIL' &&
         values.retailClientId === NEW_SHOP_LOGIN &&
         !isValidShopPassword(values.password)
     ) {
@@ -64,10 +87,45 @@ const createCustomerSchema = customerSchema.superRefine((values, ctx) => {
 type FormShape = z.infer<typeof customerSchema>
 type StatusOption = { value: CustomerStatus; label: string }
 type ShopAccountOption = { value: string; label: string }
+type AccountTypeOption = {
+    value: CustomerAccountType
+    label: string
+}
+type CategoryOption = { value: CustomerCategory; label: string }
+type TermOption = { value: PaymentTerm; label: string }
+type CreditStatusOption = { value: CreditStatus; label: string }
 
 const STATUS_OPTIONS: StatusOption[] = [
     { value: 'ACTIVE', label: 'Active' },
     { value: 'BLOCKED', label: 'Blocked' },
+    { value: 'INACTIVE', label: 'Inactive' },
+]
+
+const ACCOUNT_TYPE_OPTIONS: AccountTypeOption[] = [
+    {
+        value: 'NON_CREDIT',
+        label: 'Non-Credit Customer (Cash)',
+    },
+    { value: 'CREDIT', label: 'Credit Customer' },
+]
+
+const CATEGORY_OPTIONS: CategoryOption[] = [
+    { value: 'RETAIL', label: 'Retail / Walk-in' },
+    { value: 'CORPORATE', label: 'Corporate' },
+    { value: 'EMPLOYEE', label: 'Employee' },
+    { value: 'WHOLESALE', label: 'Wholesale' },
+]
+
+const TERM_OPTIONS: TermOption[] = [
+    { value: 'IMMEDIATE', label: 'Immediate (pay now)' },
+    { value: 'NET_30', label: 'Net 30' },
+]
+
+const CREDIT_STATUS_OPTIONS: CreditStatusOption[] = [
+    { value: 'NOT_APPLICABLE', label: 'Not applicable' },
+    { value: 'PENDING', label: 'Pending approval' },
+    { value: 'APPROVED', label: 'Approved' },
+    { value: 'SUSPENDED', label: 'Suspended' },
 ]
 
 const NEW_SHOP_LOGIN_OPTION: ShopAccountOption = {
@@ -78,7 +136,10 @@ const NEW_SHOP_LOGIN_OPTION: ShopAccountOption = {
 const FORM_ID = 'sd-customer-form'
 
 const blankValues: FormShape = {
-    customerType: 'RETAIL',
+    customerAccountType: 'NON_CREDIT',
+    customerCategory: 'RETAIL',
+    paymentTerms: 'IMMEDIATE',
+    creditStatus: 'NOT_APPLICABLE',
     companyName: '',
     contactName: '',
     email: '',
@@ -92,7 +153,10 @@ const blankValues: FormShape = {
 const toFormValues = (customer?: Customer | null): FormShape =>
     customer
         ? {
-              customerType: customer.customerType,
+              customerAccountType: customer.customerAccountType,
+              customerCategory: customer.customerCategory,
+              paymentTerms: customer.paymentTerms,
+              creditStatus: customer.creditStatus,
               companyName: customer.companyName,
               contactName: customer.contactName,
               email: customer.email,
@@ -132,8 +196,12 @@ const CustomerFormDialog = ({
     onSubmit,
 }: CustomerFormDialogProps) => {
     const isCreate = mode === 'create'
-    const [loadedShopAccounts, setShopAccounts] = useState<ShopAccount[] | null>(null)
-    const [shopAccountsError, setShopAccountsError] = useState<string | null>(null)
+    const [loadedShopAccounts, setShopAccounts] = useState<ShopAccount[] | null>(
+        null,
+    )
+    const [shopAccountsError, setShopAccountsError] = useState<string | null>(
+        null,
+    )
     const shopAccounts = loadedShopAccounts ?? []
     const shopAccountsLoading = loadedShopAccounts === null && !shopAccountsError
 
@@ -149,10 +217,15 @@ const CustomerFormDialog = ({
         resolver: zodResolver(isCreate ? createCustomerSchema : customerSchema),
     })
 
-    const customerType = useWatch({ control, name: 'customerType' })
+    const customerAccountType = useWatch({
+        control,
+        name: 'customerAccountType',
+    })
+    const customerCategory = useWatch({ control, name: 'customerCategory' })
     const retailClientId = useWatch({ control, name: 'retailClientId' })
     const email = useWatch({ control, name: 'email' })
-    const isRetail = customerType === 'RETAIL'
+    const isCredit = customerAccountType === 'CREDIT'
+    const isRetail = customerCategory === 'RETAIL'
     const createsShopLogin = isCreate && retailClientId === NEW_SHOP_LOGIN
 
     useEffect(() => {
@@ -165,14 +238,18 @@ const CustomerFormDialog = ({
         getShopAccounts()
             .then((accounts) => {
                 if (!cancelled) {
-                    setShopAccounts(accounts.filter((account) => !account.linkedCustomer))
+                    setShopAccounts(
+                        accounts.filter((account) => !account.linkedCustomer),
+                    )
                     setShopAccountsError(null)
                 }
             })
             .catch((error: unknown) => {
                 if (!cancelled) {
                     setShopAccountsError(
-                        error instanceof Error ? error.message : 'Unable to load shop accounts',
+                        error instanceof Error
+                            ? error.message
+                            : 'Unable to load shop accounts',
                     )
                 }
             })
@@ -193,22 +270,30 @@ const CustomerFormDialog = ({
             email: values.email,
             phone: values.phone || undefined,
             status: values.status,
+            customerAccountType: values.customerAccountType,
+            customerCategory: values.customerCategory,
+            paymentTerms: values.paymentTerms,
+            creditStatus: values.creditStatus,
         }
-        const retail = values.customerType === 'RETAIL'
-
         if (!isCreate) {
-            return onSubmit(retail ? shared : { ...shared, creditLimit: values.creditLimit })
+            return onSubmit(
+                isCredit ? { ...shared, creditLimit: values.creditLimit } : shared,
+            )
         }
-        if (!retail) {
-            return onSubmit({ ...shared, customerType: 'B2B', creditLimit: values.creditLimit })
+        const payload: CreateCustomerInput = { ...shared }
+        if (isCredit) {
+            payload.creditLimit = values.creditLimit
         }
-        return onSubmit({
-            ...shared,
-            customerType: 'RETAIL',
-            ...(values.retailClientId === NEW_SHOP_LOGIN
-                ? { password: values.password }
-                : { retailClientId: values.retailClientId }),
-        })
+        if (
+            values.customerCategory === 'RETAIL' &&
+            values.retailClientId !== NEW_SHOP_LOGIN
+        ) {
+            payload.retailClientId = values.retailClientId
+        }
+        if (createsShopLogin) {
+            payload.password = values.password
+        }
+        return onSubmit(payload)
     }
 
     const handleShopAccountChange = (option: ShopAccountOption | null) => {
@@ -223,9 +308,9 @@ const CustomerFormDialog = ({
     }
 
     const description = isCreate
-        ? isRetail
-            ? 'Register an e-commerce shopper and link their shop login.'
-            : 'Register a corporate client and assign a credit limit.'
+        ? isCredit
+            ? 'Register a credit customer with a credit limit and payment terms.'
+            : 'Register a cash customer. Payment is required immediately.'
         : customer
           ? `${customer.customerNumber} · ${customer.companyName}`
           : ''
@@ -240,7 +325,12 @@ const CustomerFormDialog = ({
             icon={<HiOutlineOfficeBuilding />}
             footer={
                 <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" disabled={saving} onClick={onClose}>
+                    <Button
+                        type="button"
+                        size="sm"
+                        disabled={saving}
+                        onClick={onClose}
+                    >
                         Cancel
                     </Button>
                     <Button
@@ -256,29 +346,63 @@ const CustomerFormDialog = ({
             }
         >
             <Form id={FORM_ID} onSubmit={handleSubmit(onValid)}>
-                <FormItem label="Customer type" asterisk>
+                <FormItem
+                    label="Customer account type"
+                    asterisk
+                >
                     <Controller
-                        name="customerType"
+                        name="customerAccountType"
                         control={control}
                         render={({ field }) => (
                             <Radio.Group
                                 value={field.value}
                                 disabled={!isCreate}
-                                onChange={(value: CustomerType) => field.onChange(value)}
+                                onChange={(value: CustomerAccountType) =>
+                                    field.onChange(value)
+                                }
                             >
-                                <Radio value="RETAIL">Retail (E-commerce)</Radio>
-                                <Radio value="B2B">B2B (Corporate)</Radio>
+                                {ACCOUNT_TYPE_OPTIONS.map((option) => (
+                                    <Radio
+                                        key={option.value}
+                                        value={option.value}
+                                    >
+                                        {option.label}
+                                    </Radio>
+                                ))}
                             </Radio.Group>
                         )}
                     />
                     {!isCreate ? (
                         <p className="mt-1 text-xs text-gray-500">
-                            Customer type is fixed after registration.
+                            Account type is fixed after registration.
                         </p>
                     ) : null}
                 </FormItem>
 
                 <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+                    <FormItem
+                        label="Customer category"
+                        asterisk
+                        invalid={Boolean(errors.customerCategory)}
+                        errorMessage={errors.customerCategory?.message}
+                    >
+                        <Controller
+                            name="customerCategory"
+                            control={control}
+                            render={({ field }) => (
+                                <Select<CategoryOption>
+                                    isSearchable={false}
+                                    options={CATEGORY_OPTIONS}
+                                    value={CATEGORY_OPTIONS.find(
+                                        (option) => option.value === field.value,
+                                    )}
+                                    onChange={(option) =>
+                                        field.onChange(option?.value ?? 'RETAIL')
+                                    }
+                                />
+                            )}
+                        />
+                    </FormItem>
                     <FormItem
                         label="Company name"
                         asterisk
@@ -289,7 +413,10 @@ const CustomerFormDialog = ({
                             name="companyName"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Acme Trading Corp." {...field} />
+                                <Input
+                                    placeholder="e.g. Acme Trading Corp."
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -303,7 +430,10 @@ const CustomerFormDialog = ({
                             name="contactName"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="e.g. Juan Dela Cruz" {...field} />
+                                <Input
+                                    placeholder="e.g. Juan Dela Cruz"
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -334,7 +464,10 @@ const CustomerFormDialog = ({
                             name="phone"
                             control={control}
                             render={({ field }) => (
-                                <Input placeholder="+63 917 000 0000" {...field} />
+                                <Input
+                                    placeholder="+63 917 000 0000"
+                                    {...field}
+                                />
                             )}
                         />
                     </FormItem>
@@ -355,7 +488,8 @@ const CustomerFormDialog = ({
                                     onChange={handleShopAccountChange}
                                 />
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Link an existing storefront login, or create a new one.
+                                    Link an existing storefront login, or create a new
+                                    one.
                                 </p>
                             </FormItem>
                             <FormItem
@@ -386,6 +520,7 @@ const CustomerFormDialog = ({
                                         : 'The customer keeps the linked account’s password.'}
                                 </p>
                             </FormItem>
+                            {!isRetail ? null : null}
                         </>
                     ) : null}
 
@@ -402,40 +537,103 @@ const CustomerFormDialog = ({
                         </FormItem>
                     ) : null}
 
-                    {!isRetail ? (
-                        <FormItem
-                            label="Credit limit (PHP)"
-                            asterisk
-                            invalid={Boolean(errors.creditLimit)}
-                            errorMessage={errors.creditLimit?.message}
-                        >
-                            <Controller
-                                name="creditLimit"
-                                control={control}
-                                render={({ field }) => (
-                                    <NumericInput
-                                        placeholder="0.00"
-                                        thousandSeparator=","
-                                        decimalScale={2}
-                                        fixedDecimalScale
-                                        allowNegative={false}
-                                        value={field.value}
-                                        onValueChange={(v) => field.onChange(v.floatValue ?? 0)}
-                                    />
-                                )}
-                            />
-                            {!isCreate && customer ? (
+                    {isCredit ? (
+                        <>
+                            <FormItem
+                                label="Credit limit (PHP)"
+                                asterisk
+                                invalid={Boolean(errors.creditLimit)}
+                                errorMessage={errors.creditLimit?.message}
+                            >
+                                <Controller
+                                    name="creditLimit"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <NumericInput
+                                            placeholder="0.00"
+                                            thousandSeparator=","
+                                            decimalScale={2}
+                                            fixedDecimalScale
+                                            allowNegative={false}
+                                            value={field.value}
+                                            onValueChange={(v) =>
+                                                field.onChange(v.floatValue ?? 0)
+                                            }
+                                        />
+                                    )}
+                                />
+                                {!isCreate && customer ? (
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Available now:{' '}
+                                        {formatPrice(customer.availableCredit)}.
+                                        Changing the limit shifts available credit by
+                                        the same amount.
+                                    </p>
+                                ) : null}
+                            </FormItem>
+                            <FormItem
+                                label="Payment terms"
+                                invalid={Boolean(errors.paymentTerms)}
+                                errorMessage={errors.paymentTerms?.message}
+                            >
+                                <Controller
+                                    name="paymentTerms"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<TermOption>
+                                            isSearchable={false}
+                                            options={TERM_OPTIONS}
+                                            value={TERM_OPTIONS.find(
+                                                (option) => option.value === field.value,
+                                            )}
+                                            onChange={(option) =>
+                                                field.onChange(
+                                                    option?.value ?? 'NET_30',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem
+                                label="Credit status"
+                                invalid={Boolean(errors.creditStatus)}
+                                errorMessage={errors.creditStatus?.message}
+                            >
+                                <Controller
+                                    name="creditStatus"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<CreditStatusOption>
+                                            isSearchable={false}
+                                            options={CREDIT_STATUS_OPTIONS}
+                                            value={CREDIT_STATUS_OPTIONS.find(
+                                                (option) =>
+                                                    option.value === field.value,
+                                            )}
+                                            onChange={(option) =>
+                                                field.onChange(
+                                                    option?.value ??
+                                                        'NOT_APPLICABLE',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Available now: {formatPrice(customer.availableCredit)}.
-                                    Changing the limit shifts available credit by the same
-                                    amount.
+                                    Credit status controls whether the customer may buy
+                                    on credit.
                                 </p>
-                            ) : null}
-                        </FormItem>
+                            </FormItem>
+                        </>
                     ) : null}
                 </div>
 
-                <FormItem label="Status" asterisk className="md:max-w-[calc(50%-0.5rem)]">
+                <FormItem
+                    label="Status"
+                    asterisk
+                    className="md:max-w-[calc(50%-0.5rem)]"
+                >
                     <Controller
                         name="status"
                         control={control}
@@ -453,7 +651,8 @@ const CustomerFormDialog = ({
                         )}
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                        Blocked customers stay on file but are marked on hold.
+                        Blocked or inactive customers stay on file but cannot buy on
+                        credit.
                     </p>
                 </FormItem>
             </Form>

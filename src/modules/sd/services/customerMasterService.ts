@@ -1,8 +1,11 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError } from './apiError'
 
-export type CustomerStatus = 'ACTIVE' | 'BLOCKED'
-export type CustomerType = 'RETAIL' | 'B2B'
+export type CustomerStatus = 'ACTIVE' | 'BLOCKED' | 'INACTIVE'
+export type CustomerAccountType = 'NON_CREDIT' | 'CREDIT'
+export type CustomerCategory = 'RETAIL' | 'CORPORATE' | 'EMPLOYEE' | 'WHOLESALE'
+export type PaymentTerm = 'IMMEDIATE' | 'NET_30'
+export type CreditStatus = 'NOT_APPLICABLE' | 'PENDING' | 'APPROVED' | 'SUSPENDED'
 
 export type Customer = {
     id: string
@@ -17,7 +20,14 @@ export type Customer = {
     /** Server-maintained; negative when the customer is over their limit. */
     availableCredit: number
     status: CustomerStatus
-    customerType: CustomerType
+    /** NON_CREDIT (cash, no credit limit) | CREDIT (credit limit, approval workflow) */
+    customerAccountType: CustomerAccountType
+    /** RETAIL | CORPORATE | EMPLOYEE | WHOLESALE */
+    customerCategory: CustomerCategory
+    /** IMMEDIATE (pay now) | NET_30 (pay within terms) */
+    paymentTerms: PaymentTerm
+    /** NOT_APPLICABLE (non-credit) | PENDING | APPROVED | SUSPENDED */
+    creditStatus: CreditStatus
     /** Linked Shop (storefront) account, when one was referenced. */
     retailClientId: string | null
     /** Shop account profile (present when the customer references a shop account). */
@@ -37,10 +47,13 @@ export type CreateCustomerInput = {
     contactName: string
     email: string
     phone?: string
-    /** Required for B2B; RETAIL customers carry no credit. */
+    /** Required for CREDIT account type; NON_CREDIT customers carry no credit. */
     creditLimit?: number
     status?: CustomerStatus
-    customerType?: CustomerType
+    customerAccountType?: CustomerAccountType
+    customerCategory?: CustomerCategory
+    paymentTerms?: PaymentTerm
+    creditStatus?: CreditStatus
     /** RETAIL: link an existing shop login… */
     retailClientId?: string
     /** …or create one with the customer's email and this password. */
@@ -48,7 +61,10 @@ export type CreateCustomerInput = {
 }
 
 export type UpdateCustomerInput = Partial<
-    Omit<CreateCustomerInput, 'customerType' | 'retailClientId' | 'password'>
+    Omit<
+        CreateCustomerInput,
+        'customerAccountType' | 'customerCategory' | 'retailClientId' | 'password'
+    >
 >
 
 /** Shop (storefront) account shown in the Add New Customer reference picker. */
@@ -69,12 +85,21 @@ type DecimalString = string | number
 
 type ApiCustomer = Omit<
     Customer,
-    'creditLimit' | 'availableCredit' | 'status' | 'customerType'
+    | 'creditLimit'
+    | 'availableCredit'
+    | 'status'
+    | 'customerAccountType'
+    | 'customerCategory'
+    | 'paymentTerms'
+    | 'creditStatus'
 > & {
     creditLimit: DecimalString
     availableCredit: DecimalString
     status: string
-    customerType?: string
+    customerAccountType?: string
+    customerCategory?: string
+    paymentTerms?: string
+    creditStatus?: string
 }
 
 const BASE_PATH = '/sd/customers'
@@ -83,8 +108,22 @@ const toCustomer = (row: ApiCustomer): Customer => ({
     ...row,
     creditLimit: Number(row.creditLimit),
     availableCredit: Number(row.availableCredit),
-    status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
-    customerType: row.customerType === 'RETAIL' ? 'RETAIL' : 'B2B',
+    status: row.status === 'BLOCKED' ? 'BLOCKED' : row.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+    customerAccountType:
+        row.customerAccountType === 'CREDIT' ? 'CREDIT' : 'NON_CREDIT',
+    customerCategory:
+        row.customerCategory === 'CORPORATE' ||
+        row.customerCategory === 'EMPLOYEE' ||
+        row.customerCategory === 'WHOLESALE'
+            ? row.customerCategory
+            : 'RETAIL',
+    paymentTerms: row.paymentTerms === 'NET_30' ? 'NET_30' : 'IMMEDIATE',
+    creditStatus:
+        row.creditStatus === 'PENDING' ||
+        row.creditStatus === 'APPROVED' ||
+        row.creditStatus === 'SUSPENDED'
+            ? row.creditStatus
+            : 'NOT_APPLICABLE',
     retailClientId: row.retailClientId ?? null,
     retailClient: row.retailClient ?? null,
 })
