@@ -363,11 +363,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Reports & Analytics',
             'Sales analysis and backorder reports.',
         ],
-        [
-            'configuration',
-            'Configuration',
-            'Sales organizations and document types.',
-        ],
     ]),
     ...group('mm', [
         [

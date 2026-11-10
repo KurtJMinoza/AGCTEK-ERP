@@ -140,30 +140,6 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                 ],
             },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'sales-org',
-                        permissionCode: 'sd.configuration',
-                        title: 'Sales Organization',
-                        description:
-                            'Configure sales orgs, distribution channels, and divisions.',
-                        path: '/modules/sd/sales-org',
-                        icon: 'building',
-                    },
-                    {
-                        code: 'document-types',
-                        permissionCode: 'sd.configuration',
-                        title: 'Document Types',
-                        description:
-                            'Define SD document types and number ranges.',
-                        path: '/modules/sd/document-types',
-                        icon: 'settings',
-                    },
-                ],
-            },
         ],
     },
     {
