@@ -33,10 +33,8 @@ const customerSchema = z.object({
     contactName: z.string().trim().min(2, 'At least 2 characters').max(120),
     email: z.string().trim().email('Enter a valid email').max(200),
     phone: z.string().trim().max(40),
-    creditLimit: z
-        .number({ message: 'Credit limit is required' })
-        .min(0, 'Cannot be negative')
-        .max(MAX_CREDIT_LIMIT, 'Credit limit is too large'),
+    /** Required only for CREDIT account type; NON_CREDIT (cash) carries none. */
+    creditLimit: z.number().min(0, 'Cannot be negative').max(MAX_CREDIT_LIMIT, 'Credit limit is too large').optional(),
     status: z.enum(['ACTIVE', 'BLOCKED', 'INACTIVE']),
 })
 
