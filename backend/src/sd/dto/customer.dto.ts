@@ -8,7 +8,6 @@ import {
     Max,
     MaxLength,
     Min,
-    ValidateIf,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
@@ -75,10 +74,7 @@ export class CreateCustomerDto {
     phone?: string
 
     /** Required for CREDIT account type; NON_CREDIT customers carry no credit (omit or send 0). */
-    @ValidateIf(
-        (o: CreateCustomerDto) =>
-            o.customerAccountType !== 'CREDIT' || o.creditLimit !== undefined,
-    )
+    @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
