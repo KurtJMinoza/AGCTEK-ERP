@@ -23,6 +23,9 @@ export type CustomerCategory = (typeof CUSTOMER_CATEGORIES)[number]
 export const PAYMENT_TERMS = ['IMMEDIATE', 'NET_30'] as const
 export type PaymentTerm = (typeof PAYMENT_TERMS)[number]
 
+export const PAYMENT_MODES = ['CASH', 'BANK_TRANSFER', 'LOAN_SALARY_DEDUCT'] as const
+export type PaymentMode = (typeof PAYMENT_MODES)[number]
+
 export const CREDIT_STATUSES = ['NOT_APPLICABLE', 'PENDING', 'APPROVED', 'SUSPENDED'] as const
 export type CreditStatus = (typeof CREDIT_STATUSES)[number]
 
@@ -104,6 +107,11 @@ export class CreateCustomerDto {
     @IsIn(CREDIT_STATUSES)
     creditStatus?: CreditStatus
 
+    /** Defaults to CASH. How a non-credit customer pays: CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT. */
+    @IsOptional()
+    @IsIn(PAYMENT_MODES)
+    paymentMode?: PaymentMode
+
     @IsOptional()
     @IsString()
     createdBy?: string
@@ -161,6 +169,11 @@ export class UpdateCustomerDto {
     @IsOptional()
     @IsIn(CREDIT_STATUSES)
     creditStatus?: CreditStatus
+
+    /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT. */
+    @IsOptional()
+    @IsIn(PAYMENT_MODES)
+    paymentMode?: PaymentMode
 
     @IsOptional()
     @IsString()

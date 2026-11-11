@@ -4688,6 +4688,8 @@ model SdCustomer {
   paymentTerms    String        @default("IMMEDIATE")
   /// NOT_APPLICABLE (non-credit) | PENDING | APPROVED | SUSPENDED
   creditStatus    String        @default("NOT_APPLICABLE")
+  /// CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays
+  paymentMode     String        @default("CASH")
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)

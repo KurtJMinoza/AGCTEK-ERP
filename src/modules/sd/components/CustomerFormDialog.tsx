@@ -20,6 +20,7 @@ import {
     type CreditStatus,
     type CustomerStatus,
     type PaymentTerm,
+    type PaymentMode,
 } from '../services/customerMasterService'
 
 const MAX_CREDIT_LIMIT = 999_999_999_999.99
@@ -32,9 +33,19 @@ const customerSchema = z.object({
     companyName: z.string().trim().min(2, 'At least 2 characters').max(200),
     contactName: z.string().trim().min(2, 'At least 2 characters').max(120),
     email: z.string().trim().email('Enter a valid email').max(200),
-    phone: z.string().trim().max(40),
+    /** Philippine mobile: 09xxxxxxxxx or +639xxxxxxxxx */
+    phone: z
+        .string()
+        .trim()
+        .regex(
+            /^(\+63|0)?9\d{9}$/,
+            'Enter a valid mobile number (e.g. 09171234567 or +639171234567)',
+        )
+        .max(40, 'Phone number is too long'),
     /** Required only for CREDIT account type; NON_CREDIT (cash) carries none. */
     creditLimit: z.number().min(0, 'Cannot be negative').max(MAX_CREDIT_LIMIT, 'Credit limit is too large').optional(),
+    /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
+    paymentMode: z.enum(['CASH', 'BANK_TRANSFER', 'LOAN_SALARY_DEDUCT']),
     status: z.enum(['ACTIVE', 'BLOCKED', 'INACTIVE']),
 })
 
@@ -54,6 +65,7 @@ type AccountTypeOption = { value: CustomerAccountType; label: string }
 type CategoryOption = { value: CustomerCategory; label: string }
 type TermOption = { value: PaymentTerm; label: string }
 type CreditStatusOption = { value: CreditStatus; label: string }
+type PaymentModeOption = { value: PaymentMode; label: string }
 
 const STATUS_OPTIONS: StatusOption[] = [
     { value: 'ACTIVE', label: 'Active' },
@@ -62,7 +74,7 @@ const STATUS_OPTIONS: StatusOption[] = [
 ]
 
 const ACCOUNT_TYPE_OPTIONS: AccountTypeOption[] = [
-    { value: 'NON_CREDIT', label: 'Non-Credit Customer (Cash)' },
+    { value: 'NON_CREDIT', label: 'Non-Credit Customer' },
     { value: 'CREDIT', label: 'Credit Customer' },
 ]
 
@@ -85,6 +97,12 @@ const CREDIT_STATUS_OPTIONS: CreditStatusOption[] = [
     { value: 'SUSPENDED', label: 'Suspended' },
 ]
 
+const PAYMENT_MODE_OPTIONS: { value: PaymentMode; label: string }[] = [
+    { value: 'CASH', label: 'Cash' },
+    { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+    { value: 'LOAN_SALARY_DEDUCT', label: 'Loan (Salary Deduction)' },
+]
+
 const FORM_ID = 'sd-customer-form'
 
 const blankValues: FormShape = {
@@ -97,6 +115,7 @@ const blankValues: FormShape = {
     email: '',
     phone: '',
     creditLimit: 0,
+    paymentMode: 'CASH',
     status: 'ACTIVE',
 }
 
@@ -107,6 +126,7 @@ const toFormValues = (customer?: Customer | null): FormShape =>
               customerCategory: customer.customerCategory,
               paymentTerms: customer.paymentTerms,
               creditStatus: customer.creditStatus,
+              paymentMode: customer.paymentMode,
               companyName: customer.companyName,
               contactName: customer.contactName,
               email: customer.email,
@@ -168,6 +188,7 @@ const CustomerFormDialog = ({
             customerCategory: values.customerCategory,
             paymentTerms: values.paymentTerms,
             creditStatus: values.creditStatus,
+            paymentMode: values.paymentMode,
         }
         if (!isCreate) {
             return onSubmit(
@@ -333,6 +354,35 @@ const CustomerFormDialog = ({
                             )}
                         />
                     </FormItem>
+
+                    {!isCredit ? (
+                        <FormItem
+                            label="Payment mode"
+                            asterisk
+                            invalid={Boolean(errors.paymentMode)}
+                            errorMessage={errors.paymentMode?.message}
+                        >
+                            <Controller
+                                name="paymentMode"
+                                control={control}
+                                render={({ field }) => (
+                                <Select<PaymentModeOption>
+                                    isSearchable={false}
+                                    options={PAYMENT_MODE_OPTIONS}
+                                    value={PAYMENT_MODE_OPTIONS.find(
+                                        (option) => option.value === field.value,
+                                    )}
+                                    onChange={(option) =>
+                                        field.onChange(option?.value ?? 'CASH')
+                                    }
+                                />
+                                )}
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                                How the cash customer pays at the counter.
+                            </p>
+                        </FormItem>
+                    ) : null}
 
                     {isCredit ? (
                         <>

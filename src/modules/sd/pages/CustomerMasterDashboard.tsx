@@ -140,8 +140,8 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Customer',
                 id: 'company',
-                size: 180,
-                minSize: 140,
+                size: 150,
+                minSize: 120,
                 cell: ({ row }) => (
                     <SdCompanyIdentityCell
                         title={row.original.companyName}
@@ -153,20 +153,30 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Account type',
                 id: 'customerAccountType',
-                size: 110,
+                size: 115,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerAccountType === 'CREDIT' ? (
                         <SdStatusBadgeCell label="Credit" tone="warning" />
                     ) : (
-                        <SdStatusBadgeCell label="Cash" tone="info" />
+                        <SdStatusBadgeCell
+                            label={
+                                row.original.paymentMode === 'BANK_TRANSFER'
+                                    ? 'Bank Transfer'
+                                    : row.original.paymentMode ===
+                                      'LOAN_SALARY_DEDUCT'
+                                      ? 'Loan (Salary Deduction)'
+                                      : 'Cash'
+                            }
+                            tone="info"
+                        />
                     ),
             },
             {
                 header: 'Contact',
                 id: 'contact',
-                size: 180,
-                minSize: 140,
+                size: 150,
+                minSize: 120,
                 meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
                     <SdContactCell
@@ -177,9 +187,18 @@ const CustomerMasterDashboard = () => {
                 ),
             },
             {
+                header: 'Customer category',
+                id: 'customerCategory',
+                size: 140,
+                meta: { className: 'hidden sm:table-cell' },
+                cell: ({ row }) => (
+                    <SdStatusBadgeCell label={row.original.customerCategory} tone="info" />
+                ),
+            },
+            {
                 header: 'Credit Limit',
                 id: 'creditLimit',
-                size: 120,
+                size: 100,
                 meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerAccountType === 'NON_CREDIT' ? (
@@ -191,7 +210,7 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Available Credit',
                 id: 'availableCredit',
-                size: 130,
+                size: 100,
                 meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) =>
                     row.original.customerAccountType === 'NON_CREDIT' ? (
@@ -207,7 +226,7 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Shop Account',
                 id: 'shopAccount',
-                size: 160,
+                size: 130,
                 meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
                     <SdEmailCell email={row.original.retailClient?.email} />
@@ -216,7 +235,7 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Status',
                 id: 'status',
-                size: 96,
+                size: 80,
                 cell: ({ row }) =>
                     row.original.status === 'BLOCKED' ? (
                         <SdStatusBadgeCell label="Blocked" tone="danger" />
@@ -320,7 +339,7 @@ const CustomerMasterDashboard = () => {
                 </div>
             </div>
 
-            <Card>
+            <Card className="mt-4">
                 <SdDataTable
                     columns={columns}
                     data={customers}

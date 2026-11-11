@@ -368,7 +368,7 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                 className={classNames(
                                                     'inline-flex items-center gap-1.5',
                                                     fit
-                                                        ? 'max-w-full truncate'
+                                                        ? 'max-w-full text-left leading-tight'
                                                         : 'whitespace-nowrap',
                                                     header.column.getCanSort() &&
                                                         'cursor-pointer select-none point',

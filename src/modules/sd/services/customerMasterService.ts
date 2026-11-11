@@ -6,6 +6,7 @@ export type CustomerAccountType = 'NON_CREDIT' | 'CREDIT'
 export type CustomerCategory = 'RETAIL' | 'CORPORATE' | 'EMPLOYEE' | 'WHOLESALE'
 export type PaymentTerm = 'IMMEDIATE' | 'NET_30'
 export type CreditStatus = 'NOT_APPLICABLE' | 'PENDING' | 'APPROVED' | 'SUSPENDED'
+export type PaymentMode = 'CASH' | 'BANK_TRANSFER' | 'LOAN_SALARY_DEDUCT'
 
 export type Customer = {
     id: string
@@ -28,6 +29,8 @@ export type Customer = {
     paymentTerms: PaymentTerm
     /** NOT_APPLICABLE (non-credit) | PENDING | APPROVED | SUSPENDED */
     creditStatus: CreditStatus
+    /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
+    paymentMode: PaymentMode
     /** Linked Shop (storefront) account, when one was referenced. */
     retailClientId: string | null
     /** Shop account profile (present when the customer references a shop account). */
@@ -39,7 +42,7 @@ export type Customer = {
 export type CustomerListParams = {
     /** Customer number, company, contact or email. */
     search?: string
-    status?: CustomerStatus
+    status?: CustomerStatus | 'ALL'
     customerAccountType?: CustomerAccountType | 'ALL'
 }
 
@@ -55,6 +58,8 @@ export type CreateCustomerInput = {
     customerCategory?: CustomerCategory
     paymentTerms?: PaymentTerm
     creditStatus?: CreditStatus
+    /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
+    paymentMode?: PaymentMode
 }
 
 export type UpdateCustomerInput = Partial<
@@ -94,6 +99,7 @@ type ApiCustomer = Omit<
     customerCategory?: string
     paymentTerms?: string
     creditStatus?: string
+    paymentMode?: string
 }
 
 const BASE_PATH = '/sd/customers'
@@ -118,6 +124,11 @@ const toCustomer = (row: ApiCustomer): Customer => ({
         row.creditStatus === 'SUSPENDED'
             ? row.creditStatus
             : 'NOT_APPLICABLE',
+    paymentMode:
+        row.paymentMode === 'BANK_TRANSFER' ||
+        row.paymentMode === 'LOAN_SALARY_DEDUCT'
+            ? row.paymentMode
+            : 'CASH',
     retailClientId: row.retailClientId ?? null,
     retailClient: row.retailClient ?? null,
 })

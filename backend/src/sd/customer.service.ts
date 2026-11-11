@@ -13,6 +13,7 @@ import {
     CustomerCategory,
     CreditStatus,
     ListCustomersQueryDto,
+    PaymentMode,
     PaymentTerm,
     UpdateCustomerDto,
 } from './dto/customer.dto'
@@ -205,6 +206,7 @@ export class CustomerService {
                 customerCategory: account.customerCategory,
                 paymentTerms: account.paymentTerms,
                 creditStatus: account.creditStatus,
+                paymentMode: dto.paymentMode ?? 'CASH',
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -266,6 +268,9 @@ export class CustomerService {
         }
         if (dto.creditStatus !== undefined) {
             data.creditStatus = dto.creditStatus
+        }
+        if (dto.paymentMode !== undefined) {
+            data.paymentMode = dto.paymentMode
         }
 
         if (Object.keys(data).length === 1) {
