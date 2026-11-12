@@ -235,14 +235,6 @@ export const ERP_MODULES: ErpModule[] = [
                 title: 'Transactional',
                 submodules: [
                     {
-                        code: 'journal-entries',
-                        title: 'Journal Entries',
-                        description:
-                            'Post and reverse financial accounting documents.',
-                        path: '/modules/fico/journal-entries',
-                        icon: 'fileText',
-                    },
-                    {
                         code: 'accounts-payable',
                         title: 'Accounts Payable',
                         description:

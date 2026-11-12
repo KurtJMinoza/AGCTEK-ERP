@@ -1235,6 +1235,8 @@ model MmMaterial {
   sellable                     Boolean  @default(true)
   batchManaged                 Boolean  @default(false)
   serialManaged                Boolean  @default(false)
+  /// NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH
+  serialTrackingPolicy         String     @default("NOT_SERIALIZED")
   negativeStockAllowed         Boolean  @default(false)
   expiryManaged                Boolean  @default(false)
   /// Default shelf life in days (manufacture → expiry) when expiryManaged
@@ -4794,6 +4796,63 @@ model SdPricingCondition {
   @@index([conditionType, validFrom])
   @@index([productId])
   @@map("sd_pricing_conditions")
+}
+
+/// One Excel bulk-import run shared by MM Material Master and the SD Product
+/// Catalog. Preview rows are stored so an administrator can review errors and
+/// retry only failed rows; a committed batch is never re-posted.
+model SdProductImportBatch {
+  id                   String   @id @default(cuid())
+  batchNumber          String   @unique
+  filename             String
+  /// SD | MM — entry point that uploaded the file.
+  source               String   @default("SD")
+  /// PREVIEW | COMMITTED | CANCELLED
+  status               String   @default("PREVIEW")
+  idempotencyKey       String?  @unique
+  companyId            String?
+  divisionId           String?
+  createdBy            String?
+  totalRows            Int      @default(0)
+  validRows            Int      @default(0)
+  invalidRows          Int      @default(0)
+  createdMaterialRows  Int      @default(0)
+  createdListingRows   Int      @default(0)
+  updatedRows          Int      @default(0)
+  duplicateBarcodeRows Int      @default(0)
+  summary              Json?
+  createdAt            DateTime @default(now())
+  committedAt          DateTime?
+  rows                 SdProductImportRow[]
+
+  @@index([status, createdAt])
+  @@map("sd_product_import_batches")
+}
+
+/// One spreadsheet row of a product import. `payload` keeps the mapped row so
+/// a retry re-runs exactly the same data; `errors` feeds the downloadable
+/// error report.
+model SdProductImportRow {
+  id           String              @id @default(cuid())
+  batchId      String
+  batch        SdProductImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber    Int
+  /// VALID | INVALID | IMPORTED | FAILED
+  status       String              @default("VALID")
+  /// UPDATE | ADD_LISTING | CREATE_MATERIAL
+  action       String?
+  payload      Json
+  errors       Json?
+  materialId   String?
+  productId    String?
+  variantId    String?
+  errorMessage String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+  @@map("sd_product_import_rows")
 }
 
 /// Customer review and star rating on an SD storefront product.

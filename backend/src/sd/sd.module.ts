@@ -48,6 +48,10 @@ import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
+import { ProductImportController } from './product-import.controller'
+import { ProductImportService } from './product-import.service'
+import { ProductBarcodeController } from './product-barcode.controller'
+import { ProductBarcodeService } from './product-barcode.service'
 
 @Module({
     imports: [
@@ -72,6 +76,8 @@ import { BackorderReportService } from './backorder-report.service'
         SalesAnalyticsController,
         UploadsController,
         BackorderReportController,
+        ProductImportController,
+        ProductBarcodeController,
     ],
     providers: [
         CustomerService,
@@ -104,6 +110,8 @@ import { BackorderReportService } from './backorder-report.service'
         PricingConditionService,
         SalesAnalyticsService,
         BackorderReportService,
+        ProductImportService,
+        ProductBarcodeService,
     ],
     exports: [
         SalesOrderService,

@@ -17,7 +17,6 @@ const FICO_SUBMODULES = [
     'number-ranges',
     'tax-codes',
     'document-types-fi',
-    'journal-entries',
 ]
 export default async function Page() {
     return (

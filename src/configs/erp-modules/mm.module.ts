@@ -115,13 +115,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'UOM Conversions',
                         icon: 'receipt',
                     },
-                    { code: 'barcodes', title: 'Barcodes', icon: 'fileText' },
                     { code: 'batches', title: 'Batches', icon: 'boxes' },
-                    {
-                        code: 'serial-numbers',
-                        title: 'Serial Numbers',
-                        icon: 'clipboard',
-                    },
                 ],
             ),
             mmHub(

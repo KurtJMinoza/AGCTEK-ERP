@@ -85,4 +85,21 @@ export const materialService = {
 
     removeAttachment: (id: string, attachmentId: string) =>
         ErpAxiosBase.delete(`${BASE}/${id}/attachments/${attachmentId}`).then((r) => r.data),
+
+    barcodes: (materialId: string) =>
+        ErpAxiosBase.get<any[]>(`${BASE}/${materialId}/barcodes`).then((r) => r.data),
+
+    createBarcode: (data: {
+        materialId: string
+        barcodeType: string
+        barcodeValue: string
+        isPrimary?: boolean
+    }) =>
+        ErpAxiosBase.post<any>('/mm/barcodes', data).then((r) => r.data),
+
+    setPrimaryBarcode: (barcodeId: string) =>
+        ErpAxiosBase.patch<any>(`/mm/barcodes/${barcodeId}/primary`).then((r) => r.data),
+
+    removeBarcode: (barcodeId: string) =>
+        ErpAxiosBase.delete<any>(`/mm/barcodes/${barcodeId}`).then((r) => r.data),
 }

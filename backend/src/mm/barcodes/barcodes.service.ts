@@ -20,6 +20,16 @@ export class BarcodesService {
         })
     }
 
+    async listBarcodes(materialId?: string) {
+        const where: any = { deletedAt: null }
+        if (materialId) where.materialId = materialId
+        return this.prisma.mmBarcode.findMany({
+            where,
+            include: { material: { select: { id: true, materialCode: true, materialName: true } } },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
+        })
+    }
+
     async findOne(id: string) {
         const barcode = await this.prisma.mmBarcode.findFirst({ where: { id, deletedAt: null } })
         if (!barcode) throw new NotFoundException('Barcode not found')
@@ -70,5 +80,27 @@ export class BarcodesService {
     async softDelete(id: string) {
         await this.findOne(id)
         return this.prisma.mmBarcode.update({ where: { id }, data: { deletedAt: new Date() } })
+    }
+
+    async setPrimary(id: string) {
+        const barcode = await this.findOne(id)
+        // Demote any existing primary barcode on this material
+        await this.prisma.mmBarcode.updateMany({
+            where: {
+                materialId: barcode.materialId,
+                deletedAt: null,
+                isPrimary: true,
+                status: 'ACTIVE',
+                id: { not: id },
+            },
+            data: { isPrimary: false },
+        })
+        return this.prisma.mmBarcode.update({
+            where: { id },
+            data: { isPrimary: true },
+            include: {
+                material: { select: { id: true, materialCode: true, materialName: true } },
+            },
+        })
     }
 }

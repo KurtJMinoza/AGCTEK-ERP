@@ -15,6 +15,8 @@ import { UomConversionsController } from './uom-conversions/uom-conversions.cont
 import { UomConversionsService } from './uom-conversions/uom-conversions.service'
 import { BarcodesController } from './barcodes/barcodes.controller'
 import { BarcodesService } from './barcodes/barcodes.service'
+import { MmBarcodeSerialModule } from './barcode-serial/mm-barcode-serial.module'
+import { MmBarcodeSerialService } from './barcode-serial/mm-barcode-serial.service'
 import { BatchesController } from './batches/batches.controller'
 import { BatchesService } from './batches/batches.service'
 import { SerialNumbersController } from './serial-numbers/serial-numbers.controller'
@@ -261,6 +263,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         DemandIntegrationModule,
         DocumentFlowModule,
         ExceptionCenterModule,
+        MmBarcodeSerialModule,
         forwardRef(() => PpModule),
         forwardRef(() => FicoModule),
     ],
@@ -505,6 +508,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         RfidTagService,
         ScanSessionService,
         ScanOverrideService,
+        MmBarcodeSerialService,
     ],
     exports: [
         SdIntegrationModule,
@@ -522,6 +526,8 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         ReorderRuleService,
         CustomerReturnService,
         MaterialsService,
+        BarcodeResolveService,
+        MmBarcodeSerialService,
     ],
 })
 export class MmModule {}

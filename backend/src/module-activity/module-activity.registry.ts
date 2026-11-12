@@ -133,8 +133,6 @@ export const ACTIVITY_SOURCES: readonly ActivitySource[] = [
     mmFeature('returns-disposal', 'scrap', 'mmScrapTransaction'),
     mmFeature('returns-disposal', 'disposal', 'mmDisposal'),
 
-    page('fico', 'journal-entries', 'ficoJournalEntry'),
-
     crm('leads', 'crmLead'),
     crm('opportunities', 'crmOpportunity'),
     crm('tickets', 'crmTicket'),

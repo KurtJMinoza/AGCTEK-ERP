@@ -197,6 +197,8 @@ export interface Material {
     sellable: boolean
     batchManaged: boolean
     serialManaged: boolean
+    /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
+    serialTrackingPolicy: string
     expiryManaged: boolean
     qualityInspectionRequired: boolean
 
@@ -313,6 +315,8 @@ export interface CreateMaterialPayload {
     sellable?: boolean
     batchManaged?: boolean
     serialManaged?: boolean
+    /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
+    serialTrackingPolicy?: string
     expiryManaged?: boolean
     qualityInspectionRequired?: boolean
     onHandQty?: number
@@ -333,6 +337,15 @@ export interface CreateMaterialPayload {
     preferredSupplierId?: string
     /** Storage bin used for the initial on-hand posting (company scope). */
     storageBinId?: string | null
+
+    /** Primary barcode to register for this material. */
+    barcodeValue?: string
+
+    /** Barcode type (EAN13, UPC_A, CODE128, QR). */
+    barcodeType?: string
+
+    /** Serial number to register for serial-managed materials. */
+    serialNumber?: string
 }
 
 export type UpdateMaterialPayload = Partial<CreateMaterialPayload>

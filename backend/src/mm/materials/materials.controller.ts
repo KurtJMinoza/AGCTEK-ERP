@@ -14,10 +14,14 @@ import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { MM_REFERENCE_READ, mmFeatures } from '../../permissions/permissions.constants'
+import { BarcodesService } from '../barcodes/barcodes.service'
 
 @Controller('mm/materials')
 export class MaterialsController {
-    constructor(private readonly service: MaterialsService) {}
+    constructor(
+        private readonly service: MaterialsService,
+        private readonly barcodesService: BarcodesService,
+    ) {}
 
     @Get()
     @MmRead(MM_REFERENCE_READ)
@@ -41,6 +45,12 @@ export class MaterialsController {
     @MmRead(MM_REFERENCE_READ)
     listAttachments(@Param('id') id: string) {
         return this.service.listAttachments(id)
+    }
+
+    @Get(':id/barcodes')
+    @MmRead(MM_REFERENCE_READ)
+    listMaterialBarcodes(@Param('id') id: string) {
+        return this.barcodesService.listBarcodes(id)
     }
 
     @Post(':id/attachments')

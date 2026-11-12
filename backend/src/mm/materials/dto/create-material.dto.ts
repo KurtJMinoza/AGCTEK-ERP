@@ -37,6 +37,21 @@ export class CreateMaterialDto {
     @IsString()
     sku?: string
 
+    /** Primary barcode to register for this material. */
+    @IsOptional()
+    @IsString()
+    barcodeValue?: string
+
+    /** Barcode type (EAN13, UPC_A, CODE128, QR). Defaults to EAN13. */
+    @IsOptional()
+    @IsString()
+    barcodeType?: string
+
+    /** Serial number to register for serial-managed materials. */
+    @IsOptional()
+    @IsString()
+    serialNumber?: string
+
     @IsOptional()
     @IsString()
     brand?: string
@@ -133,6 +148,11 @@ export class CreateMaterialDto {
     @IsOptional()
     @IsBoolean()
     serialManaged?: boolean
+
+    @IsOptional()
+    @IsString()
+    @IsIn(['NOT_SERIALIZED', 'SERIALIZED_AT_RECEIPT', 'SERIALIZED_AT_ISSUE', 'SERIALIZED_AT_BOTH'])
+    serialTrackingPolicy?: string
 
     @IsOptional()
     @IsBoolean()

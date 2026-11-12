@@ -43,6 +43,7 @@ import {
 } from '../services/posService'
 import POSReceipt from '../components/POSReceipt'
 import POSCheckoutPanel from '../components/POSCheckoutPanel'
+import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
@@ -104,6 +105,7 @@ const POSDashboard = () => {
     const [receipt, setReceipt] = useState<POSCheckoutResult | null>(null)
     const [cameraOpen, setCameraOpen] = useState(false)
     const [addingSku, setAddingSku] = useState(false)
+    const [registerBarcode, setRegisterBarcode] = useState<string | null>(null)
 
     const itemCount = useMemo(
         () => items.reduce((sum, row) => sum + row.quantity, 0),
@@ -183,11 +185,14 @@ const POSDashboard = () => {
                     setAddingSku(false)
                     return
                 } catch {
+                    // Unknown barcode: register the MM material first, then the
+                    // SD listing. The dialog is shared with the catalog.
                     notify(
-                        'danger',
-                        'Invalid SKU',
-                        `${code} is not in the catalog.`,
+                        'info',
+                        'Barcode not registered',
+                        `${code} is not in the catalog. Register the material to sell it.`,
                     )
+                    setRegisterBarcode(code)
                     setAddingSku(false)
                     return
                 }
@@ -595,6 +600,52 @@ const POSDashboard = () => {
                 isOpen={cameraOpen}
                 onClose={() => setCameraOpen(false)}
                 onDetected={handleCameraDetected}
+            />
+
+            <BarcodeQuickAddDialog
+                isOpen={registerBarcode !== null}
+                initialBarcode={registerBarcode ?? ''}
+                divisionId={RETAIL_DIVISION_ID}
+                onClose={() => {
+                    setRegisterBarcode(null)
+                    focusScanner()
+                }}
+                onCreated={(created) => {
+                    void catalog.reload()
+                    const listing = created.listing
+                    if (!listing) return
+                    // The material and listing are already saved; add the new
+                    // line so the cashier does not have to scan it again.
+                    addItem(
+                        {
+                            productId: listing.productId,
+                            itemId: listing.productId,
+                            sku: listing.productSku,
+                            name: listing.productName,
+                            description: created.material?.description ?? '',
+                            details: '',
+                            features: [],
+                            reviews: [],
+                            basePrice: listing.price,
+                            category: 'General Goods',
+                            imageUrl: '',
+                            imageGallery: [],
+                            salesOrgId: RETAIL_DIVISION_ID,
+                        },
+                        1,
+                        {
+                            id: listing.variantId,
+                            name: listing.variantName,
+                            sku: listing.variantSku,
+                            unitPrice: listing.price,
+                        },
+                    )
+                    notify(
+                        'success',
+                        'Material registered',
+                        `${listing.productName} was added to the cart.`,
+                    )
+                }}
             />
 
             <ConfirmDialog
