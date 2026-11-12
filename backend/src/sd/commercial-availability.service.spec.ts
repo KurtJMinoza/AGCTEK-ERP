@@ -76,13 +76,13 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
         )
 
         await expect(
-            service.assertMarketplaceCheckoutAvailability({
+            service.assertCheckoutAvailability({
                 companyId: 'company-1',
                 lines: [line(1)],
             }),
         ).rejects.toThrow(BadRequestException)
         await expect(
-            service.assertMarketplaceCheckoutAvailability({
+            service.assertCheckoutAvailability({
                 companyId: 'company-1',
                 lines: [line(1)],
             }),
@@ -109,7 +109,7 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
         )
 
         await expect(
-            service.assertMarketplaceCheckoutAvailability({
+            service.assertCheckoutAvailability({
                 companyId: 'company-1',
                 lines: [line(2), line(3)],
             }),

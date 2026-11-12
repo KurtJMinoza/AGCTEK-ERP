@@ -17,7 +17,7 @@ export class ProductBarcodeController {
     constructor(private readonly service: ProductBarcodeService) {}
 
     @Get(':code')
-    @RequirePermission('sd.product-catalog', 'read')
+    @RequirePermission(['sd.product-catalog', 'sd.pos'], 'read')
     lookup(@Param('code') code: string, @Query('companyId') companyId?: string) {
         return this.service.lookup(code, companyId)
     }

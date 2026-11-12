@@ -527,6 +527,22 @@ export class SalesOrderService {
             )
         }
 
+        // A counter sale is a request for stock too: require current MM ATP for
+        // the fulfillment warehouse before the order exists. Without this a POS
+        // terminal could sell stock that another terminal already took, and the
+        // sale would only fail later at reservation/PGI.
+        if (isPos) {
+            await this.commercialAvailability.assertCheckoutAvailability({
+                companyId: checkoutCompanyId,
+                lines: dto.lines.map((line) => ({
+                    ...line,
+                    divisionId: dto.divisionId,
+                })),
+                channel: 'POS',
+                branchId: dto.branchId ?? null,
+            })
+        }
+
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber(
                 isPos ? 'POS' : 'SO',
@@ -675,7 +691,7 @@ export class SalesOrderService {
         // resolve the product-to-material assignments and require current MM
         // ATP for the actual fulfillment warehouse. This prevents an
         // out-of-stock cart from becoming an order that cannot be reserved.
-        await this.commercialAvailability.assertMarketplaceCheckoutAvailability(
+        await this.commercialAvailability.assertCheckoutAvailability(
             {
                 companyId: checkoutCompanyId,
                 lines: dto.cartItems,

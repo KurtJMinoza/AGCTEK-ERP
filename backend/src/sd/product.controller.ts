@@ -18,6 +18,7 @@ import {
     CreateProductDto,
     ListProductsQueryDto,
     PRODUCT_GALLERY_MAX,
+    ProductAvailabilityBatchDto,
     UpdateProductDto,
     UpdateProductStatusDto,
 } from './dto/product.dto'
@@ -194,6 +195,20 @@ export class ProductController {
             sku,
             this.availabilityService,
             variantId,
+        )
+    }
+
+    /**
+     * Live ATP for MANY products in one call — the POS terminal polls its whole
+     * cart here. Same MM ledger authority as the single-product availability.
+     */
+    @Post('availability/batch')
+    @RequirePermission(['sd.product-catalog', 'sd.pos'], 'read')
+    availabilityBatch(@Body() dto: ProductAvailabilityBatchDto) {
+        return this.products.getStorefrontAvailabilityBatch(
+            dto.divisionId,
+            dto.items,
+            this.availabilityService,
         )
     }
 

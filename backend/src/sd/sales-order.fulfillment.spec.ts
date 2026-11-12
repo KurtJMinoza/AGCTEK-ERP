@@ -97,7 +97,7 @@ function setup(overrides: Partial<typeof activeOrder> = {}) {
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest
+        assertCheckoutAvailability: jest
             .fn()
             .mockResolvedValue(true),
     }

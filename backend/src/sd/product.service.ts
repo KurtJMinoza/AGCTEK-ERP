@@ -38,6 +38,34 @@ export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const
 export const PRODUCT_IN_USE_MESSAGE =
     'This product cannot be deleted because it is already used in orders, picking, packing, shipment, invoice, or inventory. You can deactivate it instead.'
 
+/** Live availability of one product, read from the MM inventory ledger. */
+export type ProductAvailability = {
+    sku: string
+    hasVariants: boolean
+    variantId: string | null
+    materialId: string | null
+    /** Sellable quantity (MM available = on hand − reserved). */
+    availableQuantity: number
+    reservedQuantity: number
+    physicalStock: number
+    ledgerAvailable?: number
+    state:
+        | 'IN_STOCK'
+        | 'LOW_STOCK'
+        | 'OUT_OF_STOCK'
+        | 'NOT_MAPPED'
+        | 'NON_INVENTORY'
+}
+
+/** One stock question: a SKU and, for variant products, the chosen variant. */
+export type ProductAvailabilityRequest = {
+    sku: string
+    variantId?: string | null
+}
+
+/** Below this many sellable units a product counts as LOW_STOCK. */
+const LOW_STOCK_THRESHOLD = 10
+
 /** Category for products without an MM material (non-stock / service). */
 const DEFAULT_PRODUCT_CATEGORY = 'General'
 
@@ -139,7 +167,7 @@ export class ProductService {
         sku: string,
         availability: CommercialAvailabilityService,
         variantId?: string,
-    ) {
+    ): Promise<ProductAvailability> {
         const normalized = sku.trim().toUpperCase()
         const product = await this.prisma.sdProduct.findUnique({
             where: { divisionId_sku: { divisionId, sku: normalized } },
@@ -158,7 +186,7 @@ export class ProductService {
                 availableQuantity: 0,
                 reservedQuantity: 0,
                 physicalStock: 0,
-                state: 'OUT_OF_STOCK' as const,
+                state: 'OUT_OF_STOCK',
             }
         }
 
@@ -171,7 +199,7 @@ export class ProductService {
                 availableQuantity: 999_999,
                 reservedQuantity: 0,
                 physicalStock: 999_999,
-                state: 'NON_INVENTORY' as const,
+                state: 'NON_INVENTORY',
             }
         }
 
@@ -197,7 +225,7 @@ export class ProductService {
                     availableQuantity: 0,
                     reservedQuantity: 0,
                     physicalStock: 0,
-                    state: 'OUT_OF_STOCK' as const,
+                    state: 'OUT_OF_STOCK',
                 }
             }
             return this.availabilityForMaterial({
@@ -233,7 +261,7 @@ export class ProductService {
                 reservedQuantity: 0,
                 physicalStock: 0,
                 ledgerAvailable: 0,
-                state: 'NOT_MAPPED' as const,
+                state: 'NOT_MAPPED',
             }
         }
 
@@ -244,44 +272,314 @@ export class ProductService {
             ),
         ]
 
-        let sellableAvailable = Number.POSITIVE_INFINITY
-        let ledgerOnHand = 0
-        let ledgerAvailable = 0
-        let ledgerReserved = 0
-
+        const ledgers = []
         for (const materialId of materialIds) {
-            const ledger = await availability.getCompanyMaterialLedger(
-                materialId,
-                companyId,
+            ledgers.push(
+                await availability.getCompanyMaterialLedger(
+                    materialId,
+                    companyId,
+                ),
             )
-            sellableAvailable = Math.min(sellableAvailable, ledger.availableQty)
-            ledgerOnHand += ledger.onHandQty
-            ledgerAvailable += ledger.availableQty
-            ledgerReserved += ledger.reservedQty
         }
-
-        if (sellableAvailable === Number.POSITIVE_INFINITY)
-            sellableAvailable = 0
-        /** MM Available (on hand − reserved); kits use minimum across materials. */
-        const available = Math.max(0, Math.floor(sellableAvailable))
-        const state =
-            available <= 0
-                ? ('OUT_OF_STOCK' as const)
-                : available < 10
-                  ? ('LOW_STOCK' as const)
-                  : ('IN_STOCK' as const)
+        const numbers = this.availabilityFromLedger(ledgers)
 
         return {
             sku: normalized,
             hasVariants: false,
             variantId: null,
             materialId: materialIds.length === 1 ? materialIds[0] : null,
-            availableQuantity: available,
-            reservedQuantity: Math.max(0, Math.floor(ledgerReserved)),
-            physicalStock: Math.max(0, Math.floor(ledgerOnHand)),
-            ledgerAvailable: Math.max(0, Math.floor(ledgerAvailable)),
+            ...numbers,
+        }
+    }
+
+    /**
+     * Sellable numbers for one stock target, read from the MM ledger.
+     *
+     * A product with several assigned materials is a kit: it can only be sold
+     * while EVERY material is available, so the sellable quantity is the
+     * minimum across them. On-hand, reserved and ledger-available are summed.
+     */
+    private availabilityFromLedger(
+        ledgers: Array<{
+            onHandQty: number
+            availableQty: number
+            reservedQty: number
+        }>,
+    ): Pick<
+        ProductAvailability,
+        | 'availableQuantity'
+        | 'reservedQuantity'
+        | 'physicalStock'
+        | 'ledgerAvailable'
+        | 'state'
+    > {
+        const sellable = ledgers.length
+            ? Math.min(...ledgers.map((ledger) => ledger.availableQty))
+            : 0
+        const availableQuantity = Math.max(0, Math.floor(sellable))
+        const reservedQuantity = Math.max(
+            0,
+            Math.floor(
+                ledgers.reduce((sum, ledger) => sum + ledger.reservedQty, 0),
+            ),
+        )
+        const physicalStock = Math.max(
+            0,
+            Math.floor(
+                ledgers.reduce((sum, ledger) => sum + ledger.onHandQty, 0),
+            ),
+        )
+        const ledgerAvailable = Math.max(
+            0,
+            Math.floor(
+                ledgers.reduce((sum, ledger) => sum + ledger.availableQty, 0),
+            ),
+        )
+        const state: ProductAvailability['state'] =
+            availableQuantity <= 0
+                ? 'OUT_OF_STOCK'
+                : availableQuantity < LOW_STOCK_THRESHOLD
+                  ? 'LOW_STOCK'
+                  : 'IN_STOCK'
+        return {
+            availableQuantity,
+            reservedQuantity,
+            physicalStock,
+            ledgerAvailable,
             state,
         }
+    }
+
+    /**
+     * Live ATP for MANY products in one pass — the POS terminal polls this for
+     * the whole cart instead of one request per line.
+     *
+     * Same MM ledger authority and the same rules as
+     * `getStorefrontAvailability`: a variant product reads the selected
+     * variant's own material, a kit reads the minimum across its materials,
+     * and a product without a material mapping is reported as NOT_MAPPED.
+     */
+    async getStorefrontAvailabilityBatch(
+        divisionId: string,
+        requests: ProductAvailabilityRequest[],
+        availability: CommercialAvailabilityService,
+    ): Promise<ProductAvailability[]> {
+        const wanted = requests
+            .map((request) => ({
+                sku: request.sku.trim().toUpperCase(),
+                variantId: request.variantId?.trim() || null,
+            }))
+            .filter((request) => request.sku.length > 0)
+        if (!wanted.length) return []
+
+        const skus = [...new Set(wanted.map((request) => request.sku))]
+        const products = await this.prisma.sdProduct.findMany({
+            where: { divisionId, sku: { in: skus } },
+            select: {
+                id: true,
+                sku: true,
+                productType: true,
+                isActive: true,
+                status: true,
+            },
+        })
+        const productBySku = new Map(products.map((p) => [p.sku, p]))
+        const productIds = products.map((product) => product.id)
+
+        const [variants, assignments] = await Promise.all([
+            this.prisma.sdProductVariant.findMany({
+                where: { productId: { in: productIds } },
+                orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+                select: {
+                    id: true,
+                    productId: true,
+                    materialId: true,
+                    companyId: true,
+                    isActive: true,
+                    isDefault: true,
+                },
+            }),
+            this.prisma.sdProductMaterialAssignment.findMany({
+                where: {
+                    productId: { in: productIds },
+                    status: 'ACTIVE',
+                    OR: [{ divisionId: null }, { divisionId }],
+                },
+                orderBy: { effectiveFrom: 'desc' },
+                select: {
+                    productId: true,
+                    materialId: true,
+                    companyId: true,
+                },
+            }),
+        ])
+
+        const variantsByProduct = new Map<string, typeof variants>()
+        for (const variant of variants) {
+            const list = variantsByProduct.get(variant.productId) ?? []
+            list.push(variant)
+            variantsByProduct.set(variant.productId, list)
+        }
+        const assignmentsByProduct = new Map<string, typeof assignments>()
+        for (const assignment of assignments) {
+            const list = assignmentsByProduct.get(assignment.productId) ?? []
+            list.push(assignment)
+            assignmentsByProduct.set(assignment.productId, list)
+        }
+
+        type StockTarget = {
+            sku: string
+            hasVariants: boolean
+            variantId: string | null
+            materialId: string | null
+            companyId: string | null
+            materialIds: string[]
+            /** Terminal state that needs no ledger read. */
+            fixed?: ProductAvailability['state']
+        }
+
+        const targets: StockTarget[] = wanted.map((request) => {
+            const product = productBySku.get(request.sku)
+            const base = {
+                sku: request.sku,
+                hasVariants: false,
+                variantId: null,
+                materialId: null,
+                companyId: null,
+                materialIds: [] as string[],
+            }
+            if (
+                !product ||
+                !product.isActive ||
+                (product.status !== undefined && product.status !== 'ACTIVE')
+            ) {
+                return { ...base, fixed: 'OUT_OF_STOCK' }
+            }
+            if (product.productType !== 'STOCK_ITEM') {
+                return { ...base, fixed: 'NON_INVENTORY' }
+            }
+
+            const productVariants = variantsByProduct.get(product.id) ?? []
+            if (productVariants.length) {
+                const selected =
+                    (request.variantId
+                        ? productVariants.find(
+                              (variant) => variant.id === request.variantId,
+                          )
+                        : null) ??
+                    productVariants.find(
+                        (variant) => variant.isDefault && variant.isActive,
+                    ) ??
+                    productVariants.find((variant) => variant.isActive) ??
+                    null
+                if (!selected) {
+                    return { ...base, hasVariants: true, fixed: 'OUT_OF_STOCK' }
+                }
+                const fallbackCompanyId =
+                    assignmentsByProduct.get(product.id)?.[0]?.companyId ?? null
+                const companyId = selected.companyId ?? fallbackCompanyId
+                if (!selected.materialId || !companyId) {
+                    return {
+                        ...base,
+                        hasVariants: true,
+                        variantId: selected.id,
+                        companyId,
+                        fixed: 'NOT_MAPPED',
+                    }
+                }
+                return {
+                    ...base,
+                    hasVariants: true,
+                    variantId: selected.id,
+                    materialId: selected.materialId,
+                    companyId,
+                    materialIds: [selected.materialId],
+                }
+            }
+
+            const productAssignments = assignmentsByProduct.get(product.id) ?? []
+            if (!productAssignments.length) {
+                return { ...base, fixed: 'NOT_MAPPED' }
+            }
+            const materialIds = [
+                ...new Set(
+                    productAssignments
+                        .map((assignment) => assignment.materialId)
+                        .filter(Boolean),
+                ),
+            ]
+            return {
+                ...base,
+                materialId: materialIds.length === 1 ? materialIds[0] : null,
+                companyId: productAssignments[0].companyId,
+                materialIds,
+            }
+        })
+
+        // One ledger read per company instead of one query per material.
+        const materialIdsByCompany = new Map<string, Set<string>>()
+        for (const target of targets) {
+            if (target.fixed || !target.companyId) continue
+            const ids = materialIdsByCompany.get(target.companyId) ?? new Set()
+            for (const materialId of target.materialIds) ids.add(materialId)
+            materialIdsByCompany.set(target.companyId, ids)
+        }
+        const ledgersByCompany = new Map<
+            string,
+            Map<
+                string,
+                {
+                    onHandQty: number
+                    availableQty: number
+                    reservedQty: number
+                }
+            >
+        >()
+        for (const [companyId, materialIds] of materialIdsByCompany) {
+            ledgersByCompany.set(
+                companyId,
+                await availability.getCompanyMaterialLedgerBatch(
+                    companyId,
+                    [...materialIds],
+                ),
+            )
+        }
+
+        return targets.map((target) => {
+            if (target.fixed) {
+                const unlimited = target.fixed === 'NON_INVENTORY'
+                return {
+                    sku: target.sku,
+                    hasVariants: target.hasVariants,
+                    variantId: target.variantId,
+                    materialId: target.materialId,
+                    availableQuantity: unlimited ? 999_999 : 0,
+                    reservedQuantity: 0,
+                    physicalStock: unlimited ? 999_999 : 0,
+                    ledgerAvailable: unlimited ? 999_999 : 0,
+                    state: target.fixed,
+                }
+            }
+            const companyLedgers = target.companyId
+                ? ledgersByCompany.get(target.companyId)
+                : undefined
+            const ledgers = target.materialIds
+                .map((materialId) => companyLedgers?.get(materialId))
+                .filter(
+                    (ledger): ledger is {
+                        onHandQty: number
+                        availableQty: number
+                        reservedQty: number
+                    } => Boolean(ledger),
+                )
+            return {
+                sku: target.sku,
+                hasVariants: target.hasVariants,
+                variantId: target.variantId,
+                materialId: target.materialId,
+                ...this.availabilityFromLedger(ledgers),
+            }
+        })
     }
 
     /** Company of the primary active product–material assignment, if any. */
@@ -332,23 +630,13 @@ export class ProductService {
             args.materialId,
             scopedCompanyId,
         )
-        const available = Math.max(0, Math.floor(ledger.availableQty))
-        const state =
-            available <= 0
-                ? ('OUT_OF_STOCK' as const)
-                : available < 10
-                  ? ('LOW_STOCK' as const)
-                  : ('IN_STOCK' as const)
+        const numbers = this.availabilityFromLedger([ledger])
         return {
             sku: args.sku,
             hasVariants: args.hasVariants,
             variantId: args.variantId,
             materialId: args.materialId,
-            availableQuantity: available,
-            reservedQuantity: Math.max(0, Math.floor(ledger.reservedQty)),
-            physicalStock: Math.max(0, Math.floor(ledger.onHandQty)),
-            ledgerAvailable: available,
-            state,
+            ...numbers,
         }
     }
 

@@ -98,7 +98,7 @@ function setup() {
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest
+        assertCheckoutAvailability: jest
             .fn()
             .mockResolvedValue(undefined),
     }
@@ -463,7 +463,7 @@ describe('SalesOrderService demo checkout payments', () => {
 
     it('rejects an out-of-stock checkout before creating a sales order', async () => {
         const { prisma, commercialAvailability, service } = setup()
-        commercialAvailability.assertMarketplaceCheckoutAvailability.mockRejectedValue(
+        commercialAvailability.assertCheckoutAvailability.mockRejectedValue(
             new Error('KIRKLAND Vitamin E is out of stock'),
         )
 
@@ -472,7 +472,7 @@ describe('SalesOrderService demo checkout payments', () => {
         ).rejects.toThrow('out of stock')
 
         expect(
-            commercialAvailability.assertMarketplaceCheckoutAvailability,
+            commercialAvailability.assertCheckoutAvailability,
         ).toHaveBeenCalledWith(
             expect.objectContaining({
                 companyId: 'company-1',
