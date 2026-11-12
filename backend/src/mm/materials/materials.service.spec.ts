@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { MaterialsService } from './materials.service'
+import { MaterialTaxService } from './material-tax.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { BarcodesService } from '../barcodes/barcodes.service'
 import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common'
 
 describe('MaterialsService', () => {
@@ -17,6 +19,7 @@ describe('MaterialsService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 MaterialsService,
+                MaterialTaxService,
                 PrismaService,
                 InventoryAvailabilityService,
                 {
@@ -28,6 +31,7 @@ describe('MaterialsService', () => {
                         }),
                     },
                 },
+                { provide: BarcodesService, useValue: {} },
             ],
         }).compile()
 

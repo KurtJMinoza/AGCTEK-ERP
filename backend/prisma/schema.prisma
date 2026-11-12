@@ -232,6 +232,7 @@ model Company {
   updatedAt  DateTime     @updatedAt
   warehouses Warehouse[]
   materials  MmMaterial[]
+  mmMaterialTaxHistory MmMaterialTaxHistory[]
 
   inventoryTransactions       MmInventoryTransaction[]
   mmInventoryBalances         MmInventoryBalance[]
@@ -1294,6 +1295,20 @@ model MmMaterial {
   preferredSupplierId String?
   preferredSupplier   MmSupplier? @relation("MaterialPreferredSupplier", fields: [preferredSupplierId], references: [id])
 
+  /// MM owns product tax classification. SD only reads this configuration.
+  /// VATABLE | VAT_EXEMPT | ZERO_RATED (null = not configured).
+  taxClassification String?
+  /// FICO Tax Code — the authoritative source of the tax rate. Never duplicated in MM/SD.
+  taxCodeId         String?
+  taxCode           FicoTaxCode? @relation("MaterialTaxCode", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  /// VAT_INCLUSIVE | VAT_EXCLUSIVE
+  priceTaxTreatment String?
+  /// ACTIVE | INACTIVE
+  taxStatus         String?
+  taxEffectiveFrom  DateTime? @db.Date
+  taxEffectiveTo    DateTime? @db.Date
+  taxDescription    String?
+
   createdBy String?
   updatedBy String?
   createdAt DateTime  @default(now())
@@ -1305,6 +1320,7 @@ model MmMaterial {
   batches           MmBatch[]
   serialNumbers     MmSerialNumber[]
   audits            MmMaterialAudit[]
+  taxHistory        MmMaterialTaxHistory[]
   attachments       MmMaterialAttachment[]
   uomConversions    MmUomConversion[]
   inventoryBalances WmInventoryBalance[]
@@ -1375,6 +1391,8 @@ model MmMaterial {
   @@index([materialCategoryId])
   @@index([abcClass])
   @@index([deletedAt])
+  @@index([taxCodeId])
+  @@index([companyId, taxClassification])
   @@map("mm_materials")
 }
 
@@ -1502,6 +1520,38 @@ model MmMaterialAudit {
 
   @@index([materialId, performedAt])
   @@map("mm_material_audits")
+}
+
+/// Append-only snapshot of every material tax configuration change.
+/// The tax rate is copied so history survives later FICO rate changes.
+model MmMaterialTaxHistory {
+  id                String       @id @default(cuid())
+  materialId        String
+  material          MmMaterial   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  companyId         String?
+  company           Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  taxClassification String?
+  taxCodeId         String?
+  taxCode           FicoTaxCode? @relation("MaterialTaxHistoryCode", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  taxCodeValue      String?
+  taxCodeName       String?
+  taxType           String?
+  taxRate           Decimal?     @db.Decimal(18, 6)
+  rateUnit          String?
+  priceTaxTreatment String?
+  taxStatus         String?
+  taxEffectiveFrom  DateTime?    @db.Date
+  taxEffectiveTo    DateTime?    @db.Date
+  taxDescription    String?
+  /// CREATE | UPDATE | CLEAR
+  changeType        String
+  changedBy         String?
+  createdAt         DateTime     @default(now())
+
+  @@index([materialId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([taxCodeId])
+  @@map("mm_material_tax_history")
 }
 
 model MmMaterialAttachment {
@@ -4561,6 +4611,8 @@ model FicoTaxCode {
   updatedAt                        DateTime              @updatedAt
   taxRates                         FicoTaxRate[]
   auditLogs                        FicoTaxCodeAuditLog[]
+  materialTaxAssignments           MmMaterial[]             @relation("MaterialTaxCode")
+  materialTaxHistory               MmMaterialTaxHistory[]   @relation("MaterialTaxHistoryCode")
 
   @@unique([companyId, code])
   @@index([companyId, status])

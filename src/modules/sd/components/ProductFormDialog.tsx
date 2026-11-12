@@ -398,6 +398,9 @@ const ProductFormDialog = ({
     const [valuationCurrency, setValuationCurrency] = useState<string | null>(
         null,
     )
+    /** True when every linked MM material has a sale-ready tax configuration. */
+    const [taxReady, setTaxReady] = useState(true)
+    const [allowIncompleteTaxSetup, setAllowIncompleteTaxSetup] = useState(false)
 
     /**
      * Initialise the form when the dialog opens.
@@ -614,6 +617,11 @@ const ProductFormDialog = ({
         const primary = materials[0]
         setMmCategory(primary?.general.materialCategory ?? null)
         setValuationCurrency(primary?.valuation.currencyCode ?? null)
+        setTaxReady(
+            materials.length === 0
+                ? true
+                : materials.every((row) => row.tax?.readyForSale),
+        )
         if (!primary || measuredMaterialRef.current === primary.materialId)
             return
         // Editing: the first load only fills blanks so saved shop specs survive.
@@ -673,6 +681,22 @@ const ProductFormDialog = ({
             return
         }
         setOptionsAttempted(false)
+
+        if (
+            !editing &&
+            values.productType === 'STOCK_ITEM' &&
+            values.productConfig !== 'VARIABLE' &&
+            !taxReady &&
+            !allowIncompleteTaxSetup
+        ) {
+            setError('materialIds', {
+                message:
+                    'The linked MM material has no sale-ready tax configuration. Configure Tax Information in Material Master, or enable the incomplete-setup option.',
+            })
+            if (createWizard) setWizardStep(1)
+            return
+        }
+
         const {
             autoGenerateSku: autoSku,
             imageGallery,
@@ -746,6 +770,9 @@ const ProductFormDialog = ({
             payload.materialLinkMode = materialLinkMode
             payload.companyId = companyId
             payload.materialId = materialId
+            payload.allowIncompleteTaxSetup = taxReady
+                ? undefined
+                : allowIncompleteTaxSetup
         }
         await onSubmit(payload)
         clearProductFormDraft()
@@ -1176,6 +1203,35 @@ const ProductFormDialog = ({
                                     mmStockRefreshKey={mmStockRefreshKey}
                                     onMaterialsLoaded={applyMaterialMeasurements}
                                 />
+                                {!editing && !taxReady ? (
+                                    <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                        <p className="font-semibold">
+                                            Tax Classification Not Configured
+                                        </p>
+                                        <p className="mt-1">
+                                            This material cannot be sold until
+                                            MM Material Master has a complete,
+                                            active tax configuration. Configure
+                                            it in Material Master, or use the
+                                            explicit incomplete-setup workflow.
+                                        </p>
+                                        <label className="mt-2 flex items-center gap-2 font-medium">
+                                            <input
+                                                type="checkbox"
+                                                checked={
+                                                    allowIncompleteTaxSetup
+                                                }
+                                                onChange={(e) =>
+                                                    setAllowIncompleteTaxSetup(
+                                                        e.target.checked,
+                                                    )
+                                                }
+                                            />
+                                            Create product with incomplete tax
+                                            setup
+                                        </label>
+                                    </div>
+                                ) : null}
                             </>
                         )
                     ) : (

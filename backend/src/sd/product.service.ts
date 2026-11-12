@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
+import { buildMaterialTaxProjection } from '../mm/materials/material-tax'
 import {
     CreateProductDto,
     ListProductsQueryDto,
@@ -1173,9 +1174,18 @@ export class ProductService {
                 where: { id: materialId },
                 select: {
                     id: true,
+                    materialCode: true,
                     status: true,
                     baseUomId: true,
                     salesUomId: true,
+                    taxClassification: true,
+                    taxCodeId: true,
+                    priceTaxTreatment: true,
+                    taxStatus: true,
+                    taxEffectiveFrom: true,
+                    taxEffectiveTo: true,
+                    taxDescription: true,
+                    taxCode: { include: { taxRates: true } },
                 },
             })
             if (!material) {
@@ -1187,6 +1197,15 @@ export class ProductService {
                 throw new BadRequestException(
                     'Only ACTIVE MM materials can be linked to SD products',
                 )
+            }
+            if (!dto.allowIncompleteTaxSetup) {
+                const tax = buildMaterialTaxProjection(material as any)
+                if (!tax.readyForSale) {
+                    throw new BadRequestException(
+                        `MM material ${material.materialCode} has no sale-ready tax configuration (${tax.effectiveStatus}). ` +
+                            'Configure Tax Information in Material Master, or submit with allowIncompleteTaxSetup for an explicit incomplete-setup product.',
+                    )
+                }
             }
             const salesUomId =
                 links.length === 0

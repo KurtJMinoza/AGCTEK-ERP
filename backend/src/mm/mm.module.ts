@@ -5,6 +5,7 @@ import { ProcurementCommonModule } from './procurement/procurement-common.module
 import { ScmModule } from '../scm/scm.module'
 import { MaterialsController } from './materials/materials.controller'
 import { MaterialsService } from './materials/materials.service'
+import { MaterialTaxService } from './materials/material-tax.service'
 import { MaterialTypesController } from './material-types/material-types.controller'
 import { MaterialTypesService } from './material-types/material-types.service'
 import { MaterialCategoriesController } from './material-categories/material-categories.controller'
@@ -338,6 +339,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
     ],
     providers: [
         MaterialsService,
+        MaterialTaxService,
         MaterialTypesService,
         MaterialCategoriesService,
         UomService,
@@ -526,6 +528,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         ReorderRuleService,
         CustomerReturnService,
         MaterialsService,
+        MaterialTaxService,
         BarcodeResolveService,
         MmBarcodeSerialService,
     ],

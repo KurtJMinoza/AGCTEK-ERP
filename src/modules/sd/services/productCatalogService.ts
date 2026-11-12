@@ -100,6 +100,11 @@ export type ProductInput = {
      * Catalog never creates a material.
      */
     materialId?: string
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material without a
+     * sale-ready tax configuration. Without it the API rejects the product.
+     */
+    allowIncompleteTaxSetup?: boolean
 }
 
 /** Stock ownership for the product (variants link existing materials). */

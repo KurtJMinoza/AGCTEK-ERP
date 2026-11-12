@@ -190,6 +190,15 @@ export class CreateProductDto {
     @IsOptional()
     @IsString()
     companyId?: string
+
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material whose tax
+     * configuration is missing, expired or inactive. Without this flag a
+     * STOCK_ITEM product requires a sale-ready MM tax configuration.
+     */
+    @IsOptional()
+    @IsBoolean()
+    allowIncompleteTaxSetup?: boolean
 }
 
 /**

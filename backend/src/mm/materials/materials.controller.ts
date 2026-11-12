@@ -15,12 +15,14 @@ import { MaterialQueryDto } from './dto/material-query.dto'
 import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { MM_REFERENCE_READ, mmFeatures } from '../../permissions/permissions.constants'
 import { BarcodesService } from '../barcodes/barcodes.service'
+import { MaterialTaxService } from './material-tax.service'
 
 @Controller('mm/materials')
 export class MaterialsController {
     constructor(
         private readonly service: MaterialsService,
         private readonly barcodesService: BarcodesService,
+        private readonly taxService: MaterialTaxService,
     ) {}
 
     @Get()
@@ -51,6 +53,19 @@ export class MaterialsController {
     @MmRead(MM_REFERENCE_READ)
     listMaterialBarcodes(@Param('id') id: string) {
         return this.barcodesService.listBarcodes(id)
+    }
+
+    /** FICO tax codes available to a company (empty until FICO creates them). */
+    @Get('tax-codes')
+    @MmRead(MM_REFERENCE_READ)
+    listTaxCodes(@Query('companyId') companyId: string) {
+        return this.taxService.listTaxCodes(companyId)
+    }
+
+    @Get(':id/tax-history')
+    @MmRead(MM_REFERENCE_READ)
+    listTaxHistory(@Param('id') id: string) {
+        return this.taxService.history(id)
     }
 
     @Post(':id/attachments')

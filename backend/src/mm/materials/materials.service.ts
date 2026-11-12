@@ -14,6 +14,26 @@ import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
+import { MaterialTaxService } from './material-tax.service'
+import { hasMaterialTaxFields } from './material-tax'
+
+const TAX_FIELD_KEYS = [
+    'taxClassification',
+    'taxCodeId',
+    'priceTaxTreatment',
+    'taxStatus',
+    'taxEffectiveFrom',
+    'taxEffectiveTo',
+    'taxDescription',
+] as const
+
+function pickTaxFields(source: Record<string, any>): Record<string, any> {
+    const out: Record<string, any> = {}
+    for (const key of TAX_FIELD_KEYS) {
+        if (source[key] !== undefined) out[key] = source[key]
+    }
+    return out
+}
 
 const DECIMAL_UPDATE_KEYS = new Set([
     'onHandQty',
@@ -78,6 +98,7 @@ export class MaterialsService {
         private availability: InventoryAvailabilityService,
         private posting: InventoryPostingService,
         private barcodes: BarcodesService,
+        private materialTax: MaterialTaxService,
     ) {}
 
     /** Sellable qty from material master thresholds (same source as Product Catalog). */
@@ -315,6 +336,7 @@ export class MaterialsService {
         company: true,
         defaultWarehouse: true,
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+        taxCode: { include: { taxRates: true } },
         catalogVariant: {
             select: {
                 id: true,
@@ -334,6 +356,7 @@ export class MaterialsService {
         company: { select: { id: true, code: true, name: true } },
         defaultWarehouse: { select: { id: true, code: true, name: true } },
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+        taxCode: { include: { taxRates: true } },
         barcodes: { where: { deletedAt: null } },
     }
 
@@ -382,7 +405,12 @@ export class MaterialsService {
             data.map((row) => row as Record<string, unknown>),
         )
         return {
-            data: enriched.map((row) => serializeMaterial(row)),
+            data: enriched.map((row) =>
+                serializeMaterial({
+                    ...row,
+                    tax: this.materialTax.projection(row as any),
+                }),
+            ),
             meta: {
                 total,
                 page,
@@ -429,6 +457,7 @@ export class MaterialsService {
         // Override availableQty with live ledger data (same as Product Catalog)
         return {
             ...serialized,
+            tax: this.materialTax.projection(material as any),
             availableQty: Math.max(0, ledgerTotals.availableQty),
             ledgerOnHandQty: ledgerTotals.onHandQty,
             ledgerReservedQty: ledgerTotals.reservedQty,
@@ -565,11 +594,21 @@ export class MaterialsService {
 
         const { barcodeValue, barcodeType, serialNumber, ...dtoWithoutBarcodes } = dto
 
+        // Validate the tax configuration before the row is written. A material
+        // created by an import or by auto-created SD variants may omit tax
+        // information (explicit incomplete-setup flow); a manual save that
+        // sends any tax field must send a complete, compatible configuration.
+        const tax = await this.materialTax.validateForWrite(
+            dto.companyId ?? null,
+            dto,
+        )
+
         const policy = dto.serialTrackingPolicy ?? 'NOT_SERIALIZED'
         const serialManaged = policy !== 'NOT_SERIALIZED'
 
         const data = {
             ...(dtoWithoutBarcodes as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
+            ...tax.data,
             materialCode,
             sku,
             status,
@@ -621,6 +660,15 @@ export class MaterialsService {
                 db,
             )
 
+            if (material.taxClassification) {
+                await this.materialTax.recordHistory(
+                    db as any,
+                    material as any,
+                    'CREATE',
+                    (material as any).createdBy ?? null,
+                )
+            }
+
             // Register primary barcode if provided.
             if (dto.barcodeValue?.trim()) {
                 await db.mmBarcode.create({
@@ -653,7 +701,10 @@ export class MaterialsService {
                 })
             }
 
-            return serializeMaterial(material)
+            return {
+                ...serializeMaterial(material),
+                tax: this.materialTax.projection(material as any),
+            }
         } catch (error) {
             this.rethrowUniqueConflict(error)
             throw error
@@ -818,7 +869,20 @@ export class MaterialsService {
 
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
-            data: this.mapUpdateDto(dto),
+            data: {
+                ...this.mapUpdateDto(dto),
+                ...(hasMaterialTaxFields(dto as Record<string, unknown>)
+                    ? (
+                          await this.materialTax.validateForWrite(
+                              (existing.companyId as string | null | undefined) ?? dto.companyId ?? null,
+                              {
+                                  ...pickTaxFields(existing),
+                                  ...pickTaxFields(dto),
+                              },
+                          )
+                      ).data
+                    : {}),
+            },
             include: this.includes,
         })
 
@@ -875,7 +939,18 @@ export class MaterialsService {
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'UPDATE', changes, null)
         }
-        return serializeMaterial(updated)
+        if (this.materialTax.taxChanged(existing as any, updated as any)) {
+            await this.materialTax.recordHistory(
+                this.prisma,
+                updated as any,
+                updated.taxClassification ? 'UPDATE' : 'CLEAR',
+                (existing as any).createdBy ?? null,
+            )
+        }
+        return {
+            ...serializeMaterial(updated),
+            tax: this.materialTax.projection(updated as any),
+        }
     }
 
     async activate(id: string) {
@@ -1187,6 +1262,7 @@ export class MaterialsService {
             'purchaseUom', 'salesUom', 'currency', 'valuationClass',
             'company', 'defaultWarehouse', 'preferredSupplier', 'barcodes', 'batches',
             'serialNumbers', 'audits', 'uomConversions', 'attachments',
+            'taxCode', 'tax', 'taxHistory',
         ])
         const changes: Record<string, { old: any; new: any }> = {}
         for (const key of Object.keys(newObj)) {

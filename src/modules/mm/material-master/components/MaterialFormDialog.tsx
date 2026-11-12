@@ -39,7 +39,7 @@ import MaterialWizardSteps from './MaterialWizardSteps'
 import { materialService } from '../services/materialService'
 import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
-import type { Material, CreateMaterialPayload } from '../types'
+import type { Material, CreateMaterialPayload, MaterialTaxCodeOption } from '../types'
 import type { ReactNode } from 'react'
 
 const MATERIAL_NAME_MAX = 120
@@ -98,6 +98,13 @@ const baseMaterialSchema = z
         defaultWarehouseId: z.string().optional().or(z.literal('')),
         preferredSupplierId: z.string().optional().or(z.literal('')),
         storageBinId: z.string().optional().or(z.literal('')),
+        taxClassification: z.string().optional().or(z.literal('')),
+        taxCodeId: z.string().optional().or(z.literal('')),
+        priceTaxTreatment: z.string().optional().or(z.literal('')),
+        taxStatus: z.string().optional().or(z.literal('')),
+        taxEffectiveFrom: z.string().optional().or(z.literal('')),
+        taxEffectiveTo: z.string().optional().or(z.literal('')),
+        taxDescription: z.string().optional().or(z.literal('')),
     })
     .refine((d) => d.maximumStock === 0 || d.maximumStock >= d.minimumStock, {
         path: ['maximumStock'],
@@ -117,6 +124,16 @@ const baseMaterialSchema = z
             path: ['storageBinId'],
             message:
                 'A storage bin is required when on-hand is set — choose where the stock is stored.',
+        },
+    )
+    .refine(
+        (d) =>
+            !d.taxEffectiveFrom ||
+            !d.taxEffectiveTo ||
+            d.taxEffectiveTo >= d.taxEffectiveFrom,
+        {
+            path: ['taxEffectiveTo'],
+            message: 'Effective-to date must be on or after effective-from.',
         },
     )
 
@@ -184,6 +201,13 @@ const blankValues: FormShape = {
     barcodeValue: '',
     barcodeType: 'EAN13',
     serialNumber: '',
+    taxClassification: '',
+    taxCodeId: '',
+    priceTaxTreatment: '',
+    taxStatus: 'ACTIVE',
+    taxEffectiveFrom: '',
+    taxEffectiveTo: '',
+    taxDescription: '',
 }
 
 function toFormValues(material?: Material | null): FormShape {
@@ -243,6 +267,13 @@ function toFormValues(material?: Material | null): FormShape {
         barcodeValue: material.barcodes?.find((b) => b.isPrimary)?.barcodeValue ?? '',
         barcodeType: material.barcodes?.find((b) => b.isPrimary)?.barcodeType ?? 'EAN13',
         serialNumber: '',
+        taxClassification: material.taxClassification ?? '',
+        taxCodeId: material.taxCodeId ?? '',
+        priceTaxTreatment: material.priceTaxTreatment ?? '',
+        taxStatus: material.taxStatus ?? 'ACTIVE',
+        taxEffectiveFrom: material.taxEffectiveFrom?.slice(0, 10) ?? '',
+        taxEffectiveTo: material.taxEffectiveTo?.slice(0, 10) ?? '',
+        taxDescription: material.taxDescription ?? '',
     }
 }
 
@@ -255,6 +286,7 @@ const TABS: TabDef[] = [
     { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'serialTrackingPolicy', 'qualityInspectionRequired', 'expiryManaged'] },
     { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'storageBinId', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'negativeStockAllowed', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
+    { value: 'tax', label: 'Tax', icon: <HiOutlineShieldCheck />, fields: ['taxClassification', 'taxCodeId', 'priceTaxTreatment', 'taxStatus', 'taxEffectiveFrom', 'taxEffectiveTo'] },
 ]
 
 const FORM_ID = 'material-master-form'
@@ -284,6 +316,22 @@ const VALUATION_METHOD_OPTIONS: SelectOption[] = [
     { value: 'FIFO', label: 'FIFO' },
     { value: 'LIFO', label: 'LIFO' },
     { value: 'STANDARD_COST', label: 'Standard Cost' },
+]
+
+const TAX_CLASSIFICATION_OPTIONS: SelectOption[] = [
+    { value: 'VATABLE', label: 'VATable' },
+    { value: 'VAT_EXEMPT', label: 'VAT Exempt' },
+    { value: 'ZERO_RATED', label: 'Zero-Rated' },
+]
+
+const PRICE_TAX_TREATMENT_OPTIONS: SelectOption[] = [
+    { value: 'VAT_INCLUSIVE', label: 'VAT Inclusive' },
+    { value: 'VAT_EXCLUSIVE', label: 'VAT Exclusive' },
+]
+
+const TAX_STATUS_OPTIONS: SelectOption[] = [
+    { value: 'ACTIVE', label: 'Active' },
+    { value: 'INACTIVE', label: 'Inactive' },
 ]
 
 type SkuMode = 'auto' | 'custom'
@@ -679,6 +727,57 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const defaultWarehouseWatch =
         useWatch({ control, name: 'defaultWarehouseId' }) ?? ''
     const companyIdWatch = useWatch({ control, name: 'companyId' }) ?? ''
+    const taxClassificationWatch =
+        useWatch({ control, name: 'taxClassification' }) ?? ''
+    const taxCodeIdWatch = useWatch({ control, name: 'taxCodeId' }) ?? ''
+
+    /** FICO tax codes for the selected company (read-only source of rates). */
+    const [taxCodes, setTaxCodes] = useState<MaterialTaxCodeOption[]>([])
+    const [taxCodesLoading, setTaxCodesLoading] = useState(false)
+    useEffect(() => {
+        if (!isOpen || !companyIdWatch) {
+            setTaxCodes([])
+            return
+        }
+        let cancelled = false
+        setTaxCodesLoading(true)
+        materialService
+            .listTaxCodes(companyIdWatch)
+            .then((res) => {
+                if (!cancelled) setTaxCodes(res.data)
+            })
+            .catch(() => {
+                if (!cancelled) setTaxCodes([])
+            })
+            .finally(() => {
+                if (!cancelled) setTaxCodesLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, companyIdWatch])
+
+    const taxCodeOptions = useMemo<SelectOption[]>(
+        () =>
+            taxCodes
+                .filter(
+                    (code) =>
+                        !taxClassificationWatch ||
+                        code.compatibleClassifications.includes(
+                            taxClassificationWatch as any,
+                        ),
+                )
+                .map((code) => ({
+                    value: code.id,
+                    label:
+                        `${code.code} — ${code.name}` +
+                        (code.rate == null
+                            ? ' (no active rate)'
+                            : ` (${code.rate}%)`),
+                })),
+        [taxCodes, taxClassificationWatch],
+    )
+    const selectedTaxCode = taxCodes.find((code) => code.id === taxCodeIdWatch)
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
 
     // Only warehouses of the selected company — never all warehouses.
@@ -859,6 +958,30 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             return
         }
 
+        // MM Material Master owns the tax classification. A new material must
+        // carry it; existing materials may stay unconfigured until edited.
+        if (mode === 'create' && !values.taxClassification) {
+            setError('taxClassification', {
+                type: 'manual',
+                message: 'Select a tax classification',
+            })
+            setTab('tax')
+            return
+        }
+        if (
+            values.taxClassification &&
+            (!values.taxCodeId ||
+                !values.priceTaxTreatment ||
+                !values.taxStatus)
+        ) {
+            setError('taxCodeId', {
+                type: 'manual',
+                message: 'Tax code, price tax treatment and status are required',
+            })
+            setTab('tax')
+            return
+        }
+
         const payload: CreateMaterialPayload = {
             materialName: values.materialName,
             materialTypeId: values.materialTypeId,
@@ -908,6 +1031,16 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
+            taxClassification: (values.taxClassification ||
+                undefined) as CreateMaterialPayload['taxClassification'],
+            taxCodeId: values.taxCodeId || undefined,
+            priceTaxTreatment: (values.priceTaxTreatment ||
+                undefined) as CreateMaterialPayload['priceTaxTreatment'],
+            taxStatus: (values.taxStatus ||
+                undefined) as CreateMaterialPayload['taxStatus'],
+            taxEffectiveFrom: values.taxEffectiveFrom || undefined,
+            taxEffectiveTo: values.taxEffectiveTo || undefined,
+            taxDescription: values.taxDescription?.trim() || undefined,
         }
         await onSubmit(payload)
         clearMaterialFormDraft()
@@ -1711,6 +1844,242 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                         onChange={(opt) => field.onChange(opt?.value ?? '')}
                                     />
                                 )} />
+                            </FormItem>
+                        </div>
+                    </TabPanel>
+                    <TabPanel active={tab === 'tax'}>
+                        <SectionHeader
+                            title="Tax information"
+                            description="MM Material Master owns the product tax classification. FICO owns the tax code and rate."
+                        />
+                        {!companyIdWatch ? (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                Select a company in the Valuation step to load its
+                                FICO tax codes.
+                            </div>
+                        ) : null}
+                        {companyIdWatch &&
+                        !taxCodesLoading &&
+                        taxCodes.length === 0 ? (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                No FICO tax codes exist for this company yet.{' '}
+                                <a
+                                    href="/modules/fico/tax-codes"
+                                    className="font-medium underline"
+                                >
+                                    Create a FICO tax code
+                                </a>{' '}
+                                first.
+                            </div>
+                        ) : null}
+                        <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+                            <FormItem
+                                label="Tax classification"
+                                asterisk={mode === 'create'}
+                                invalid={Boolean(errors.taxClassification)}
+                                errorMessage={errors.taxClassification?.message}
+                            >
+                                <Controller
+                                    name="taxClassification"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select classification"
+                                            options={TAX_CLASSIFICATION_OPTIONS}
+                                            value={
+                                                TAX_CLASSIFICATION_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) => {
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                                const next = taxCodes.find(
+                                                    (code) =>
+                                                        code.id ===
+                                                        taxCodeIdWatch,
+                                                )
+                                                if (
+                                                    next &&
+                                                    opt?.value &&
+                                                    !next.compatibleClassifications.includes(
+                                                        opt.value as any,
+                                                    )
+                                                ) {
+                                                    setValue(
+                                                        'taxCodeId',
+                                                        '',
+                                                        {
+                                                            shouldDirty: true,
+                                                        },
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem
+                                label="Tax code (FICO)"
+                                invalid={Boolean(errors.taxCodeId)}
+                                errorMessage={errors.taxCodeId?.message}
+                            >
+                                <Controller
+                                    name="taxCodeId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            isSearchable
+                                            isLoading={taxCodesLoading}
+                                            placeholder={
+                                                taxClassificationWatch
+                                                    ? 'Select compatible tax code'
+                                                    : 'Select classification first'
+                                            }
+                                            options={taxCodeOptions}
+                                            value={
+                                                taxCodeOptions.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax rate (from FICO)">
+                                <Input
+                                    value={
+                                        selectedTaxCode?.rate == null
+                                            ? 'No active rate'
+                                            : `${selectedTaxCode.rate}%`
+                                    }
+                                    disabled
+                                    className="!bg-gray-100 dark:!bg-gray-700/50"
+                                />
+                                <p className="mt-1 text-xs text-gray-400">
+                                    Read-only: FICO Tax Codes is the single
+                                    source of the rate.
+                                </p>
+                            </FormItem>
+                            <FormItem label="Price tax treatment">
+                                <Controller
+                                    name="priceTaxTreatment"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select treatment"
+                                            options={
+                                                PRICE_TAX_TREATMENT_OPTIONS
+                                            }
+                                            value={
+                                                PRICE_TAX_TREATMENT_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax status">
+                                <Controller
+                                    name="taxStatus"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select status"
+                                            options={TAX_STATUS_OPTIONS}
+                                            value={
+                                                TAX_STATUS_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Effective from">
+                                <Controller
+                                    name="taxEffectiveFrom"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            type="date"
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem
+                                label="Effective to"
+                                invalid={Boolean(errors.taxEffectiveTo)}
+                                errorMessage={errors.taxEffectiveTo?.message}
+                            >
+                                <Controller
+                                    name="taxEffectiveTo"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            type="date"
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax description / notes">
+                                <Controller
+                                    name="taxDescription"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            placeholder="Optional note for this tax configuration"
+                                            maxLength={500}
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
                             </FormItem>
                         </div>
                     </TabPanel>
