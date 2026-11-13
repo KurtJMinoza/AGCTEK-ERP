@@ -1,11 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import {
+    HiOutlinePencil,
+    HiOutlineUser,
+    HiOutlineUserAdd,
+    HiOutlineX,
+} from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import NumericInput from '@/components/shared/NumericInput'
+import Avatar from '@/components/ui/Avatar'
 import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
-import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
 import type { POSCartCustomer } from '../store/usePOSCartStore'
@@ -33,8 +37,6 @@ type POSCheckoutPanelProps = {
     onLoadCustomers: () => void
     /** Server-side search of the Customer Master while the cashier types. */
     onSearchCustomers: (term: string) => void
-    /** Creates (or finds) a customer for a name typed at the register. */
-    onAddCustomer: (name: string) => void
     /** Opens the full customer form (a new customer with details). */
     onOpenCustomerDialog: () => void
     addingCustomer?: boolean
@@ -65,7 +67,6 @@ const POSCheckoutPanel = ({
     customerOptions,
     onLoadCustomers,
     onSearchCustomers,
-    onAddCustomer,
     onOpenCustomerDialog,
     addingCustomer = false,
     canPay,
@@ -76,8 +77,6 @@ const POSCheckoutPanel = ({
     formatPrice,
 }: POSCheckoutPanelProps) => {
     const total = amountDue ?? Number((subtotal - discountAmount).toFixed(2))
-    const [newCustomerName, setNewCustomerName] = useState('')
-
     return (
         <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700 xl:sticky xl:top-4">
             <div className="mb-4 flex items-start justify-between gap-2">
@@ -158,47 +157,78 @@ const POSCheckoutPanel = ({
                 </div>
 
                 <div>
-                    <label
-                        htmlFor="pos-new-customer"
-                        className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
-                    >
+                    <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                         Customer name
-                    </label>
-                    <div className="flex gap-2">
-                        <Input
-                            id="pos-new-customer"
-                            placeholder="New customer name"
-                            value={newCustomerName}
-                            onChange={(e) => setNewCustomerName(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    onAddCustomer(newCustomerName)
-                                }
-                            }}
-                        />
-                        <Button
-                            size="sm"
-                            variant="solid"
-                            loading={addingCustomer}
-                            disabled={!newCustomerName.trim()}
-                            onClick={() => onAddCustomer(newCustomerName)}
-                        >
-                            Add
-                        </Button>
+                    </span>
+                    <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                        <div className="flex items-center gap-3">
+                            <Avatar
+                                size={40}
+                                shape="circle"
+                                className={classNames(
+                                    customer
+                                        ? 'bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light'
+                                        : 'bg-gray-100 text-gray-400 dark:bg-gray-700',
+                                )}
+                                icon={<HiOutlineUser />}
+                            />
+                            <div className="min-w-0 flex-1">
+                                <p
+                                    className={classNames(
+                                        'truncate font-semibold',
+                                        customer
+                                            ? 'heading-text'
+                                            : 'text-gray-400',
+                                    )}
+                                >
+                                    {customer?.name ?? 'Walk-in customer'}
+                                </p>
+                                <p className="text-[11px] text-gray-500">
+                                    {customer
+                                        ? 'Linked to this sale'
+                                        : 'Add the customer details to link a name to this sale'}
+                                </p>
+                            </div>
+                            {customer ? (
+                                <Tag className="shrink-0">
+                                    {customer.accountType === 'CREDIT'
+                                        ? 'Credit'
+                                        : 'Cash'}
+                                </Tag>
+                            ) : null}
+                        </div>
+                        {customer ? (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlinePencil />}
+                                    loading={addingCustomer}
+                                    onClick={onOpenCustomerDialog}
+                                >
+                                    Change
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    icon={<HiOutlineX />}
+                                    disabled={addingCustomer}
+                                    onClick={() => onCustomerChange(null)}
+                                >
+                                    Walk-in
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                block
+                                size="sm"
+                                className="mt-3"
+                                icon={<HiOutlineUserAdd />}
+                                loading={addingCustomer}
+                                onClick={onOpenCustomerDialog}
+                            >
+                                Add customer with details
+                            </Button>
+                        )}
                     </div>
-                    <p className="mt-1 text-[11px] text-gray-500">
-                        The name is added to the customer list and linked to
-                        this sale.
-                    </p>
-                    <Button
-                        size="sm"
-                        variant="plain"
-                        className="mt-1"
-                        onClick={onOpenCustomerDialog}
-                    >
-                        Add customer with details
-                    </Button>
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">
