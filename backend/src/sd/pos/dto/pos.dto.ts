@@ -3,6 +3,7 @@ import {
     ArrayMinSize,
     IsArray,
     IsBoolean,
+    IsEmail,
     IsIn,
     IsNumber,
     IsObject,
@@ -165,10 +166,38 @@ export class PosCheckoutDto {
 
 /** A customer typed at the register (existing customer or first-time buyer). */
 export class PosCustomerDto {
+    /** Name of the customer (an individual or a company). */
     @IsString()
     @IsNotEmpty()
     @MaxLength(200)
     name!: string
+
+    /** Person to contact; defaults to the name. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    contactName?: string
+
+    @IsOptional()
+    @IsEmail()
+    @MaxLength(200)
+    email?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    phone?: string
+
+    /** Defaults to NON_CREDIT (a walk-in cash customer). */
+    @IsOptional()
+    @IsIn(['NON_CREDIT', 'CREDIT'])
+    customerAccountType?: string
+
+    /** Required for a CREDIT account. */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    creditLimit?: number
 
     @IsOptional()
     @IsString()

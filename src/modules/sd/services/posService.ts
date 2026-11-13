@@ -304,6 +304,11 @@ export async function quotePosCart(payload: {
  */
 export async function createPosCustomer(input: {
     name: string
+    contactName?: string
+    email?: string
+    phone?: string
+    customerAccountType?: 'NON_CREDIT' | 'CREDIT'
+    creditLimit?: number
     createdBy?: string | null
 }): Promise<{
     id: string
@@ -319,6 +324,11 @@ export async function createPosCustomer(input: {
             customerAccountType: string
         }>('/sd/pos/customers', {
             name: input.name.trim(),
+            contactName: input.contactName ?? undefined,
+            email: input.email ?? undefined,
+            phone: input.phone ?? undefined,
+            customerAccountType: input.customerAccountType ?? 'NON_CREDIT',
+            creditLimit: input.creditLimit ?? undefined,
             createdBy: input.createdBy ?? undefined,
         })
         return data

@@ -78,6 +78,9 @@ import POSCheckoutPanel, {
     type POSCustomerOption,
 } from '../components/POSCheckoutPanel'
 import POSTenderDialog from '../components/POSTenderDialog'
+import POSCustomerDialog, {
+    type PosCustomerDetails,
+} from '../components/POSCustomerDialog'
 import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
 import {
@@ -187,6 +190,7 @@ const POSDashboard = () => {
     >([])
     const [customersLoading, setCustomersLoading] = useState(false)
     const [addingCustomer, setAddingCustomer] = useState(false)
+    const [customerDialogOpen, setCustomerDialogOpen] = useState(false)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -462,6 +466,47 @@ const POSDashboard = () => {
                     ? error.message
                     : 'Unable to add the customer',
             )
+        } finally {
+            setAddingCustomer(false)
+        }
+    }
+
+    /** Adds a customer with details (the customer form of the register). */
+    const handleSaveCustomer = async (
+        details: PosCustomerDetails,
+    ): Promise<void> => {
+        setAddingCustomer(true)
+        try {
+            const created = await createPosCustomer({
+                name: details.name,
+                contactName: details.contactName,
+                email: details.email,
+                phone: details.phone,
+                customerAccountType: details.customerAccountType,
+                creditLimit: details.creditLimit,
+                createdBy: cashierUserId,
+            })
+            setCustomer({
+                id: created.id,
+                name: created.companyName,
+                accountType: created.customerAccountType,
+            })
+            await loadCustomers('')
+            setCustomerDialogOpen(false)
+            notify(
+                'success',
+                'Customer added',
+                `${created.companyName} is now in the customer list.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not add the customer',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to add the customer',
+            )
+            throw error
         } finally {
             setAddingCustomer(false)
         }
@@ -1545,6 +1590,9 @@ const POSDashboard = () => {
                         onAddCustomer={(name: string) =>
                             void handleAddCustomer(name)
                         }
+                        onOpenCustomerDialog={() =>
+                            setCustomerDialogOpen(true)
+                        }
                         addingCustomer={addingCustomer}
                         canPay={canCheckout}
                         onPay={() => {
@@ -1702,9 +1750,18 @@ const POSDashboard = () => {
                     will be removed.
                 </p>
             </ConfirmDialog>
+            {/* Customer form — a customer who is not in the master yet. */}
+            {customerDialogOpen ? (
+                <POSCustomerDialog
+                    isOpen
+                    saving={addingCustomer}
+                    onSave={handleSaveCustomer}
+                    onClose={() => setCustomerDialogOpen(false)}
+                />
+            ) : null}
+
             <POSTenderDialog
-                key={tenderKey}
-                isOpen={tenderOpen}
+                key={tenderKey}                isOpen={tenderOpen}
                 amountDue={amountDue}
                 cashierUserId={cashierUserId}
                 customerName={customer?.name ?? null}

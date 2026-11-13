@@ -35,6 +35,8 @@ type POSCheckoutPanelProps = {
     onSearchCustomers: (term: string) => void
     /** Creates (or finds) a customer for a name typed at the register. */
     onAddCustomer: (name: string) => void
+    /** Opens the full customer form (a new customer with details). */
+    onOpenCustomerDialog: () => void
     addingCustomer?: boolean
     /** The terminal can take money without an opened shift. */
     canPay: boolean
@@ -64,6 +66,7 @@ const POSCheckoutPanel = ({
     onLoadCustomers,
     onSearchCustomers,
     onAddCustomer,
+    onOpenCustomerDialog,
     addingCustomer = false,
     canPay,
     onPay,
@@ -223,10 +226,19 @@ const POSCheckoutPanel = ({
                             Add
                         </Button>
                     </div>
-                    <p className="mt-1 text-[11px] text-gray-500">
-                        A name you add is created in the customer list and
-                        linked to this sale.
-                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-gray-500">
+                            The name is added to the customer list and linked to
+                            this sale.
+                        </p>
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            onClick={onOpenCustomerDialog}
+                        >
+                            Add customer with details
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">

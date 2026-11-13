@@ -1,6 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 
+export type PosCustomerDetails = {
+    contactName?: string
+    email?: string
+    phone?: string
+    customerAccountType?: string
+    creditLimit?: number
+}
+
 /**
  * Customer of a POS sale.
  *
@@ -17,7 +25,11 @@ export class PosCustomerService {
      * The Customer Master record of a name: the existing customer with that
      * name, or a new one created for it.
      */
-    async resolveByName(name: string, createdBy?: string | null) {
+    async resolveByName(
+        name: string,
+        createdBy?: string | null,
+        details: PosCustomerDetails = {},
+    ) {
         const clean = name.trim()
         if (!clean) {
             throw new BadRequestException('Enter the customer name.')
@@ -35,12 +47,62 @@ export class PosCustomerService {
             },
             orderBy: { createdAt: 'asc' },
         })
-        if (existing) return existing
+        if (existing) return this.complete(existing, details)
 
-        return this.create(clean, createdBy)
+        return this.create(clean, createdBy, details)
     }
 
-    private async create(name: string, createdBy?: string | null) {
+    /** Fills the gaps of an existing record (a walk-in that comes back). */
+    private async complete(
+        customer: {
+            id: string
+            companyName: string
+            email: string | null
+            phone: string
+            contactName: string
+        },
+        details: PosCustomerDetails,
+    ) {
+        const email = details.email?.trim().toLowerCase() || null
+        const phone = details.phone?.trim() || null
+        const data: Record<string, unknown> = {}
+        if (email && !customer.email) data.email = email
+        if (phone && !customer.phone) data.phone = phone
+        if (!customer.contactName && details.contactName?.trim()) {
+            data.contactName = details.contactName.trim()
+        }
+        if (!Object.keys(data).length) return customer
+        return this.prisma.sdCustomer.update({
+            where: { id: customer.id },
+            data,
+        })
+    }
+
+    private async create(
+        name: string,
+        createdBy?: string | null,
+        details: PosCustomerDetails = {},
+    ) {
+        const creditAccount = details.customerAccountType === 'CREDIT'
+        const creditLimit = creditAccount ? Number(details.creditLimit ?? 0) : 0
+        if (creditAccount && creditLimit <= 0) {
+            throw new BadRequestException(
+                'A credit customer needs a credit limit.',
+            )
+        }
+        const email = details.email?.trim().toLowerCase() || null
+        if (email) {
+            const taken = await this.prisma.sdCustomer.findFirst({
+                where: { email: { equals: email, mode: 'insensitive' } },
+                select: { id: true, companyName: true },
+            })
+            if (taken) {
+                throw new BadRequestException(
+                    `The email ${email} belongs to ${taken.companyName}.`,
+                )
+            }
+        }
+
         for (let attempt = 0; attempt < 5; attempt++) {
             const customerNumber = await this.nextNumber(attempt)
             try {
@@ -48,21 +110,27 @@ export class PosCustomerService {
                     data: {
                         customerNumber,
                         companyName: name,
-                        contactName: name,
-                        email: null,
-                        phone: '',
+                        contactName: details.contactName?.trim() || name,
+                        email,
+                        phone: details.phone?.trim() || '',
                         status: 'ACTIVE',
-                        customerAccountType: 'NON_CREDIT',
+                        customerAccountType: creditAccount
+                            ? 'CREDIT'
+                            : 'NON_CREDIT',
                         customerCategory: 'RETAIL',
-                        paymentTerms: 'IMMEDIATE',
-                        creditStatus: 'NOT_APPLICABLE',
+                        paymentTerms: creditAccount ? 'NET_30' : 'IMMEDIATE',
+                        creditStatus: creditAccount ? 'PENDING' : 'NOT_APPLICABLE',
+                        creditLimit,
+                        availableCredit: creditLimit,
                         paymentMode: 'CASH',
                         createdBy: createdBy ?? null,
                     },
                 })
             } catch (error) {
                 const code =
-                    typeof error === 'object' && error !== null && 'code' in error
+                    typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error
                         ? (error as { code?: string }).code
                         : undefined
                 if (code === 'P2002') continue

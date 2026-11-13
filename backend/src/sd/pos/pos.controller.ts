@@ -44,7 +44,13 @@ export class PosController {
     @Post('customers')
     @RequirePermission(['sd.pos', 'sd.customer-master'], 'create')
     createCustomer(@Body() dto: PosCustomerDto) {
-        return this.customers.resolveByName(dto.name, dto.createdBy)
+        return this.customers.resolveByName(dto.name, dto.createdBy, {
+            contactName: dto.contactName,
+            email: dto.email,
+            phone: dto.phone,
+            customerAccountType: dto.customerAccountType,
+            creditLimit: dto.creditLimit,
+        })
     }
 
     /** Amount due of a running cart (server prices, discount and tax). */
