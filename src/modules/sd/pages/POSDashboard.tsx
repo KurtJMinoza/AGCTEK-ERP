@@ -1,7 +1,14 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type KeyboardEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
@@ -181,9 +188,8 @@ const POSDashboard = () => {
     const [quoting, setQuoting] = useState(false)
     /** Cashier shift state. */
     const [shift, setShift] = useState<PosSession | null>(null)
-    const [collections, setCollections] = useState<PosSessionCollections | null>(
-        null,
-    )
+    const [collections, setCollections] =
+        useState<PosSessionCollections | null>(null)
     const [terminalCode] = useState('POS-01')
     const [closeShiftOpen, setCloseShiftOpen] = useState(false)
     const [countedCash, setCountedCash] = useState('0')
@@ -192,9 +198,9 @@ const POSDashboard = () => {
     const [holds, setHolds] = useState<PosHold[]>([])
     const [holdsLoading, setHoldsLoading] = useState(false)
     /** Customer picker options (SD Customer Master). */
-    const [customerOptions, setCustomerOptions] = useState<
-        POSCustomerOption[]
-    >([])
+    const [customerOptions, setCustomerOptions] = useState<POSCustomerOption[]>(
+        [],
+    )
     const [customersLoading, setCustomersLoading] = useState(false)
     const [addingCustomer, setAddingCustomer] = useState(false)
     const [customerDialogOpen, setCustomerDialogOpen] = useState(false)
@@ -212,8 +218,7 @@ const POSDashboard = () => {
     const search = usePOSCatalogSearch(catalog.products, sku)
     const searchRows =
         search.products.length + (search.barcode !== null ? 1 : 0)
-    const showSearch =
-        searchFocused && sku.trim().length > 0 && catalog.ready
+    const showSearch = searchFocused && sku.trim().length > 0 && catalog.ready
 
     const itemCount = useMemo(
         () => items.reduce((sum, row) => sum + row.quantity, 0),
@@ -408,7 +413,11 @@ const POSDashboard = () => {
         try {
             await discardPosHold(hold.id)
             setHolds((rows) => rows.filter((row) => row.id !== hold.id))
-            notify('info', 'Held sale discarded', 'The parked cart was dropped.')
+            notify(
+                'info',
+                'Held sale discarded',
+                'The parked cart was dropped.',
+            )
         } catch (error) {
             notify(
                 'danger',
@@ -588,11 +597,7 @@ const POSDashboard = () => {
         if (!voidTarget) return
         setVoiding(true)
         try {
-            await voidPosSale(
-                voidTarget.salesOrderId,
-                reason,
-                cashierUserId,
-            )
+            await voidPosSale(voidTarget.salesOrderId, reason, cashierUserId)
             const fresh = await getPosReceipt(voidTarget.salesOrderId)
             setReceipt(fresh)
             setVoidTarget(null)
@@ -717,7 +722,8 @@ const POSDashboard = () => {
     )
 
     /** Preview of the amount due — the server quote owns the amount due. */
-    const amountDue = quote?.total ?? Number((subtotal - discountAmount).toFixed(2))
+    const amountDue =
+        quote?.total ?? Number((subtotal - discountAmount).toFixed(2))
     const canCheckout =
         items.length > 0 &&
         amountDue > 0 &&
@@ -802,8 +808,12 @@ const POSDashboard = () => {
             const lower = normalized.toLowerCase()
             return (
                 catalog.products.find((p) => p.sku.toLowerCase() === lower) ??
-                catalog.products.find((p) => p.productId.toLowerCase() === lower) ??
-                catalog.products.find((p) => p.itemId.toLowerCase() === lower) ??
+                catalog.products.find(
+                    (p) => p.productId.toLowerCase() === lower,
+                ) ??
+                catalog.products.find(
+                    (p) => p.itemId.toLowerCase() === lower,
+                ) ??
                 null
             )
         },
@@ -818,7 +828,8 @@ const POSDashboard = () => {
                 notify(
                     'danger',
                     'Catalog not loaded',
-                    catalog.error ?? 'Products are still loading. Try again in a moment.',
+                    catalog.error ??
+                        'Products are still loading. Try again in a moment.',
                 )
                 if (catalog.error) void catalog.reload()
                 return
@@ -918,9 +929,10 @@ const POSDashboard = () => {
             }
             // Products with options: ask the cashier to choose the exact variant.
             try {
-                const payload = await productOptionVariantsService.getForProduct(
-                    product.productId,
-                )
+                const payload =
+                    await productOptionVariantsService.getForProduct(
+                        product.productId,
+                    )
                 if (payload.hasVariants) {
                     const active = payload.variants.filter(
                         (variant) => variant.isActive,
@@ -964,7 +976,14 @@ const POSDashboard = () => {
             await addToCart(product)
             setAddingSku(false)
         },
-        [addToCart, catalog.error, catalog.ready, catalog.reload, resolveProduct, sku],
+        [
+            addToCart,
+            catalog.error,
+            catalog.ready,
+            catalog.reload,
+            resolveProduct,
+            sku,
+        ],
     )
 
     const handleScanKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -1017,7 +1036,8 @@ const POSDashboard = () => {
         async (code: string) => {
             setSearchFocused(false)
             setActiveIndex(-1)
-            const hit = search.barcode?.code === code ? search.barcode.result : null
+            const hit =
+                search.barcode?.code === code ? search.barcode.result : null
             const listing = hit?.listing
             if (listing) {
                 const parent = catalog.products.find(
@@ -1217,7 +1237,12 @@ const POSDashboard = () => {
                                 className="shrink-0"
                                 icon={<HiOutlineMinus />}
                                 aria-label={`Decrease ${product.name}`}
-                                onClick={() => updateQuantity(posLineKey(row.original), quantity - 1)}
+                                onClick={() =>
+                                    updateQuantity(
+                                        posLineKey(row.original),
+                                        quantity - 1,
+                                    )
+                                }
                             />
                             <span className="min-w-[1.75rem] text-center text-base font-semibold tabular-nums">
                                 {quantity}
@@ -1234,7 +1259,9 @@ const POSDashboard = () => {
                                 }
                                 icon={<HiOutlinePlus />}
                                 aria-label={`Increase ${product.name}`}
-                                onClick={() => void increaseQuantity(row.original)}
+                                onClick={() =>
+                                    void increaseQuantity(row.original)
+                                }
                             />
                         </div>
                     )
@@ -1266,7 +1293,9 @@ const POSDashboard = () => {
                                         : 'font-medium text-gray-600 dark:text-gray-300'
                                 }
                             >
-                                {short ? `Only ${available} left` : `${available} in stock`}
+                                {short
+                                    ? `Only ${available} left`
+                                    : `${available} in stock`}
                             </div>
                             {short ? (
                                 <div className="text-xs text-red-500">
@@ -1406,8 +1435,7 @@ const POSDashboard = () => {
                                         <span>
                                             Cash{' '}
                                             {formatPrice(
-                                                collections?.cashCollected ??
-                                                    0,
+                                                collections?.cashCollected ?? 0,
                                             )}
                                         </span>
                                         <span>
@@ -1466,56 +1494,91 @@ const POSDashboard = () => {
                                 {showSearch ? (
                                     <div className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
                                         <ul className="max-h-80 overflow-y-auto py-1">
-                                            {search.products.map((product, index) => (
-                                                <li key={product.productId}>
-                                                    <button
-                                                        type="button"
-                                                        className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-                                                            index === activeIndex
-                                                                ? 'bg-primary-subtle dark:bg-primary/15'
-                                                                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                                                        }`}
-                                                        onMouseDown={(event) => event.preventDefault()}
-                                                        onMouseEnter={() => setActiveIndex(index)}
-                                                        onClick={() => selectSearchProduct(product)}
-                                                    >
-                                                        <PcProductThumbnail
-                                                            src={product.imageUrl}
-                                                            alt={product.name}
-                                                        />
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block truncate text-sm font-medium heading-text">
-                                                                {product.name}
+                                            {search.products.map(
+                                                (product, index) => (
+                                                    <li key={product.productId}>
+                                                        <button
+                                                            type="button"
+                                                            className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+                                                                index ===
+                                                                activeIndex
+                                                                    ? 'bg-primary-subtle dark:bg-primary/15'
+                                                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                                                            }`}
+                                                            onMouseDown={(
+                                                                event,
+                                                            ) =>
+                                                                event.preventDefault()
+                                                            }
+                                                            onMouseEnter={() =>
+                                                                setActiveIndex(
+                                                                    index,
+                                                                )
+                                                            }
+                                                            onClick={() =>
+                                                                selectSearchProduct(
+                                                                    product,
+                                                                )
+                                                            }
+                                                        >
+                                                            <PcProductThumbnail
+                                                                src={
+                                                                    product.imageUrl
+                                                                }
+                                                                alt={
+                                                                    product.name
+                                                                }
+                                                            />
+                                                            <span className="min-w-0 flex-1">
+                                                                <span className="block truncate text-sm font-medium heading-text">
+                                                                    {
+                                                                        product.name
+                                                                    }
+                                                                </span>
+                                                                <span className="block truncate font-mono text-xs text-gray-500">
+                                                                    {
+                                                                        product.sku
+                                                                    }
+                                                                    {product.category
+                                                                        ? ` · ${product.category}`
+                                                                        : ''}
+                                                                </span>
                                                             </span>
-                                                            <span className="block truncate font-mono text-xs text-gray-500">
-                                                                {product.sku}
-                                                                {product.category
-                                                                    ? ` · ${product.category}`
-                                                                    : ''}
+                                                            <span className="shrink-0 text-sm font-semibold tabular-nums heading-text">
+                                                                {formatPrice(
+                                                                    product.basePrice,
+                                                                )}
                                                             </span>
-                                                        </span>
-                                                        <span className="shrink-0 text-sm font-semibold tabular-nums heading-text">
-                                                            {formatPrice(product.basePrice)}
-                                                        </span>
-                                                    </button>
-                                                </li>
-                                            ))}
+                                                        </button>
+                                                    </li>
+                                                ),
+                                            )}
 
                                             {search.barcode ? (
                                                 <li>
                                                     <button
                                                         type="button"
                                                         className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-                                                            activeIndex === search.products.length
+                                                            activeIndex ===
+                                                            search.products
+                                                                .length
                                                                 ? 'bg-primary-subtle dark:bg-primary/15'
                                                                 : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
                                                         }`}
-                                                        onMouseDown={(event) => event.preventDefault()}
+                                                        onMouseDown={(event) =>
+                                                            event.preventDefault()
+                                                        }
                                                         onMouseEnter={() =>
-                                                            setActiveIndex(search.products.length)
+                                                            setActiveIndex(
+                                                                search.products
+                                                                    .length,
+                                                            )
                                                         }
                                                         onClick={() =>
-                                                            void selectBarcodeHit(search.barcode!.code)
+                                                            void selectBarcodeHit(
+                                                                search.barcode!
+                                                                    .code,
+                                                            )
                                                         }
                                                     >
                                                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-lg text-gray-500 dark:bg-gray-700 dark:text-gray-300">
@@ -1523,27 +1586,52 @@ const POSDashboard = () => {
                                                         </span>
                                                         <span className="min-w-0 flex-1">
                                                             <span className="block truncate text-sm font-medium heading-text">
-                                                                {search.barcode.result.found
-                                                                    ? search.barcode.result.listing
+                                                                {search.barcode
+                                                                    .result
+                                                                    .found
+                                                                    ? (search
+                                                                          .barcode
+                                                                          .result
+                                                                          .listing
                                                                           ?.productName ??
-                                                                      search.barcode.result.material?.name ??
-                                                                      search.barcode.code
+                                                                      search
+                                                                          .barcode
+                                                                          .result
+                                                                          .material
+                                                                          ?.name ??
+                                                                      search
+                                                                          .barcode
+                                                                          .code)
                                                                     : `Register “${search.barcode.code}”`}
                                                             </span>
                                                             <span className="block truncate font-mono text-xs text-gray-500">
-                                                                {search.barcode.code}
+                                                                {
+                                                                    search
+                                                                        .barcode
+                                                                        .code
+                                                                }
                                                                 {' · '}
-                                                                {search.barcode.result.found
-                                                                    ? search.barcode.result.listing
+                                                                {search.barcode
+                                                                    .result
+                                                                    .found
+                                                                    ? search
+                                                                          .barcode
+                                                                          .result
+                                                                          .listing
                                                                         ? 'In catalog'
                                                                         : 'Material found — not listed'
                                                                     : 'Barcode not registered'}
                                                             </span>
                                                         </span>
-                                                        {search.barcode.result.listing ? (
+                                                        {search.barcode.result
+                                                            .listing ? (
                                                             <span className="shrink-0 text-sm font-semibold tabular-nums heading-text">
                                                                 {formatPrice(
-                                                                    search.barcode.result.listing.price,
+                                                                    search
+                                                                        .barcode
+                                                                        .result
+                                                                        .listing
+                                                                        .price,
                                                                 )}
                                                             </span>
                                                         ) : null}
@@ -1562,8 +1650,8 @@ const POSDashboard = () => {
                                         {searchRows > 0 ? (
                                             <div className="border-t border-gray-100 px-3 py-1.5 text-[11px] text-gray-500 dark:border-gray-700">
                                                 {searchRows} result
-                                                {searchRows === 1 ? '' : 's'} · ↑↓
-                                                to choose · Enter to add
+                                                {searchRows === 1 ? '' : 's'} ·
+                                                ↑↓ to choose · Enter to add
                                             </div>
                                         ) : null}
                                     </div>
@@ -1578,7 +1666,9 @@ const POSDashboard = () => {
                                     size="lg"
                                     variant="solid"
                                     className="h-12 sm:col-span-1"
-                                    icon={<HiOutlineQrcode className="text-lg" />}
+                                    icon={
+                                        <HiOutlineQrcode className="text-lg" />
+                                    }
                                     loading={addingSku}
                                     disabled={!sku.trim() && !catalog.ready}
                                     onClick={() => void handleAdd()}
@@ -1695,9 +1785,7 @@ const POSDashboard = () => {
                         onAddCustomer={(name: string) =>
                             void handleAddCustomer(name)
                         }
-                        onOpenCustomerDialog={() =>
-                            setCustomerDialogOpen(true)
-                        }
+                        onOpenCustomerDialog={() => setCustomerDialogOpen(true)}
                         addingCustomer={addingCustomer}
                         canPay={canCheckout}
                         onPay={() => {
@@ -1856,21 +1944,28 @@ const POSDashboard = () => {
                 </p>
             </ConfirmDialog>
             {/* Transaction history — reprint a receipt or void a sale. */}
-            <POSTransactionsDialog
+            <Dialog
                 isOpen={transactionsOpen}
-                loading={transactionsLoading}
-                receipts={receipts}
+                width={900}
+                aria={{ labelledby: 'pos-transactions-title' }}
                 onClose={() => setTransactionsOpen(false)}
-                onShowReceipt={(row) => {
-                    setReceipt(row)
-                    setTransactionsOpen(false)
-                }}
-                onVoid={(row) => setVoidTarget(row)}
-                onComplete={(row) => void handleCompletePending(row)}
-                completingId={completingId}
-                formatPrice={formatPrice}
-            />
-
+                onRequestClose={() => setTransactionsOpen(false)}
+            >
+                <POSTransactionsDialog
+                    isOpen={transactionsOpen}
+                    loading={transactionsLoading}
+                    receipts={receipts}
+                    onShowReceipt={(row) => {
+                        setReceipt(row)
+                        setTransactionsOpen(false)
+                    }}
+                    onVoid={(row) => setVoidTarget(row)}
+                    onComplete={(row) => void handleCompletePending(row)}
+                    onClose={() => setTransactionsOpen(false)}
+                    completingId={completingId}
+                    formatPrice={formatPrice}
+                />
+            </Dialog>
             {/* Void of a completed sale. */}
             {voidTarget ? (
                 <POSVoidDialog
@@ -1895,7 +1990,8 @@ const POSDashboard = () => {
             ) : null}
 
             <POSTenderDialog
-                key={tenderKey}                isOpen={tenderOpen}
+                key={tenderKey}
+                isOpen={tenderOpen}
                 amountDue={amountDue}
                 cashierUserId={cashierUserId}
                 customerName={customer?.name ?? null}
@@ -1922,9 +2018,7 @@ const POSDashboard = () => {
                     sale.
                 </p>
                 {holdsLoading ? (
-                    <p className="text-sm text-gray-500">
-                        Loading held sales…
-                    </p>
+                    <p className="text-sm text-gray-500">Loading held sales…</p>
                 ) : holds.length === 0 ? (
                     <p className="text-sm text-gray-500">
                         No held sale at this branch.
@@ -2043,10 +2137,7 @@ const POSDashboard = () => {
                     </div>
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
-                    <Button
-                        size="sm"
-                        onClick={() => setCloseShiftOpen(false)}
-                    >
+                    <Button size="sm" onClick={() => setCloseShiftOpen(false)}>
                         Cancel
                     </Button>
                     <Button
@@ -2082,7 +2173,9 @@ const POSDashboard = () => {
                         drawer.
                     </p>
                 ) : null}
-                {receipt && receipt.status !== 'COMPLETED' && receipt.status !== 'CANCELLED' ? (
+                {receipt &&
+                receipt.status !== 'COMPLETED' &&
+                receipt.status !== 'CANCELLED' ? (
                     <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
                         This sale is not completed. Check the order before
                         handing the receipt to the customer.

@@ -53,9 +53,7 @@ const POSVoidDialog = ({
             setReason('')
         } catch (err) {
             setError(
-                err instanceof Error
-                    ? err.message
-                    : 'Unable to void the sale.',
+                err instanceof Error ? err.message : 'Unable to void the sale.',
             )
         }
     }
@@ -63,7 +61,7 @@ const POSVoidDialog = ({
     return (
         <Dialog
             isOpen={isOpen}
-            width={460}
+            width={560}
             aria={{ labelledby: 'pos-void-title' }}
             onClose={onClose}
             onRequestClose={onClose}
@@ -73,9 +71,8 @@ const POSVoidDialog = ({
             </h5>
             <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
                 {receiptNumber ? `Receipt ${receiptNumber}` : 'This sale'}
-                {amount ? ` · ${formatPrice(amount)}` : ''} is voided: the
-                stock returns to the shelf and the payment is taken out of the
-                drawer.
+                {amount ? ` · ${formatPrice(amount)}` : ''} is voided: the stock
+                returns to the shelf and the payment is taken out of the drawer.
             </p>
 
             <div className="space-y-3">
