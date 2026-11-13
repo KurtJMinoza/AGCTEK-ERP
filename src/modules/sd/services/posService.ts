@@ -418,6 +418,25 @@ export async function voidPosSale(
     }
 }
 
+/**
+ * Finishes a POS sale whose checkout stopped after the order existed
+ * (POST /sd/pos/orders/:id/complete).
+ */
+export async function completePendingPosSale(
+    orderId: string,
+    completedBy?: string | null,
+): Promise<PosReceipt> {
+    try {
+        const { data } = await ErpAxiosBase.post<PosReceipt>(
+            `/sd/pos/orders/${encodeURIComponent(orderId)}/complete`,
+            { completedBy: completedBy ?? undefined },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to complete the sale')
+    }
+}
+
 /** Completes the sale: tenders, goods issue, receipt (POST /sd/pos/checkout). */
 export async function completePosCheckout(
     payload: PosCheckoutPayload,

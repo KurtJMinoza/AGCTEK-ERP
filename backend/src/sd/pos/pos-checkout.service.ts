@@ -266,7 +266,20 @@ export class PosCheckoutService {
             },
         })
         if (existing) {
-            return this.receipt(existing, existing.payments ?? [])
+            // A checkout that failed after the order existed is resumed, not
+            // returned as a half-finished sale.
+            if (existing.status === 'COMPLETED') {
+                return this.receipt(existing, existing.payments ?? [])
+            }
+            if (existing.status === 'CONFIRMED') {
+                return this.finalizeStagedOrder(
+                    existing.id,
+                    dto.cashierUserId ?? dto.createdBy ?? null,
+                )
+            }
+            throw new ConflictException(
+                `This sale is ${existing.status} and cannot be completed.`,
+            )
         }
 
         const lines = await this.resolveLines(
@@ -411,6 +424,129 @@ export class PosCheckoutService {
         })
 
         return this.receipt(completed, completed.payments ?? [], warnings, lines)
+    }
+
+    /**
+     * Finishes a POS sale whose checkout stopped after the order and its
+     * tenders were recorded (order left CONFIRMED, goods issue not posted).
+     * Safe to repeat: the tender rows, the goods issue and the receipt number
+     * are reused, never duplicated.
+     */
+    async finalizeStagedOrder(
+        orderId: string,
+        actor?: string | null,
+    ): Promise<PosReceipt> {
+        const order = await this.prisma.sdSalesOrder.findFirst({
+            where: { id: orderId, channel: 'POS' },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+            },
+        })
+        if (!order) throw new NotFoundException('Sale not found')
+        if (order.status === 'COMPLETED') {
+            return this.receipt(order as never, order.payments)
+        }
+        if (order.status !== 'CONFIRMED') {
+            throw new ConflictException(
+                `Only a pending sale can be completed (this sale is ${order.status}).`,
+            )
+        }
+        if (!order.payments.length) {
+            throw new ConflictException(
+                'The pending sale has no tender; take the payment again at the register.',
+            )
+        }
+
+        if (!order.posSessionId && !order.branchId) {
+            throw new BadRequestException(
+                'The sale has no branch; the stock cannot be deducted.',
+            )
+        }
+        const session = order.posSessionId
+            ? await this.sessions.requireOpen(order.posSessionId)
+            : await this.sessions.ensureOpen({
+                  companyId: order.companyId ?? '',
+                  branchId: order.branchId as string,
+                  terminalCode: 'POS-01',
+                  cashierUserId:
+                      actor ?? order.cashierUserId ?? 'POS',
+              })
+
+        // The stock still has to leave the shelf: reuse the draft goods issue.
+        await this.postGoodsIssue(order, session)
+
+        const payments = order.payments
+        const salaryLoanTotal = payments
+            .filter(
+                (payment) =>
+                    payment.paymentMethod === 'SALARY_LOAN' &&
+                    !['Cancelled', 'Refunded'].includes(payment.status),
+            )
+            .reduce((sum, payment) => sum + Number(payment.amount), 0)
+        const receiptNumber =
+            order.receiptNumber ??
+            (await this.nextReceiptNumber(
+                order.companyId ?? session.companyId,
+            ))
+        const changeAmount = round2(
+            Math.max(
+                0,
+                Number(order.paymentReceived ?? 0) -
+                    Number(order.totalAmount ?? 0),
+            ),
+        )
+
+        const completed = await this.prisma.sdSalesOrder.update({
+            where: { id: order.id },
+            data: {
+                status: 'COMPLETED',
+                paymentMethod:
+                    payments.length > 1
+                        ? 'SPLIT'
+                        : payments[0].paymentMethod,
+                paymentStatus: payments.every(
+                    (payment) => payment.status === 'Paid',
+                )
+                    ? 'Paid'
+                    : 'Pending Verification',
+                paymentReference: payments[0].referenceNumber ?? null,
+                paymentProvider: payments[0].paymentProvider ?? null,
+                changeAmount: order.changeAmount ?? changeAmount,
+                posSessionId: session.id,
+                cashierUserId: actor ?? order.cashierUserId,
+                receiptNumber,
+            },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+            },
+        })
+
+        // The salary deduction was booked when the tender was captured.
+        if (salaryLoanTotal > 0 && order.customerId) {
+            await this.consumeEmployeeCredit(
+                order.customerId,
+                salaryLoanTotal,
+            )
+        }
+
+        await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
+            salesOrderId: completed.id,
+            orderNumber: completed.orderNumber,
+            receiptNumber,
+            companyId: order.companyId ?? session.companyId,
+            branchId: order.branchId,
+            posSessionId: session.id,
+            cashierUserId: actor ?? order.cashierUserId,
+            customerId: order.customerId,
+            currency: order.currency ?? 'PHP',
+            totalAmount: (order.totalAmount ?? 0).toString(),
+            resumed: true,
+            idempotencyKey: order.idempotencyKey ?? `pos:${order.id}`,
+        })
+
+        return this.receipt(completed as never, completed.payments)
     }
 
     /** Cart lines → material, MM tax classification and the line tax split. */
@@ -588,14 +724,28 @@ export class PosCheckoutService {
         },
         session: { companyId: string },
     ) {
-        const posted = await this.prisma.mmGoodsIssue.findFirst({
+        const existingIssue = await this.prisma.mmGoodsIssue.findFirst({
             where: {
                 sourceDocumentType: 'SALES_ORDER',
                 sourceDocumentId: order.id,
-                status: 'POSTED',
+                status: { in: ['POSTED', 'DRAFT'] },
             },
+            orderBy: { createdAt: 'desc' },
         })
-        if (posted) return posted
+        if (existingIssue?.status === 'POSTED') return existingIssue
+        if (existingIssue) {
+            // An unposted draft can point at bins that no longer hold the
+            // quantity (a checkout that stopped mid-way). A draft has no
+            // ledger effect, so drop it and rebuild a valid allocation.
+            await this.prisma.$transaction([
+                this.prisma.mmGoodsIssueLine.deleteMany({
+                    where: { issueId: existingIssue.id },
+                }),
+                this.prisma.mmGoodsIssue.delete({
+                    where: { id: existingIssue.id },
+                }),
+            ])
+        }
 
         const lines = await this.prisma.sdSalesOrderLine.findMany({
             where: { salesOrderId: order.id },
@@ -632,7 +782,10 @@ export class PosCheckoutService {
                 where: { id: line.materialId },
                 select: { baseUomId: true },
             })
-            const balance = await this.prisma.mmInventoryBalance.findFirst({
+            // The quantity may sit across several bins: take it bin by bin
+            // until the line is covered, instead of failing on a bin that
+            // holds only part of it.
+            const balances = await this.prisma.mmInventoryBalance.findMany({
                 where: {
                     companyId,
                     warehouseId: header.warehouseId,
@@ -643,19 +796,26 @@ export class PosCheckoutService {
                     quantity: { gt: 0 },
                 },
                 orderBy: { updatedAt: 'asc' },
-                select: { storageBinId: true },
+                select: { storageBinId: true, quantity: true },
             })
-            if (!balance?.storageBinId) {
+            let remaining = Number(line.quantity)
+            for (const balance of balances) {
+                if (!balance.storageBinId || remaining <= 0) continue
+                const take = Math.min(remaining, Number(balance.quantity))
+                if (take <= 0) continue
+                giLines.push({
+                    materialId: line.materialId,
+                    quantity: take,
+                    uomId: material?.baseUomId ?? '',
+                    storageBinId: balance.storageBinId,
+                })
+                remaining = round2(remaining - take)
+            }
+            if (remaining > 0) {
                 throw new BadRequestException(
                     `No stock bin holds ${line.sku}; the stock was not deducted.`,
                 )
             }
-            giLines.push({
-                materialId: line.materialId,
-                quantity: Number(line.quantity),
-                uomId: material?.baseUomId ?? '',
-                storageBinId: balance.storageBinId,
-            })
         }
 
         const now = new Date().toISOString()

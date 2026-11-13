@@ -112,8 +112,20 @@ describe('PosCheckoutService', () => {
             },
             mmInventoryBalance: {
                 findFirst: jest.fn().mockResolvedValue({ storageBinId: 'bin-1' }),
+                findMany: jest.fn().mockResolvedValue([
+                    { storageBinId: 'bin-1', quantity: 5 },
+                ]),
             },
-            mmGoodsIssue: { findFirst: jest.fn().mockResolvedValue(null) },
+            mmGoodsIssue: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                delete: jest.fn().mockResolvedValue({}),
+            },
+            mmGoodsIssueLine: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            $transaction: jest.fn(async (ops: unknown) =>
+                Promise.all(ops as Promise<unknown>[]),
+            ),
             sdCustomer: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 'cust-1',
@@ -129,6 +141,12 @@ describe('PosCheckoutService', () => {
         }
         sessions = {
             requireOpen: jest.fn().mockResolvedValue({
+                id: 'session-1',
+                companyId: COMPANY_ID,
+                branchId: 'branch-1',
+                status: 'OPEN',
+            }),
+            ensureOpen: jest.fn().mockResolvedValue({
                 id: 'session-1',
                 companyId: COMPANY_ID,
                 branchId: 'branch-1',
@@ -308,6 +326,62 @@ describe('PosCheckoutService', () => {
 
         expect(rows).toHaveLength(1)
         expect(rows[0].receiptNumber).toBe('POS-000001')
+    })
+
+    it('finishes a sale whose checkout stopped before the goods issue', async () => {
+        prisma.sdSalesOrder.findFirst.mockResolvedValue({
+            ...order,
+            status: 'CONFIRMED',
+            receiptNumber: 'RCP-000009',
+            customerId: 'cust-1',
+            currency: 'PHP',
+            posSessionId: null,
+            changeAmount: null,
+            paymentReceived: 8000,
+            payments: [
+                {
+                    paymentMethod: 'CASH',
+                    amount: 7300,
+                    tenderAmount: 8000,
+                    changeAmount: 700,
+                    referenceNumber: null,
+                    paymentProvider: null,
+                    status: 'Paid',
+                    verificationStatus: 'VERIFIED',
+                },
+            ],
+        })
+        prisma.mmGoodsIssue.findFirst.mockResolvedValue({
+            id: 'gi-1',
+            status: 'DRAFT',
+            supervisorVerifiedAt: null,
+        })
+
+        const receipt = await service.finalizeStagedOrder(
+            'order-1',
+            'cashier-1',
+        )
+
+        expect(goodsIssue.verifySupervisor).toHaveBeenCalledWith(
+            'gi-1',
+            expect.objectContaining({
+                sourceDocumentReference: 'POS-000001',
+            }),
+        )
+        expect(goodsIssue.post).toHaveBeenCalledWith('gi-1')
+        expect(prisma.mmGoodsIssueLine.deleteMany).toHaveBeenCalledWith({
+            where: { issueId: 'gi-1' },
+        })
+        expect(prisma.mmGoodsIssue.delete).toHaveBeenCalledWith({
+            where: { id: 'gi-1' },
+        })
+        expect(goodsIssue.create).toHaveBeenCalled()
+        expect(prisma.sdSalesOrder.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({ status: 'COMPLETED' }),
+            }),
+        )
+        expect(receipt.status).toBe('COMPLETED')
     })
 
     it('replays the same checkout without posting anything twice', async () => {

@@ -178,6 +178,14 @@ export class PosVoidDto {
     voidedBy?: string
 }
 
+/** Finish a POS sale whose checkout stopped after the order was recorded. */
+export class PosCompleteDto {
+    /** Cashier (User id) finishing the sale. */
+    @IsOptional()
+    @IsString()
+    completedBy?: string
+}
+
 /** A customer typed at the register (existing customer or first-time buyer). */
 export class PosCustomerDto {
     /** Name of the customer (an individual or a company). */

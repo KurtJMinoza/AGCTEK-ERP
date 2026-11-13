@@ -20,6 +20,7 @@ import {
     OpenPosSessionDto,
     PosCheckoutDto,
     PosCustomerDto,
+    PosCompleteDto,
     PosQuoteDto,
     PosVoidDto,
 } from './dto/pos.dto'
@@ -70,6 +71,19 @@ export class PosController {
         @Body() dto: PosVoidDto,
     ) {
         return this.voids.voidSale(id, dto)
+    }
+
+    /** Finish a sale whose checkout stopped before the stock left the shelf. */
+    @Post('orders/:id/complete')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'update')
+    completePending(
+        @Param('id') id: string,
+        @Body() dto: PosCompleteDto,
+    ) {
+        return this.checkout.finalizeStagedOrder(
+            id,
+            dto.completedBy ?? null,
+        )
     }
 
     /**

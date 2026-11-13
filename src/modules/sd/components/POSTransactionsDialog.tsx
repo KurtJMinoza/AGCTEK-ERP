@@ -16,6 +16,10 @@ type Props = {
     onShowReceipt: (receipt: PosReceipt) => void
     /** Opens the void dialog of a sale. */
     onVoid: (receipt: PosReceipt) => void
+    /** Finishes a sale whose checkout stopped before completion. */
+    onComplete: (receipt: PosReceipt) => void
+    /** Sale currently being completed. */
+    completingId?: string | null
     formatPrice: (value: number) => string
 }
 
@@ -39,6 +43,8 @@ const POSTransactionsDialog = ({
     onClose,
     onShowReceipt,
     onVoid,
+    onComplete,
+    completingId = null,
     formatPrice,
 }: Props) => (
     <Dialog
@@ -70,19 +76,24 @@ const POSTransactionsDialog = ({
                     const voidTransaction =
                         receipt.transactionType === 'VOID'
                     const voided = receipt.status === 'CANCELLED'
+                    const pending = receipt.status === 'CONFIRMED'
                     const statusLabel = voidTransaction
                         ? 'Void transaction'
                         : voided
                           ? 'Voided'
-                          : receipt.status === 'COMPLETED'
-                            ? 'Completed'
-                            : receipt.status
+                          : pending
+                            ? 'Pending'
+                            : receipt.status === 'COMPLETED'
+                              ? 'Completed'
+                              : receipt.status
                     const statusTone =
                         voidTransaction || voided
                             ? 'danger'
-                            : receipt.status === 'COMPLETED'
-                              ? 'success'
-                              : 'default'
+                            : pending
+                              ? 'warning'
+                              : receipt.status === 'COMPLETED'
+                                ? 'success'
+                                : 'default'
                     return (
                         <div
                             key={`${receipt.salesOrderId}-${
@@ -148,7 +159,20 @@ const POSTransactionsDialog = ({
                                 >
                                     {formatPrice(receipt.total)}
                                 </span>
-                                {voidTransaction ? null : (
+                                {voidTransaction ? null : pending ? (
+                                    <Button
+                                        size="xs"
+                                        variant="solid"
+                                        loading={
+                                            completingId ===
+                                            receipt.salesOrderId
+                                        }
+                                        disabled={completingId !== null}
+                                        onClick={() => onComplete(receipt)}
+                                    >
+                                        Complete
+                                    </Button>
+                                ) : (
                                     <>
                                         <Button
                                             size="xs"

@@ -56,6 +56,7 @@ import { lookupProductBarcode } from '../services/productBarcodeService'
 import { getCustomers } from '../services/customerMasterService'
 import {
     closePosSession,
+    completePendingPosSale,
     completePosCheckout,
     createPosCustomer,
     discardPosHold,
@@ -204,6 +205,8 @@ const POSDashboard = () => {
     /** The sale that is voided (the void dialog). */
     const [voidTarget, setVoidTarget] = useState<PosReceipt | null>(null)
     const [voiding, setVoiding] = useState(false)
+    /** Sale whose checkout stopped and is being finished. */
+    const [completingId, setCompletingId] = useState<string | null>(null)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -547,6 +550,36 @@ const POSDashboard = () => {
             )
         } finally {
             setTransactionsLoading(false)
+        }
+    }
+
+    /** Finishes a sale whose checkout stopped after the order was recorded. */
+    const handleCompletePending = async (row: PosReceipt) => {
+        setCompletingId(row.salesOrderId)
+        try {
+            const completed = await completePendingPosSale(
+                row.salesOrderId,
+                cashierUserId,
+            )
+            setReceipt(completed)
+            void refreshStock()
+            void loadShift()
+            await openTransactions()
+            notify(
+                'success',
+                'Sale completed',
+                `${completed.receiptNumber} is completed; the stock left the shelf.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Sale not completed',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to complete the sale',
+            )
+        } finally {
+            setCompletingId(null)
         }
     }
 
@@ -1833,6 +1866,8 @@ const POSDashboard = () => {
                     setTransactionsOpen(false)
                 }}
                 onVoid={(row) => setVoidTarget(row)}
+                onComplete={(row) => void handleCompletePending(row)}
+                completingId={completingId}
                 formatPrice={formatPrice}
             />
 
