@@ -161,6 +161,8 @@ describe('PosCheckoutService', () => {
 
     const dto = (overrides: Record<string, unknown> = {}) => ({
         posSessionId: 'session-1',
+        companyId: COMPANY_ID,
+        terminalCode: 'POS-01',
         idempotencyKey: 'pos-key-1',
         divisionId: 'DIV_RETAIL',
         branchId: 'branch-1',

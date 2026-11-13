@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
     HiOutlineCamera,
-    HiOutlineCash,
     HiOutlineClock,
     HiOutlineExclamation,
     HiOutlineLogout,
@@ -30,8 +29,6 @@ import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import Notification from '@/components/ui/Notification'
-import Select from '@/components/ui/Select'
-import Tag from '@/components/ui/Tag'
 import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
 import {
@@ -65,7 +62,6 @@ import {
     holdPosSale,
     listPosHolds,
     newIdempotencyKey,
-    openPosSession,
     pricePOSCart,
     quotePosCart,
     resumePosHold,
@@ -86,7 +82,6 @@ import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
 import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
-    usePOSBranchStore,
 } from '../store/usePOSBranchStore'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
@@ -122,8 +117,7 @@ const POSDashboard = () => {
     const { canCreate } = useResourceAccess('sd.pos')
     const { session } = useCurrentSession()
     const cashierUserId = session?.user?.id ?? null
-    const selectBranch = usePOSBranchStore((s) => s.selectBranch)
-    const { branches, loading: branchesLoading } = useSalesBranches()
+    const { branches } = useSalesBranches()
 
     useEffect(() => {
         if (hydrated && !branchId) router.replace(POS_GATEWAY_PATH)
@@ -179,12 +173,7 @@ const POSDashboard = () => {
     const [collections, setCollections] = useState<PosSessionCollections | null>(
         null,
     )
-    const [shiftLoading, setShiftLoading] = useState(false)
-    const [shiftError, setShiftError] = useState<string | null>(null)
-    const [shiftBranchId, setShiftBranchId] = useState('')
-    const [terminalCode, setTerminalCode] = useState('POS-01')
-    const [openingCash, setOpeningCash] = useState('0')
-    const [openingShift, setOpeningShift] = useState(false)
+    const [terminalCode] = useState('POS-01')
     const [closeShiftOpen, setCloseShiftOpen] = useState(false)
     const [countedCash, setCountedCash] = useState('0')
     /** Held sales. */
@@ -229,20 +218,14 @@ const POSDashboard = () => {
         [branches, branchId],
     )
     const companyId = activeBranch?.companyId ?? null
-    const branchOptions = useMemo(
-        () => branches.map((row) => ({ value: row.id, label: row.label })),
-        [branches],
-    )
 
-    /** Reads the open shift of the branch and the money it collected. */
+    /** Reads the open shift of the register and the money it collected. */
     const loadShift = useCallback(async () => {
         if (!companyId) {
             setShift(null)
             setCollections(null)
             return
         }
-        setShiftLoading(true)
-        setShiftError(null)
         try {
             const current = await getCurrentPosSession(
                 companyId,
@@ -253,27 +236,16 @@ const POSDashboard = () => {
             setCollections(
                 current ? await getPosSessionCollections(current.id) : null,
             )
-        } catch (error) {
+        } catch {
             setShift(null)
             setCollections(null)
-            setShiftError(
-                error instanceof Error
-                    ? error.message
-                    : 'Unable to load the shift',
-            )
         } finally {
-            setShiftLoading(false)
         }
     }, [companyId, branchId, terminalCode])
 
     useEffect(() => {
         void Promise.resolve().then(() => loadShift())
     }, [loadShift])
-
-    /** The shift card always starts on the branch of the terminal. */
-    useEffect(() => {
-        setShiftBranchId(branchId ?? '')
-    }, [branchId])
 
     /** Cash expected in the drawer: float + cash tenders − change given. */
     const expectedCash = shift
@@ -285,55 +257,6 @@ const POSDashboard = () => {
               ).toFixed(2),
           )
         : 0
-
-    const handleOpenShift = async () => {
-        const target = branches.find((row) => row.id === shiftBranchId)
-        if (!target?.companyId) {
-            notify('danger', 'Select a branch', 'The shift needs a branch.')
-            return
-        }
-        if (!cashierUserId) {
-            notify(
-                'danger',
-                'No cashier',
-                'Sign in before opening a shift.',
-            )
-            return
-        }
-        if (!terminalCode.trim()) {
-            notify('danger', 'Terminal code', 'Name the register of the shift.')
-            return
-        }
-        setOpeningShift(true)
-        try {
-            const opened = await openPosSession({
-                companyId: target.companyId,
-                branchId: target.id,
-                terminalCode: terminalCode.trim(),
-                cashierUserId,
-                openingCash: Number(openingCash) || 0,
-            })
-            setShift(opened)
-            setCollections(await getPosSessionCollections(opened.id))
-            // The register sells for the branch of its shift.
-            if (target.id !== branchId) selectBranch(target)
-            notify(
-                'success',
-                'Shift opened',
-                `Register ${opened.terminalCode} is open.`,
-            )
-        } catch (error) {
-            notify(
-                'danger',
-                'Could not open the shift',
-                error instanceof Error
-                    ? error.message
-                    : 'Unable to open the shift',
-            )
-        } finally {
-            setOpeningShift(false)
-        }
-    }
 
     const handleCloseShift = async () => {
         if (!shift) return
@@ -617,7 +540,6 @@ const POSDashboard = () => {
     /** Preview of the amount due — the server quote owns the amount due. */
     const amountDue = quote?.total ?? Number((subtotal - discountAmount).toFixed(2))
     const canCheckout =
-        shift !== null &&
         items.length > 0 &&
         amountDue > 0 &&
         !checkingOut &&
@@ -965,11 +887,11 @@ const POSDashboard = () => {
      * tax configuration, captures the tenders and posts the goods issue.
      */
     const handleCompleteSale = async (tenders: PosTenderInput[]) => {
-        if (!branchId || !shift) {
+        if (!branchId || !companyId) {
             notify(
                 'danger',
-                'No open shift',
-                'Open the register shift before taking payment.',
+                'No branch',
+                'Select the branch this terminal sells for.',
             )
             return
         }
@@ -1016,7 +938,9 @@ const POSDashboard = () => {
                     : { key: newIdempotencyKey('pos'), signature }
             checkoutKeyRef.current = entry
             const result = await completePosCheckout({
-                posSessionId: shift.id,
+                posSessionId: shift?.id,
+                companyId: companyId ?? '',
+                terminalCode: terminalCode.trim() || undefined,
                 idempotencyKey: entry.key,
                 divisionId: RETAIL_DIVISION_ID,
                 branchId,
@@ -1267,198 +1191,58 @@ const POSDashboard = () => {
                 </div>
             </header>
 
-            <div className="grid flex-1 grid-cols-1 gap-6 p-4 sm:p-6 xl:grid-cols-12 xl:items-start">
-                {/* Shift banner — the register must be open before the terminal sells. */}
+            <div className="grid flex-1 grid-cols-1 gap-4 p-3 sm:gap-6 sm:p-6 xl:grid-cols-12 xl:items-start">
+                {/* TOP — scan and search, with the register status in its header. */}
                 <div className="xl:col-span-12">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
-                        {shift ? (
-                            <div className="flex flex-wrap items-center justify-between gap-4">
-                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                                    <div>
-                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                                            Register
-                                        </div>
-                                        <div className="text-sm font-semibold heading-text">
-                                            {shift.terminalCode}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                                            Opening float
-                                        </div>
-                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-bold heading-text">
+                                    Scan items
+                                </h3>
+                                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    Use a USB barcode wedge, type the SKU or
+                                    product name to search live, or scan with
+                                    your device camera.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span className="font-semibold heading-text">
+                                    {terminalCode.trim() || 'POS-01'}
+                                </span>
+                                {shift ? (
+                                    <>
+                                        <span>
+                                            Float{' '}
                                             {formatPrice(shift.openingCash)}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                                            Cash collected
-                                        </div>
-                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                        </span>
+                                        <span>
+                                            Cash{' '}
                                             {formatPrice(
-                                                collections?.cashCollected ?? 0,
+                                                collections?.cashCollected ??
+                                                    0,
                                             )}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                                            Change given
-                                        </div>
-                                        <div className="text-sm font-semibold tabular-nums heading-text">
-                                            {formatPrice(
-                                                collections?.cashChange ?? 0,
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                                            Tenders
-                                        </div>
-                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                        </span>
+                                        <span>
+                                            Tenders{' '}
                                             {collections?.tenderCount ?? 0}
-                                        </div>
-                                    </div>
-                                    {Object.entries(
-                                        collections?.byMethod ?? {},
-                                    ).map(([method, amount]) => (
-                                        <Tag key={method}>
-                                            {method} {formatPrice(amount)}
-                                        </Tag>
-                                    ))}
-                                </div>
-                                <Button
-                                    size="sm"
-                                    variant="solid"
-                                    icon={<HiOutlineClock />}
-                                    onClick={() => {
-                                        setCountedCash(
-                                            expectedCash.toFixed(2),
-                                        )
-                                        setCloseShiftOpen(true)
-                                    }}
-                                >
-                                    Close shift
-                                </Button>
-                            </div>
-                        ) : shiftLoading ? (
-                            <div className="flex items-center gap-2 text-sm text-gray-500">
-                                <HiOutlineClock />
-                                Checking the register…
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="flex items-start gap-3">
-                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                                        <HiOutlineCash />
-                                    </span>
-                                    <div>
-                                        <h3 className="text-base font-bold heading-text">
-                                            Open shift
-                                        </h3>
-                                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                            The register must be open before the
-                                            terminal can sell. Name the register
-                                            and count the opening float.
-                                        </p>
-                                    </div>
-                                </div>
-                                {shiftError ? (
-                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-                                        {shiftError}
-                                    </div>
+                                        </span>
+                                        <Button
+                                            size="sm"
+                                            variant="plain"
+                                            icon={<HiOutlineClock />}
+                                            onClick={() => {
+                                                setCountedCash(
+                                                    expectedCash.toFixed(2),
+                                                )
+                                                setCloseShiftOpen(true)
+                                            }}
+                                        >
+                                            Close shift
+                                        </Button>
+                                    </>
                                 ) : null}
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                    <div>
-                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                            Branch
-                                        </label>
-                                        <Select<{
-                                            value: string
-                                            label: string
-                                        }>
-                                            options={branchOptions}
-                                            value={
-                                                branchOptions.find(
-                                                    (option) =>
-                                                        option.value ===
-                                                        shiftBranchId,
-                                                ) ?? null
-                                            }
-                                            isSearchable
-                                            placeholder="Select branch"
-                                            onChange={(option) =>
-                                                setShiftBranchId(
-                                                    option?.value ?? '',
-                                                )
-                                            }
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                            Terminal code
-                                        </label>
-                                        <Input
-                                            value={terminalCode}
-                                            placeholder="e.g. POS-01"
-                                            onChange={(e) =>
-                                                setTerminalCode(e.target.value)
-                                            }
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                            Opening float
-                                        </label>
-                                        <NumericInput
-                                            placeholder="0.00"
-                                            thousandSeparator=","
-                                            decimalScale={2}
-                                            fixedDecimalScale
-                                            allowNegative={false}
-                                            value={openingCash}
-                                            onValueChange={(v) =>
-                                                setOpeningCash(
-                                                    v.value ?? '0',
-                                                )
-                                            }
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-xs text-gray-500">
-                                        {branchesLoading
-                                            ? 'Loading branches…'
-                                            : 'Checkout stays blocked until the shift is open.'}
-                                    </span>
-                                    <Button
-                                        size="sm"
-                                        variant="solid"
-                                        loading={openingShift}
-                                        disabled={
-                                            !shiftBranchId ||
-                                            !terminalCode.trim()
-                                        }
-                                        onClick={() =>
-                                            void handleOpenShift()
-                                        }
-                                    >
-                                        Open shift
-                                    </Button>
-                                </div>
                             </div>
-                        )}
-                    </AdaptiveCard>
-                </div>
-
-                {/* LEFT — scan and search */}
-                <div className="flex flex-col gap-6 xl:col-span-3">
-                    <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
-                        <div className="mb-4">
-                            <h3 className="text-lg font-bold heading-text">Scan items</h3>
-                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                Use a USB barcode wedge, type the SKU or product name
-                                to search live, or scan with your device camera.
-                            </p>
                         </div>
 
                         <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/80 p-4 dark:border-gray-600 dark:bg-gray-800/40">
@@ -1642,7 +1426,7 @@ const POSDashboard = () => {
                 </div>
 
                 {/* CENTER — the cart */}
-                <div className="flex flex-col gap-6 xl:col-span-5">
+                <div className="flex flex-col gap-6 xl:col-span-7">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
@@ -1705,7 +1489,7 @@ const POSDashboard = () => {
                 </div>
 
                 {/* RIGHT — the order summary */}
-                <div className="xl:col-span-4">
+                <div className="xl:col-span-5">
                     <POSCheckoutPanel
                         itemCount={itemCount}
                         lineCount={items.length}
@@ -1721,7 +1505,6 @@ const POSDashboard = () => {
                         onSearchCustomers={(term: string) =>
                             void loadCustomers(term)
                         }
-                        shiftOpen={shift !== null}
                         canPay={canCheckout}
                         onPay={() => {
                             // Quote the cart on the server right before the

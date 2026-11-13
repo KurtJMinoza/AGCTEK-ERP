@@ -31,8 +31,7 @@ type POSCheckoutPanelProps = {
     onLoadCustomers: () => void
     /** Server-side search of the Customer Master while the cashier types. */
     onSearchCustomers: (term: string) => void
-    /** A cashier shift must be open before the terminal can take money. */
-    shiftOpen: boolean
+    /** The terminal can take money without an opened shift. */
     canPay: boolean
     onPay: () => void
     onHold: () => void
@@ -59,7 +58,6 @@ const POSCheckoutPanel = ({
     customerOptions,
     onLoadCustomers,
     onSearchCustomers,
-    shiftOpen,
     canPay,
     onPay,
     onHold,
@@ -195,12 +193,6 @@ const POSCheckoutPanel = ({
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">
-                    {shiftOpen ? null : (
-                        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                            Open a shift before taking payment — the register
-                            must be open.
-                        </p>
-                    )}
                     <Button
                         block
                         size="lg"

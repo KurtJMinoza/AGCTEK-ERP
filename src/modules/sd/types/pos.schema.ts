@@ -57,7 +57,12 @@ export const PosCheckoutLineSchema = z.object({
 
 /** Body of POST /sd/pos/checkout. */
 export const PosCheckoutPayloadSchema = z.object({
-    posSessionId: z.string().trim().min(1, 'Open a shift first'),
+    /** Known shift of the register; the server opens one when it is missing. */
+    posSessionId: z.string().trim().min(1).optional(),
+    /** Company scope of the branch the register sells for. */
+    companyId: z.string().trim().min(1),
+    /** Register the terminal runs on. */
+    terminalCode: z.string().trim().min(1).optional(),
     idempotencyKey: z.string().trim().min(1),
     divisionId: z.string().trim().min(1),
     branchId: z.string().trim().min(1, 'Select a branch first'),

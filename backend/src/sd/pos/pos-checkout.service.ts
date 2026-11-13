@@ -152,7 +152,23 @@ export class PosCheckoutService {
     }
 
     async complete(dto: PosCheckoutDto): Promise<PosReceipt> {
-        const session = await this.sessions.requireOpen(dto.posSessionId)
+        const companyId = dto.companyId?.trim() || null
+        if (!companyId) {
+            throw new BadRequestException(
+                'The terminal needs a company scope (the branch of the register).',
+            )
+        }
+        // The terminal sells without a shift ceremony: the register shift is
+        // opened on demand with a 0 float and can be closed at the end of the day.
+        const session = dto.posSessionId
+            ? await this.sessions.requireOpen(dto.posSessionId)
+            : await this.sessions.ensureOpen({
+                  companyId,
+                  branchId: dto.branchId,
+                  terminalCode: dto.terminalCode?.trim() || 'POS-01',
+                  cashierUserId:
+                      dto.cashierUserId?.trim() || dto.createdBy?.trim() || 'POS',
+              })
 
         // A repeated checkout of the same cart returns the sale that exists.
         const existing = await this.prisma.sdSalesOrder.findUnique({
@@ -223,10 +239,10 @@ export class PosCheckoutService {
             createdBy: dto.createdBy,
         })
 
-        const companyId = order.companyId ?? session.companyId
+        const orderCompanyId = order.companyId ?? session.companyId
         await this.recordTenders({
             orderId: order.id,
-            companyId,
+            companyId: orderCompanyId,
             customerId: dto.customerId,
             sessionId: session.id,
             cashierUserId: dto.cashierUserId ?? null,
@@ -237,7 +253,7 @@ export class PosCheckoutService {
         // The money is captured; now deduct the stock through the MM engine.
         await this.postGoodsIssue(order, session)
 
-        const receiptNumber = await this.nextReceiptNumber(companyId)
+        const receiptNumber = await this.nextReceiptNumber(orderCompanyId)
         const completed = await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
@@ -266,7 +282,7 @@ export class PosCheckoutService {
             salesOrderId: completed.id,
             orderNumber: completed.orderNumber,
             receiptNumber,
-            companyId,
+            companyId: orderCompanyId,
             branchId: dto.branchId,
             posSessionId: session.id,
             cashierUserId: dto.cashierUserId ?? null,

@@ -95,10 +95,23 @@ export class PosCheckoutLineDto {
 }
 
 export class PosCheckoutDto {
-    /** Cashier shift that collects the sale. */
+    /**
+     * Cashier shift that collects the sale. Optional: when the terminal has no
+     * shift yet, the server opens one for the register (opening float 0).
+     */
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    posSessionId!: string
+    posSessionId?: string
+
+    /** Company scope of the branch the register sells for. */
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    /** Register the terminal runs on. */
+    @IsOptional()
+    @IsString()
+    terminalCode?: string
 
     /** Guards a repeated checkout of the same cart. */
     @IsString()

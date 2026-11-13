@@ -62,6 +62,40 @@ export class PosSessionService {
         })
     }
 
+    /**
+     * The open shift of a register, opened on demand. The terminal sells
+     * without a shift ceremony: the float starts at 0 and the cashier can
+     * still close the shift at the end of the day.
+     */
+    async ensureOpen(args: {
+        companyId: string
+        branchId: string
+        terminalCode: string
+        cashierUserId: string
+    }) {
+        const terminalCode = args.terminalCode.trim() || 'POS-01'
+        const existing = await this.prisma.sdPosSession.findFirst({
+            where: {
+                companyId: args.companyId,
+                branchId: args.branchId,
+                terminalCode,
+                status: 'OPEN',
+            },
+            orderBy: { openedAt: 'desc' },
+        })
+        if (existing) return existing
+        return this.prisma.sdPosSession.create({
+            data: {
+                companyId: args.companyId,
+                branchId: args.branchId,
+                terminalCode,
+                cashierUserId: args.cashierUserId,
+                openingCash: 0,
+                status: 'OPEN',
+            },
+        })
+    }
+
     async current(companyId: string, branchId?: string, terminalCode?: string) {
         return this.prisma.sdPosSession.findFirst({
             where: {
