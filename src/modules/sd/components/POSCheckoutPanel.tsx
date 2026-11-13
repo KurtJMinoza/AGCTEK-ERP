@@ -159,56 +159,17 @@ const POSCheckoutPanel = ({
 
                 <div>
                     <label
-                        htmlFor="pos-customer"
+                        htmlFor="pos-new-customer"
                         className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
                     >
-                        Customer (optional)
+                        Customer name
                     </label>
-                    <Select<POSCustomerOption>
-                        id="pos-customer"
-                        options={customerOptions}
-                        value={
-                            customer
-                                ? customerOptions.find(
-                                      (option) =>
-                                          option.value === customer.id,
-                                  ) ?? null
-                                : null
-                        }
-                        isClearable
-                        isSearchable
-                        placeholder="Walk-in customer"
-                        onMenuOpen={onLoadCustomers}
-                        onInputChange={(term) => onSearchCustomers(term)}
-                        onChange={(option) =>
-                            onCustomerChange(
-                                option
-                                    ? {
-                                          id: option.value,
-                                          name: option.label,
-                                          accountType: option.accountType,
-                                      }
-                                    : null,
-                            )
-                        }
-                    />
-                    {customer ? (
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            {customer.name} · {customer.accountType} account
-                        </p>
-                    ) : (
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            A salary deduction needs a CREDIT customer account.
-                        </p>
-                    )}
-                    <div className="mt-2 flex gap-2">
+                    <div className="flex gap-2">
                         <Input
                             id="pos-new-customer"
                             placeholder="New customer name"
                             value={newCustomerName}
-                            onChange={(e) =>
-                                setNewCustomerName(e.target.value)
-                            }
+                            onChange={(e) => setNewCustomerName(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
@@ -226,19 +187,18 @@ const POSCheckoutPanel = ({
                             Add
                         </Button>
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-gray-500">
-                            The name is added to the customer list and linked to
-                            this sale.
-                        </p>
-                        <Button
-                            size="sm"
-                            variant="plain"
-                            onClick={onOpenCustomerDialog}
-                        >
-                            Add customer with details
-                        </Button>
-                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                        The name is added to the customer list and linked to
+                        this sale.
+                    </p>
+                    <Button
+                        size="sm"
+                        variant="plain"
+                        className="mt-1"
+                        onClick={onOpenCustomerDialog}
+                    >
+                        Add customer with details
+                    </Button>
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">

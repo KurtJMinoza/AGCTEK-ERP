@@ -489,7 +489,7 @@ const POSDashboard = () => {
                 'Could not add the customer',
                 error instanceof Error
                     ? error.message
-                    : 'Unable to add the customer',
+                    : 'Unable to add the customer to the detail form',
             )
         } finally {
             setAddingCustomer(false)
@@ -529,7 +529,7 @@ const POSDashboard = () => {
                 'Could not add the customer',
                 error instanceof Error
                     ? error.message
-                    : 'Unable to add the customer',
+                    : 'Unable to add the customer to the detail form',
             )
             throw error
         } finally {
@@ -1144,7 +1144,7 @@ const POSDashboard = () => {
                 divisionId: RETAIL_DIVISION_ID,
                 branchId,
                 customerId: customer?.id ?? 'WALK-IN',
-                customerName: customer?.name ?? 'Walk-in customer',
+                customerName: customer?.name ?? 'Walk-in',
                 cashierUserId: cashierUserId ?? undefined,
                 createdBy: cashierUserId ?? undefined,
                 discountAmount: discountAmount || undefined,
@@ -2032,8 +2032,7 @@ const POSDashboard = () => {
                             >
                                 <div className="min-w-0">
                                     <div className="truncate text-sm font-semibold heading-text">
-                                        {hold.customerName ??
-                                            'Walk-in customer'}
+                                        {hold.customerName ?? 'Walk-in'}
                                     </div>
                                     <div className="text-xs text-gray-500">
                                         {new Date(
