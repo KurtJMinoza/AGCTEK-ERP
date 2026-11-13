@@ -32,6 +32,48 @@ const TENDER_LABEL: Record<string, string> = {
     SALARY_LOAN: 'Salary deduction',
 }
 
+/** Product images of the first lines of a sale (stacked, initials when no photo). */
+const ProductThumbnails = ({ receipt }: { receipt: PosReceipt }) => {
+    const lines = receipt.lines.slice(0, 3)
+    if (!lines.length) return null
+    return (
+        <div className="flex shrink-0 items-center">
+            {lines.map((line, index) => {
+                const label = line.description ?? line.sku
+                return (
+                    <div
+                        key={`${line.sku}-${index}`}
+                        title={label}
+                        className={classNames(
+                            'h-11 w-11 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800',
+                            index > 0 &&
+                                '-ml-3 ring-2 ring-white dark:ring-gray-900',
+                        )}
+                    >
+                        {line.imageUrl ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                                src={line.imageUrl}
+                                alt={label}
+                                className="h-full w-full object-cover"
+                            />
+                        ) : (
+                            <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-gray-500 dark:text-gray-300">
+                                {label.trim().slice(0, 2)}
+                            </span>
+                        )}
+                    </div>
+                )
+            })}
+            {receipt.lines.length > 3 ? (
+                <span className="-ml-3 flex h-11 w-11 items-center justify-center rounded-lg border border-gray-200 bg-gray-100 text-[10px] font-semibold tabular-nums text-gray-500 ring-2 ring-white dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-900">
+                    +{receipt.lines.length - 3}
+                </span>
+            ) : null}
+        </div>
+    )
+}
+
 /**
  * The POS sales of the register: reprint a receipt or void a sale that was
  * completed by mistake. A voided sale is followed by its void transaction.
@@ -73,10 +115,13 @@ const POSTransactionsDialog = ({
         ) : (
             <div className="max-h-[50vh] space-y-2 overflow-y-auto">
                 {receipts.map((receipt) => {
-                    const voidTransaction =
-                        receipt.transactionType === 'VOID'
+                    const voidTransaction = receipt.transactionType === 'VOID'
                     const voided = receipt.status === 'CANCELLED'
                     const pending = receipt.status === 'CONFIRMED'
+                    const itemCount = receipt.lines.reduce(
+                        (sum, line) => sum + line.quantity,
+                        0,
+                    )
                     const statusLabel = voidTransaction
                         ? 'Void transaction'
                         : voided
@@ -106,49 +151,60 @@ const POSTransactionsDialog = ({
                                     : 'border-gray-200 dark:border-gray-700',
                             )}
                         >
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-mono text-sm font-semibold">
-                                        {receipt.receiptNumber}
-                                    </span>
-                                    <StatusBadge tone={statusTone}>
-                                        {statusLabel}
-                                    </StatusBadge>
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                    {voidTransaction &&
-                                    receipt.originalReceiptNumber
-                                        ? `Reverses ${receipt.originalReceiptNumber} · `
-                                        : ''}
-                                    {new Date(
-                                        receipt.completedAt,
-                                    ).toLocaleString('en-PH')}
-                                    {receipt.customerName
-                                        ? ` · ${receipt.customerName}`
-                                        : ''}
-                                    {receipt.tenders.length
-                                        ? ` · ${receipt.tenders
-                                              .map(
-                                                  (tender) =>
-                                                      TENDER_LABEL[
-                                                          tender.method
-                                                      ] ?? tender.method,
-                                              )
-                                              .join(' + ')}`
-                                        : ''}
-                                </div>
-                                {voidTransaction && receipt.voidReason ? (
-                                    <div className="text-xs text-red-500">
-                                        {receipt.voidReason}
+                            <div className="flex min-w-0 items-center gap-3">
+                                <ProductThumbnails receipt={receipt} />
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-mono text-sm font-semibold">
+                                            {receipt.receiptNumber}
+                                        </span>
+                                        <StatusBadge tone={statusTone}>
+                                            {statusLabel}
+                                        </StatusBadge>
+                                        {itemCount > 0 ? (
+                                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-gray-600 dark:bg-gray-700 dark:text-gray-200">
+                                                {itemCount}{' '}
+                                                {itemCount === 1
+                                                    ? 'item'
+                                                    : 'items'}
+                                            </span>
+                                        ) : null}
                                     </div>
-                                ) : null}
-                                {voided &&
-                                !receipt.voidTransactionNumber &&
-                                receipt.voidReason ? (
-                                    <div className="text-xs text-red-500">
-                                        {receipt.voidReason}
+                                    <div className="text-xs text-gray-500">
+                                        {voidTransaction &&
+                                        receipt.originalReceiptNumber
+                                            ? `Reverses ${receipt.originalReceiptNumber} · `
+                                            : ''}
+                                        {new Date(
+                                            receipt.completedAt,
+                                        ).toLocaleString('en-PH')}
+                                        {receipt.customerName
+                                            ? ` · ${receipt.customerName}`
+                                            : ''}
+                                        {receipt.tenders.length
+                                            ? ` · ${receipt.tenders
+                                                  .map(
+                                                      (tender) =>
+                                                          TENDER_LABEL[
+                                                              tender.method
+                                                          ] ?? tender.method,
+                                                  )
+                                                  .join(' + ')}`
+                                            : ''}
                                     </div>
-                                ) : null}
+                                    {voidTransaction && receipt.voidReason ? (
+                                        <div className="text-xs text-red-500">
+                                            {receipt.voidReason}
+                                        </div>
+                                    ) : null}
+                                    {voided &&
+                                    !receipt.voidTransactionNumber &&
+                                    receipt.voidReason ? (
+                                        <div className="text-xs text-red-500">
+                                            {receipt.voidReason}
+                                        </div>
+                                    ) : null}
+                                </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <span
@@ -188,9 +244,7 @@ const POSTransactionsDialog = ({
                                                 size="xs"
                                                 variant="plain"
                                                 className="!text-red-500"
-                                                onClick={() =>
-                                                    onVoid(receipt)
-                                                }
+                                                onClick={() => onVoid(receipt)}
                                             >
                                                 Void
                                             </Button>

@@ -71,6 +71,8 @@ export type PosReceipt = {
         variantName: string | null
         /** Scannable barcode of the line (variant, else MM material). */
         barcode: string | null
+        /** Product image snapshot of the sold line. */
+        imageUrl: string | null
         quantity: number
         unitPrice: number
         lineTotal: number
@@ -929,6 +931,7 @@ export class PosCheckoutService {
                 sku: string | null
                 description: string | null
                 variantName: string | null
+                productImageSnapshot?: string | null
                 variantBarcode?: string | null
                 material?: {
                     barcodes?: Array<{
@@ -982,6 +985,7 @@ export class PosCheckoutService {
                         )?.barcodeValue ??
                         line.material?.barcodes?.[0]?.barcodeValue ??
                         null,
+                    imageUrl: line.productImageSnapshot?.trim() || null,
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),
                     lineTotal: Number(line.lineTotal ?? 0),

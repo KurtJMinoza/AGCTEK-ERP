@@ -92,6 +92,10 @@ const formatDateTime = (iso: string) =>
         timeStyle: 'short',
     })
 
+/** Units on the order (the number the register receipt shows). */
+const itemCountOf = (order: SalesOrderRecord) =>
+    order.lines.reduce((sum, line) => sum + line.quantity, 0)
+
 const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
     if (channel === 'POS') {
         return (
@@ -150,24 +154,45 @@ const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
 
 const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
     {
-        header: 'SKU',
+        header: 'Item',
         id: 'sku',
-        cell: ({ row }) => (
-            <div>
-                <div className="font-mono text-xs">{row.original.sku}</div>
-                <div className="text-xs text-gray-500">{row.original.name}</div>
-                {row.original.variantName ? (
-                    <div className="text-xs text-gray-500">
-                        {row.original.variantName}
+        cell: ({ row }) => {
+            const line = row.original
+            return (
+                <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
+                        {line.productImage ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                                src={line.productImage}
+                                alt={line.name}
+                                className="h-full w-full object-cover"
+                            />
+                        ) : (
+                            <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-gray-500 dark:text-gray-300">
+                                {line.name.trim().slice(0, 2)}
+                            </span>
+                        )}
                     </div>
-                ) : null}
-                {row.original.variantBarcode ? (
-                    <div className="font-mono text-[10px] text-gray-500">
-                        Barcode: {row.original.variantBarcode}
+                    <div className="min-w-0">
+                        <div className="truncate font-mono text-xs">
+                            {line.sku}
+                        </div>
+                        <div className="text-xs text-gray-500">{line.name}</div>
+                        {line.variantName ? (
+                            <div className="text-xs text-gray-500">
+                                {line.variantName}
+                            </div>
+                        ) : null}
+                        {line.variantBarcode ? (
+                            <div className="font-mono text-[10px] text-gray-500">
+                                Barcode: {line.variantBarcode}
+                            </div>
+                        ) : null}
                     </div>
-                ) : null}
-            </div>
-        ),
+                </div>
+            )
+        },
     },
     { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
     {
@@ -745,180 +770,280 @@ const SalesOrdersDashboard = () => {
 
             <Dialog
                 isOpen={selected !== null}
-                width={640}
+                width={800}
                 onClose={() => setSelected(null)}
                 onRequestClose={() => setSelected(null)}
             >
                 {selected ? (
-                    <div>
-                        <div className="mb-4 flex flex-wrap items-center gap-2 pr-8">
-                            <h5 className="font-mono">{selected.orderId}</h5>
-                            <ChannelBadge channel={selected.channel} />
-                            <StatusCell status={selected.status} />
-                        </div>
-                        <div className="mb-4 grid gap-1 break-words text-sm sm:grid-cols-2">
-                            <div>
-                                <span className="text-gray-500">
-                                    Customer:{' '}
-                                </span>
-                                {selected.customer.name}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Email: </span>
-                                {selected.customer.email ?? '—'}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Company: </span>
-                                {selected.company?.name ?? '—'}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Branch: </span>
-                                {branchNameOf(selected.branchId)}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Created: </span>
-                                {formatDateTime(selected.createdAt)}
-                            </div>
-                        </div>
-                        <div className="sm:max-h-[40vh] sm:overflow-y-auto">
-                            <SdDataTable
-                                columns={lineColumns}
-                                data={selected.lines}
-                                hidePagination
-                            />
-                        </div>
-                        <div className="mt-4 ml-auto flex w-full flex-col gap-1 text-sm sm:max-w-xs">
-                            <div className="flex justify-between">
-                                <span className="text-gray-500">Subtotal</span>
-                                <span>{formatPrice(selected.subtotal)}</span>
-                            </div>
-                            {selected.promoCode ? (
-                                <div className="flex justify-between text-emerald-600">
-                                    <span>Promo ({selected.promoCode})</span>
-                                    <span>
-                                        −{formatPrice(selected.discountAmount)}
-                                    </span>
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4 pr-8">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h5 className="font-mono text-xl">
+                                        {selected.orderId}
+                                    </h5>
+                                    <ChannelBadge channel={selected.channel} />
+                                    <StatusCell status={selected.status} />
                                 </div>
-                            ) : null}
-                            {selected.channel === 'E-commerce' ? (
+                                <p className="mt-1 text-sm text-gray-500">
+                                    {formatDateTime(selected.createdAt)}
+                                    {' · '}
+                                    {selected.lines.length}{' '}
+                                    {selected.lines.length === 1
+                                        ? 'line'
+                                        : 'lines'}
+                                    {' · '}
+                                    {itemCountOf(selected)}{' '}
+                                    {itemCountOf(selected) === 1
+                                        ? 'item'
+                                        : 'items'}
+                                </p>
+                            </div>
+                            <div className="shrink-0 rounded-xl border border-gray-200 px-4 py-2 text-right dark:border-gray-700">
+                                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                                    Order total
+                                </div>
+                                <div className="text-xl font-bold tabular-nums">
+                                    {formatPrice(selected.totalAmount)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-3 break-words sm:grid-cols-2">
+                            <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                                <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                    Customer
+                                </h6>
+                                <div className="text-sm font-semibold">
+                                    {selected.customer.name}
+                                </div>
+                                <dl className="mt-2 space-y-1 text-xs">
+                                    <div className="flex justify-between gap-3">
+                                        <dt className="text-gray-500">Email</dt>
+                                        <dd className="truncate text-gray-700 dark:text-gray-200">
+                                            {selected.customer.email ?? '—'}
+                                        </dd>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                        <dt className="text-gray-500">
+                                            Company
+                                        </dt>
+                                        <dd className="text-right text-gray-700 dark:text-gray-200">
+                                            {selected.company?.name ?? '—'}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </section>
+                            <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                                <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                    Order
+                                </h6>
+                                <dl className="space-y-1 text-xs">
+                                    <div className="flex justify-between gap-3">
+                                        <dt className="text-gray-500">
+                                            Branch
+                                        </dt>
+                                        <dd className="text-right text-gray-700 dark:text-gray-200">
+                                            {branchNameOf(selected.branchId)}
+                                        </dd>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                        <dt className="text-gray-500">
+                                            Created
+                                        </dt>
+                                        <dd className="text-right text-gray-700 dark:text-gray-200">
+                                            {formatDateTime(selected.createdAt)}
+                                        </dd>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                        <dt className="text-gray-500">
+                                            Channel
+                                        </dt>
+                                        <dd className="text-right text-gray-700 dark:text-gray-200">
+                                            {selected.channel}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </section>
+                        </div>
+                        <section>
+                            <div className="mb-2 flex items-center justify-between">
+                                <h6 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                    Items
+                                </h6>
+                                <span className="text-xs text-gray-500">
+                                    {itemCountOf(selected)}{' '}
+                                    {itemCountOf(selected) === 1
+                                        ? 'item'
+                                        : 'items'}
+                                </span>
+                            </div>
+                            <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                                <div className="sm:max-h-[34vh] sm:overflow-y-auto">
+                                    <SdDataTable
+                                        columns={lineColumns}
+                                        data={selected.lines}
+                                        hidePagination
+                                    />
+                                </div>
+                            </div>
+                        </section>
+                        <div className="grid gap-3 text-sm sm:grid-cols-2">
+                            <div className="space-y-1.5 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                    Summary
+                                </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">
-                                        Shipping
+                                        Subtotal
                                     </span>
                                     <span>
-                                        {formatPrice(selected.shipping)}
+                                        {formatPrice(selected.subtotal)}
                                     </span>
                                 </div>
-                            ) : null}
-                            <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
-                                <span>Total</span>
-                                <span>{formatPrice(selected.totalAmount)}</span>
-                            </div>
-                            {selected.paymentReceived !== null ? (
-                                <>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Cash
+                                {selected.promoCode ? (
+                                    <div className="flex justify-between text-emerald-600">
+                                        <span>
+                                            Promo ({selected.promoCode})
                                         </span>
                                         <span>
+                                            −
                                             {formatPrice(
-                                                selected.paymentReceived,
+                                                selected.discountAmount,
                                             )}
                                         </span>
                                     </div>
+                                ) : null}
+                                {selected.channel === 'E-commerce' ? (
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">
-                                            Change
+                                            Shipping
                                         </span>
                                         <span>
-                                            {formatPrice(selected.change ?? 0)}
-                                        </span>
-                                    </div>
-                                </>
-                            ) : null}
-                        </div>
-                        {selected.payment ? (
-                            <div className="mt-3 flex flex-col gap-0.5 text-sm">
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-gray-500">
-                                        Payment Method
-                                    </span>
-                                    <span className="flex items-center gap-2 font-medium">
-                                        {selected.payment.method &&
-                                        selected.payment.method in
-                                            PAYMENT_METHOD_LABEL
-                                            ? PAYMENT_METHOD_LABEL[
-                                                  selected.payment
-                                                      .method as keyof typeof PAYMENT_METHOD_LABEL
-                                              ]
-                                            : selected.payment.method}
-                                        {selected.payment.isDemo ? (
-                                            <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
-                                                Demo
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-gray-500">
-                                        Payment Status
-                                    </span>
-                                    <StatusBadge
-                                        tone={
-                                            selected.payment.status === 'Paid'
-                                                ? 'success'
-                                                : selected.payment.status ===
-                                                    'Failed'
-                                                  ? 'danger'
-                                                  : 'warning'
-                                        }
-                                    >
-                                        {selected.payment.status ?? '—'}
-                                    </StatusBadge>
-                                </div>
-                                {(() => {
-                                    const open =
-                                        selected.customerReturns?.find(
-                                            (r) =>
-                                                !isCommercialResolutionBlocked(
-                                                    r.refundStatus,
-                                                ) &&
-                                                (r.preferredResolution ===
-                                                    'REFUND' ||
-                                                    r.preferredResolution ===
-                                                        'REPLACEMENT'),
-                                        )
-                                    if (!open?.preferredResolution) return null
-                                    const res = open.preferredResolution
-                                    return (
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-gray-500">
-                                                Customer return
-                                            </span>
-                                            <StatusBadge
-                                                tone={
-                                                    RESOLUTION_TONE[res] ??
-                                                    'default'
-                                                }
-                                            >
-                                                {RESOLUTION_LABEL[res] ?? res}
-                                            </StatusBadge>
-                                        </div>
-                                    )
-                                })()}
-                                {selected.payment.reference ? (
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-gray-500">
-                                            Reference
-                                        </span>
-                                        <span className="font-mono text-xs">
-                                            {selected.payment.reference}
+                                            {formatPrice(selected.shipping)}
                                         </span>
                                     </div>
                                 ) : null}
+                                <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
+                                    <span>Total</span>
+                                    <span>
+                                        {formatPrice(selected.totalAmount)}
+                                    </span>
+                                </div>
                             </div>
-                        ) : null}
-                        <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+                            {selected.payment ? (
+                                <div className="space-y-1.5 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                        Payment
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-gray-500">
+                                            Payment Method
+                                        </span>
+                                        <span className="flex items-center gap-2 font-medium">
+                                            {selected.payment.method &&
+                                            selected.payment.method in
+                                                PAYMENT_METHOD_LABEL
+                                                ? PAYMENT_METHOD_LABEL[
+                                                      selected.payment
+                                                          .method as keyof typeof PAYMENT_METHOD_LABEL
+                                                  ]
+                                                : selected.payment.method}
+                                            {selected.payment.isDemo ? (
+                                                <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
+                                                    Demo
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-gray-500">
+                                            Payment Status
+                                        </span>
+                                        <StatusBadge
+                                            tone={
+                                                selected.payment.status ===
+                                                'Paid'
+                                                    ? 'success'
+                                                    : selected.payment
+                                                            .status === 'Failed'
+                                                      ? 'danger'
+                                                      : 'warning'
+                                            }
+                                        >
+                                            {selected.payment.status ?? '—'}
+                                        </StatusBadge>
+                                    </div>
+                                    {selected.paymentReceived !== null ? (
+                                        <>
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-gray-500">
+                                                    Cash
+                                                </span>
+                                                <span className="tabular-nums">
+                                                    {formatPrice(
+                                                        selected.paymentReceived,
+                                                    )}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-gray-500">
+                                                    Change
+                                                </span>
+                                                <span className="tabular-nums">
+                                                    {formatPrice(
+                                                        selected.change ?? 0,
+                                                    )}
+                                                </span>
+                                            </div>
+                                        </>
+                                    ) : null}
+                                    {(() => {
+                                        const open =
+                                            selected.customerReturns?.find(
+                                                (r) =>
+                                                    !isCommercialResolutionBlocked(
+                                                        r.refundStatus,
+                                                    ) &&
+                                                    (r.preferredResolution ===
+                                                        'REFUND' ||
+                                                        r.preferredResolution ===
+                                                            'REPLACEMENT'),
+                                            )
+                                        if (!open?.preferredResolution)
+                                            return null
+                                        const res = open.preferredResolution
+                                        return (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-gray-500">
+                                                    Customer return
+                                                </span>
+                                                <StatusBadge
+                                                    tone={
+                                                        RESOLUTION_TONE[res] ??
+                                                        'default'
+                                                    }
+                                                >
+                                                    {RESOLUTION_LABEL[res] ??
+                                                        res}
+                                                </StatusBadge>
+                                            </div>
+                                        )
+                                    })()}
+                                    {selected.payment.reference ? (
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-gray-500">
+                                                Reference
+                                            </span>
+                                            <span className="font-mono text-xs">
+                                                {selected.payment.reference}
+                                            </span>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
                             {canUpdate && selected.status === 'Draft' ? (
                                 <Button
                                     size="sm"

@@ -55,6 +55,8 @@ export type PosReceiptLine = {
     variantName: string | null
     /** Scannable barcode of the line (variant, else MM material). */
     barcode: string | null
+    /** Product image snapshot of the sold line. */
+    imageUrl: string | null
     quantity: number
     unitPrice: number
     lineTotal: number
