@@ -145,15 +145,15 @@ const POSTransactionsDialog = ({
                                 receipt.transactionType ?? 'SALE'
                             }`}
                             className={classNames(
-                                'flex flex-wrap items-center justify-between gap-3 rounded-xl border',
+                                'flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2',
                                 voidTransaction
                                     ? 'border-red-200 bg-red-50/60 dark:border-red-500/30 dark:bg-red-500/10'
                                     : 'border-gray-200 dark:border-gray-700',
                             )}
                         >
-                            <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
                                 <ProductThumbnails receipt={receipt} />
-                                <div className="min-w-0 flex-1">
+                                <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="font-mono text-sm font-semibold">
                                             {receipt.receiptNumber}
@@ -170,7 +170,7 @@ const POSTransactionsDialog = ({
                                             </span>
                                         ) : null}
                                     </div>
-                                    <div className="mt-0.5 leading-relaxed text-xs text-gray-500">
+                                    <div className="text-xs text-gray-500">
                                         {voidTransaction &&
                                         receipt.originalReceiptNumber
                                             ? `Reverses ${receipt.originalReceiptNumber} · `
@@ -193,20 +193,20 @@ const POSTransactionsDialog = ({
                                             : ''}
                                     </div>
                                     {voidTransaction && receipt.voidReason ? (
-                                        <div className="mt-0.5 text-xs text-red-500">
+                                        <div className="text-xs text-red-500">
                                             {receipt.voidReason}
                                         </div>
                                     ) : null}
                                     {voided &&
                                     !receipt.voidTransactionNumber &&
                                     receipt.voidReason ? (
-                                        <div className="mt-0.5 text-xs text-red-500">
+                                        <div className="text-xs text-red-500">
                                             {receipt.voidReason}
                                         </div>
                                     ) : null}
                                 </div>
                             </div>
-                            <div className="shrink-0 flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                                 <span
                                     className={classNames(
                                         'font-semibold tabular-nums',
@@ -229,7 +229,7 @@ const POSTransactionsDialog = ({
                                         Complete
                                     </Button>
                                 ) : (
-                                    <div className="flex items-center gap-1.5">
+                                    <>
                                         <Button
                                             size="xs"
                                             variant="default"
@@ -249,7 +249,7 @@ const POSTransactionsDialog = ({
                                                 Void
                                             </Button>
                                         )}
-                                    </div>
+                                    </>
                                 )}
                             </div>
                         </div>
