@@ -233,6 +233,8 @@ model Company {
   warehouses Warehouse[]
   materials  MmMaterial[]
   mmMaterialTaxHistory MmMaterialTaxHistory[]
+  posSessions         SdPosSession[]
+  posHolds            SdPosHold[]
 
   inventoryTransactions       MmInventoryTransaction[]
   mmInventoryBalances         MmInventoryBalance[]
@@ -5118,6 +5120,15 @@ model SdSalesOrder {
   promoCode          String?
   shippingAmount     Decimal               @default(0)
   totalAmount        Decimal?
+  /// Tax amount derived from the MM tax classification (VAT split for the sale).
+  taxAmount          Decimal?
+  /// Cashier shift that completed this POS sale.
+  posSessionId       String?
+  posSession         SdPosSession?         @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  /// Cashier (User id) that served the sale.
+  cashierUserId      String?
+  /// Printed receipt number (POS); unique per company.
+  receiptNumber      String?
   /// POS cash tendered / change given
   paymentReceived    Decimal?
   changeAmount       Decimal?
@@ -5165,6 +5176,7 @@ model SdSalesOrder {
   @@index([source, createdAt])
   @@index([branchId, createdAt])
   @@index([createdAt])
+  @@unique([companyId, receiptNumber])
   @@map("sd_sales_orders")
 }
 
@@ -5700,17 +5712,39 @@ model SdSalesOrderPayment {
   id              String       @id @default(cuid())
   companyId       String
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  salesOrderId    String       @unique
+  /// A sale may carry several tenders (split payment), so this is not unique.
+  salesOrderId    String
   salesOrder      SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   customerId      String
-  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO
+  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO | CASH | GCASH | BANK_TRANSFER | CARD | CHEQUE | SALARY_LOAN
   paymentMethod   String
   paymentProvider String?
   amount          Decimal
+  /// Amount handed over for this tender (may exceed `amount` when cash change is returned).
+  tenderAmount    Decimal      @default(0)
+  /// Cash change returned to the customer for this tender.
+  changeAmount    Decimal      @default(0)
   currency        String       @default("PHP")
   /// Pending | Pending Collection | Pending Verification | Authorized | Paid | Failed | Cancelled | Refunded
   status          String       @default("Pending")
+  /// VERIFIED | PENDING | RECEIVABLE | REJECTED
+  verificationStatus String    @default("VERIFIED")
   referenceNumber String?
+  /// Cashier shift that collected this tender.
+  posSessionId    String?
+  posSession      SdPosSession? @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  /// Guards a repeated tender submission for the same sale.
+  idempotencyKey  String?      @unique
+  /// Bank name for a bank transfer tender.
+  bankName        String?
+  /// Transaction date reported by the payer (bank transfer / e-wallet).
+  transactionDate DateTime?
+  /// Employee number for a salary-deduction tender.
+  employeeNumber  String?
+  /// Payroll deduction reference for a salary-deduction tender.
+  payrollReference String?
+  /// Cashier (User id) that collected the tender.
+  collectedBy     String?
   isDemo          Boolean      @default(true)
   paidAt          DateTime?
   createdBy       String?
@@ -5718,7 +5752,70 @@ model SdSalesOrderPayment {
   updatedAt       DateTime     @updatedAt
 
   @@index([companyId, status])
+  @@index([salesOrderId])
+  @@index([posSessionId])
   @@map("sd_sales_order_payments")
+}
+
+/// Cashier shift (POS register session): opening float, collections, closing count.
+model SdPosSession {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Selling branch (MM branch id) the register belongs to.
+  branchId       String
+  /// Register / terminal label, e.g. "POS-01".
+  terminalCode   String
+  /// Cashier (User id) that opened the shift.
+  cashierUserId  String
+  /// Cash float at shift open.
+  openingCash    Decimal      @default(0)
+  /// OPEN | CLOSED
+  status         String       @default("OPEN")
+  openedAt       DateTime     @default(now())
+  closedAt       DateTime?
+  /// Cashier that closed the shift.
+  closedBy       String?
+  /// Cash expected in the drawer at close (computed from the collected tenders).
+  expectedCash   Decimal?
+  /// Cash counted by the cashier at close.
+  countedCash    Decimal?
+  /// countedCash - expectedCash (negative = short).
+  varianceCash   Decimal?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  payments   SdSalesOrderPayment[]
+  salesOrders SdSalesOrder[]
+  holds      SdPosHold[]
+
+  @@index([companyId, status])
+  @@index([branchId, status])
+  @@map("sd_pos_sessions")
+}
+
+/// Suspended ("held") POS sale: the cart parked while another customer is served.
+model SdPosHold {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branchId       String?
+  posSessionId   String?
+  posSession     SdPosSession? @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  customerName   String?
+  /// Parked cart: lines, totals and the cashier note.
+  payload        Json
+  /// HELD | RESUMED | DISCARDED
+  status         String       @default("HELD")
+  createdBy      String?
+  createdAt      DateTime     @default(now())
+  resumedAt      DateTime?
+  expiresAt      DateTime?
+
+  @@index([companyId, status])
+  @@index([branchId, createdAt])
+  @@map("sd_pos_holds")
 }
 
 model SdEventOutbox {

@@ -68,6 +68,7 @@ function setup(overrides: Partial<typeof activeOrder> = {}) {
             findMany: jest.fn().mockResolvedValue([]),
         },
         sdSalesOrderPayment: {
+            findFirst: jest.fn().mockResolvedValue(null),
             upsert: jest
                 .fn()
                 .mockResolvedValue({

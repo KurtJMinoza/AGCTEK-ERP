@@ -149,12 +149,12 @@ function setup() {
             findFirst: jest.fn().mockResolvedValue(null),
             upsert: jest.fn(
                 (args: {
-                    where: { salesOrderId: string }
+                    where: { idempotencyKey: string }
                     create: Record<string, unknown>
                 }) => {
                     const existing = payments.find(
                         (payment) =>
-                            payment.salesOrderId === args.where.salesOrderId,
+                            payment.idempotencyKey === args.where.idempotencyKey,
                     )
                     if (existing) return Promise.resolve(existing)
                     const record = { id: 'pay-1', ...args.create }
@@ -247,7 +247,7 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(result.orderNumber).toBeTruthy()
         expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { salesOrderId: 'so-1' },
+                where: { idempotencyKey: 'order:so-1' },
                 create: expect.objectContaining({
                     companyId: 'company-1',
                     salesOrderId: 'so-1',

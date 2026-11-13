@@ -1,0 +1,710 @@
+import {
+    BadRequestException,
+    ConflictException,
+    Injectable,
+    Logger,
+    NotFoundException,
+} from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { Decimal } from '@prisma/client/runtime/library'
+import { PrismaService } from '../../prisma/prisma.service'
+import { GoodsIssueService } from '../../mm/stock-ops/goods-issue.service'
+import { buildMaterialTaxProjection } from '../../mm/materials/material-tax'
+import { SalesOrderService } from '../sales-order.service'
+import { MaterialResolutionService } from '../material-resolution.service'
+import { SdEventEmitterService } from '../sd-event-emitter.service'
+import { SD_EVENTS } from '../sd-event.types'
+import { PosSessionService } from './pos-session.service'
+import { allocateTenders, type PosTender } from './pos-tender'
+import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
+
+const round2 = (value: number) =>
+    Math.round((value + Number.EPSILON) * 100) / 100
+
+type ResolvedLine = {
+    sku: string
+    variantId?: string
+    variantName?: string
+    description?: string
+    quantity: number
+    unitPrice: number
+    lineTotal: number
+    materialId: string | null
+    taxRate: number
+    taxTreatment: string | null
+    taxIncluded: number
+    taxAdded: number
+    taxWarning: string | null
+}
+
+export type PosReceipt = {
+    receiptNumber: string
+    salesOrderId: string
+    orderNumber: string
+    status: string
+    completedAt: string
+    branchId: string
+    posSessionId: string | null
+    cashierUserId: string | null
+    customerName: string | null
+    lines: Array<{
+        sku: string
+        description: string | null
+        variantName: string | null
+        quantity: number
+        unitPrice: number
+        lineTotal: number
+        taxRate: number
+        taxIncluded: number
+        taxAdded: number
+    }>
+    subtotal: number
+    discountAmount: number
+    taxAmount: number
+    taxIncludedAmount: number
+    total: number
+    tendered: number
+    change: number
+    tenders: Array<{
+        method: string
+        amount: number
+        tenderAmount: number
+        changeAmount: number
+        referenceNumber: string | null
+        status: string
+        verificationStatus: string
+    }>
+    warnings: string[]
+}
+
+/**
+ * Retail POS checkout completion.
+ *
+ * One sale moves through: server-side price/total verification and ATP
+ * (SD), tender capture (SD), the MM goods issue (MM inventory engine) and
+ * the cashier shift. Every step is idempotent, so a repeated checkout of the
+ * same cart never posts inventory twice.
+ */
+@Injectable()
+export class PosCheckoutService {
+    private readonly logger = new Logger(PosCheckoutService.name)
+
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly salesOrders: SalesOrderService,
+        private readonly sessions: PosSessionService,
+        private readonly materials: MaterialResolutionService,
+        private readonly goodsIssue: GoodsIssueService,
+        private readonly sdEvents: SdEventEmitterService,
+    ) {}
+
+    /**
+     * Amount due of a running cart: the server prices the lines, applies the
+     * transaction discount and the MM tax configuration. The terminal quotes
+     * the cart before the tender screen so the cashier collects the amount the
+     * checkout will ask for.
+     */
+    async quote(dto: PosQuoteDto) {
+        const lines = await this.resolveLines(
+            dto.divisionId,
+            dto.lines,
+            dto.companyId,
+        )
+        const subtotal = round2(
+            lines.reduce((sum, line) => sum + line.lineTotal, 0),
+        )
+        const discountAmount = round2(dto.discountAmount ?? 0)
+        if (discountAmount > subtotal) {
+            throw new BadRequestException(
+                'The discount cannot exceed the cart subtotal.',
+            )
+        }
+        const taxIncludedAmount = round2(
+            lines.reduce((sum, line) => sum + line.taxIncluded, 0),
+        )
+        const taxAmount = round2(
+            lines.reduce((sum, line) => sum + line.taxAdded, 0),
+        )
+        const total = round2(subtotal - discountAmount + taxAmount)
+
+        return {
+            subtotal,
+            discountAmount,
+            taxAmount,
+            taxIncludedAmount,
+            total,
+            lines: lines.map((line) => ({
+                sku: line.sku,
+                description: line.description ?? line.sku,
+                variantName: line.variantName ?? null,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                lineTotal: line.lineTotal,
+                taxRate: line.taxRate,
+                taxTreatment: line.taxTreatment,
+                taxIncluded: line.taxIncluded,
+                taxAdded: line.taxAdded,
+            })),
+            warnings: lines
+                .map((line) => line.taxWarning)
+                .filter((warning): warning is string => Boolean(warning)),
+        }
+    }
+
+    async complete(dto: PosCheckoutDto): Promise<PosReceipt> {
+        const session = await this.sessions.requireOpen(dto.posSessionId)
+
+        // A repeated checkout of the same cart returns the sale that exists.
+        const existing = await this.prisma.sdSalesOrder.findUnique({
+            where: { idempotencyKey: dto.idempotencyKey },
+            include: { lines: true, payments: true },
+        })
+        if (existing) {
+            return this.receipt(existing, existing.payments ?? [])
+        }
+
+        const lines = await this.resolveLines(
+            dto.divisionId,
+            dto.lines,
+            session.companyId,
+        )
+        const subtotal = round2(
+            lines.reduce((sum, line) => sum + line.lineTotal, 0),
+        )
+        const discountAmount = round2(dto.discountAmount ?? 0)
+        if (discountAmount > subtotal) {
+            throw new BadRequestException(
+                'The discount cannot exceed the cart subtotal.',
+            )
+        }
+        const taxIncludedAmount = round2(
+            lines.reduce((sum, line) => sum + line.taxIncluded, 0),
+        )
+        const taxAmount = round2(
+            lines.reduce((sum, line) => sum + line.taxAdded, 0),
+        )
+        const total = round2(subtotal - discountAmount + taxAmount)
+
+        const { tenders, change } = allocateTenders(total, dto.tenders)
+        const warnings = lines
+            .map((line) => line.taxWarning)
+            .filter((warning): warning is string => Boolean(warning))
+
+        const salaryLoan = tenders.find(
+            (tender) => tender.method === 'SALARY_LOAN',
+        )
+        if (salaryLoan) {
+            await this.assertEmployeeCredit(dto.customerId, total)
+        }
+
+        const order = await this.salesOrders.createRetail({
+            channel: 'POS',
+            idempotencyKey: dto.idempotencyKey,
+            divisionId: dto.divisionId,
+            branchId: dto.branchId,
+            customerId: dto.customerId,
+            customerName: dto.customerName ?? 'Walk-in customer',
+            lines: lines.map((line) => ({
+                sku: line.sku,
+                variantId: line.variantId,
+                variantName: line.variantName,
+                description: line.description ?? line.sku,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                lineTotal: line.lineTotal,
+            })),
+            subtotal,
+            discountAmount,
+            shippingAmount: 0,
+            taxAmount,
+            totalAmount: total,
+            paymentReceived: round2(total + change),
+            deferCompletion: true,
+            createdBy: dto.createdBy,
+        })
+
+        const companyId = order.companyId ?? session.companyId
+        await this.recordTenders({
+            orderId: order.id,
+            companyId,
+            customerId: dto.customerId,
+            sessionId: session.id,
+            cashierUserId: dto.cashierUserId ?? null,
+            tenders,
+            idempotencyKey: dto.idempotencyKey,
+        })
+
+        // The money is captured; now deduct the stock through the MM engine.
+        await this.postGoodsIssue(order, session)
+
+        const receiptNumber = await this.nextReceiptNumber(companyId)
+        const completed = await this.prisma.sdSalesOrder.update({
+            where: { id: order.id },
+            data: {
+                status: 'COMPLETED',
+                paymentMethod:
+                    tenders.length > 1 ? 'SPLIT' : tenders[0].method,
+                paymentStatus: tenders.every((t) => t.status === 'Paid')
+                    ? 'Paid'
+                    : 'Pending Verification',
+                paymentReference: tenders[0].referenceNumber ?? null,
+                paymentProvider: tenders[0].provider ?? null,
+                changeAmount: change,
+                taxAmount,
+                posSessionId: session.id,
+                cashierUserId: dto.cashierUserId ?? null,
+                receiptNumber,
+            },
+            include: { lines: true, payments: true },
+        })
+
+        if (salaryLoan) {
+            await this.consumeEmployeeCredit(dto.customerId, total)
+        }
+
+        await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
+            salesOrderId: completed.id,
+            orderNumber: completed.orderNumber,
+            receiptNumber,
+            companyId,
+            branchId: dto.branchId,
+            posSessionId: session.id,
+            cashierUserId: dto.cashierUserId ?? null,
+            customerId: dto.customerId,
+            currency: 'PHP',
+            subtotal: subtotal.toFixed(2),
+            discountAmount: discountAmount.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            totalAmount: total.toFixed(2),
+            tenders: tenders.map((tender) => ({
+                method: tender.method,
+                amount: tender.amount.toFixed(2),
+                tenderAmount: tender.tenderAmount.toFixed(2),
+                changeAmount: tender.changeAmount.toFixed(2),
+                status: tender.status,
+                verificationStatus: tender.verificationStatus,
+                referenceNumber: tender.referenceNumber,
+            })),
+            idempotencyKey: dto.idempotencyKey,
+        })
+
+        return this.receipt(completed, completed.payments ?? [], warnings, lines)
+    }
+
+    /** Cart lines → material, MM tax classification and the line tax split. */
+    private async resolveLines(
+        divisionId: string,
+        lines: ReadonlyArray<{
+            sku: string
+            variantId?: string
+            variantName?: string
+            description?: string
+            quantity: number
+            unitPrice: number
+        }>,
+        companyId: string,
+    ): Promise<ResolvedLine[]> {
+        const resolved: ResolvedLine[] = []
+
+        for (const line of lines) {
+            const product = await this.materials.findProductByDivisionSku(
+                divisionId,
+                line.sku,
+            )
+            if (!product) {
+                throw new BadRequestException(
+                    `Product ${line.sku} is not an active ${divisionId} product.`,
+                )
+            }
+
+            let materialId: string | null = null
+            if (line.variantId) {
+                const variant = await this.prisma.sdProductVariant.findUnique({
+                    where: { id: line.variantId },
+                    select: { materialId: true },
+                })
+                materialId = variant?.materialId ?? null
+            }
+            if (!materialId) {
+                const assignment =
+                    await this.materials.resolveMaterialForProduct({
+                        productId: product.id,
+                        companyId,
+                        channel: 'POS',
+                        divisionId,
+                    })
+                materialId = assignment.materialId
+            }
+
+            const lineTotal = round2(line.unitPrice * line.quantity)
+            resolved.push({
+                sku: line.sku,
+                variantId: line.variantId,
+                variantName: line.variantName,
+                description: line.description,
+                quantity: line.quantity,
+                unitPrice: round2(line.unitPrice),
+                lineTotal,
+                materialId,
+                taxRate: 0,
+                taxTreatment: null,
+                taxIncluded: 0,
+                taxAdded: 0,
+                taxWarning: null,
+            })
+        }
+
+        const materialIds = [
+            ...new Set(
+                resolved
+                    .map((line) => line.materialId)
+                    .filter((id): id is string => Boolean(id)),
+            ),
+        ]
+        if (!materialIds.length) return resolved
+
+        const materials = await this.prisma.mmMaterial.findMany({
+            where: { id: { in: materialIds } },
+            include: { taxCode: { include: { taxRates: true } } },
+        })
+        const projections = new Map(
+            materials.map((material) => [
+                material.id,
+                buildMaterialTaxProjection({
+                    taxClassification: material.taxClassification,
+                    taxCodeId: material.taxCodeId,
+                    priceTaxTreatment: material.priceTaxTreatment,
+                    taxStatus: material.taxStatus,
+                    taxEffectiveFrom: material.taxEffectiveFrom,
+                    taxEffectiveTo: material.taxEffectiveTo,
+                    taxDescription: material.taxDescription,
+                    taxCode: material.taxCode,
+                }),
+            ]),
+        )
+
+        for (const line of resolved) {
+            if (!line.materialId) continue
+            const projection = projections.get(line.materialId)
+            if (!projection?.configured) {
+                line.taxWarning = `Tax classification is not configured for ${line.sku}.`
+                continue
+            }
+            if (!projection.readyForSale) {
+                line.taxWarning = `Tax configuration for ${line.sku} is ${projection.effectiveStatus}.`
+            }
+            const rate = projection.taxRate ?? 0
+            line.taxRate = rate
+            line.taxTreatment = projection.priceTaxTreatment
+            if (!rate) continue
+            if (projection.priceTaxTreatment === 'VAT_EXCLUSIVE') {
+                line.taxAdded = round2((line.lineTotal * rate) / 100)
+            } else {
+                line.taxIncluded = round2(
+                    line.lineTotal - line.lineTotal / (1 + rate / 100),
+                )
+            }
+        }
+
+        return resolved
+    }
+
+    /** One tender row per payment method (a sale may be split). */
+    private async recordTenders(args: {
+        orderId: string
+        companyId: string
+        customerId: string
+        sessionId: string
+        cashierUserId: string | null
+        tenders: PosTender[]
+        idempotencyKey: string
+    }) {
+        for (const [index, tender] of args.tenders.entries()) {
+            const key = `${args.idempotencyKey}:${index}`
+            await this.prisma.sdSalesOrderPayment.upsert({
+                where: { idempotencyKey: key },
+                create: {
+                    companyId: args.companyId,
+                    salesOrderId: args.orderId,
+                    customerId: args.customerId,
+                    paymentMethod: tender.method,
+                    paymentProvider: tender.provider,
+                    amount: new Decimal(tender.amount),
+                    tenderAmount: new Decimal(tender.tenderAmount),
+                    changeAmount: new Decimal(tender.changeAmount),
+                    currency: 'PHP',
+                    status: tender.status,
+                    verificationStatus: tender.verificationStatus,
+                    referenceNumber: tender.referenceNumber,
+                    posSessionId: args.sessionId,
+                    idempotencyKey: key,
+                    bankName: tender.bankName,
+                    transactionDate: tender.transactionDate,
+                    employeeNumber: tender.employeeNumber,
+                    payrollReference: tender.payrollReference,
+                    collectedBy: args.cashierUserId,
+                    isDemo: false,
+                    paidAt: tender.paidAt,
+                    createdBy: args.cashierUserId,
+                },
+                update: {},
+            })
+        }
+    }
+
+    /**
+     * Post the sale through the MM goods issue engine. The stock comes out of
+     * the bins that actually hold it, and the reservation taken at confirmation
+     * is consumed.
+     */
+    private async postGoodsIssue(
+        order: {
+            id: string
+            orderNumber: string
+            companyId: string | null
+            createdBy?: string | null
+        },
+        session: { companyId: string },
+    ) {
+        const posted = await this.prisma.mmGoodsIssue.findFirst({
+            where: {
+                sourceDocumentType: 'SALES_ORDER',
+                sourceDocumentId: order.id,
+                status: 'POSTED',
+            },
+        })
+        if (posted) return posted
+
+        const lines = await this.prisma.sdSalesOrderLine.findMany({
+            where: { salesOrderId: order.id },
+            orderBy: { lineNumber: 'asc' },
+        })
+        const header = await this.prisma.mmInventoryReservationHeader.findFirst({
+            where: {
+                demandReferenceType: 'SALES_ORDER',
+                demandReferenceId: order.id,
+            },
+            orderBy: { createdAt: 'desc' },
+        })
+        if (!header) {
+            throw new BadRequestException(
+                'No stock reservation was found for this sale; the stock was not deducted.',
+            )
+        }
+
+        const companyId = order.companyId ?? session.companyId
+        const giLines: Array<{
+            materialId: string
+            quantity: number
+            uomId: string
+            storageBinId: string
+        }> = []
+
+        for (const line of lines) {
+            if (!line.materialId) {
+                throw new BadRequestException(
+                    `Line ${line.lineNumber} has no material; stock cannot be deducted.`,
+                )
+            }
+            const material = await this.prisma.mmMaterial.findUnique({
+                where: { id: line.materialId },
+                select: { baseUomId: true },
+            })
+            const balance = await this.prisma.mmInventoryBalance.findFirst({
+                where: {
+                    companyId,
+                    warehouseId: header.warehouseId,
+                    materialId: line.materialId,
+                    stockStatus: 'UNRESTRICTED',
+                    batchId: null,
+                    serialNumberId: null,
+                    quantity: { gt: 0 },
+                },
+                orderBy: { updatedAt: 'asc' },
+                select: { storageBinId: true },
+            })
+            if (!balance?.storageBinId) {
+                throw new BadRequestException(
+                    `No stock bin holds ${line.sku}; the stock was not deducted.`,
+                )
+            }
+            giLines.push({
+                materialId: line.materialId,
+                quantity: Number(line.quantity),
+                uomId: material?.baseUomId ?? '',
+                storageBinId: balance.storageBinId,
+            })
+        }
+
+        const now = new Date().toISOString()
+        const gi = await this.goodsIssue.create({
+            companyId,
+            warehouseId: header.warehouseId,
+            postingDate: now,
+            documentDate: now,
+            issuePurpose: 'SALES',
+            sourceDocumentType: 'SALES_ORDER',
+            sourceDocumentId: order.id,
+            reservationHeaderId: header.id,
+            createdBy: header.createdBy ?? undefined,
+            remarks: `POS sale ${order.orderNumber}`,
+            lines: giLines,
+        })
+
+        // The cashier verified the sale at the register; the source reference
+        // must match the sales order number.
+        await this.goodsIssue.verifySupervisor(gi.id, {
+            verifiedBy: order.createdBy ?? 'POS_CASHIER',            sourceDocumentReference: order.orderNumber,
+            verificationNotes: 'POS counter sale verified at checkout',
+        })
+
+        return this.goodsIssue.post(gi.id)
+    }
+
+    /** A salary deduction needs a credit account with enough headroom. */
+    private async assertEmployeeCredit(customerId: string, amount: number) {
+        const customer = await this.prisma.sdCustomer.findUnique({
+            where: { id: customerId },
+            select: {
+                id: true,
+                customerAccountType: true,
+                creditLimit: true,
+                availableCredit: true,
+            },
+        })
+        if (!customer) {
+            throw new BadRequestException(
+                'The customer of a salary deduction must exist in the Customer Master.',
+            )
+        }
+        if (customer.customerAccountType !== 'CREDIT') {
+            throw new BadRequestException(
+                'A salary deduction requires a CREDIT customer account with a credit limit.',
+            )
+        }
+        const available = Number(customer.availableCredit ?? 0)
+        if (available < amount) {
+            throw new BadRequestException(
+                `Employee credit limit exceeded: ${available.toFixed(2)} available, ${amount.toFixed(2)} required.`,
+            )
+        }
+    }
+
+    /** Book the receivable against the customer's credit limit. */
+    private async consumeEmployeeCredit(customerId: string, amount: number) {
+        const claimed = await this.prisma.sdCustomer.updateMany({
+            where: {
+                id: customerId,
+                availableCredit: { gte: new Decimal(amount) },
+            },
+            data: { availableCredit: { decrement: new Decimal(amount) } },
+        })
+        if (claimed.count === 0) {
+            this.logger.warn(
+                `Employee credit could not be consumed for customer ${customerId}`,
+            )
+        }
+    }
+
+    private async nextReceiptNumber(companyId: string) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const count = await this.prisma.sdSalesOrder.count({
+                where: { companyId, channel: 'POS' },
+            })
+            const candidate = `RCP-${String(count + 1 + attempt).padStart(6, '0')}`
+            const taken = await this.prisma.sdSalesOrder.findFirst({
+                where: { companyId, receiptNumber: candidate },
+                select: { id: true },
+            })
+            if (!taken) return candidate
+        }
+        throw new ConflictException(
+            'Could not allocate a receipt number; retry the checkout.',
+        )
+    }
+
+    private receipt(
+        order: {
+            id: string
+            orderNumber: string
+            receiptNumber: string | null
+            status: string
+            branchId: string | null
+            posSessionId: string | null
+            cashierUserId: string | null
+            customerName: string | null
+            subtotal: Prisma.Decimal | null
+            discountAmount: Prisma.Decimal | null
+            taxAmount: Prisma.Decimal | null
+            totalAmount: Prisma.Decimal | null
+            paymentReceived: Prisma.Decimal | null
+            changeAmount: Prisma.Decimal | null
+            updatedAt: Date
+            lines: Array<{
+                sku: string | null
+                description: string | null
+                variantName: string | null
+                quantity: Prisma.Decimal
+                unitPrice: Prisma.Decimal | null
+                lineTotal: Prisma.Decimal | null
+            }>
+        },
+        payments: Array<{
+            paymentMethod: string
+            amount: Prisma.Decimal
+            tenderAmount: Prisma.Decimal
+            changeAmount: Prisma.Decimal
+            referenceNumber: string | null
+            status: string
+            verificationStatus: string
+        }>,
+        warnings: string[] = [],
+        resolvedLines?: ResolvedLine[],
+    ): PosReceipt {
+        const taxBySku = new Map(
+            (resolvedLines ?? []).map((line) => [line.sku, line]),
+        )
+        return {
+            receiptNumber: order.receiptNumber ?? order.orderNumber,
+            salesOrderId: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            completedAt: order.updatedAt.toISOString(),
+            branchId: order.branchId ?? '',
+            posSessionId: order.posSessionId,
+            cashierUserId: order.cashierUserId,
+            customerName: order.customerName,
+            lines: order.lines.map((line) => {
+                const tax = taxBySku.get(line.sku ?? '')
+                return {
+                    sku: line.sku ?? '',
+                    description: line.description,
+                    variantName: line.variantName,
+                    quantity: Number(line.quantity),
+                    unitPrice: Number(line.unitPrice ?? 0),
+                    lineTotal: Number(line.lineTotal ?? 0),
+                    taxRate: tax?.taxRate ?? 0,
+                    taxIncluded: tax?.taxIncluded ?? 0,
+                    taxAdded: tax?.taxAdded ?? 0,
+                }
+            }),
+            subtotal: Number(order.subtotal ?? 0),
+            discountAmount: Number(order.discountAmount ?? 0),
+            taxAmount: Number(order.taxAmount ?? 0),
+            taxIncludedAmount: 0,
+            total: Number(order.totalAmount ?? 0),
+            tendered: Number(order.paymentReceived ?? 0),
+            change: Number(order.changeAmount ?? 0),
+            tenders: payments.map((payment) => ({
+                method: payment.paymentMethod,
+                amount: Number(payment.amount),
+                tenderAmount: Number(payment.tenderAmount),
+                changeAmount: Number(payment.changeAmount),
+                referenceNumber: payment.referenceNumber,
+                status: payment.status,
+                verificationStatus: payment.verificationStatus,
+            })),
+            warnings,
+        }
+    }
+}
