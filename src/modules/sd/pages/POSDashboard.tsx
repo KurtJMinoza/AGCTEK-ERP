@@ -6,6 +6,8 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
     HiOutlineCamera,
+    HiOutlineCash,
+    HiOutlineClock,
     HiOutlineExclamation,
     HiOutlineLogout,
     HiOutlineMinus,
@@ -23,10 +25,13 @@ import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Loading from '@/components/shared/Loading'
+import NumericInput from '@/components/shared/NumericInput'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import Notification from '@/components/ui/Notification'
+import Select from '@/components/ui/Select'
+import Tag from '@/components/ui/Tag'
 import toast from '@/components/ui/toast'
 import { toRetailProduct } from '@/services/storefront/retailService'
 import {
@@ -36,10 +41,12 @@ import {
 import { useDivisionProducts } from '../hooks/useDivisionProducts'
 import { usePOSCatalogSearch } from '../hooks/usePOSCatalogSearch'
 import { usePOSLiveStock } from '../hooks/usePOSLiveStock'
+import { useSalesBranches } from '../hooks/useSalesBranches'
 import {
     usePOSCartStore,
     posLineKey,
     type POSCartItem,
+    type POSCartSnapshot,
     type POSVariant,
 } from '../store/usePOSCartStore'
 import {
@@ -48,18 +55,40 @@ import {
 } from '../services/productOptionVariantsService'
 import { fetchStorefrontAvailabilityBatch } from '../services/productCatalogService'
 import { lookupProductBarcode } from '../services/productBarcodeService'
+import { getCustomers } from '../services/customerMasterService'
 import {
-    processPOSCheckout,
-    type POSCheckoutResult,
+    closePosSession,
+    completePosCheckout,
+    discardPosHold,
+    getCurrentPosSession,
+    getPosSessionCollections,
+    holdPosSale,
+    listPosHolds,
+    newIdempotencyKey,
+    openPosSession,
+    pricePOSCart,
+    quotePosCart,
+    resumePosHold,
+    type PosHold,
+    type PosQuote,
+    type PosReceipt,
+    type PosSession,
+    type PosSessionCollections,
 } from '../services/posService'
+import { PosHoldPayloadSchema, type PosTenderInput } from '../types/pos.schema'
 import POSReceipt from '../components/POSReceipt'
-import POSCheckoutPanel from '../components/POSCheckoutPanel'
+import POSCheckoutPanel, {
+    type POSCustomerOption,
+} from '../components/POSCheckoutPanel'
+import POSTenderDialog from '../components/POSTenderDialog'
 import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
 import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
+    usePOSBranchStore,
 } from '../store/usePOSBranchStore'
+import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 const CameraBarcodeScanner = dynamic(
@@ -91,6 +120,10 @@ const POSDashboard = () => {
     const { hydrated, branch } = useActivePOSBranch()
     const branchId = branch?.id ?? null
     const { canCreate } = useResourceAccess('sd.pos')
+    const { session } = useCurrentSession()
+    const cashierUserId = session?.user?.id ?? null
+    const selectBranch = usePOSBranchStore((s) => s.selectBranch)
+    const { branches, loading: branchesLoading } = useSalesBranches()
 
     useEffect(() => {
         if (hydrated && !branchId) router.replace(POS_GATEWAY_PATH)
@@ -98,10 +131,16 @@ const POSDashboard = () => {
 
     const items = usePOSCartStore((s) => s.items)
     const subtotal = usePOSCartStore((s) => s.getCartTotal())
+    const discountAmount = usePOSCartStore((s) => s.discountAmount)
+    const customer = usePOSCartStore((s) => s.customer)
     const addItem = usePOSCartStore((s) => s.addItem)
     const updateQuantity = usePOSCartStore((s) => s.updateQuantity)
     const removeItem = usePOSCartStore((s) => s.removeItem)
     const clearCart = usePOSCartStore((s) => s.clearCart)
+    const setDiscountAmount = usePOSCartStore((s) => s.setDiscountAmount)
+    const setCustomer = usePOSCartStore((s) => s.setCustomer)
+    const snapshotCart = usePOSCartStore((s) => s.snapshot)
+    const restoreCart = usePOSCartStore((s) => s.restore)
     const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
     /** Parent with multiple variants → cashier picks the exact one. */
     const [variantPicker, setVariantPicker] = useState<{
@@ -110,16 +149,53 @@ const POSDashboard = () => {
     } | null>(null)
 
     const skuInputRef = useRef<HTMLInputElement>(null)
+    /**
+     * Idempotency key of the sale in flight. The key is kept for the same cart
+     * so a retry after a lost answer returns the same sale instead of posting
+     * it twice; a changed cart gets a new key.
+     */
+    const checkoutKeyRef = useRef<{ key: string; signature: string } | null>(
+        null,
+    )
     const [sku, setSku] = useState('')
     const [searchFocused, setSearchFocused] = useState(false)
     const [activeIndex, setActiveIndex] = useState(-1)
-    const [cash, setCash] = useState('')
     const [checkingOut, setCheckingOut] = useState(false)
     const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
-    const [receipt, setReceipt] = useState<POSCheckoutResult | null>(null)
+    const [receipt, setReceipt] = useState<PosReceipt | null>(null)
     const [cameraOpen, setCameraOpen] = useState(false)
     const [addingSku, setAddingSku] = useState(false)
     const [registerBarcode, setRegisterBarcode] = useState<string | null>(null)
+
+    /** Tender screen state. */
+    const [tenderOpen, setTenderOpen] = useState(false)
+    /** Bumped per sale so the tender screen starts empty every time. */
+    const [tenderKey, setTenderKey] = useState(0)
+    /** Server quote of the running cart: the amount the cashier must collect. */
+    const [quote, setQuote] = useState<PosQuote | null>(null)
+    const [quoting, setQuoting] = useState(false)
+    /** Cashier shift state. */
+    const [shift, setShift] = useState<PosSession | null>(null)
+    const [collections, setCollections] = useState<PosSessionCollections | null>(
+        null,
+    )
+    const [shiftLoading, setShiftLoading] = useState(false)
+    const [shiftError, setShiftError] = useState<string | null>(null)
+    const [shiftBranchId, setShiftBranchId] = useState('')
+    const [terminalCode, setTerminalCode] = useState('POS-01')
+    const [openingCash, setOpeningCash] = useState('0')
+    const [openingShift, setOpeningShift] = useState(false)
+    const [closeShiftOpen, setCloseShiftOpen] = useState(false)
+    const [countedCash, setCountedCash] = useState('0')
+    /** Held sales. */
+    const [holdsOpen, setHoldsOpen] = useState(false)
+    const [holds, setHolds] = useState<PosHold[]>([])
+    const [holdsLoading, setHoldsLoading] = useState(false)
+    /** Customer picker options (SD Customer Master). */
+    const [customerOptions, setCustomerOptions] = useState<
+        POSCustomerOption[]
+    >([])
+    const [customersLoading, setCustomersLoading] = useState(false)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -145,6 +221,290 @@ const POSDashboard = () => {
     const { availabilityFor, refresh: refreshStock } = usePOSLiveStock(
         RETAIL_DIVISION_ID,
         stockLines,
+    )
+
+    /** The branch of the terminal and its company (the POS scope). */
+    const activeBranch = useMemo(
+        () => branches.find((row) => row.id === branchId) ?? null,
+        [branches, branchId],
+    )
+    const companyId = activeBranch?.companyId ?? null
+    const branchOptions = useMemo(
+        () => branches.map((row) => ({ value: row.id, label: row.label })),
+        [branches],
+    )
+
+    /** Reads the open shift of the branch and the money it collected. */
+    const loadShift = useCallback(async () => {
+        if (!companyId) {
+            setShift(null)
+            setCollections(null)
+            return
+        }
+        setShiftLoading(true)
+        setShiftError(null)
+        try {
+            const current = await getCurrentPosSession(
+                companyId,
+                branchId,
+                terminalCode.trim() || undefined,
+            )
+            setShift(current)
+            setCollections(
+                current ? await getPosSessionCollections(current.id) : null,
+            )
+        } catch (error) {
+            setShift(null)
+            setCollections(null)
+            setShiftError(
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to load the shift',
+            )
+        } finally {
+            setShiftLoading(false)
+        }
+    }, [companyId, branchId, terminalCode])
+
+    useEffect(() => {
+        void Promise.resolve().then(() => loadShift())
+    }, [loadShift])
+
+    /** The shift card always starts on the branch of the terminal. */
+    useEffect(() => {
+        setShiftBranchId(branchId ?? '')
+    }, [branchId])
+
+    /** Cash expected in the drawer: float + cash tenders − change given. */
+    const expectedCash = shift
+        ? Number(
+              (
+                  shift.openingCash +
+                  (collections?.cashCollected ?? 0) -
+                  (collections?.cashChange ?? 0)
+              ).toFixed(2),
+          )
+        : 0
+
+    const handleOpenShift = async () => {
+        const target = branches.find((row) => row.id === shiftBranchId)
+        if (!target?.companyId) {
+            notify('danger', 'Select a branch', 'The shift needs a branch.')
+            return
+        }
+        if (!cashierUserId) {
+            notify(
+                'danger',
+                'No cashier',
+                'Sign in before opening a shift.',
+            )
+            return
+        }
+        if (!terminalCode.trim()) {
+            notify('danger', 'Terminal code', 'Name the register of the shift.')
+            return
+        }
+        setOpeningShift(true)
+        try {
+            const opened = await openPosSession({
+                companyId: target.companyId,
+                branchId: target.id,
+                terminalCode: terminalCode.trim(),
+                cashierUserId,
+                openingCash: Number(openingCash) || 0,
+            })
+            setShift(opened)
+            setCollections(await getPosSessionCollections(opened.id))
+            // The register sells for the branch of its shift.
+            if (target.id !== branchId) selectBranch(target)
+            notify(
+                'success',
+                'Shift opened',
+                `Register ${opened.terminalCode} is open.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not open the shift',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to open the shift',
+            )
+        } finally {
+            setOpeningShift(false)
+        }
+    }
+
+    const handleCloseShift = async () => {
+        if (!shift) return
+        try {
+            const closed = await closePosSession(shift.id, {
+                countedCash: Number(countedCash) || 0,
+            })
+            const variance = Number(closed.varianceCash ?? 0)
+            setShift(null)
+            setCollections(null)
+            setCloseShiftOpen(false)
+            notify(
+                variance === 0 ? 'success' : 'danger',
+                'Shift closed',
+                variance === 0
+                    ? 'The drawer balanced.'
+                    : `Cash variance ${formatPrice(variance)}.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not close the shift',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to close the shift',
+            )
+        }
+    }
+
+    /** Parks the cart while another customer is served. */
+    const handleHold = async () => {
+        if (!companyId) {
+            notify(
+                'danger',
+                'No company scope',
+                'The branch of this terminal has no company; the sale cannot be held.',
+            )
+            return
+        }
+        try {
+            await holdPosSale({
+                companyId,
+                branchId,
+                posSessionId: shift?.id ?? null,
+                customerName: customer?.name ?? null,
+                payload: snapshotCart(),
+                createdBy: cashierUserId,
+            })
+            clearCart()
+            notify(
+                'success',
+                'Sale held',
+                'The cart is parked. Resume it from the summary panel.',
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not hold the sale',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to hold the sale',
+            )
+        }
+    }
+
+    const openHolds = async () => {
+        if (!companyId) {
+            notify(
+                'danger',
+                'No company scope',
+                'The branch of this terminal has no company; held sales cannot be loaded.',
+            )
+            return
+        }
+        setHoldsOpen(true)
+        setHoldsLoading(true)
+        try {
+            setHolds(
+                await listPosHolds({ companyId, branchId, status: 'HELD' }),
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not load the held sales',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to load the held sales',
+            )
+        } finally {
+            setHoldsLoading(false)
+        }
+    }
+
+    const handleResumeHold = async (hold: PosHold) => {
+        if (items.length > 0) {
+            notify(
+                'danger',
+                'Cart not empty',
+                'Void or complete the current cart before resuming a held sale.',
+            )
+            return
+        }
+        try {
+            // Parse first: a payload that cannot be read must not consume the
+            // held sale on the server.
+            const parsed = PosHoldPayloadSchema.parse(hold.payload)
+            await resumePosHold(hold.id)
+            restoreCart(parsed as unknown as POSCartSnapshot)
+            setHoldsOpen(false)
+            notify(
+                'success',
+                'Sale resumed',
+                'The parked cart is back on the terminal.',
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not resume the sale',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to resume the sale',
+            )
+        }
+    }
+
+    const handleDiscardHold = async (hold: PosHold) => {
+        try {
+            await discardPosHold(hold.id)
+            setHolds((rows) => rows.filter((row) => row.id !== hold.id))
+            notify('info', 'Held sale discarded', 'The parked cart was dropped.')
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not discard the sale',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to discard the held sale',
+            )
+        }
+    }
+
+    /** Customer Master options for the picker of the summary panel. */
+    const loadCustomers = useCallback(
+        async (term?: string) => {
+            if (customersLoading) return
+            setCustomersLoading(true)
+            try {
+                const rows = await getCustomers({
+                    status: 'ACTIVE',
+                    search: term?.trim() || undefined,
+                })
+                setCustomerOptions(
+                    rows.map((row) => ({
+                        value: row.id,
+                        label: `${row.companyName} (${row.customerNumber})`,
+                        accountType: row.customerAccountType,
+                    })),
+                )
+            } catch (error) {
+                notify(
+                    'danger',
+                    'Could not load the customers',
+                    error instanceof Error
+                        ? error.message
+                        : 'Unable to load the customers',
+                )
+            } finally {
+                setCustomersLoading(false)
+            }
+        },
+        [customersLoading],
     )
 
     /** Sellable quantity of one line, or null when the stock is not known yet. */
@@ -254,14 +614,83 @@ const POSDashboard = () => {
         [fetchAvailable, updateQuantity],
     )
 
-    const cashReceived = Number(cash) || 0
-    const change = Math.max(0, cashReceived - subtotal)
+    /** Preview of the amount due — the server quote owns the amount due. */
+    const amountDue = quote?.total ?? Number((subtotal - discountAmount).toFixed(2))
     const canCheckout =
-        branchId !== null &&
+        shift !== null &&
         items.length > 0 &&
-        cashReceived >= subtotal &&
+        amountDue > 0 &&
         !checkingOut &&
+        !quoting &&
         catalog.ready
+
+    /**
+     * Asks the server what the cart is worth: prices, discount and the MM tax
+     * configuration. The tender screen collects exactly this amount.
+     */
+    const refreshQuote = useCallback(async () => {
+        if (!companyId || items.length === 0) {
+            setQuote(null)
+            return null
+        }
+        setQuoting(true)
+        try {
+            const priced = await pricePOSCart(
+                items.map((item) => ({
+                    sku: item.product.sku,
+                    quantity: item.quantity,
+                    ...(item.variant
+                        ? {
+                              variantId: item.variant.id,
+                              variantName: item.variant.name,
+                              unitPrice: item.variant.unitPrice,
+                          }
+                        : {}),
+                })),
+            )
+            const result = await quotePosCart({
+                companyId,
+                divisionId: RETAIL_DIVISION_ID,
+                discountAmount: discountAmount || undefined,
+                lines: priced.lines.map((line) => ({
+                    sku: line.sku,
+                    ...(line.variantId ? { variantId: line.variantId } : {}),
+                    ...(line.variantName
+                        ? { variantName: line.variantName }
+                        : {}),
+                    description: line.name,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                })),
+            })
+            setQuote(result)
+            return result
+        } catch (error) {
+            setQuote(null)
+            notify(
+                'danger',
+                'Could not price the cart',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to price the cart',
+            )
+            return null
+        } finally {
+            setQuoting(false)
+        }
+    }, [companyId, items, discountAmount])
+
+    // Keep the quote in step with the cart.
+    useEffect(() => {
+        if (!companyId || items.length === 0) {
+            setQuote(null)
+            return
+        }
+        const timer = setTimeout(() => {
+            void refreshQuote()
+        }, 300)
+        return () => clearTimeout(timer)
+    }, [companyId, items, discountAmount, refreshQuote])
 
     const focusScanner = () => skuInputRef.current?.focus()
 
@@ -527,13 +956,23 @@ const POSDashboard = () => {
 
     const handleConfirmVoid = () => {
         clearCart()
-        setCash('')
         setConfirmVoidOpen(false)
         notify('info', 'Transaction voided', 'Cart cleared.')
     }
 
-    const handleCheckout = async () => {
-        if (!branchId) return
+    /**
+     * Completes the sale: the server prices the cart, adds the tax from the MM
+     * tax configuration, captures the tenders and posts the goods issue.
+     */
+    const handleCompleteSale = async (tenders: PosTenderInput[]) => {
+        if (!branchId || !shift) {
+            notify(
+                'danger',
+                'No open shift',
+                'Open the register shift before taking payment.',
+            )
+            return
+        }
         // The live stock decides: a line the cart holds more of than the MM
         // ledger allows cannot be sold.
         if (shortLines.length) {
@@ -548,9 +987,8 @@ const POSDashboard = () => {
         }
         setCheckingOut(true)
         try {
-            const result = await processPOSCheckout({
-                branchId,
-                items: items.map((item) => ({
+            const priced = await pricePOSCart(
+                items.map((item) => ({
                     sku: item.product.sku,
                     quantity: item.quantity,
                     ...(item.variant
@@ -561,17 +999,57 @@ const POSDashboard = () => {
                           }
                         : {}),
                 })),
-                paymentReceived: cashReceived,
+            )
+            const signature = JSON.stringify({
+                items: items.map((item) => [
+                    item.product.sku,
+                    item.quantity,
+                    item.variant?.id ?? null,
+                ]),
+                discount: discountAmount,
+                customer: customer?.id ?? null,
+            })
+            const current = checkoutKeyRef.current
+            const entry =
+                current && current.signature === signature
+                    ? current
+                    : { key: newIdempotencyKey('pos'), signature }
+            checkoutKeyRef.current = entry
+            const result = await completePosCheckout({
+                posSessionId: shift.id,
+                idempotencyKey: entry.key,
+                divisionId: RETAIL_DIVISION_ID,
+                branchId,
+                customerId: customer?.id ?? 'WALK-IN',
+                customerName: customer?.name ?? 'Walk-in customer',
+                cashierUserId: cashierUserId ?? undefined,
+                createdBy: cashierUserId ?? undefined,
+                discountAmount: discountAmount || undefined,
+                lines: priced.lines.map((line) => ({
+                    sku: line.sku,
+                    ...(line.variantId ? { variantId: line.variantId } : {}),
+                    ...(line.variantName
+                        ? { variantName: line.variantName }
+                        : {}),
+                    description: line.name,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                })),
+                tenders,
             })
             clearCart()
-            setCash('')
+            checkoutKeyRef.current = null
+            setTenderOpen(false)
             setReceipt(result)
             void refreshStock()
+            void loadShift()
         } catch (error) {
             notify(
                 'danger',
                 'Checkout failed',
-                error instanceof Error ? error.message : 'Unable to complete sale.',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to complete sale.',
             )
             void catalog.reload()
             void refreshStock()
@@ -790,7 +1268,190 @@ const POSDashboard = () => {
             </header>
 
             <div className="grid flex-1 grid-cols-1 gap-6 p-4 sm:p-6 xl:grid-cols-12 xl:items-start">
-                <div className="flex flex-col gap-6 xl:col-span-8">
+                {/* Shift banner — the register must be open before the terminal sells. */}
+                <div className="xl:col-span-12">
+                    <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
+                        {shift ? (
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                    <div>
+                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                                            Register
+                                        </div>
+                                        <div className="text-sm font-semibold heading-text">
+                                            {shift.terminalCode}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                                            Opening float
+                                        </div>
+                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                            {formatPrice(shift.openingCash)}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                                            Cash collected
+                                        </div>
+                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                            {formatPrice(
+                                                collections?.cashCollected ?? 0,
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                                            Change given
+                                        </div>
+                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                            {formatPrice(
+                                                collections?.cashChange ?? 0,
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                                            Tenders
+                                        </div>
+                                        <div className="text-sm font-semibold tabular-nums heading-text">
+                                            {collections?.tenderCount ?? 0}
+                                        </div>
+                                    </div>
+                                    {Object.entries(
+                                        collections?.byMethod ?? {},
+                                    ).map(([method, amount]) => (
+                                        <Tag key={method}>
+                                            {method} {formatPrice(amount)}
+                                        </Tag>
+                                    ))}
+                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    icon={<HiOutlineClock />}
+                                    onClick={() => {
+                                        setCountedCash(
+                                            expectedCash.toFixed(2),
+                                        )
+                                        setCloseShiftOpen(true)
+                                    }}
+                                >
+                                    Close shift
+                                </Button>
+                            </div>
+                        ) : shiftLoading ? (
+                            <div className="flex items-center gap-2 text-sm text-gray-500">
+                                <HiOutlineClock />
+                                Checking the register…
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <div className="flex items-start gap-3">
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                        <HiOutlineCash />
+                                    </span>
+                                    <div>
+                                        <h3 className="text-base font-bold heading-text">
+                                            Open shift
+                                        </h3>
+                                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                            The register must be open before the
+                                            terminal can sell. Name the register
+                                            and count the opening float.
+                                        </p>
+                                    </div>
+                                </div>
+                                {shiftError ? (
+                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                                        {shiftError}
+                                    </div>
+                                ) : null}
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                            Branch
+                                        </label>
+                                        <Select<{
+                                            value: string
+                                            label: string
+                                        }>
+                                            options={branchOptions}
+                                            value={
+                                                branchOptions.find(
+                                                    (option) =>
+                                                        option.value ===
+                                                        shiftBranchId,
+                                                ) ?? null
+                                            }
+                                            isSearchable
+                                            placeholder="Select branch"
+                                            onChange={(option) =>
+                                                setShiftBranchId(
+                                                    option?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                            Terminal code
+                                        </label>
+                                        <Input
+                                            value={terminalCode}
+                                            placeholder="e.g. POS-01"
+                                            onChange={(e) =>
+                                                setTerminalCode(e.target.value)
+                                            }
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                            Opening float
+                                        </label>
+                                        <NumericInput
+                                            placeholder="0.00"
+                                            thousandSeparator=","
+                                            decimalScale={2}
+                                            fixedDecimalScale
+                                            allowNegative={false}
+                                            value={openingCash}
+                                            onValueChange={(v) =>
+                                                setOpeningCash(
+                                                    v.value ?? '0',
+                                                )
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs text-gray-500">
+                                        {branchesLoading
+                                            ? 'Loading branches…'
+                                            : 'Checkout stays blocked until the shift is open.'}
+                                    </span>
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        loading={openingShift}
+                                        disabled={
+                                            !shiftBranchId ||
+                                            !terminalCode.trim()
+                                        }
+                                        onClick={() =>
+                                            void handleOpenShift()
+                                        }
+                                    >
+                                        Open shift
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </AdaptiveCard>
+                </div>
+
+                {/* LEFT — scan and search */}
+                <div className="flex flex-col gap-6 xl:col-span-3">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4">
                             <h3 className="text-lg font-bold heading-text">Scan items</h3>
@@ -978,7 +1639,10 @@ const POSDashboard = () => {
                             </Button>
                         </div>
                     </AdaptiveCard>
+                </div>
 
+                {/* CENTER — the cart */}
+                <div className="flex flex-col gap-6 xl:col-span-5">
                     <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
@@ -1040,17 +1704,37 @@ const POSDashboard = () => {
                     </AdaptiveCard>
                 </div>
 
+                {/* RIGHT — the order summary */}
                 <div className="xl:col-span-4">
                     <POSCheckoutPanel
                         itemCount={itemCount}
                         lineCount={items.length}
                         subtotal={subtotal}
-                        cash={cash}
-                        onCashChange={setCash}
-                        change={change}
-                        checkingOut={checkingOut}
-                        canCheckout={canCheckout}
-                        onCheckout={() => void handleCheckout()}
+                        discountAmount={discountAmount}
+                        onDiscountChange={setDiscountAmount}
+                        amountDue={quote?.total ?? null}
+                        taxAmount={quote?.taxAmount ?? null}
+                        customer={customer}
+                        onCustomerChange={setCustomer}
+                        customerOptions={customerOptions}
+                        onLoadCustomers={() => void loadCustomers()}
+                        onSearchCustomers={(term: string) =>
+                            void loadCustomers(term)
+                        }
+                        shiftOpen={shift !== null}
+                        canPay={canCheckout}
+                        onPay={() => {
+                            // Quote the cart on the server right before the
+                            // tender screen opens: the amount due includes the
+                            // MM tax, which the terminal cannot compute.
+                            void refreshQuote().then((result) => {
+                                if (!result) return
+                                setTenderKey((key) => key + 1)
+                                setTenderOpen(true)
+                            })
+                        }}
+                        onHold={() => void handleHold()}
+                        onResume={() => void openHolds()}
                         onVoid={() => setConfirmVoidOpen(true)}
                         formatPrice={formatPrice}
                     />
@@ -1194,6 +1878,172 @@ const POSDashboard = () => {
                     will be removed.
                 </p>
             </ConfirmDialog>
+            <POSTenderDialog
+                key={tenderKey}
+                isOpen={tenderOpen}
+                amountDue={amountDue}
+                cashierUserId={cashierUserId}
+                customerName={customer?.name ?? null}
+                customerAccountType={customer?.accountType ?? null}
+                completing={checkingOut}
+                onClose={() => setTenderOpen(false)}
+                onAfterClose={focusScanner}
+                onComplete={(tenders) => void handleCompleteSale(tenders)}
+                formatPrice={formatPrice}
+            />
+
+            {/* Held sales — resume or discard a parked cart. */}
+            <Dialog
+                isOpen={holdsOpen}
+                width={520}
+                shouldReturnFocusAfterClose={false}
+                onAfterClose={focusScanner}
+                onClose={() => setHoldsOpen(false)}
+                onRequestClose={() => setHoldsOpen(false)}
+            >
+                <h5 className="mb-1">Held sales</h5>
+                <p className="mb-4 text-sm text-gray-500">
+                    Carts parked at this register. Resume one to continue the
+                    sale.
+                </p>
+                {holdsLoading ? (
+                    <p className="text-sm text-gray-500">
+                        Loading held sales…
+                    </p>
+                ) : holds.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                        No held sale at this branch.
+                    </p>
+                ) : (
+                    <div className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto">
+                        {holds.map((hold) => (
+                            <div
+                                key={hold.id}
+                                className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 dark:border-gray-700"
+                            >
+                                <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold heading-text">
+                                        {hold.customerName ??
+                                            'Walk-in customer'}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                        {new Date(
+                                            hold.createdAt,
+                                        ).toLocaleString('en-PH')}
+                                    </div>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="solid"
+                                        onClick={() =>
+                                            void handleResumeHold(hold)
+                                        }
+                                    >
+                                        Resume
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="plain"
+                                        icon={<HiOutlineTrash />}
+                                        aria-label="Discard held sale"
+                                        onClick={() =>
+                                            void handleDiscardHold(hold)
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <div className="mt-4 flex justify-end">
+                    <Button size="sm" onClick={() => setHoldsOpen(false)}>
+                        Close
+                    </Button>
+                </div>
+            </Dialog>
+
+            {/* Close the shift: counted cash against the expected cash. */}
+            <Dialog
+                isOpen={closeShiftOpen}
+                width={440}
+                shouldReturnFocusAfterClose={false}
+                onAfterClose={focusScanner}
+                onClose={() => setCloseShiftOpen(false)}
+                onRequestClose={() => setCloseShiftOpen(false)}
+            >
+                <h5 className="mb-1">Close shift</h5>
+                <p className="mb-4 text-sm text-gray-500">
+                    Register {shift?.terminalCode} · count the cash in the
+                    drawer.
+                </p>
+                <div className="space-y-3">
+                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+                        <span className="text-gray-500">Opening float</span>
+                        <span className="font-semibold tabular-nums">
+                            {formatPrice(shift?.openingCash ?? 0)}
+                        </span>
+                    </div>
+                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+                        <span className="text-gray-500">Cash collected</span>
+                        <span className="font-semibold tabular-nums">
+                            {formatPrice(collections?.cashCollected ?? 0)}
+                        </span>
+                    </div>
+                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+                        <span className="text-gray-500">Change given</span>
+                        <span className="font-semibold tabular-nums">
+                            {formatPrice(collections?.cashChange ?? 0)}
+                        </span>
+                    </div>
+                    <div className="flex justify-between rounded-lg border border-primary px-3 py-2 text-sm dark:border-primary/40">
+                        <span className="font-semibold">
+                            Expected cash (estimate)
+                        </span>
+                        <span className="font-bold tabular-nums">
+                            {formatPrice(expectedCash)}
+                        </span>
+                    </div>
+                    <div>
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Counted cash
+                        </label>
+                        <NumericInput
+                            placeholder="0.00"
+                            thousandSeparator=","
+                            decimalScale={2}
+                            fixedDecimalScale
+                            allowNegative={false}
+                            value={countedCash}
+                            onValueChange={(v) =>
+                                setCountedCash(v.value ?? '0')
+                            }
+                        />
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            Variance:{' '}
+                            {formatPrice(
+                                Number(countedCash || 0) - expectedCash,
+                            )}
+                        </p>
+                    </div>
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                        size="sm"
+                        onClick={() => setCloseShiftOpen(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="solid"
+                        onClick={() => void handleCloseShift()}
+                    >
+                        Close shift
+                    </Button>
+                </div>
+            </Dialog>
+
             <Dialog
                 isOpen={receipt !== null}
                 width={380}
@@ -1202,12 +2052,24 @@ const POSDashboard = () => {
                 onClose={() => setReceipt(null)}
                 onRequestClose={() => setReceipt(null)}
             >
-                <h5 className="mb-4">Sale complete</h5>
+                <h5 className="mb-4">
+                    {receipt?.status === 'COMPLETED'
+                        ? 'Sale complete'
+                        : `Sale ${receipt?.status ?? ''}`.trim()}
+                </h5>
+                {receipt && receipt.status !== 'COMPLETED' ? (
+                    <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        This sale is not completed. Check the order before
+                        handing the receipt to the customer.
+                    </p>
+                ) : null}
                 {receipt ? (
                     <div className="max-h-[60vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
                         <POSReceipt
                             receipt={receipt}
                             branchName={branch?.label}
+                            terminalCode={shift?.terminalCode ?? null}
+                            cashierName={session?.user?.name ?? null}
                         />
                     </div>
                 ) : null}
@@ -1233,6 +2095,8 @@ const POSDashboard = () => {
                           <POSReceipt
                               receipt={receipt}
                               branchName={branch?.label}
+                              terminalCode={shift?.terminalCode ?? null}
+                              cashierName={session?.user?.name ?? null}
                           />
                       </div>,
                       document.body,

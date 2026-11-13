@@ -8,6 +8,8 @@ export type SalesBranch = {
     label: string
     code?: string
     companyName?: string | null
+    /** Owning organization (MM company) — the POS company scope. */
+    companyId?: string | null
 }
 
 /** Human label for a stored order branch id (name when known, else the id). */
