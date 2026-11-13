@@ -424,6 +424,16 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
   - Each line gets OK / LOW / NONE / NOT_TRACKED / UNKNOWN.
   - The figure is the checkout company's MM pickable stock (on hand − reserved, all active warehouses), compared with the line quantity in the material base UOM.
   - It is indicative only: it reserves nothing, never blocks draft or send, and is never printed on the customer PDF. A failed read is UNKNOWN, never NONE.
+- **Payment terms:** `SdQuotation.paymentTerms` (free text, migration `20261113170000_sd_quotation_payment_terms`) is set on create (CRM) or draft edit, copied to revisions, shown on the quotation page, and printed in the PDF details only when set.
+- **Email (SD-owned):** `POST /sd/quotations/:id/email` emails a SENT / ACCEPTED quotation only; a DRAFT gets 409 "Send the quotation first", so a delivery failure never changes the status.
+  - The cover letter comes from `sd_email_templates` (`{{placeholders}}`).
+  - The PDF bytes are stored once per revision (`sd_quotation_documents`, `QUOTATION_DOCUMENT_DIR`) and reused for resends.
+  - Results are recorded as EMAIL_SENT / RESENT / FAILED / SKIPPED events. `npm run mail:dev` runs Maildev locally.
+- **CRM › Documents** (`/crm/documents`) edits the email templates and the PDF layout profile; SD stores both.
+  - **PDF layout profile:** `sd_pdf_layout_profiles` (migration `20261113180000_sd_pdf_layout_profiles`). The active default profile styles every quotation PDF.
+  - **Profile config:** TIN / opportunity / payment-terms rows, margins (24–96 pt) and footer disclaimer. Look only, never data.
+  - `resolveQuotationPdfLayout()` fills defaults that reproduce the original PDF.
+  - **API:** `GET` / `PATCH /sd/pdf-layout-profiles` and `/sd/email-templates` (sd.quotations read / update).
 - **Permissions:**
   - Creating from CRM needs crm:update and sd:create.
   - SD endpoints use sd:read and sd:update.

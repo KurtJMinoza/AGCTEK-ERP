@@ -3,6 +3,14 @@
  * unit-tested directly from SD quotation data. Values are display-ready; the renderer only lays
  * them out.
  */
+import {
+    QUOTATION_PDF_DISCLAIMER,
+    resolveQuotationPdfLayout,
+    type QuotationPdfLayout,
+    type QuotationPdfLayoutConfig,
+} from './quotation-pdf-layout'
+
+export { QUOTATION_PDF_DISCLAIMER }
 
 /** Prisma `Decimal` at runtime, or a plain number/string in tests. */
 export type DecimalLike = { toString(): string } | number | string
@@ -37,6 +45,8 @@ export type QuotationPdfInput = {
     validUntil: Date | null
     createdAt: Date
     notes: string | null
+    /** Customer-facing payment terms; omitted from the PDF when blank. */
+    paymentTerms?: string | null
     subtotal: DecimalLike
     totalAmount: DecimalLike
     lines: QuotationPdfLineInput[]
@@ -46,6 +56,8 @@ export type QuotationPdfInput = {
     /** Present when the quotation is linked to a CRM opportunity. */
     opportunityName?: string | null
     company?: QuotationPdfCompanyInput | null
+    /** Stored layout profile (Documents › PDF templates); missing fields use the defaults. */
+    layout?: QuotationPdfLayoutConfig | null
 }
 
 export type QuotationPdfLine = {
@@ -78,17 +90,16 @@ export type QuotationPdfModel = {
     lines: QuotationPdfLine[]
     totals: { subtotal: number; total: number }
     notes: string | null
+    paymentTerms: string | null
     disclaimer: string
     /** Drives the watermark and a prominent status label. */
     isDraft: boolean
     hasLines: boolean
+    layout: QuotationPdfLayout
 }
 
 /** Fallback letterhead when no default Company row is available. */
 export const QUOTATION_PDF_DEFAULT_COMPANY = 'AGCTEK'
-
-export const QUOTATION_PDF_DISCLAIMER =
-    'This is a quotation, not a sales order. Prices are valid only until the stated valid-until date.'
 
 const STATUS_LABELS: Record<string, string> = {
     DRAFT: 'Draft',
@@ -112,11 +123,15 @@ export function quotationStatusLabel(status: string): string {
  */
 export function formatQuotationMoney(amount: number, currency: string): string {
     const code = currency && currency.length === 3 ? currency.toUpperCase() : 'PHP'
-    const formatted = new Intl.NumberFormat('en-PH', {
+    return `${code} ${formatQuotationAmount(amount)}`
+}
+
+/** Amount only (no ISO code), e.g. `2,350.00`; the email template prints the code separately. */
+export function formatQuotationAmount(amount: number): string {
+    return new Intl.NumberFormat('en-PH', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     }).format(amount)
-    return `${code} ${formatted}`
 }
 
 function toNumber(value: DecimalLike): number {
@@ -149,6 +164,7 @@ export function buildQuotationPdfModel(input: QuotationPdfInput): QuotationPdfMo
         unitPrice: toNumber(line.unitPrice),
         lineTotal: toNumber(line.lineTotal),
     }))
+    const layout = resolveQuotationPdfLayout(input.layout)
 
     return {
         company: {
@@ -178,8 +194,10 @@ export function buildQuotationPdfModel(input: QuotationPdfInput): QuotationPdfMo
             total: toNumber(input.totalAmount),
         },
         notes: trimmed(input.notes),
-        disclaimer: QUOTATION_PDF_DISCLAIMER,
+        paymentTerms: trimmed(input.paymentTerms),
+        disclaimer: layout.disclaimer,
         isDraft: input.status === 'DRAFT',
         hasLines: lines.length > 0,
+        layout,
     }
 }

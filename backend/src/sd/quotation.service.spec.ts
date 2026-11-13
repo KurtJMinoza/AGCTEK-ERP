@@ -408,15 +408,23 @@ describe('QuotationService section headings', () => {
             [2, 'Accessories'],
         ])
 
+        const layoutProfile = { findFirst: jest.fn().mockResolvedValue({ config: { showTin: false } }) }
         Object.assign(ctx.prisma, {
             crmOpportunity: { findUnique: jest.fn().mockResolvedValue({ name: 'Big deal' }) },
             company: { findFirst: jest.fn().mockResolvedValue(null) },
+            sdPdfLayoutProfile: layoutProfile,
         })
         const pdf = await ctx.service.pdfInput('q-1')
         expect(pdf.sections).toEqual([
             { title: 'Main units', beforeLineNumber: 1 },
             { title: 'Accessories', beforeLineNumber: 2 },
         ])
+        // The active default profile (CRM › Documents) styles the PDF.
+        expect(layoutProfile.findFirst).toHaveBeenCalledWith({
+            where: { isDefault: true, isActive: true },
+            select: { config: true },
+        })
+        expect(pdf.layout).toEqual({ showTin: false })
     })
 })
 
@@ -446,6 +454,21 @@ describe('QuotationService.updateDraft', () => {
         expect(quote.lines[0]).toMatchObject({ lineNumber: 1, sku: 'SKU-p2' })
         expect(quote.totalAmount.toFixed(2)).toBe('999.90')
         expect(quote.notes).toBe('Rush')
+    })
+
+    it('stores payment terms and clears them with an empty string', async () => {
+        const ctx = setup()
+        await draft(ctx)
+
+        const quote = await ctx.service.updateDraft(
+            'q-1',
+            { paymentTerms: ' 50% on order, 50% on delivery ' },
+            'user-2',
+        )
+        expect(quote.paymentTerms).toBe('50% on order, 50% on delivery')
+
+        const cleared = await ctx.service.updateDraft('q-1', { paymentTerms: '  ' }, 'user-2')
+        expect(cleared.paymentTerms).toBeNull()
     })
 
     it('only edits DRAFT quotations', async () => {

@@ -7,7 +7,10 @@ import Input from '@/components/ui/Input'
 import { FormItem } from '@/components/ui/Form'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
-import { updateQuotationDraft, type Quotation } from '@/modules/sd/services/quotationService'
+import {
+    updateQuotationDraft,
+    type Quotation,
+} from '@/modules/sd/services/quotationService'
 import { apiCreateOpportunityQuotation } from '../../services/crmApi'
 import { useQuotationStock } from '../../hooks/useQuotationStock'
 import { useSdCatalog } from '../ProductLinesEditor'
@@ -32,7 +35,9 @@ type QuotationComposeFormProps = {
 const snapshot = (items: QuoteItem[]) =>
     JSON.stringify(
         items.map((item) =>
-            item.kind === 'SECTION' ? ['S', item.title] : ['L', item.productId, item.quantity, item.sku ?? null],
+            item.kind === 'SECTION'
+                ? ['S', item.title]
+                : ['L', item.productId, item.quantity, item.sku ?? null],
         ),
     )
 
@@ -47,8 +52,13 @@ export default function QuotationComposeForm({
     onDirtyChange,
 }: QuotationComposeFormProps) {
     const editing = initialQuotation
-    const [items, setItems] = useState<QuoteItem[]>(() => itemsFromQuotation(editing))
+    const [items, setItems] = useState<QuoteItem[]>(() =>
+        itemsFromQuotation(editing),
+    )
     const [notes, setNotes] = useState(editing?.notes ?? '')
+    const [paymentTerms, setPaymentTerms] = useState(
+        editing?.paymentTerms ?? '',
+    )
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const catalog = useSdCatalog(true)
@@ -56,12 +66,15 @@ export default function QuotationComposeForm({
     useEffect(() => {
         setItems(itemsFromQuotation(editing))
         setNotes(editing?.notes ?? '')
+        setPaymentTerms(editing?.paymentTerms ?? '')
         setError(null)
     }, [editing])
 
     const highlights = useMemo(() => {
         if (!editing) return undefined
-        const productOf = new Map(editing.lines.map((l) => [l.lineNumber, l.productId]))
+        const productOf = new Map(
+            editing.lines.map((l) => [l.lineNumber, l.productId]),
+        )
         return Object.fromEntries(
             editing.lineIssues.map((issue) => [
                 productOf.get(issue.lineNumber) ?? '',
@@ -75,8 +88,14 @@ export default function QuotationComposeForm({
     const input = useMemo(() => itemsToInput(items), [items])
     const stock = useQuotationStock(input.lines)
     const problem = itemsProblem(items)
-    const initialSnapshot = useMemo(() => snapshot(itemsFromQuotation(editing)), [editing])
-    const dirty = snapshot(items) !== initialSnapshot || notes !== (editing?.notes ?? '')
+    const initialSnapshot = useMemo(
+        () => snapshot(itemsFromQuotation(editing)),
+        [editing],
+    )
+    const dirty =
+        snapshot(items) !== initialSnapshot ||
+        notes !== (editing?.notes ?? '') ||
+        paymentTerms !== (editing?.paymentTerms ?? '')
 
     useEffect(() => {
         onDirtyChange?.(dirty)
@@ -87,11 +106,20 @@ export default function QuotationComposeForm({
         setSaving(true)
         setError(null)
         try {
-            const body = { lines: input.lines, sections: input.sections, notes: notes.trim() }
+            const body = {
+                lines: input.lines,
+                sections: input.sections,
+                notes: notes.trim(),
+                paymentTerms: paymentTerms.trim(),
+            }
             onSaved(
                 editing
                     ? await updateQuotationDraft(editing.id, body)
-                    : await apiCreateOpportunityQuotation(opportunity.id, { ...body, notes: body.notes || undefined }),
+                    : await apiCreateOpportunityQuotation(opportunity.id, {
+                          ...body,
+                          notes: body.notes || undefined,
+                          paymentTerms: body.paymentTerms || undefined,
+                      }),
             )
         } catch (err) {
             setError(getApiErrorMessage(err, 'Could not save the quotation'))
@@ -117,12 +145,39 @@ export default function QuotationComposeForm({
                 stock={stock.stock}
                 stockLoading={stock.loading}
             />
+            <FormItem
+                label="Payment terms"
+                className="mt-4"
+                extra="Printed on the quotation PDF"
+            >
+                <Input
+                    maxLength={500}
+                    placeholder="e.g. 50% on order, 50% on delivery"
+                    value={paymentTerms}
+                    onChange={(e) => setPaymentTerms(e.target.value)}
+                />
+            </FormItem>
             <FormItem label="Notes" className="mt-4">
-                <Input textArea maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                <Input
+                    textArea
+                    maxLength={2000}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                />
             </FormItem>
             <div className="mt-4 flex items-center justify-end gap-3">
-                {problem && dirty ? <span className="text-xs text-amber-700 dark:text-amber-300">{problem}</span> : null}
-                <Button type="button" variant="solid" disabled={Boolean(problem)} loading={saving} onClick={() => void save()}>
+                {problem && dirty ? (
+                    <span className="text-xs text-amber-700 dark:text-amber-300">
+                        {problem}
+                    </span>
+                ) : null}
+                <Button
+                    type="button"
+                    variant="solid"
+                    disabled={Boolean(problem)}
+                    loading={saving}
+                    onClick={() => void save()}
+                >
                     {editing ? 'Save draft' : 'Create draft'}
                 </Button>
             </div>

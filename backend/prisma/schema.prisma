@@ -4356,6 +4356,8 @@ model SdQuotation {
   subtotal           Decimal           @default(0) @db.Decimal(18, 2)
   totalAmount        Decimal           @default(0) @db.Decimal(18, 2)
   notes              String?
+  /// Customer-facing payment terms printed on the PDF (free text, e.g. "50% on order, 50% on delivery").
+  paymentTerms       String?
   sentBy             String?
   sentAt             DateTime?
   /// Accept / reject actor; `decisionReason` is required for REJECTED.
@@ -4367,6 +4369,8 @@ model SdQuotation {
   cancelReason       String?
   convertedBy        String?
   convertedAt        DateTime?
+  /// Last successful cover-email delivery of this revision's PDF; null until the rep emails it.
+  lastEmailedAt      DateTime?
   createdBy          String?
   updatedBy          String?
   createdAt          DateTime          @default(now())
@@ -4374,6 +4378,7 @@ model SdQuotation {
   lines              SdQuotationLine[]
   sections           SdQuotationSection[]
   events             SdQuotationEvent[]
+  documents          SdQuotationDocument[]
   salesOrder         SdSalesOrder?
 
   @@unique([quotationNumber, revision])
@@ -4435,6 +4440,66 @@ model SdQuotationSection {
 
   @@unique([quotationId, beforeLineNumber])
   @@map("sd_quotation_sections")
+}
+
+/// PDF snapshot of one quotation revision: the exact bytes emailed to the customer. Created on the
+/// first successful email and reused by every resend, so the attachment and the in-app download
+/// always match. Bytes live on disk (QUOTATION_DOCUMENT_DIR); the row carries the metadata.
+model SdQuotationDocument {
+  id          String      @id @default(cuid())
+  quotationId String
+  quotation   SdQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  revision    Int
+  /// Generated file name inside the quotation document folder (no path separators).
+  storageKey  String      @unique
+  contentType String      @default("application/pdf")
+  byteSize    Int
+  /// SHA-256 of the stored bytes, to prove the served file is the emailed one.
+  checksum    String
+  createdBy   String?
+  createdAt   DateTime    @default(now())
+
+  @@unique([quotationId, revision])
+  @@map("sd_quotation_documents")
+}
+
+/// Editable cover-email template for SD quotation emails. Only `{{placeholder}}` substitution is
+/// supported; the quotation PDF stays the commercial source of truth and is always attached.
+model SdEmailTemplate {
+  id        String   @id @default(cuid())
+  /// quotation_sent | quotation_resent (unique per module).
+  key       String   @unique
+  name      String
+  subject   String
+  bodyText  String
+  /// Optional authored HTML; when null the plain text is converted to safe HTML on send.
+  bodyHtml  String?
+  /// QUOTATION for now; keeps the table from becoming a global marketing engine.
+  module    String   @default("QUOTATION")
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([module, isActive])
+  @@map("sd_email_templates")
+}
+
+/// Quotation PDF layout profile (CRM › Documents › PDF templates): look only, never quotation data.
+/// The active default profile is used by every quotation PDF; see resolveQuotationPdfLayout().
+model SdPdfLayoutProfile {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  /// { showTin, showOpportunity, showPaymentTerms, marginTop, marginSide, disclaimer }
+  config      Json?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("sd_pdf_layout_profiles")
 }
 
 model SdFulfillment {

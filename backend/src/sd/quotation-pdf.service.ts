@@ -6,7 +6,6 @@ import {
     type QuotationPdfInput,
     type QuotationPdfModel,
 } from './quotation-pdf.model'
-
 /**
  * pdfkit's bundled type declarations export a document instance; at runtime the module exports the
  * `PDFDocument` constructor. This cast bridges that mismatch.
@@ -38,7 +37,6 @@ const STATUS_COLOR: Record<string, string> = {
     CONVERTED: COLOR.success,
 }
 
-const MARGIN = 48
 const FOOTER_BAND = 28
 
 /** All amounts render as ASCII-safe currency (e.g. `PHP 2,350.00`); see `formatQuotationMoney`. */
@@ -57,9 +55,10 @@ export class QuotationPdfService {
         if (!model.lines.length) {
             throw new BadRequestException('A quotation without lines cannot be turned into a PDF')
         }
+        const { marginTop, marginSide } = model.layout
         const doc = new PDFDocument({
             size: 'A4',
-            margins: { top: MARGIN, bottom: MARGIN + FOOTER_BAND, left: MARGIN, right: MARGIN },
+            margins: { top: marginTop, bottom: marginTop + FOOTER_BAND, left: marginSide, right: marginSide },
             bufferPages: true,
             info: {
                 Title: `${model.quotation.number} rev ${model.quotation.revision}`,
@@ -121,7 +120,7 @@ export class QuotationPdfService {
             doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
             doc.text(model.company.address, left, doc.y, { width: width * 0.62 })
         }
-        if (model.company.tin) {
+        if (model.layout.showTin && model.company.tin) {
             doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
             doc.text(`TIN: ${model.company.tin}`, left, doc.y, { width: width * 0.62 })
         }
@@ -168,7 +167,10 @@ export class QuotationPdfService {
         if (model.quotation.validUntil) {
             doc.text(`Valid until: ${model.quotation.validUntil}`, rx, doc.y, { width: colW })
         }
-        if (model.opportunityName) {
+        if (model.layout.showPaymentTerms && model.paymentTerms) {
+            doc.text(`Payment terms: ${model.paymentTerms}`, rx, doc.y, { width: colW })
+        }
+        if (model.layout.showOpportunity && model.opportunityName) {
             doc.text(`Opportunity: ${model.opportunityName}`, rx, doc.y, { width: colW })
         }
         const rightBottom = doc.y

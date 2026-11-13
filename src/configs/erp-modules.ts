@@ -360,6 +360,14 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/crm/tickets',
                         icon: 'clipboard',
                     },
+                    {
+                        code: 'documents',
+                        title: 'Documents',
+                        description:
+                            'Quotation cover-email templates and the PDF layout sent to customers.',
+                        path: '/crm/documents',
+                        icon: 'fileText',
+                    },
                 ],
             },
         ],

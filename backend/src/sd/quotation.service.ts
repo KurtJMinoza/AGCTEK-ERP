@@ -29,6 +29,7 @@ import {
     type QuotationAction,
 } from './quotation.rules'
 import { QUOTATION_PDF_DEFAULT_COMPANY, type QuotationPdfInput } from './quotation-pdf.model'
+import type { QuotationPdfLayoutConfig } from './quotation-pdf-layout'
 
 type Client = Prisma.TransactionClient
 
@@ -68,6 +69,11 @@ export type QuotationEventAction =
     | 'CANCELLED'
     | 'EXPIRED'
     | 'CONVERTED'
+    | 'PDF_STORED'
+    | 'EMAIL_SENT'
+    | 'EMAIL_RESENT'
+    | 'EMAIL_FAILED'
+    | 'EMAIL_SKIPPED'
 
 const DECISION_EVENTS: Partial<Record<QuotationAction, QuotationEventAction>> = {
     ACCEPT: 'ACCEPTED',
@@ -85,7 +91,7 @@ type QuotationEventInput = {
 }
 
 /** Append-only lifecycle row, written in the caller's transaction together with the change. */
-function recordQuotationEvent(client: Client, event: QuotationEventInput) {
+export function recordQuotationEvent(client: Client, event: QuotationEventInput) {
     return client.sdQuotationEvent.create({ data: { ...event, note: event.note ?? null } })
 }
 
@@ -113,11 +119,12 @@ export class QuotationService {
 
     /**
      * Assembles the printable model input for the PDF endpoint. Read-only: loads the quotation,
-     * its customer, the linked opportunity name and the default company letterhead; never writes.
+     * its customer, the linked opportunity name, the default company letterhead and the default PDF
+     * layout profile (CRM › Documents); never writes.
      */
     async pdfInput(id: string): Promise<QuotationPdfInput> {
         const view = await this.findOne(id)
-        const [customer, opportunity, company] = await Promise.all([
+        const [customer, opportunity, company, layoutProfile] = await Promise.all([
             this.prisma.sdCustomer.findUnique({
                 where: { id: view.customerId },
                 select: { companyName: true, contactName: true, email: true, phone: true },
@@ -130,6 +137,10 @@ export class QuotationService {
                 where: { code: QUOTATION_PDF_DEFAULT_COMPANY },
                 select: { name: true, address: true, tin: true },
             }),
+            this.prisma.sdPdfLayoutProfile.findFirst({
+                where: { isDefault: true, isActive: true },
+                select: { config: true },
+            }),
         ])
         return {
             quotationNumber: view.quotationNumber,
@@ -141,6 +152,7 @@ export class QuotationService {
             notes: view.notes,
             subtotal: view.subtotal,
             totalAmount: view.totalAmount,
+            paymentTerms: view.paymentTerms,
             lines: view.lines.map((line) => ({
                 lineNumber: line.lineNumber,
                 sku: line.sku,
@@ -153,6 +165,7 @@ export class QuotationService {
             customer: customer ?? { companyName: 'Unknown customer' },
             opportunityName: opportunity?.name ?? null,
             company,
+            layout: (layoutProfile?.config as QuotationPdfLayoutConfig | null | undefined) ?? null,
         }
     }
 
@@ -218,6 +231,9 @@ export class QuotationService {
                     subtotal: pricing.subtotal,
                     totalAmount: pricing.subtotal,
                     ...(input.notes !== undefined && { notes: input.notes.trim() || null }),
+                    ...(input.paymentTerms !== undefined && {
+                        paymentTerms: input.paymentTerms.trim() || null,
+                    }),
                     updatedBy: userId,
                 },
             })
@@ -247,6 +263,8 @@ export class QuotationService {
      * DRAFT → SENT, freezing prices. The draft is re-priced first: if any unit price changed, the new
      * prices are saved on the draft and 409 QUOTATION_PRICES_CHANGED is returned so the rep reviews them
      * before sending. Unavailable products and an unbillable customer also block sending.
+     * Sending never emails by itself; the rep composes the cover email afterwards
+     * (QuotationEmailService / POST /sd/quotations/:id/email).
      */
     async send(id: string, input: SendQuotationInput, userId: string) {
         const now = new Date()
@@ -316,6 +334,7 @@ export class QuotationService {
                 changedLines: outcome.changedLines,
             })
         }
+
         return this.findOne(id)
     }
 
@@ -404,6 +423,7 @@ export class QuotationService {
                         subtotal,
                         totalAmount: subtotal,
                         notes: current.notes,
+                        paymentTerms: current.paymentTerms,
                         createdBy: userId,
                         updatedBy: userId,
                         lines: { create: lines },
@@ -688,6 +708,7 @@ export class QuotationService {
                 subtotal: pricing.subtotal,
                 totalAmount: pricing.subtotal,
                 notes: input.notes?.trim() || null,
+                paymentTerms: input.paymentTerms?.trim() || null,
                 createdBy: input.createdBy,
                 updatedBy: input.createdBy,
                 lines: { create: pricing.lines.map(lineData) },
