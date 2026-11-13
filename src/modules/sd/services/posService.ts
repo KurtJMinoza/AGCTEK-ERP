@@ -53,6 +53,8 @@ export type PosReceiptLine = {
     sku: string
     description: string | null
     variantName: string | null
+    /** Scannable barcode of the line (variant, else MM material). */
+    barcode: string | null
     quantity: number
     unitPrice: number
     lineTotal: number
@@ -82,6 +84,16 @@ export type PosReceipt = {
     posSessionId: string | null
     cashierUserId: string | null
     customerName: string | null
+    /** Set when the sale was voided. */
+    voidedAt?: string | null
+    voidedBy?: string | null
+    voidReason?: string | null
+    /** SALE for a completed sale, VOID for the reversal transaction that follows it. */
+    transactionType?: 'SALE' | 'VOID'
+    /** Number of the void transaction that reversed this sale. */
+    voidTransactionNumber?: string | null
+    /** Receipt number of the sale that a void transaction reversed. */
+    originalReceiptNumber?: string | null
     lines: PosReceiptLine[]
     subtotal: number
     discountAmount: number
@@ -334,6 +346,75 @@ export async function createPosCustomer(input: {
         return data
     } catch (error) {
         throw toApiError(error, 'Unable to add the customer')
+    }
+}
+
+/** The POS sales of a branch (transaction history). */
+export async function listPosOrders(params: {
+    companyId?: string | null
+    branchId?: string | null
+    limit?: number
+}): Promise<PosReceipt[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<PosReceipt[]>('/sd/pos/orders', {
+            params: {
+                companyId: params.companyId || undefined,
+                branchId: params.branchId || undefined,
+                limit: params.limit,
+            },
+        })
+        return data ?? []
+    } catch (error) {
+        throw toApiError(error, 'Unable to load the transactions')
+    }
+}
+
+/** The receipt of one sale (reprint). */
+export async function getPosReceipt(orderId: string): Promise<PosReceipt> {
+    try {
+        const { data } = await ErpAxiosBase.get<PosReceipt>(
+            `/sd/pos/orders/${encodeURIComponent(orderId)}/receipt`,
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load the receipt')
+    }
+}
+
+/** The void transaction recorded for a voided sale. */
+export type PosVoidResult = {
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber: string | null
+    status: string
+    voidedAt: string | null
+    voidedBy: string | null
+    voidReason: string | null
+    tendersCancelled: number
+    /** Number of the void transaction recorded after the sale. */
+    voidTransactionNumber: string | null
+    /** Reversed amount (negative). */
+    voidedAmount: number
+}
+
+/**
+ * Voids a completed sale: the stock returns to the shelf, the tenders are
+ * cancelled and a void transaction is recorded after the sale. A reason is
+ * required.
+ */
+export async function voidPosSale(
+    orderId: string,
+    reason: string,
+    voidedBy?: string | null,
+): Promise<PosVoidResult> {
+    try {
+        const { data } = await ErpAxiosBase.post<PosVoidResult>(
+            `/sd/pos/orders/${encodeURIComponent(orderId)}/void`,
+            { reason: reason.trim(), voidedBy: voidedBy ?? undefined },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to void the sale')
     }
 }
 

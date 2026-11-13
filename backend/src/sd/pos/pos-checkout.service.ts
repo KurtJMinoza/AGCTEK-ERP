@@ -22,6 +22,13 @@ import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
+/** Barcode of the MM material behind an order line (receipt display). */
+const MATERIAL_BARCODE_INCLUDE = {
+    select: {
+        barcodes: { select: { barcodeValue: true, isPrimary: true } },
+    },
+} as const
+
 type ResolvedLine = {
     sku: string
     variantId?: string
@@ -48,10 +55,22 @@ export type PosReceipt = {
     posSessionId: string | null
     cashierUserId: string | null
     customerName: string | null
+    /** Set when the sale was voided. */
+    voidedAt?: string | null
+    voidReason?: string | null
+    voidedBy?: string | null
+    /** SALE for a completed sale, VOID for the reversal transaction that follows it. */
+    transactionType?: 'SALE' | 'VOID'
+    /** Number of the void transaction that reversed this sale. */
+    voidTransactionNumber?: string | null
+    /** Receipt number of the sale that a void transaction reversed. */
+    originalReceiptNumber?: string | null
     lines: Array<{
         sku: string
         description: string | null
         variantName: string | null
+        /** Scannable barcode of the line (variant, else MM material). */
+        barcode: string | null
         quantity: number
         unitPrice: number
         lineTotal: number
@@ -153,6 +172,72 @@ export class PosCheckoutService {
         }
     }
 
+    /** The receipt of an existing POS sale (reprint, transaction history). */
+    async receiptFor(orderId: string): Promise<PosReceipt> {
+        const order = await this.prisma.sdSalesOrder.findFirst({
+            where: { id: orderId, channel: 'POS' },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+            },
+        })
+        if (!order) throw new NotFoundException('Sale not found')
+        return this.receipt(order as never, order.payments)
+    }
+
+    /** The POS sales of a branch, newest first (transaction history). */
+    async listReceipts(args: {
+        companyId?: string | null
+        branchId?: string | null
+        limit?: number
+    }): Promise<PosReceipt[]> {
+        const orders = await this.prisma.sdSalesOrder.findMany({
+            where: {
+                channel: 'POS',
+                ...(args.companyId ? { companyId: args.companyId } : {}),
+                ...(args.branchId ? { branchId: args.branchId } : {}),
+            },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+                voidTransaction: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: Math.min(args.limit ?? 50, 200),
+        })
+        // The history is a ledger: a void is its own transaction, so it follows
+        // the completed sale it reversed. The sale keeps its void stamp.
+        return orders.flatMap((order) => {
+            const sale = this.receipt(order as never, order.payments)
+            if (!order.voidTransaction) return [sale]
+            return [
+                {
+                    ...sale,
+                    transactionType: 'SALE' as const,
+                    voidTransactionNumber:
+                        order.voidTransaction.voidNumber,
+                },
+                {
+                    ...sale,
+                    receiptNumber: order.voidTransaction.voidNumber,
+                    originalReceiptNumber: sale.receiptNumber,
+                    transactionType: 'VOID' as const,
+                    voidTransactionNumber:
+                        order.voidTransaction.voidNumber,
+                    status: 'VOID',
+                    completedAt:
+                        order.voidTransaction.createdAt.toISOString(),
+                    total: Number(order.voidTransaction.amount),
+                    tendered: 0,
+                    change: 0,
+                    tenders: [],
+                    lines: [],
+                    warnings: [],
+                },
+            ]
+        })
+    }
+
     async complete(dto: PosCheckoutDto): Promise<PosReceipt> {
         const companyId = dto.companyId?.trim() || null
         if (!companyId) {
@@ -175,7 +260,10 @@ export class PosCheckoutService {
         // A repeated checkout of the same cart returns the sale that exists.
         const existing = await this.prisma.sdSalesOrder.findUnique({
             where: { idempotencyKey: dto.idempotencyKey },
-            include: { lines: true, payments: true },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+            },
         })
         if (existing) {
             return this.receipt(existing, existing.payments ?? [])
@@ -286,7 +374,10 @@ export class PosCheckoutService {
                 cashierUserId: dto.cashierUserId ?? null,
                 receiptNumber,
             },
-            include: { lines: true, payments: true },
+            include: {
+                lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
+                payments: true,
+            },
         })
 
         if (salaryLoan) {
@@ -664,6 +755,9 @@ export class PosCheckoutService {
             posSessionId: string | null
             cashierUserId: string | null
             customerName: string | null
+            voidedAt?: Date | null
+            voidedBy?: string | null
+            voidReason?: string | null
             subtotal: Prisma.Decimal | null
             discountAmount: Prisma.Decimal | null
             taxAmount: Prisma.Decimal | null
@@ -675,6 +769,13 @@ export class PosCheckoutService {
                 sku: string | null
                 description: string | null
                 variantName: string | null
+                variantBarcode?: string | null
+                material?: {
+                    barcodes?: Array<{
+                        barcodeValue: string
+                        isPrimary: boolean
+                    }>
+                } | null
                 quantity: Prisma.Decimal
                 unitPrice: Prisma.Decimal | null
                 lineTotal: Prisma.Decimal | null
@@ -705,12 +806,22 @@ export class PosCheckoutService {
             posSessionId: order.posSessionId,
             cashierUserId: order.cashierUserId,
             customerName: order.customerName,
+            voidedAt: order.voidedAt?.toISOString() ?? null,
+            voidedBy: order.voidedBy ?? null,
+            voidReason: order.voidReason ?? null,
             lines: order.lines.map((line) => {
                 const tax = taxBySku.get(line.sku ?? '')
                 return {
                     sku: line.sku ?? '',
                     description: line.description,
                     variantName: line.variantName,
+                    barcode:
+                        line.variantBarcode ??
+                        line.material?.barcodes?.find(
+                            (code) => code.isPrimary,
+                        )?.barcodeValue ??
+                        line.material?.barcodes?.[0]?.barcodeValue ??
+                        null,
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),
                     lineTotal: Number(line.lineTotal ?? 0),

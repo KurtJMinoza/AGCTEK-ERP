@@ -275,7 +275,7 @@ const POSCheckoutPanel = ({
                         disabled={lineCount === 0}
                         onClick={onVoid}
                     >
-                        Void transaction
+                        Void cart
                     </Button>
                 </div>
             </div>

@@ -148,6 +148,19 @@ export class SdIntegrationService {
         return { releasedCount: released.length, headers: released }
     }
 
+    /**
+     * Releases the demand of a voided sale: the goods issue was reversed, so
+     * the stock is back and the reservation of the cancelled sale goes.
+     */
+    async releaseVoidedDemand(sourceDocumentId: string) {
+        const released = await this.reservations.releaseVoidedDemand({
+            sourceModule: SD_SOURCE_MODULE,
+            sourceDocumentType: SD_SOURCE_DOCUMENT_TYPE,
+            sourceDocumentId,
+        })
+        return { releasedCount: released.length, headers: released }
+    }
+
     async adjustBySourceDocument(
         sourceDocumentId: string,
         dto: SdAdjustDemandDto,

@@ -259,6 +259,57 @@ describe('PosCheckoutService', () => {
         )
     })
 
+    it('lists the void transaction after the completed sale it reversed', async () => {
+        prisma.sdSalesOrder.findMany = jest.fn().mockResolvedValue([
+            {
+                ...order,
+                status: 'CANCELLED',
+                receiptNumber: 'RCP-000005',
+                voidedAt: new Date('2026-11-13T01:00:00.000Z'),
+                voidedBy: 'cashier-1',
+                voidReason: 'Wrong item scanned',
+                payments: [],
+                voidTransaction: {
+                    voidNumber: 'V-RCP-000005',
+                    amount: -7300,
+                    reason: 'Wrong item scanned',
+                    voidedBy: 'cashier-1',
+                    createdAt: new Date('2026-11-13T01:00:00.000Z'),
+                },
+            },
+        ])
+
+        const rows = await service.listReceipts({ companyId: COMPANY_ID })
+
+        expect(rows).toHaveLength(2)
+        expect(rows[0]).toMatchObject({
+            receiptNumber: 'RCP-000005',
+            status: 'CANCELLED',
+            transactionType: 'SALE',
+            voidTransactionNumber: 'V-RCP-000005',
+        })
+        expect(rows[1]).toMatchObject({
+            receiptNumber: 'V-RCP-000005',
+            status: 'VOID',
+            transactionType: 'VOID',
+            originalReceiptNumber: 'RCP-000005',
+            voidTransactionNumber: 'V-RCP-000005',
+            total: -7300,
+            tenders: [],
+        })
+    })
+
+    it('lists a sale that was not voided on its own', async () => {
+        prisma.sdSalesOrder.findMany = jest
+            .fn()
+            .mockResolvedValue([{ ...order, payments: [], voidTransaction: null }])
+
+        const rows = await service.listReceipts({ companyId: COMPANY_ID })
+
+        expect(rows).toHaveLength(1)
+        expect(rows[0].receiptNumber).toBe('POS-000001')
+    })
+
     it('replays the same checkout without posting anything twice', async () => {
         prisma.sdSalesOrder.findUnique.mockResolvedValue({
             ...order,

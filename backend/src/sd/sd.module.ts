@@ -57,6 +57,7 @@ import { PosCheckoutService } from './pos/pos-checkout.service'
 import { PosSessionService } from './pos/pos-session.service'
 import { PosHoldService } from './pos/pos-hold.service'
 import { PosCustomerService } from './pos/pos-customer.service'
+import { PosVoidService } from './pos/pos-void.service'
 
 @Module({
     imports: [
@@ -122,6 +123,7 @@ import { PosCustomerService } from './pos/pos-customer.service'
         PosSessionService,
         PosHoldService,
         PosCustomerService,
+        PosVoidService,
     ],
     exports: [
         SalesOrderService,

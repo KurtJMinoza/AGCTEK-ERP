@@ -9,6 +9,7 @@ import {
 import { RequirePermission } from '../../permissions/permission.guard'
 import { PosCheckoutService } from './pos-checkout.service'
 import { PosCustomerService } from './pos-customer.service'
+import { PosVoidService } from './pos-void.service'
 import { PosSessionService } from './pos-session.service'
 import { PosHoldService } from './pos-hold.service'
 import {
@@ -20,6 +21,7 @@ import {
     PosCheckoutDto,
     PosCustomerDto,
     PosQuoteDto,
+    PosVoidDto,
 } from './dto/pos.dto'
 
 /**
@@ -35,7 +37,40 @@ export class PosController {
         private readonly sessions: PosSessionService,
         private readonly holds: PosHoldService,
         private readonly customers: PosCustomerService,
+        private readonly voids: PosVoidService,
     ) {}
+
+    /** The POS sales of a branch (transaction history). */
+    @Get('orders')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'read')
+    listOrders(
+        @Query('companyId') companyId?: string,
+        @Query('branchId') branchId?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.checkout.listReceipts({
+            companyId: companyId ?? null,
+            branchId: branchId ?? null,
+            limit: limit ? Number(limit) : undefined,
+        })
+    }
+
+    /** The receipt of one sale (reprint). */
+    @Get('orders/:id/receipt')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'read')
+    orderReceipt(@Param('id') id: string) {
+        return this.checkout.receiptFor(id)
+    }
+
+    /** Void a completed sale: the stock returns and the tenders are cancelled. */
+    @Post('orders/:id/void')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'update')
+    voidOrder(
+        @Param('id') id: string,
+        @Body() dto: PosVoidDto,
+    ) {
+        return this.voids.voidSale(id, dto)
+    }
 
     /**
      * The Customer Master record of a name typed at the register: the existing

@@ -164,6 +164,20 @@ export class PosCheckoutDto {
     createdBy?: string
 }
 
+/** Void of a completed POS sale. */
+export class PosVoidDto {
+    /** Why the sale is voided (kept on the sale and in the audit). */
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(500)
+    reason!: string
+
+    /** Cashier (User id) that voided the sale. */
+    @IsOptional()
+    @IsString()
+    voidedBy?: string
+}
+
 /** A customer typed at the register (existing customer or first-time buyer). */
 export class PosCustomerDto {
     /** Name of the customer (an individual or a company). */

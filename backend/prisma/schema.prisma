@@ -5130,6 +5130,10 @@ model SdSalesOrder {
   cashierUserId      String?
   /// Printed receipt number (POS); unique per company.
   receiptNumber      String?
+  /// POS void: when the sale was voided, by whom and why.
+  voidedAt           DateTime?
+  voidedBy           String?
+  voidReason         String?
   /// POS cash tendered / change given
   paymentReceived    Decimal?
   changeAmount       Decimal?
@@ -5170,6 +5174,8 @@ model SdSalesOrder {
   returnRequests     SdReturnRequest[]
   payments           SdSalesOrderPayment[]
   productReviews     ProductReview[]
+  /// The void transaction that reversed this POS sale (POS only, at most one).
+  voidTransaction    SdPosVoidTransaction?
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -5817,6 +5823,36 @@ model SdPosHold {
   @@index([companyId, status])
   @@index([branchId, createdAt])
   @@map("sd_pos_holds")
+}
+
+/// POS void transaction: the reversal entry recorded after a completed sale.
+/// The sale keeps its own void stamp for the receipt; this row is the
+/// transaction the register history shows next to the sale it reversed.
+model SdPosVoidTransaction {
+  id                    String        @id @default(cuid())
+  /// Void document number, e.g. V-RCP-000005.
+  voidNumber            String
+  /// The sale that was reversed; one void transaction per sale.
+  salesOrderId          String        @unique
+  salesOrder            SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  /// Receipt number of the sale that was reversed.
+  originalReceiptNumber String?
+  companyId             String?
+  branchId              String?
+  posSessionId          String?
+  /// Cashier that voided the sale (falls back to the sale's cashier).
+  cashierUserId         String?
+  currency              String        @default("PHP")
+  /// Reversed amount, negative: the history adds it to the sale.
+  amount                Decimal
+  reason                String
+  voidedBy              String?
+  createdAt             DateTime      @default(now())
+
+  @@unique([companyId, voidNumber])
+  @@index([companyId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("sd_pos_void_transactions")
 }
 
 model SdEventOutbox {

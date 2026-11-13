@@ -13,6 +13,7 @@ import {
     HiOutlineOfficeBuilding,
     HiOutlinePlus,
     HiOutlinePrinter,
+    HiOutlineClipboardList,
     HiOutlineQrcode,
     HiOutlineSearch,
     HiOutlineShoppingCart,
@@ -58,6 +59,8 @@ import {
     completePosCheckout,
     createPosCustomer,
     discardPosHold,
+    getPosReceipt,
+    listPosOrders,
     getCurrentPosSession,
     getPosSessionCollections,
     holdPosSale,
@@ -66,6 +69,7 @@ import {
     pricePOSCart,
     quotePosCart,
     resumePosHold,
+    voidPosSale,
     type PosHold,
     type PosQuote,
     type PosReceipt,
@@ -81,6 +85,8 @@ import POSTenderDialog from '../components/POSTenderDialog'
 import POSCustomerDialog, {
     type PosCustomerDetails,
 } from '../components/POSCustomerDialog'
+import POSTransactionsDialog from '../components/POSTransactionsDialog'
+import POSVoidDialog from '../components/POSVoidDialog'
 import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
 import {
@@ -191,6 +197,13 @@ const POSDashboard = () => {
     const [customersLoading, setCustomersLoading] = useState(false)
     const [addingCustomer, setAddingCustomer] = useState(false)
     const [customerDialogOpen, setCustomerDialogOpen] = useState(false)
+    /** Transaction history of the register. */
+    const [transactionsOpen, setTransactionsOpen] = useState(false)
+    const [transactionsLoading, setTransactionsLoading] = useState(false)
+    const [receipts, setReceipts] = useState<PosReceipt[]>([])
+    /** The sale that is voided (the void dialog). */
+    const [voidTarget, setVoidTarget] = useState<PosReceipt | null>(null)
+    const [voiding, setVoiding] = useState(false)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -509,6 +522,57 @@ const POSDashboard = () => {
             throw error
         } finally {
             setAddingCustomer(false)
+        }
+    }
+
+    /** The POS sales of the register (transaction history). */
+    const openTransactions = async () => {
+        setTransactionsOpen(true)
+        setTransactionsLoading(true)
+        try {
+            setReceipts(
+                await listPosOrders({
+                    companyId,
+                    branchId,
+                    limit: 50,
+                }),
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not load the transactions',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to load the transactions',
+            )
+        } finally {
+            setTransactionsLoading(false)
+        }
+    }
+
+    /** Voids a completed sale: the stock returns and the tenders are cancelled. */
+    const handleVoidSale = async (reason: string) => {
+        if (!voidTarget) return
+        setVoiding(true)
+        try {
+            await voidPosSale(
+                voidTarget.salesOrderId,
+                reason,
+                cashierUserId,
+            )
+            const fresh = await getPosReceipt(voidTarget.salesOrderId)
+            setReceipt(fresh)
+            setVoidTarget(null)
+            void refreshStock()
+            void loadShift()
+            await openTransactions()
+            notify(
+                'success',
+                'Sale voided',
+                `${fresh.receiptNumber} is voided; the stock and the drawer are back.`,
+            )
+        } finally {
+            setVoiding(false)
         }
     }
 
@@ -1292,6 +1356,14 @@ const POSDashboard = () => {
                                 <span className="font-semibold heading-text">
                                     {terminalCode.trim() || 'POS-01'}
                                 </span>
+                                <Button
+                                    size="sm"
+                                    variant="plain"
+                                    icon={<HiOutlineClipboardList />}
+                                    onClick={() => void openTransactions()}
+                                >
+                                    Transactions
+                                </Button>
                                 {shift ? (
                                     <>
                                         <span>
@@ -1731,9 +1803,9 @@ const POSDashboard = () => {
             <ConfirmDialog
                 isOpen={confirmVoidOpen}
                 type="danger"
-                title="Void Transaction?"
+                title="Void this cart?"
                 cancelText="Cancel"
-                confirmText="Confirm Void"
+                confirmText="Void cart"
                 confirmButtonProps={{
                     customColorClass: () =>
                         'bg-red-500 hover:bg-red-600 text-white',
@@ -1747,9 +1819,36 @@ const POSDashboard = () => {
             >
                 <p>
                     Are you sure you want to clear this cart? All scanned items
-                    will be removed.
+                    will be removed. Nothing was charged.
                 </p>
             </ConfirmDialog>
+            {/* Transaction history — reprint a receipt or void a sale. */}
+            <POSTransactionsDialog
+                isOpen={transactionsOpen}
+                loading={transactionsLoading}
+                receipts={receipts}
+                onClose={() => setTransactionsOpen(false)}
+                onShowReceipt={(row) => {
+                    setReceipt(row)
+                    setTransactionsOpen(false)
+                }}
+                onVoid={(row) => setVoidTarget(row)}
+                formatPrice={formatPrice}
+            />
+
+            {/* Void of a completed sale. */}
+            {voidTarget ? (
+                <POSVoidDialog
+                    isOpen
+                    receiptNumber={voidTarget.receiptNumber}
+                    amount={voidTarget.total}
+                    saving={voiding}
+                    onVoid={handleVoidSale}
+                    onClose={() => setVoidTarget(null)}
+                    formatPrice={formatPrice}
+                />
+            ) : null}
+
             {/* Customer form — a customer who is not in the master yet. */}
             {customerDialogOpen ? (
                 <POSCustomerDialog
@@ -1938,7 +2037,17 @@ const POSDashboard = () => {
                         ? 'Sale complete'
                         : `Sale ${receipt?.status ?? ''}`.trim()}
                 </h5>
-                {receipt && receipt.status !== 'COMPLETED' ? (
+                {receipt && receipt.status === 'CANCELLED' ? (
+                    <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                        This sale is voided
+                        {receipt.voidReason
+                            ? `: ${receipt.voidReason}`
+                            : '.'}{' '}
+                        The stock returned and the payment was taken out of the
+                        drawer.
+                    </p>
+                ) : null}
+                {receipt && receipt.status !== 'COMPLETED' && receipt.status !== 'CANCELLED' ? (
                     <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
                         This sale is not completed. Check the order before
                         handing the receipt to the customer.
@@ -1954,12 +2063,22 @@ const POSDashboard = () => {
                         />
                     </div>
                 ) : null}
-                <div className="mt-4 flex justify-end gap-2">
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {canCreate && (
                         <Button size="sm" onClick={() => setReceipt(null)}>
                             New sale
                         </Button>
                     )}
+                    {receipt?.status === 'COMPLETED' ? (
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            className="!text-red-500"
+                            onClick={() => setVoidTarget(receipt)}
+                        >
+                            Void sale
+                        </Button>
+                    ) : null}
                     <Button
                         size="sm"
                         variant="solid"

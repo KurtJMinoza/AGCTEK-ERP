@@ -68,6 +68,7 @@ const POSReceipt = ({
 }: POSReceiptProps) => {
     const completedAt = new Date(receipt.completedAt)
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
+    const voided = receipt.status === 'CANCELLED'
 
     return (
         <div
@@ -82,6 +83,11 @@ const POSReceipt = ({
                 </div>
                 <div>{AWIC_BRAND.fullName}</div>
                 <div className="mt-1">OFFICIAL RECEIPT</div>
+                {voided ? (
+                    <div className="mt-1 border border-black px-2 py-0.5 text-sm font-bold uppercase">
+                        VOIDED
+                    </div>
+                ) : null}
             </div>
             <Divider />
             <Row label="Branch" value={branchLabel(receipt.branchId, branchName)} />
@@ -110,6 +116,11 @@ const POSReceipt = ({
                     {line.variantName ? (
                         <div className="break-words text-[10px]">
                             Variant: {line.variantName}
+                        </div>
+                    ) : null}
+                    {line.barcode ? (
+                        <div className="break-words text-[10px]">
+                            Barcode: {line.barcode}
                         </div>
                     ) : null}
                     <Row
@@ -167,6 +178,18 @@ const POSReceipt = ({
                 </>
             ) : null}
             <Divider />
+            {voided && receipt.voidReason ? (
+                <>
+                    <Row label="Void reason" value={receipt.voidReason} />
+                    <Row
+                        label="Voided at"
+                        value={new Date(
+                            receipt.voidedAt ?? receipt.completedAt,
+                        ).toLocaleString('en-PH')}
+                    />
+                    <Divider />
+                </>
+            ) : null}
             <div className="text-center">
                 <div>Thank you for shopping!</div>
                 <div className="mt-1 text-[10px]">{receipt.receiptNumber}</div>

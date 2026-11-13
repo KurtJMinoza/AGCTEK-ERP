@@ -156,6 +156,16 @@ const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
             <div>
                 <div className="font-mono text-xs">{row.original.sku}</div>
                 <div className="text-xs text-gray-500">{row.original.name}</div>
+                {row.original.variantName ? (
+                    <div className="text-xs text-gray-500">
+                        {row.original.variantName}
+                    </div>
+                ) : null}
+                {row.original.variantBarcode ? (
+                    <div className="font-mono text-[10px] text-gray-500">
+                        Barcode: {row.original.variantBarcode}
+                    </div>
+                ) : null}
             </div>
         ),
     },
