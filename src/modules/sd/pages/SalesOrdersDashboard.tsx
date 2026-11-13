@@ -97,6 +97,7 @@ const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
         return (
             <StatusBadge
                 tone="warning"
+                className="whitespace-nowrap"
                 prefix={<HiOutlineDesktopComputer className="mr-1" />}
             >
                 POS Fast-Track
@@ -107,13 +108,14 @@ const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
         return (
             <StatusBadge
                 tone="info"
+                className="whitespace-nowrap"
                 prefix={<HiOutlineGlobeAlt className="mr-1" />}
             >
                 E-commerce
             </StatusBadge>
         )
     }
-    return <StatusBadge>Standard</StatusBadge>
+    return <StatusBadge className="whitespace-nowrap">Standard</StatusBadge>
 }
 
 const STATUS_TONE: Record<SalesOrderRecord['status'], StatusTone> = {
@@ -141,7 +143,9 @@ const canRecordPayment = (order: SalesOrderRecord) => {
 }
 
 const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
-    <StatusBadge tone={STATUS_TONE[status]}>{status}</StatusBadge>
+    <StatusBadge tone={STATUS_TONE[status]} className="whitespace-nowrap">
+        {status}
+    </StatusBadge>
 )
 
 const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
@@ -428,7 +432,8 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Channel',
                 id: 'channel',
-                size: 96,
+                size: 152,
+                minSize: 132,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => (
                     <ChannelBadge channel={row.original.channel} />
@@ -491,7 +496,8 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Status',
                 id: 'orderStatus',
-                size: 108,
+                size: 144,
+                minSize: 124,
                 cell: ({ row }) => <StatusCell status={row.original.status} />,
             },
             {
@@ -525,7 +531,8 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Paid',
                 id: 'paymentStatus',
-                size: 96,
+                size: 152,
+                minSize: 132,
                 meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const payment = row.original.payment
@@ -533,6 +540,7 @@ const SalesOrdersDashboard = () => {
                         return <span className="text-gray-400">—</span>
                     return (
                         <StatusBadge
+                            className="whitespace-nowrap"
                             tone={
                                 payment.status === 'Paid'
                                     ? 'success'
