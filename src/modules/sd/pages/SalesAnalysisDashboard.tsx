@@ -1,5 +1,6 @@
 'use client'
 
+import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     HiOutlineCalendar,
@@ -10,8 +11,13 @@ import {
     HiOutlineRefresh,
     HiOutlineShoppingCart,
     HiOutlineUserGroup,
+    HiOutlineViewGrid,
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
+import {
+    SalesLineReportFilterTrigger,
+    SalesLineReportFiltersPanel,
+} from '../components/SalesLineReportFiltersPanel'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ErpBackLink from '@/components/erp/ErpBackLink'
@@ -20,7 +26,6 @@ import { type ColumnDef } from '@/components/shared/DataTable'
 import Chart from '@/components/shared/Chart'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
-import Segment from '@/components/ui/Segment'
 import Skeleton from '@/components/ui/Skeleton'
 import Progress from '@/components/ui/Progress'
 import Tag from '@/components/ui/Tag'
@@ -28,12 +33,7 @@ import Alert from '@/components/ui/Alert'
 import { COLORS } from '@/constants/chart.constant'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import SdDataTable from '../components/SdDataTable'
-import {
-    SdDateCell,
-    SdDocCell,
-    SdMoneyCell,
-    formatSdMoney,
-} from '../components/SdDataTableCells'
+import { SdMoneyCell, formatSdMoney } from '../components/SdDataTableCells'
 import {
     CustomerAvatar,
     EmptyState,
@@ -43,6 +43,12 @@ import {
     TopCustomersList,
     sharePercent,
 } from '../components/SalesAnalysisWidgets'
+import SalesLineReportDialog from '../components/SalesLineReportDialog'
+import SalesAnalyticsPeriodFilters, {
+    toYmd,
+} from '../components/SalesAnalyticsPeriodFilters'
+import { buildSalesLineReportColumns } from '../components/salesLineReportColumns'
+import { useSalesLineReportFilters } from '../components/salesLineReportFilters'
 import {
     fetchSalesAnalytics,
     type SalesAnalytics,
@@ -51,13 +57,6 @@ import {
 } from '../services/salesAnalyticsService'
 
 const ROUTE_PATH = '/modules/sd/sales-analysis'
-
-const RANGE_OPTIONS: { value: SalesAnalyticsRange; label: string }[] = [
-    { value: 'today', label: 'Today' },
-    { value: '7days', label: 'Last 7 days' },
-    { value: 'month', label: 'This month' },
-    { value: 'ytd', label: 'Year to date' },
-]
 
 type ChannelOption = { value: SalesAnalyticsChannel; label: string }
 
@@ -74,7 +73,6 @@ const CHANNEL_LABEL: Record<string, string> = {
 }
 
 type TopProduct = SalesAnalytics['topProducts'][number]
-type RecentOrder = SalesAnalytics['recentOrders'][number]
 
 const productKey = (product: TopProduct) => product.sku ?? product.productName
 
@@ -119,10 +117,35 @@ const SalesAnalysisDashboard = () => {
     const [selectedProductKey, setSelectedProductKey] = useState<
         string | null
     >(null)
+    const [lineReportOpen, setLineReportOpen] = useState(false)
+    const [lineReportFiltersOpen, setLineReportFiltersOpen] = useState(false)
+    const [customFrom, setCustomFrom] = useState<Date | null>(() =>
+        dayjs().startOf('month').toDate(),
+    )
+    const [customTo, setCustomTo] = useState<Date | null>(() => new Date())
+    const [appliedCustomFrom, setAppliedCustomFrom] = useState<string | null>(
+        null,
+    )
+    const [appliedCustomTo, setAppliedCustomTo] = useState<string | null>(null)
 
     useEffect(() => {
+        if (
+            dateRange === 'custom' &&
+            (!appliedCustomFrom || !appliedCustomTo)
+        ) {
+            return
+        }
         let active = true
-        fetchSalesAnalytics({ range: dateRange, channel })
+        const params =
+            dateRange === 'custom'
+                ? {
+                      range: 'custom' as const,
+                      channel,
+                      from: appliedCustomFrom!,
+                      to: appliedCustomTo!,
+                  }
+                : { range: dateRange, channel }
+        fetchSalesAnalytics(params)
             .then((result) => {
                 if (!active) return
                 setData(result)
@@ -142,11 +165,24 @@ const SalesAnalysisDashboard = () => {
         return () => {
             active = false
         }
-    }, [dateRange, channel, reloadKey])
+    }, [dateRange, channel, reloadKey, appliedCustomFrom, appliedCustomTo])
 
     const changeRange = (next: SalesAnalyticsRange) => {
-        setLoading(true)
         setDateRange(next)
+        if (next !== 'custom') {
+            setAppliedCustomFrom(null)
+            setAppliedCustomTo(null)
+            setLoading(true)
+        } else if (!appliedCustomFrom || !appliedCustomTo) {
+            setLoading(false)
+        }
+    }
+    const applyCustomPeriod = () => {
+        if (!customFrom || !customTo) return
+        setLoading(true)
+        setDateRange('custom')
+        setAppliedCustomFrom(toYmd(customFrom))
+        setAppliedCustomTo(toYmd(customTo))
     }
     const changeChannel = (next: SalesAnalyticsChannel) => {
         setLoading(true)
@@ -171,11 +207,15 @@ const SalesAnalysisDashboard = () => {
     const buyersPanelRef = useRef<HTMLDivElement>(null)
     const selectProduct = useCallback((key: string) => {
         setSelectedProductKey(key)
+    }, [])
+
+    useEffect(() => {
+        if (!selectedProductKey) return
         buyersPanelRef.current?.scrollIntoView({
             behavior: 'smooth',
             block: 'nearest',
         })
-    }, [])
+    }, [selectedProductKey])
     const productByName = useMemo(
         () => new Map(products.map((p) => [p.productName, p])),
         [products],
@@ -322,108 +362,36 @@ const SalesAnalysisDashboard = () => {
         [currency, totalRevenue, selectedProduct, selectProduct],
     )
 
-    const recentColumns = useMemo<ColumnDef<RecentOrder>[]>(
-        () => [
-            {
-                header: 'Order',
-                id: 'order',
-                cell: ({ row }) => (
-                    <SdDocCell
-                        primary={row.original.orderNumber}
-                        secondary={
-                            CHANNEL_LABEL[row.original.channel] ??
-                            row.original.channel
-                        }
-                    />
-                ),
-            },
-            {
-                header: 'Date',
-                id: 'date',
-                cell: ({ row }) => (
-                    <SdDateCell value={row.original.createdAt} withTime />
-                ),
-            },
-            {
-                header: 'Customer',
-                id: 'customer',
-                cell: ({ row }) => (
-                    <div className="flex min-w-[10rem] items-center gap-2">
-                        <CustomerAvatar
-                            name={row.original.customerName}
-                            size={28}
-                        />
-                        <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium heading-text">
-                                {row.original.customerName}
-                            </span>
-                            {row.original.customerNumber ? (
-                                <span className="block font-mono text-[11px] text-gray-500">
-                                    {row.original.customerNumber}
-                                </span>
-                            ) : null}
-                        </span>
-                    </div>
-                ),
-            },
-            {
-                header: 'Products',
-                id: 'products',
-                cell: ({ row }) => {
-                    if (!row.original.products.length) {
-                        return <span className="text-gray-400">—</span>
-                    }
-                    return (
-                        <ul className="min-w-[12rem] max-w-[22rem] space-y-0.5">
-                            {row.original.products.map((name) => {
-                                const product = productByName.get(name)
-                                return (
-                                    <li key={name} className="truncate text-sm">
-                                        {product ? (
-                                            <button
-                                                type="button"
-                                                className="max-w-full truncate text-left hover:text-primary hover:underline"
-                                                title="Show who bought this product"
-                                                onClick={() =>
-                                                    selectProduct(
-                                                        productKey(product),
-                                                    )
-                                                }
-                                            >
-                                                {name}
-                                            </button>
-                                        ) : (
-                                            name
-                                        )}
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                    )
-                },
-            },
-            {
-                header: 'Units',
-                id: 'units',
-                cell: ({ row }) => (
-                    <span className="tabular-nums">
-                        {row.original.units.toLocaleString('en-PH')}
-                    </span>
-                ),
-            },
-            {
-                header: 'Amount',
-                id: 'amount',
-                cell: ({ row }) => (
-                    <SdMoneyCell
-                        emphasize
-                        amount={row.original.revenue}
-                        currency={currency}
-                    />
-                ),
-            },
-        ],
-        [currency, productByName, selectProduct],
+    const lineReport = data?.lineReport ?? []
+    const {
+        filteredRows: filteredLineReport,
+        fields: lineReportFilterFields,
+        chips: lineReportFilterChips,
+        clearFilters: clearLineReportFilters,
+        hasActiveFilters: lineReportFiltersActive,
+    } = useSalesLineReportFilters(lineReport)
+
+    const lineReportPeriodLabel = data
+        ? `${formatPeriodDate(data.from)} – ${formatPeriodDate(data.to)} · ${CHANNEL_LABEL[data.channel] ?? data.channel}`
+        : undefined
+
+    const onLineParticularClick = useCallback(
+        (particular: string) => {
+            const product = productByName.get(particular)
+            if (product) selectProduct(productKey(product))
+        },
+        [productByName, selectProduct],
+    )
+
+    const lineReportSummaryColumns = useMemo(
+        () =>
+            buildSalesLineReportColumns({
+                variant: 'summary',
+                currency,
+                productByName,
+                onParticularClick: onLineParticularClick,
+            }),
+        [currency, productByName, onLineParticularClick],
     )
 
     const kpis = data
@@ -499,24 +467,18 @@ const SalesAnalysisDashboard = () => {
             />
 
             <AdaptiveCard className="mb-4" bodyClass="p-3 sm:p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <Segment
-                        size="sm"
-                        value={dateRange}
-                        onChange={(value) =>
-                            changeRange(value as SalesAnalyticsRange)
-                        }
-                    >
-                        {RANGE_OPTIONS.map((option) => (
-                            <Segment.Item
-                                key={option.value}
-                                value={option.value}
-                            >
-                                {option.label}
-                            </Segment.Item>
-                        ))}
-                    </Segment>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <SalesAnalyticsPeriodFilters
+                        dateRange={dateRange}
+                        onDateRangeChange={changeRange}
+                        customFrom={customFrom}
+                        customTo={customTo}
+                        onCustomFromChange={setCustomFrom}
+                        onCustomToChange={setCustomTo}
+                        onApplyCustom={applyCustomPeriod}
+                        loading={loading}
+                    />
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center lg:pt-0">
                         {data ? (
                             <div className="flex items-center gap-2 text-xs text-gray-500">
                                 <HiOutlineCalendar className="text-base text-gray-400" />
@@ -843,26 +805,107 @@ const SalesAnalysisDashboard = () => {
                 </div>
             </div>
 
-            <AdaptiveCard>
-                <SectionTitle
-                    title="Recent sales"
-                    description="Latest orders in the period — click a product to see all its buyers"
-                />
-                {loading ? (
-                    <div className="space-y-3">
-                        {Array.from({ length: 5 }, (_, i) => (
-                            <Skeleton key={i} height={40} />
-                        ))}
-                    </div>
-                ) : (
-                    <SdDataTable
-                        columns={recentColumns}
-                        data={data?.recentOrders ?? []}
-                        noData={!data?.recentOrders.length}
-                        hidePagination
+            <AdaptiveCard bodyClass="p-0 sm:p-0">
+                <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700 sm:px-5">
+                    <SectionTitle
+                        title="Detailed sales report"
+                        description="Key fields per sale line — open the complete report for cost, SRP, discount and invoice columns"
+                        extra={
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                {data ? (
+                                    <Tag>
+                                        {filteredLineReport.length.toLocaleString(
+                                            'en-PH',
+                                        )}{' '}
+                                        line
+                                        {filteredLineReport.length === 1
+                                            ? ''
+                                            : 's'}
+                                        {lineReportFiltersActive
+                                            ? ` · ${lineReport.length} total`
+                                            : ''}
+                                    </Tag>
+                                ) : null}
+                                {!loading && lineReport.length ? (
+                                    <SalesLineReportFilterTrigger
+                                        activeCount={
+                                            lineReportFilterChips.length
+                                        }
+                                        onClick={() =>
+                                            setLineReportFiltersOpen(true)
+                                        }
+                                    />
+                                ) : null}
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    icon={<HiOutlineViewGrid />}
+                                    disabled={
+                                        loading || !filteredLineReport.length
+                                    }
+                                    onClick={() => setLineReportOpen(true)}
+                                >
+                                    View complete report
+                                </Button>
+                            </div>
+                        }
                     />
-                )}
+                </div>
+                <div className="px-2 pb-3 sm:px-3">
+                    {loading ? (
+                        <div className="space-y-3 p-3">
+                            {Array.from({ length: 8 }, (_, i) => (
+                                <Skeleton key={i} height={36} />
+                            ))}
+                        </div>
+                    ) : (
+                        <SdDataTable
+                            columns={
+                                lineReportSummaryColumns as ColumnDef<unknown>[]
+                            }
+                            data={filteredLineReport}
+                            noData={!filteredLineReport.length}
+                            hidePagination
+                            compact
+                        />
+                    )}
+                </div>
             </AdaptiveCard>
+
+            <SalesLineReportFiltersPanel
+                isOpen={lineReportFiltersOpen}
+                filterFields={lineReportFilterFields}
+                filterChips={lineReportFilterChips}
+                customFrom={customFrom}
+                customTo={customTo}
+                loading={loading}
+                onClose={() => setLineReportFiltersOpen(false)}
+                onClearFilters={clearLineReportFilters}
+                onCustomFromChange={setCustomFrom}
+                onCustomToChange={setCustomTo}
+                onApplyCustomPeriod={applyCustomPeriod}
+            />
+
+            <SalesLineReportDialog
+                isOpen={lineReportOpen}
+                rows={filteredLineReport}
+                totalLines={lineReport.length}
+                currency={currency}
+                periodLabel={lineReportPeriodLabel}
+                productByName={productByName}
+                onParticularClick={onLineParticularClick}
+                filterFields={lineReportFilterFields}
+                filterChips={lineReportFilterChips}
+                onClearFilters={clearLineReportFilters}
+                activeFilterCount={lineReportFilterChips.length}
+                customFrom={customFrom}
+                customTo={customTo}
+                onCustomFromChange={setCustomFrom}
+                onCustomToChange={setCustomTo}
+                onApplyCustomPeriod={applyCustomPeriod}
+                loading={loading}
+                onClose={() => setLineReportOpen(false)}
+            />
         </PageContainer>
     )
 }

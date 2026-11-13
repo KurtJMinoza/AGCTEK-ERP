@@ -1,6 +1,7 @@
 import {
     bucketLabels,
     previousWindow,
+    resolveCustomRange,
     resolveRange,
 } from './sales-analytics.service'
 
@@ -32,6 +33,17 @@ describe('bucketLabels', () => {
             '2026-10-16',
             '2026-10-17',
         ])
+    })
+
+    it('resolves an inclusive Manila custom range', () => {
+        const { from, to, bucket } = resolveCustomRange(
+            '2026-10-11',
+            '2026-10-17',
+            NOW,
+        )
+        expect(from.toISOString()).toBe('2026-10-10T16:00:00.000Z')
+        expect(to.toISOString()).toBe(NOW.toISOString())
+        expect(bucket).toBe('day')
     })
 
     it('compares against the window of the same length just before', () => {

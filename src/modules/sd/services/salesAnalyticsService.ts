@@ -1,7 +1,12 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError } from './apiError'
 
-export type SalesAnalyticsRange = 'today' | '7days' | 'month' | 'ytd'
+export type SalesAnalyticsRange =
+    | 'today'
+    | '7days'
+    | 'month'
+    | 'ytd'
+    | 'custom'
 export type SalesAnalyticsChannel = 'ALL' | 'ECOMMERCE' | 'POS'
 
 export type SalesAnalyticsTotals = {
@@ -11,6 +16,29 @@ export type SalesAnalyticsTotals = {
     totalUnits: number
     /** Distinct buyers; walk-in sales without a name count as one. */
     uniqueCustomers: number
+}
+
+export type SalesLineReportRow = {
+    productImageUrl: string | null
+    customerName: string
+    location: string
+    barcode: string
+    accountTitle: string
+    particular: string
+    quantity: number
+    uom: string
+    unitCost: number
+    totalCost: number
+    srp: number
+    sales: number
+    discount: number
+    subtotal: number
+    totalSales: number
+    salesType: string
+    invoiceType: string
+    invoiceNumber: string
+    orderNumber: string
+    createdAt: string
 }
 
 export type SalesAnalyticsBuyer = {
@@ -66,11 +94,15 @@ export type SalesAnalytics = SalesAnalyticsTotals & {
         units: number
         products: string[]
     }>
+    /** One row per order line — mirrors the legacy sales register layout. */
+    lineReport: SalesLineReportRow[]
 }
 
 export async function fetchSalesAnalytics(params: {
     range: SalesAnalyticsRange
     channel: SalesAnalyticsChannel
+    from?: string
+    to?: string
 }): Promise<SalesAnalytics> {
     try {
         const { data } = await ErpAxiosBase.get<SalesAnalytics>(
