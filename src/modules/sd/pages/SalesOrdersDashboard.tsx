@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
     HiOutlineCheck,
-    HiOutlineDesktopComputer,
     HiOutlineEye,
-    HiOutlineGlobeAlt,
     HiOutlineRefresh,
     HiOutlineSearch,
     HiOutlineX,
@@ -19,11 +17,17 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import { SdDocCell, SdMoneyCell } from '../components/SdDataTableCells'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
-import Dialog from '@/components/ui/Dialog'
+import SalesOrderDetailDialog from '../components/SalesOrderDetailDialog'
+import {
+    formatOrderDateTime,
+    formatOrderPrice,
+    SalesOrderChannelBadge,
+    SalesOrderStatusBadge,
+} from '../components/salesOrderPresentation'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Tabs from '@/components/ui/Tabs'
@@ -40,11 +44,6 @@ import {
     type SalesOrderDateRange,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
-import {
-    isCommercialResolutionBlocked,
-    RESOLUTION_LABEL,
-    RESOLUTION_TONE,
-} from '../services/customerReturnRequestService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
@@ -79,58 +78,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         { placement: 'top-end' },
     )
 
-const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-        minimumFractionDigits: 2,
-    }).format(value)
-
-const formatDateTime = (iso: string) =>
-    new Date(iso).toLocaleString('en-PH', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    })
-
-/** Units on the order (the number the register receipt shows). */
-const itemCountOf = (order: SalesOrderRecord) =>
-    order.lines.reduce((sum, line) => sum + line.quantity, 0)
-
-const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
-    if (channel === 'POS') {
-        return (
-            <StatusBadge
-                tone="warning"
-                className="whitespace-nowrap"
-                prefix={<HiOutlineDesktopComputer className="mr-1" />}
-            >
-                POS Fast-Track
-            </StatusBadge>
-        )
-    }
-    if (channel === 'E-commerce') {
-        return (
-            <StatusBadge
-                tone="info"
-                className="whitespace-nowrap"
-                prefix={<HiOutlineGlobeAlt className="mr-1" />}
-            >
-                E-commerce
-            </StatusBadge>
-        )
-    }
-    return <StatusBadge className="whitespace-nowrap">Standard</StatusBadge>
-}
-
-const STATUS_TONE: Record<SalesOrderRecord['status'], StatusTone> = {
-    Completed: 'success',
-    Delivered: 'success',
-    Dispatched: 'info',
-    'Pending Delivery': 'warning',
-    Draft: 'default',
-    Cancelled: 'danger',
-}
-
 /** Admin-only payment collection follows commercial state, not UI visibility. */
 const canRecordPayment = (order: SalesOrderRecord) => {
     if (order.channel !== 'E-commerce' || !order.payment) return false
@@ -145,75 +92,6 @@ const canRecordPayment = (order: SalesOrderRecord) => {
     // A delivery-stage collection is specifically for unpaid COD orders.
     return order.status !== 'Delivered' || order.payment.method === 'COD'
 }
-
-const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
-    <StatusBadge tone={STATUS_TONE[status]} className="whitespace-nowrap">
-        {status}
-    </StatusBadge>
-)
-
-const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
-    {
-        header: 'Item',
-        id: 'sku',
-        cell: ({ row }) => {
-            const line = row.original
-            return (
-                <div className="flex items-center gap-3">
-                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
-                        {line.productImage ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                                src={line.productImage}
-                                alt={line.name}
-                                className="h-full w-full object-cover"
-                            />
-                        ) : (
-                            <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-gray-500 dark:text-gray-300">
-                                {line.name.trim().slice(0, 2)}
-                            </span>
-                        )}
-                    </div>
-                    <div className="min-w-0">
-                        <div className="truncate font-mono text-xs">
-                            {line.sku}
-                        </div>
-                        <div className="text-xs text-gray-500">{line.name}</div>
-                        {line.variantName ? (
-                            <div className="text-xs text-gray-500">
-                                {line.variantName}
-                            </div>
-                        ) : null}
-                        {line.variantBarcode ? (
-                            <div className="font-mono text-[10px] text-gray-500">
-                                Barcode: {line.variantBarcode}
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-            )
-        },
-    },
-    { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
-    {
-        header: 'Unit Price',
-        id: 'unitPrice',
-        cell: ({ row }) => (
-            <span className="whitespace-nowrap">
-                {formatPrice(row.original.unitPrice)}
-            </span>
-        ),
-    },
-    {
-        header: 'Line Total',
-        id: 'lineTotal',
-        cell: ({ row }) => (
-            <span className="whitespace-nowrap">
-                {formatPrice(row.original.lineTotal)}
-            </span>
-        ),
-    },
-]
 
 const SummaryStat = ({
     label,
@@ -460,7 +338,7 @@ const SalesOrdersDashboard = () => {
                 cell: ({ row }) => (
                     <SdDocCell
                         primary={row.original.orderId}
-                        secondary={formatDateTime(row.original.createdAt)}
+                        secondary={formatOrderDateTime(row.original.createdAt)}
                     />
                 ),
             },
@@ -471,7 +349,7 @@ const SalesOrdersDashboard = () => {
                 minSize: 132,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => (
-                    <ChannelBadge channel={row.original.channel} />
+                    <SalesOrderChannelBadge channel={row.original.channel} />
                 ),
             },
             {
@@ -533,7 +411,7 @@ const SalesOrdersDashboard = () => {
                 id: 'orderStatus',
                 size: 144,
                 minSize: 124,
-                cell: ({ row }) => <StatusCell status={row.original.status} />,
+                cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
             },
             {
                 header: 'Payment',
@@ -754,7 +632,7 @@ const SalesOrdersDashboard = () => {
                 <SummaryStat
                     className="col-span-2 sm:col-span-1"
                     label="Gross Sales"
-                    value={formatPrice(summary.totalRevenue)}
+                    value={formatOrderPrice(summary.totalRevenue)}
                 />
             </div>
 
@@ -768,287 +646,20 @@ const SalesOrdersDashboard = () => {
                 />
             </Card>
 
-            <Dialog
+            <SalesOrderDetailDialog
+                order={selected}
                 isOpen={selected !== null}
-                width={800}
+                branchName={
+                    selected ? branchNameOf(selected.branchId) : '—'
+                }
                 onClose={() => setSelected(null)}
-                onRequestClose={() => setSelected(null)}
-            >
-                {selected ? (
-                    <div className="flex flex-col gap-4">
-                        <div className="flex flex-wrap items-start justify-between gap-4 pr-8">
-                            <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h5 className="font-mono text-xl">
-                                        {selected.orderId}
-                                    </h5>
-                                    <ChannelBadge channel={selected.channel} />
-                                    <StatusCell status={selected.status} />
-                                </div>
-                                <p className="mt-1 text-sm text-gray-500">
-                                    {formatDateTime(selected.createdAt)}
-                                    {' · '}
-                                    {selected.lines.length}{' '}
-                                    {selected.lines.length === 1
-                                        ? 'line'
-                                        : 'lines'}
-                                    {' · '}
-                                    {itemCountOf(selected)}{' '}
-                                    {itemCountOf(selected) === 1
-                                        ? 'item'
-                                        : 'items'}
-                                </p>
-                            </div>
-                            <div className="shrink-0 rounded-xl border border-gray-200 px-4 py-2 text-right dark:border-gray-700">
-                                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                                    Order total
-                                </div>
-                                <div className="text-xl font-bold tabular-nums">
-                                    {formatPrice(selected.totalAmount)}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid gap-3 break-words sm:grid-cols-2">
-                            <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                                    Customer
-                                </h6>
-                                <div className="text-sm font-semibold">
-                                    {selected.customer.name}
-                                </div>
-                                <dl className="mt-2 space-y-1 text-xs">
-                                    <div className="flex justify-between gap-3">
-                                        <dt className="text-gray-500">Email</dt>
-                                        <dd className="truncate text-gray-700 dark:text-gray-200">
-                                            {selected.customer.email ?? '—'}
-                                        </dd>
-                                    </div>
-                                    <div className="flex justify-between gap-3">
-                                        <dt className="text-gray-500">
-                                            Company
-                                        </dt>
-                                        <dd className="text-right text-gray-700 dark:text-gray-200">
-                                            {selected.company?.name ?? '—'}
-                                        </dd>
-                                    </div>
-                                </dl>
-                            </section>
-                            <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                                    Order
-                                </h6>
-                                <dl className="space-y-1 text-xs">
-                                    <div className="flex justify-between gap-3">
-                                        <dt className="text-gray-500">
-                                            Branch
-                                        </dt>
-                                        <dd className="text-right text-gray-700 dark:text-gray-200">
-                                            {branchNameOf(selected.branchId)}
-                                        </dd>
-                                    </div>
-                                    <div className="flex justify-between gap-3">
-                                        <dt className="text-gray-500">
-                                            Created
-                                        </dt>
-                                        <dd className="text-right text-gray-700 dark:text-gray-200">
-                                            {formatDateTime(selected.createdAt)}
-                                        </dd>
-                                    </div>
-                                    <div className="flex justify-between gap-3">
-                                        <dt className="text-gray-500">
-                                            Channel
-                                        </dt>
-                                        <dd className="text-right text-gray-700 dark:text-gray-200">
-                                            {selected.channel}
-                                        </dd>
-                                    </div>
-                                </dl>
-                            </section>
-                        </div>
-                        <section>
-                            <div className="mb-2 flex items-center justify-between">
-                                <h6 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                                    Items
-                                </h6>
-                                <span className="text-xs text-gray-500">
-                                    {itemCountOf(selected)}{' '}
-                                    {itemCountOf(selected) === 1
-                                        ? 'item'
-                                        : 'items'}
-                                </span>
-                            </div>
-                            <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
-                                <div className="sm:max-h-[34vh] sm:overflow-y-auto">
-                                    <SdDataTable
-                                        columns={lineColumns}
-                                        data={selected.lines}
-                                        hidePagination
-                                    />
-                                </div>
-                            </div>
-                        </section>
-                        <div className="grid gap-3 text-sm sm:grid-cols-2">
-                            <div className="space-y-1.5 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                                    Summary
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-500">
-                                        Subtotal
-                                    </span>
-                                    <span>
-                                        {formatPrice(selected.subtotal)}
-                                    </span>
-                                </div>
-                                {selected.promoCode ? (
-                                    <div className="flex justify-between text-emerald-600">
-                                        <span>
-                                            Promo ({selected.promoCode})
-                                        </span>
-                                        <span>
-                                            −
-                                            {formatPrice(
-                                                selected.discountAmount,
-                                            )}
-                                        </span>
-                                    </div>
-                                ) : null}
-                                {selected.channel === 'E-commerce' ? (
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Shipping
-                                        </span>
-                                        <span>
-                                            {formatPrice(selected.shipping)}
-                                        </span>
-                                    </div>
-                                ) : null}
-                                <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
-                                    <span>Total</span>
-                                    <span>
-                                        {formatPrice(selected.totalAmount)}
-                                    </span>
-                                </div>
-                            </div>
-                            {selected.payment ? (
-                                <div className="space-y-1.5 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                                        Payment
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-gray-500">
-                                            Payment Method
-                                        </span>
-                                        <span className="flex items-center gap-2 font-medium">
-                                            {selected.payment.method &&
-                                            selected.payment.method in
-                                                PAYMENT_METHOD_LABEL
-                                                ? PAYMENT_METHOD_LABEL[
-                                                      selected.payment
-                                                          .method as keyof typeof PAYMENT_METHOD_LABEL
-                                                  ]
-                                                : selected.payment.method}
-                                            {selected.payment.isDemo ? (
-                                                <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
-                                                    Demo
-                                                </span>
-                                            ) : null}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-gray-500">
-                                            Payment Status
-                                        </span>
-                                        <StatusBadge
-                                            tone={
-                                                selected.payment.status ===
-                                                'Paid'
-                                                    ? 'success'
-                                                    : selected.payment
-                                                            .status === 'Failed'
-                                                      ? 'danger'
-                                                      : 'warning'
-                                            }
-                                        >
-                                            {selected.payment.status ?? '—'}
-                                        </StatusBadge>
-                                    </div>
-                                    {selected.paymentReceived !== null ? (
-                                        <>
-                                            <div className="flex justify-between gap-3">
-                                                <span className="text-gray-500">
-                                                    Cash
-                                                </span>
-                                                <span className="tabular-nums">
-                                                    {formatPrice(
-                                                        selected.paymentReceived,
-                                                    )}
-                                                </span>
-                                            </div>
-                                            <div className="flex justify-between gap-3">
-                                                <span className="text-gray-500">
-                                                    Change
-                                                </span>
-                                                <span className="tabular-nums">
-                                                    {formatPrice(
-                                                        selected.change ?? 0,
-                                                    )}
-                                                </span>
-                                            </div>
-                                        </>
-                                    ) : null}
-                                    {(() => {
-                                        const open =
-                                            selected.customerReturns?.find(
-                                                (r) =>
-                                                    !isCommercialResolutionBlocked(
-                                                        r.refundStatus,
-                                                    ) &&
-                                                    (r.preferredResolution ===
-                                                        'REFUND' ||
-                                                        r.preferredResolution ===
-                                                            'REPLACEMENT'),
-                                            )
-                                        if (!open?.preferredResolution)
-                                            return null
-                                        const res = open.preferredResolution
-                                        return (
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-gray-500">
-                                                    Customer return
-                                                </span>
-                                                <StatusBadge
-                                                    tone={
-                                                        RESOLUTION_TONE[res] ??
-                                                        'default'
-                                                    }
-                                                >
-                                                    {RESOLUTION_LABEL[res] ??
-                                                        res}
-                                                </StatusBadge>
-                                            </div>
-                                        )
-                                    })()}
-                                    {selected.payment.reference ? (
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-gray-500">
-                                                Reference
-                                            </span>
-                                            <span className="font-mono text-xs">
-                                                {selected.payment.reference}
-                                            </span>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            ) : null}
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
+                footer={
+                    selected ? (
+                        <>
                             {canUpdate && selected.status === 'Draft' ? (
                                 <Button
                                     size="sm"
                                     variant="solid"
-                                    className="flex-1 sm:flex-none"
                                     customColorClass={() =>
                                         'bg-emerald-600 hover:bg-emerald-700 text-white'
                                     }
@@ -1064,7 +675,6 @@ const SalesOrdersDashboard = () => {
                                 <Button
                                     size="sm"
                                     variant="solid"
-                                    className="flex-1 sm:flex-none"
                                     icon={<HiOutlineCheck />}
                                     loading={paymentUpdatingId === selected.id}
                                     onClick={() => void markPaid(selected)}
@@ -1082,15 +692,12 @@ const SalesOrdersDashboard = () => {
                                 <>
                                     {selected.status === 'Pending Delivery' ? (
                                         <>
-                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                                Fulfillment proceeds through
-                                                picking, packing, dispatch, and
-                                                delivery. Mark Completed is
-                                                available only after delivery.
-                                            </div>
+                                            <span className="mr-auto hidden text-xs text-gray-500 lg:inline">
+                                                Fulfillment via picking, pack,
+                                                dispatch, and delivery.
+                                            </span>
                                             <Button
                                                 size="sm"
-                                                className="flex-1 sm:flex-none"
                                                 loading={
                                                     fulfillmentStartingId ===
                                                     selected.id
@@ -1110,7 +717,6 @@ const SalesOrdersDashboard = () => {
                                                 <Button
                                                     size="sm"
                                                     variant="solid"
-                                                    className="flex-1 sm:flex-none"
                                                     customColorClass={() =>
                                                         'bg-red-500 hover:bg-red-600 text-white'
                                                     }
@@ -1131,15 +737,13 @@ const SalesOrdersDashboard = () => {
                                         </>
                                     ) : (
                                         <>
-                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                                Shipment delivered. Close the
-                                                commercial order when all
-                                                delivery evidence is accepted.
-                                            </div>
+                                            <span className="mr-auto hidden text-xs text-gray-500 lg:inline">
+                                                Mark completed after delivery
+                                                evidence is accepted.
+                                            </span>
                                             <Button
                                                 size="sm"
                                                 variant="solid"
-                                                className="flex-1 sm:flex-none"
                                                 icon={<HiOutlineCheck />}
                                                 loading={
                                                     updatingId === selected.id
@@ -1158,15 +762,15 @@ const SalesOrdersDashboard = () => {
                             ) : null}
                             <Button
                                 size="sm"
-                                className="w-full sm:w-auto"
+                                variant="solid"
                                 onClick={() => setSelected(null)}
                             >
                                 Close
                             </Button>
-                        </div>
-                    </div>
-                ) : null}
-            </Dialog>
+                        </>
+                    ) : null
+                }
+            />
 
             <ConfirmDialog
                 isOpen={confirmCancelOpen}
