@@ -15,6 +15,7 @@ import { MaterialResolutionService } from '../material-resolution.service'
 import { SdEventEmitterService } from '../sd-event-emitter.service'
 import { SD_EVENTS } from '../sd-event.types'
 import { PosSessionService } from './pos-session.service'
+import { PosCustomerService } from './pos-customer.service'
 import { allocateTenders, type PosTender } from './pos-tender'
 import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 
@@ -96,6 +97,7 @@ export class PosCheckoutService {
         private readonly materials: MaterialResolutionService,
         private readonly goodsIssue: GoodsIssueService,
         private readonly sdEvents: SdEventEmitterService,
+        private readonly customers: PosCustomerService,
     ) {}
 
     /**
@@ -206,11 +208,24 @@ export class PosCheckoutService {
             .map((line) => line.taxWarning)
             .filter((warning): warning is string => Boolean(warning))
 
+        // A customer typed at the register: the master record is created for a
+        // first-time buyer so the next sale finds them in the customer list.
+        const walkIn = !dto.customerId || dto.customerId === 'WALK-IN'
+        const customer =
+            walkIn && dto.customerName?.trim()
+                ? await this.customers.resolveByName(
+                      dto.customerName,
+                      dto.createdBy,
+                  )
+                : null
+        const customerId = customer?.id ?? dto.customerId
+        const customerName = customer?.companyName ?? dto.customerName
+
         const salaryLoan = tenders.find(
             (tender) => tender.method === 'SALARY_LOAN',
         )
         if (salaryLoan) {
-            await this.assertEmployeeCredit(dto.customerId, total)
+            await this.assertEmployeeCredit(customerId, total)
         }
 
         const order = await this.salesOrders.createRetail({
@@ -218,8 +233,8 @@ export class PosCheckoutService {
             idempotencyKey: dto.idempotencyKey,
             divisionId: dto.divisionId,
             branchId: dto.branchId,
-            customerId: dto.customerId,
-            customerName: dto.customerName ?? 'Walk-in customer',
+            customerId,
+            customerName: customerName ?? 'Walk-in customer',
             lines: lines.map((line) => ({
                 sku: line.sku,
                 variantId: line.variantId,
@@ -243,7 +258,7 @@ export class PosCheckoutService {
         await this.recordTenders({
             orderId: order.id,
             companyId: orderCompanyId,
-            customerId: dto.customerId,
+            customerId,
             sessionId: session.id,
             cashierUserId: dto.cashierUserId ?? null,
             tenders,
@@ -275,7 +290,7 @@ export class PosCheckoutService {
         })
 
         if (salaryLoan) {
-            await this.consumeEmployeeCredit(dto.customerId, total)
+            await this.consumeEmployeeCredit(customerId, total)
         }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
@@ -286,7 +301,7 @@ export class PosCheckoutService {
             branchId: dto.branchId,
             posSessionId: session.id,
             cashierUserId: dto.cashierUserId ?? null,
-            customerId: dto.customerId,
+            customerId,
             currency: 'PHP',
             subtotal: subtotal.toFixed(2),
             discountAmount: discountAmount.toFixed(2),

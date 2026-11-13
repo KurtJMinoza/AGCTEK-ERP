@@ -4728,7 +4728,8 @@ model SdCustomer {
   customerNumber  String        @unique
   companyName     String
   contactName     String
-  email           String        @unique
+  /// Optional: a POS walk-in customer is created with a name only.
+  email           String?       @unique
   phone           String        @default("")
   currency        String        @default("PHP")
   creditLimit     Decimal       @default(0) @db.Decimal(18, 2)

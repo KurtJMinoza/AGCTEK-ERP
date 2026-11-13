@@ -56,6 +56,7 @@ import { getCustomers } from '../services/customerMasterService'
 import {
     closePosSession,
     completePosCheckout,
+    createPosCustomer,
     discardPosHold,
     getCurrentPosSession,
     getPosSessionCollections,
@@ -185,6 +186,7 @@ const POSDashboard = () => {
         POSCustomerOption[]
     >([])
     const [customersLoading, setCustomersLoading] = useState(false)
+    const [addingCustomer, setAddingCustomer] = useState(false)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -429,6 +431,41 @@ const POSDashboard = () => {
         },
         [customersLoading],
     )
+
+    /** Adds a customer typed at the register to the customer list. */
+    const handleAddCustomer = async (name: string) => {
+        const clean = name.trim()
+        if (!clean) return
+        setAddingCustomer(true)
+        try {
+            const created = await createPosCustomer({
+                name: clean,
+                createdBy: cashierUserId,
+            })
+            setCustomer({
+                id: created.id,
+                name: created.companyName,
+                accountType: created.customerAccountType,
+            })
+            // The new customer belongs in the list of the next sales.
+            await loadCustomers('')
+            notify(
+                'success',
+                'Customer added',
+                `${created.companyName} is now in the customer list.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Could not add the customer',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to add the customer',
+            )
+        } finally {
+            setAddingCustomer(false)
+        }
+    }
 
     /** Sellable quantity of one line, or null when the stock is not known yet. */
     const availableFor = useCallback(
@@ -1505,6 +1542,10 @@ const POSDashboard = () => {
                         onSearchCustomers={(term: string) =>
                             void loadCustomers(term)
                         }
+                        onAddCustomer={(name: string) =>
+                            void handleAddCustomer(name)
+                        }
+                        addingCustomer={addingCustomer}
                         canPay={canCheckout}
                         onPay={() => {
                             // Quote the cart on the server right before the

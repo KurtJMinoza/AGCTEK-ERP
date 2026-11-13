@@ -1,8 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import NumericInput from '@/components/shared/NumericInput'
 import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
@@ -31,6 +33,9 @@ type POSCheckoutPanelProps = {
     onLoadCustomers: () => void
     /** Server-side search of the Customer Master while the cashier types. */
     onSearchCustomers: (term: string) => void
+    /** Creates (or finds) a customer for a name typed at the register. */
+    onAddCustomer: (name: string) => void
+    addingCustomer?: boolean
     /** The terminal can take money without an opened shift. */
     canPay: boolean
     onPay: () => void
@@ -58,6 +63,8 @@ const POSCheckoutPanel = ({
     customerOptions,
     onLoadCustomers,
     onSearchCustomers,
+    onAddCustomer,
+    addingCustomer = false,
     canPay,
     onPay,
     onHold,
@@ -66,6 +73,7 @@ const POSCheckoutPanel = ({
     formatPrice,
 }: POSCheckoutPanelProps) => {
     const total = amountDue ?? Number((subtotal - discountAmount).toFixed(2))
+    const [newCustomerName, setNewCustomerName] = useState('')
 
     return (
         <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700 xl:sticky xl:top-4">
@@ -190,6 +198,35 @@ const POSCheckoutPanel = ({
                             A salary deduction needs a CREDIT customer account.
                         </p>
                     )}
+                    <div className="mt-2 flex gap-2">
+                        <Input
+                            id="pos-new-customer"
+                            placeholder="New customer name"
+                            value={newCustomerName}
+                            onChange={(e) =>
+                                setNewCustomerName(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    onAddCustomer(newCustomerName)
+                                }
+                            }}
+                        />
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            loading={addingCustomer}
+                            disabled={!newCustomerName.trim()}
+                            onClick={() => onAddCustomer(newCustomerName)}
+                        >
+                            Add
+                        </Button>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                        A name you add is created in the customer list and
+                        linked to this sale.
+                    </p>
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">

@@ -298,6 +298,35 @@ export async function quotePosCart(payload: {
     }
 }
 
+/**
+ * The Customer Master record of a name typed at the register: the existing
+ * customer, or a new one created for a first-time buyer.
+ */
+export async function createPosCustomer(input: {
+    name: string
+    createdBy?: string | null
+}): Promise<{
+    id: string
+    companyName: string
+    customerNumber: string
+    customerAccountType: string
+}> {
+    try {
+        const { data } = await ErpAxiosBase.post<{
+            id: string
+            companyName: string
+            customerNumber: string
+            customerAccountType: string
+        }>('/sd/pos/customers', {
+            name: input.name.trim(),
+            createdBy: input.createdBy ?? undefined,
+        })
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to add the customer')
+    }
+}
+
 /** Completes the sale: tenders, goods issue, receipt (POST /sd/pos/checkout). */
 export async function completePosCheckout(
     payload: PosCheckoutPayload,

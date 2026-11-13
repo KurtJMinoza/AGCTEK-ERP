@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common'
 import { RequirePermission } from '../../permissions/permission.guard'
 import { PosCheckoutService } from './pos-checkout.service'
+import { PosCustomerService } from './pos-customer.service'
 import { PosSessionService } from './pos-session.service'
 import { PosHoldService } from './pos-hold.service'
 import {
@@ -17,6 +18,7 @@ import {
     ListPosSessionsQueryDto,
     OpenPosSessionDto,
     PosCheckoutDto,
+    PosCustomerDto,
     PosQuoteDto,
 } from './dto/pos.dto'
 
@@ -32,7 +34,18 @@ export class PosController {
         private readonly checkout: PosCheckoutService,
         private readonly sessions: PosSessionService,
         private readonly holds: PosHoldService,
+        private readonly customers: PosCustomerService,
     ) {}
+
+    /**
+     * The Customer Master record of a name typed at the register: the existing
+     * customer, or a new one created for a first-time buyer.
+     */
+    @Post('customers')
+    @RequirePermission(['sd.pos', 'sd.customer-master'], 'create')
+    createCustomer(@Body() dto: PosCustomerDto) {
+        return this.customers.resolveByName(dto.name, dto.createdBy)
+    }
 
     /** Amount due of a running cart (server prices, discount and tax). */
     @Post('quote')

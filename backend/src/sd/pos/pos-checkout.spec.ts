@@ -40,6 +40,7 @@ describe('PosCheckoutService', () => {
     let materials: any
     let goodsIssue: any
     let sdEvents: any
+    let customers: any
 
     const order = {
         id: 'order-1',
@@ -148,6 +149,12 @@ describe('PosCheckoutService', () => {
             post: jest.fn().mockResolvedValue({ id: 'gi-1', status: 'POSTED' }),
         }
         sdEvents = { emit: jest.fn().mockResolvedValue(undefined) }
+        customers = {
+            resolveByName: jest.fn().mockResolvedValue({
+                id: 'cust-1',
+                companyName: 'Walk-in customer',
+            }),
+        }
 
         service = new PosCheckoutService(
             prisma,
@@ -156,6 +163,7 @@ describe('PosCheckoutService', () => {
             materials,
             goodsIssue,
             sdEvents,
+            customers,
         )
     })
 

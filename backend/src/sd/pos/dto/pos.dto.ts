@@ -163,6 +163,18 @@ export class PosCheckoutDto {
     createdBy?: string
 }
 
+/** A customer typed at the register (existing customer or first-time buyer). */
+export class PosCustomerDto {
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(200)
+    name!: string
+
+    @IsOptional()
+    @IsString()
+    createdBy?: string
+}
+
 /**
  * Amount due of a running cart (server-side prices, discount and tax).
  * The terminal quotes the cart before the tender screen so the cashier
