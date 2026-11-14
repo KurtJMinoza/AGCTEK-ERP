@@ -5,6 +5,7 @@ import {
     updateCustomer,
     type CreateCustomerInput,
     type Customer,
+    type CustomerAccountType,
     type CustomerStatus,
     type UpdateCustomerInput,
 } from '../services/customerMasterService'
@@ -12,6 +13,7 @@ import {
 export type CustomerFilters = {
     search: string
     status: CustomerStatus | 'ALL'
+    customerAccountType: CustomerAccountType | 'ALL'
 }
 
 type CustomerState = {
@@ -34,7 +36,7 @@ let latestRequest = 0
 
 export const useCustomerStore = create<CustomerState>((set, get) => ({
     customers: [],
-    filters: { search: '', status: 'ALL' },
+    filters: { search: '', status: 'ALL', customerAccountType: 'ALL' },
     loading: false,
     error: null,
     lastFetchedAt: null,
@@ -48,6 +50,7 @@ export const useCustomerStore = create<CustomerState>((set, get) => ({
             const customers = await getCustomers({
                 search: filters.search,
                 status: filters.status === 'ALL' ? undefined : filters.status,
+                customerAccountType: filters.customerAccountType,
             })
             if (requestId !== latestRequest) return
             set({ customers, lastFetchedAt: Date.now() })

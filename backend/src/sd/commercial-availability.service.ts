@@ -77,6 +77,29 @@ export class CommercialAvailabilityService {
     }
 
     /**
+     * Company totals for MANY materials in one ledger read. The POS terminal
+     * polls this for the whole cart instead of one query per cart line.
+     */
+    async getCompanyMaterialLedgerBatch(
+        companyId: string,
+        materialIds: string[],
+    ): Promise<Map<string, CompanyMaterialLedger>> {
+        const totals = await this.inventoryAtp.getPickableMaterialTotalsBatch(
+            companyId,
+            materialIds,
+        )
+        const result = new Map<string, CompanyMaterialLedger>()
+        for (const [materialId, value] of totals) {
+            result.set(materialId, {
+                onHandQty: value.onHandQty,
+                availableQty: value.availableQty,
+                reservedQty: value.reservedQty,
+            })
+        }
+        return result
+    }
+
+    /**
      * The same MM ATP/ledger authority as getCompanyMaterialLedger, split by
      * an already-authorized warehouse scope. This lets Product Catalog show a
      * default warehouse when configured, or an honest active-warehouse
@@ -116,10 +139,14 @@ export class CommercialAvailabilityService {
      * sellable stock lines to their MM material/base quantity, combine duplicate
      * material requirements, then ask MM ATP for the fulfillment warehouse.
      *
+     * Used by both checkout channels: ECOMMERCE (marketplace cart) and POS
+     * (counter sale). A storefront quantity is only a request — this is where
+     * the live MM ATP decides whether the sale may happen.
+     *
      * This is a preflight only. The SD→MM reservation remains the concurrency
      * authority and rechecks ATP before it reserves stock.
      */
-    async assertMarketplaceCheckoutAvailability(args: {
+    async assertCheckoutAvailability(args: {
         companyId: string
         lines: ReadonlyArray<MarketplaceCheckoutLineDto>
         channel?: string

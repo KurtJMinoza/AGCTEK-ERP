@@ -232,6 +232,9 @@ model Company {
   updatedAt  DateTime     @updatedAt
   warehouses Warehouse[]
   materials  MmMaterial[]
+  mmMaterialTaxHistory MmMaterialTaxHistory[]
+  posSessions         SdPosSession[]
+  posHolds            SdPosHold[]
 
   inventoryTransactions       MmInventoryTransaction[]
   mmInventoryBalances         MmInventoryBalance[]
@@ -305,8 +308,6 @@ model Company {
   scanSessions                 MmScanSession[]
   rfidTags                     MmRfidTag[]
   scanOverrides                MmScanOverride[]
-  controlledDocuments          MmControlledDocument[]
-  complianceAuditEntries       MmComplianceAuditEntry[]
   dashboardAnalyticsCaches     MmDashboardAnalyticsCache[]
   sdSalesOrders                SdSalesOrder[]
   sdShipments                  SdShipment[]
@@ -1237,6 +1238,8 @@ model MmMaterial {
   sellable                     Boolean  @default(true)
   batchManaged                 Boolean  @default(false)
   serialManaged                Boolean  @default(false)
+  /// NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH
+  serialTrackingPolicy         String     @default("NOT_SERIALIZED")
   negativeStockAllowed         Boolean  @default(false)
   expiryManaged                Boolean  @default(false)
   /// Default shelf life in days (manufacture → expiry) when expiryManaged
@@ -1294,6 +1297,20 @@ model MmMaterial {
   preferredSupplierId String?
   preferredSupplier   MmSupplier? @relation("MaterialPreferredSupplier", fields: [preferredSupplierId], references: [id])
 
+  /// MM owns product tax classification. SD only reads this configuration.
+  /// VATABLE | VAT_EXEMPT | ZERO_RATED (null = not configured).
+  taxClassification String?
+  /// FICO Tax Code — the authoritative source of the tax rate. Never duplicated in MM/SD.
+  taxCodeId         String?
+  taxCode           FicoTaxCode? @relation("MaterialTaxCode", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  /// VAT_INCLUSIVE | VAT_EXCLUSIVE
+  priceTaxTreatment String?
+  /// ACTIVE | INACTIVE
+  taxStatus         String?
+  taxEffectiveFrom  DateTime? @db.Date
+  taxEffectiveTo    DateTime? @db.Date
+  taxDescription    String?
+
   createdBy String?
   updatedBy String?
   createdAt DateTime  @default(now())
@@ -1305,6 +1322,7 @@ model MmMaterial {
   batches           MmBatch[]
   serialNumbers     MmSerialNumber[]
   audits            MmMaterialAudit[]
+  taxHistory        MmMaterialTaxHistory[]
   attachments       MmMaterialAttachment[]
   uomConversions    MmUomConversion[]
   inventoryBalances WmInventoryBalance[]
@@ -1375,6 +1393,8 @@ model MmMaterial {
   @@index([materialCategoryId])
   @@index([abcClass])
   @@index([deletedAt])
+  @@index([taxCodeId])
+  @@index([companyId, taxClassification])
   @@map("mm_materials")
 }
 
@@ -1502,6 +1522,38 @@ model MmMaterialAudit {
 
   @@index([materialId, performedAt])
   @@map("mm_material_audits")
+}
+
+/// Append-only snapshot of every material tax configuration change.
+/// The tax rate is copied so history survives later FICO rate changes.
+model MmMaterialTaxHistory {
+  id                String       @id @default(cuid())
+  materialId        String
+  material          MmMaterial   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  companyId         String?
+  company           Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  taxClassification String?
+  taxCodeId         String?
+  taxCode           FicoTaxCode? @relation("MaterialTaxHistoryCode", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  taxCodeValue      String?
+  taxCodeName       String?
+  taxType           String?
+  taxRate           Decimal?     @db.Decimal(18, 6)
+  rateUnit          String?
+  priceTaxTreatment String?
+  taxStatus         String?
+  taxEffectiveFrom  DateTime?    @db.Date
+  taxEffectiveTo    DateTime?    @db.Date
+  taxDescription    String?
+  /// CREATE | UPDATE | CLEAR
+  changeType        String
+  changedBy         String?
+  createdAt         DateTime     @default(now())
+
+  @@index([materialId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([taxCodeId])
+  @@map("mm_material_tax_history")
 }
 
 model MmMaterialAttachment {
@@ -3883,7 +3935,17 @@ model FicoJournalEntry {
   totalAmount         Decimal                @db.Decimal(18, 4)
   currencyCode        String                 @db.VarChar(3)
   exchangeRate        Decimal?               @db.Decimal(18, 6)
-  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY
+  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY (GL posting state)
+  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | REVERSED
+  requiresApproval    Boolean                @default(true)
+  preparedBy          String?
+  preparedAt          DateTime?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  approvedBy          String?
+  approvedAt          DateTime?
+  rejectionReason     String?
+  rejectedAt          DateTime?
   sourceModule        String?
   sourceDocumentType  String?
   sourceDocumentId    String?
@@ -3902,6 +3964,7 @@ model FicoJournalEntry {
   @@unique([companyId, documentNumber])
   @@index([companyId, postingDate])
   @@index([companyId, status])
+  @@index([companyId, approvalStatus])
   @@index([fiscalPeriodId])
   @@index([sourceEventId])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])
@@ -4550,6 +4613,8 @@ model FicoTaxCode {
   updatedAt                        DateTime              @updatedAt
   taxRates                         FicoTaxRate[]
   auditLogs                        FicoTaxCodeAuditLog[]
+  materialTaxAssignments           MmMaterial[]             @relation("MaterialTaxCode")
+  materialTaxHistory               MmMaterialTaxHistory[]   @relation("MaterialTaxHistoryCode")
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -4663,16 +4728,25 @@ model SdCustomer {
   customerNumber  String        @unique
   companyName     String
   contactName     String
-  email           String        @unique
+  /// Optional: a POS walk-in customer is created with a name only.
+  email           String?       @unique
   phone           String        @default("")
   currency        String        @default("PHP")
   creditLimit     Decimal       @default(0) @db.Decimal(18, 2)
   /// creditLimit minus open exposure; server-maintained, negative when over limit.
   availableCredit Decimal       @default(0) @db.Decimal(18, 2)
-  /// ACTIVE | BLOCKED
+  /// ACTIVE | BLOCKED | INACTIVE
   status          String        @default("ACTIVE")
-  /// RETAIL (e-commerce shopper) | B2B (corporate account with credit)
-  customerType    String        @default("B2B")
+  /// NON_CREDIT (cash, no credit limit) | CREDIT (credit limit, approval workflow)
+  customerAccountType String   @default("NON_CREDIT")
+  /// RETAIL | CORPORATE | EMPLOYEE | WHOLESALE
+  customerCategory String      @default("RETAIL")
+  /// IMMEDIATE (pay now) | NET_30 (pay within terms)
+  paymentTerms    String        @default("IMMEDIATE")
+  /// NOT_APPLICABLE (non-credit) | PENDING | APPROVED | SUSPENDED
+  creditStatus    String        @default("NOT_APPLICABLE")
+  /// CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays
+  paymentMode     String        @default("CASH")
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
@@ -4692,7 +4766,7 @@ model SdCustomer {
 
   @@index([status])
   @@index([companyName])
-  @@index([customerType])
+  @@index([customerCategory])
   @@map("sd_customers")
 }
 
@@ -4777,6 +4851,63 @@ model SdPricingCondition {
   @@index([conditionType, validFrom])
   @@index([productId])
   @@map("sd_pricing_conditions")
+}
+
+/// One Excel bulk-import run shared by MM Material Master and the SD Product
+/// Catalog. Preview rows are stored so an administrator can review errors and
+/// retry only failed rows; a committed batch is never re-posted.
+model SdProductImportBatch {
+  id                   String   @id @default(cuid())
+  batchNumber          String   @unique
+  filename             String
+  /// SD | MM — entry point that uploaded the file.
+  source               String   @default("SD")
+  /// PREVIEW | COMMITTED | CANCELLED
+  status               String   @default("PREVIEW")
+  idempotencyKey       String?  @unique
+  companyId            String?
+  divisionId           String?
+  createdBy            String?
+  totalRows            Int      @default(0)
+  validRows            Int      @default(0)
+  invalidRows          Int      @default(0)
+  createdMaterialRows  Int      @default(0)
+  createdListingRows   Int      @default(0)
+  updatedRows          Int      @default(0)
+  duplicateBarcodeRows Int      @default(0)
+  summary              Json?
+  createdAt            DateTime @default(now())
+  committedAt          DateTime?
+  rows                 SdProductImportRow[]
+
+  @@index([status, createdAt])
+  @@map("sd_product_import_batches")
+}
+
+/// One spreadsheet row of a product import. `payload` keeps the mapped row so
+/// a retry re-runs exactly the same data; `errors` feeds the downloadable
+/// error report.
+model SdProductImportRow {
+  id           String              @id @default(cuid())
+  batchId      String
+  batch        SdProductImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber    Int
+  /// VALID | INVALID | IMPORTED | FAILED
+  status       String              @default("VALID")
+  /// UPDATE | ADD_LISTING | CREATE_MATERIAL
+  action       String?
+  payload      Json
+  errors       Json?
+  materialId   String?
+  productId    String?
+  variantId    String?
+  errorMessage String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+  @@map("sd_product_import_rows")
 }
 
 /// Customer review and star rating on an SD storefront product.
@@ -4990,6 +5121,19 @@ model SdSalesOrder {
   promoCode          String?
   shippingAmount     Decimal               @default(0)
   totalAmount        Decimal?
+  /// Tax amount derived from the MM tax classification (VAT split for the sale).
+  taxAmount          Decimal?
+  /// Cashier shift that completed this POS sale.
+  posSessionId       String?
+  posSession         SdPosSession?         @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  /// Cashier (User id) that served the sale.
+  cashierUserId      String?
+  /// Printed receipt number (POS); unique per company.
+  receiptNumber      String?
+  /// POS void: when the sale was voided, by whom and why.
+  voidedAt           DateTime?
+  voidedBy           String?
+  voidReason         String?
   /// POS cash tendered / change given
   paymentReceived    Decimal?
   changeAmount       Decimal?
@@ -5030,6 +5174,8 @@ model SdSalesOrder {
   returnRequests     SdReturnRequest[]
   payments           SdSalesOrderPayment[]
   productReviews     ProductReview[]
+  /// The void transaction that reversed this POS sale (POS only, at most one).
+  voidTransaction    SdPosVoidTransaction?
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -5037,6 +5183,7 @@ model SdSalesOrder {
   @@index([source, createdAt])
   @@index([branchId, createdAt])
   @@index([createdAt])
+  @@unique([companyId, receiptNumber])
   @@map("sd_sales_orders")
 }
 
@@ -5572,17 +5719,39 @@ model SdSalesOrderPayment {
   id              String       @id @default(cuid())
   companyId       String
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  salesOrderId    String       @unique
+  /// A sale may carry several tenders (split payment), so this is not unique.
+  salesOrderId    String
   salesOrder      SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   customerId      String
-  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO
+  /// COD | CARD_DEMO | WALLET_DEMO | QR_DEMO | BANK_TRANSFER_DEMO | CASH | GCASH | BANK_TRANSFER | CARD | CHEQUE | SALARY_LOAN
   paymentMethod   String
   paymentProvider String?
   amount          Decimal
+  /// Amount handed over for this tender (may exceed `amount` when cash change is returned).
+  tenderAmount    Decimal      @default(0)
+  /// Cash change returned to the customer for this tender.
+  changeAmount    Decimal      @default(0)
   currency        String       @default("PHP")
   /// Pending | Pending Collection | Pending Verification | Authorized | Paid | Failed | Cancelled | Refunded
   status          String       @default("Pending")
+  /// VERIFIED | PENDING | RECEIVABLE | REJECTED
+  verificationStatus String    @default("VERIFIED")
   referenceNumber String?
+  /// Cashier shift that collected this tender.
+  posSessionId    String?
+  posSession      SdPosSession? @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  /// Guards a repeated tender submission for the same sale.
+  idempotencyKey  String?      @unique
+  /// Bank name for a bank transfer tender.
+  bankName        String?
+  /// Transaction date reported by the payer (bank transfer / e-wallet).
+  transactionDate DateTime?
+  /// Employee number for a salary-deduction tender.
+  employeeNumber  String?
+  /// Payroll deduction reference for a salary-deduction tender.
+  payrollReference String?
+  /// Cashier (User id) that collected the tender.
+  collectedBy     String?
   isDemo          Boolean      @default(true)
   paidAt          DateTime?
   createdBy       String?
@@ -5590,7 +5759,100 @@ model SdSalesOrderPayment {
   updatedAt       DateTime     @updatedAt
 
   @@index([companyId, status])
+  @@index([salesOrderId])
+  @@index([posSessionId])
   @@map("sd_sales_order_payments")
+}
+
+/// Cashier shift (POS register session): opening float, collections, closing count.
+model SdPosSession {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Selling branch (MM branch id) the register belongs to.
+  branchId       String
+  /// Register / terminal label, e.g. "POS-01".
+  terminalCode   String
+  /// Cashier (User id) that opened the shift.
+  cashierUserId  String
+  /// Cash float at shift open.
+  openingCash    Decimal      @default(0)
+  /// OPEN | CLOSED
+  status         String       @default("OPEN")
+  openedAt       DateTime     @default(now())
+  closedAt       DateTime?
+  /// Cashier that closed the shift.
+  closedBy       String?
+  /// Cash expected in the drawer at close (computed from the collected tenders).
+  expectedCash   Decimal?
+  /// Cash counted by the cashier at close.
+  countedCash    Decimal?
+  /// countedCash - expectedCash (negative = short).
+  varianceCash   Decimal?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  payments   SdSalesOrderPayment[]
+  salesOrders SdSalesOrder[]
+  holds      SdPosHold[]
+
+  @@index([companyId, status])
+  @@index([branchId, status])
+  @@map("sd_pos_sessions")
+}
+
+/// Suspended ("held") POS sale: the cart parked while another customer is served.
+model SdPosHold {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branchId       String?
+  posSessionId   String?
+  posSession     SdPosSession? @relation(fields: [posSessionId], references: [id], onDelete: SetNull)
+  customerName   String?
+  /// Parked cart: lines, totals and the cashier note.
+  payload        Json
+  /// HELD | RESUMED | DISCARDED
+  status         String       @default("HELD")
+  createdBy      String?
+  createdAt      DateTime     @default(now())
+  resumedAt      DateTime?
+  expiresAt      DateTime?
+
+  @@index([companyId, status])
+  @@index([branchId, createdAt])
+  @@map("sd_pos_holds")
+}
+
+/// POS void transaction: the reversal entry recorded after a completed sale.
+/// The sale keeps its own void stamp for the receipt; this row is the
+/// transaction the register history shows next to the sale it reversed.
+model SdPosVoidTransaction {
+  id                    String        @id @default(cuid())
+  /// Void document number, e.g. V-RCP-000005.
+  voidNumber            String
+  /// The sale that was reversed; one void transaction per sale.
+  salesOrderId          String        @unique
+  salesOrder            SdSalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  /// Receipt number of the sale that was reversed.
+  originalReceiptNumber String?
+  companyId             String?
+  branchId              String?
+  posSessionId          String?
+  /// Cashier that voided the sale (falls back to the sale's cashier).
+  cashierUserId         String?
+  currency              String        @default("PHP")
+  /// Reversed amount, negative: the history adds it to the sale.
+  amount                Decimal
+  reason                String
+  voidedBy              String?
+  createdAt             DateTime      @default(now())
+
+  @@unique([companyId, voidNumber])
+  @@index([companyId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("sd_pos_void_transactions")
 }
 
 model SdEventOutbox {
@@ -7554,85 +7816,6 @@ model MmScanOverride {
 
   @@index([companyId, status])
   @@map("mm_scan_overrides")
-}
-
-model MmControlledDocument {
-  id                   String    @id @default(cuid())
-  documentNumber       String    @unique
-  title                String
-  documentType         String
-  companyId            String
-  company              Company   @relation(fields: [companyId], references: [id])
-  department           String?
-  processArea          String?
-  ownerUserId          String?
-  currentRevision      String?
-  /// DRAFT | UNDER_REVIEW | APPROVED | EFFECTIVE | SUPERSEDED | OBSOLETE | ARCHIVED
-  status               String    @default("DRAFT")
-  effectiveDate        DateTime?
-  reviewDate           DateTime?
-  expirationDate       DateTime?
-  confidentialityLevel String?
-  retentionPeriodDays  Int?
-  createdBy            String?
-  approvedBy           String?
-  archivedAt           DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  versions MmControlledDocumentVersion[]
-
-  @@index([companyId, status])
-  @@map("mm_controlled_documents")
-}
-
-model MmControlledDocumentVersion {
-  id             String               @id @default(cuid())
-  documentId     String
-  document       MmControlledDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  revisionNumber String
-  fileName       String
-  storageKey     String
-  mimeType       String?
-  fileSize       Int
-  fileChecksum   String
-  changeSummary  String?
-  authorUserId   String?
-  reviewerUserId String?
-  approverUserId String?
-  status         String               @default("DRAFT")
-  approvedAt     DateTime?
-  effectiveDate  DateTime?
-  obsoleteDate   DateTime?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-
-  @@unique([documentId, revisionNumber])
-  @@index([documentId])
-  @@map("mm_controlled_document_versions")
-}
-
-/// Append-only compliance audit read model (no update/delete from application)
-model MmComplianceAuditEntry {
-  id              String   @id @default(cuid())
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  domain          String
-  action          String
-  entityType      String?
-  entityId        String?
-  entityNumber    String?
-  performedBy     String?
-  performedByRole String?
-  previousValue   String?
-  newValue        String?
-  reason          String?
-  metadata        Json?
-  performedAt     DateTime @default(now())
-
-  @@index([companyId, performedAt])
-  @@index([domain])
-  @@map("mm_compliance_audit_entries")
 }
 
 /// Offline foundation — local queue replay validated server-side (never blind overwrite)

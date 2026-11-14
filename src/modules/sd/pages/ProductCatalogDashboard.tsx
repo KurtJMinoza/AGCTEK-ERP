@@ -12,7 +12,9 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ProductFormDialog from '../components/ProductFormDialog'
+import ProductImportDialog from '@/components/shared/ProductImportDialog'
 import AddVariantDialog from '../components/AddVariantDialog'
+import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import { productSellerLabel } from '../utils/productSellerLabel'
@@ -136,6 +138,8 @@ const ProductCatalogDashboard = () => {
     const [deleteBlocked, setDeleteBlocked] = useState(false)
     const [togglingId, setTogglingId] = useState<string | null>(null)
     const [addVariantProduct, setAddVariantProduct] = useState<SdProductRecord | null>(null)
+    const [importOpen, setImportOpen] = useState(false)
+    const [barcodeOpen, setBarcodeOpen] = useState(false)
 
     const fetchProducts = useCallback(async () => {
         setLoading(true)
@@ -421,6 +425,8 @@ const ProductCatalogDashboard = () => {
                 }}
                 onAddProduct={() => setDialog({ mode: 'create' })}
                 onAddVariant={(product) => setAddVariantProduct(product)}
+                onBulkImport={() => setImportOpen(true)}
+                onScanBarcode={() => setBarcodeOpen(true)}
                 onRefresh={() => void fetchProducts()}
             />
 
@@ -444,6 +450,23 @@ const ProductCatalogDashboard = () => {
                     }}
                 />
             ) : null}
+
+            <ProductImportDialog
+                isOpen={importOpen}
+                source="SD"
+                defaultDivisionId={RETAIL_DIVISION_ID}
+                onClose={() => setImportOpen(false)}
+                onImported={() => void fetchProducts()}
+            />
+
+            <BarcodeQuickAddDialog
+                isOpen={barcodeOpen}
+                companyId={
+                    companyFilter === 'all' ? undefined : companyFilter
+                }
+                onClose={() => setBarcodeOpen(false)}
+                onCreated={() => void fetchProducts()}
+            />
 
             <ConfirmDialog
                 isOpen={pendingDelete !== null}

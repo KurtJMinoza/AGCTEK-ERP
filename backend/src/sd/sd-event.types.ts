@@ -9,6 +9,10 @@ export const SD_EVENTS = {
      * publishes receivable clearance.
      */
     SALES_INVOICE_PAID: 'SalesInvoicePaid',
+    /** A POS sale was completed: tenders captured and stock issued. */
+    POS_SALE_COMPLETED: 'PosSaleCompleted',
+    /** A POS sale was voided: the stock returned and the tenders cancelled. */
+    POS_SALE_VOIDED: 'PosSaleVoided',
 } as const
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]

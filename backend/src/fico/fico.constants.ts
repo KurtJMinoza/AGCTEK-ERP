@@ -532,6 +532,70 @@ export const FICO_DOCUMENT_TYPE_AUDIT_ACTIONS = {
     DOCUMENT_TYPE_DELETE: 'DOCUMENT_TYPE_DELETE',
 } as const
 
+// ============================================================================
+// FICO Phase 2 - Journal Entry Approval Workflow
+// ============================================================================
+
+export const FICO_JOURNAL_APPROVAL_STATUSES = [
+    'DRAFT',
+    'PENDING_APPROVAL',
+    'APPROVED',
+    'POSTED',
+    'REJECTED',
+    'REVERSED',
+] as const
+export type FicoJournalApprovalStatus =
+    (typeof FICO_JOURNAL_APPROVAL_STATUSES)[number]
+
+export const FICO_JOURNAL_APPROVAL_LABELS: Record<
+    FicoJournalApprovalStatus,
+    string
+> = {
+    DRAFT: 'Draft',
+    PENDING_APPROVAL: 'Pending Approval',
+    APPROVED: 'Approved',
+    POSTED: 'Posted',
+    REJECTED: 'Rejected',
+    REVERSED: 'Reversed',
+}
+
+export const FICO_JOURNAL_APPROVAL_TRANSITIONS: Record<
+    string,
+    string[]
+> = {
+    DRAFT: ['PENDING_APPROVAL'],
+    PENDING_APPROVAL: ['APPROVED', 'REJECTED'],
+    REJECTED: ['PENDING_APPROVAL'],
+    APPROVED: ['POSTED'],
+    POSTED: ['REVERSED'],
+    REVERSED: [],
+} as const
+
+export const FICO_JOURNAL_APPROVAL_AUDIT_ACTIONS = {
+    SUBMIT: 'JOURNAL_SUBMIT',
+    APPROVE: 'JOURNAL_APPROVE',
+    REJECT: 'JOURNAL_REJECT',
+    RESUBMIT: 'JOURNAL_RESUBMIT',
+    POST: 'JOURNAL_POST_APPROVED',
+} as const
+
+export function isFicoJournalApprovalStatus(
+    value: string,
+): value is FicoJournalApprovalStatus {
+    return (FICO_JOURNAL_APPROVAL_STATUSES as readonly string[]).includes(
+        value,
+    )
+}
+
+export function isValidJournalApprovalTransition(
+    from: string,
+    to: string,
+): boolean {
+    return (
+        FICO_JOURNAL_APPROVAL_TRANSITIONS[from]?.includes(to) ?? false
+    )
+}
+
 /**
  * Accepted Number Range `documentCategory` values per document category.
  * Exact normalized matches always pass; these aliases cover the seeded and

@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, UnauthorizedException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { CreateRetailSalesOrderDto } from './dto/sales-order.dto'
@@ -33,6 +33,9 @@ function setup() {
         integrateConfirmedOrder: jest.fn().mockResolvedValue({ integrated: false }),
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
+    const commercialAvailability = {
+        assertCheckoutAvailability: jest.fn().mockResolvedValue(undefined),
+    }
     const service = new SalesOrderService(
         prisma as unknown as PrismaService,
         {} as never,
@@ -40,10 +43,10 @@ function setup() {
         products as never,
         mmPipeline as never,
         {} as never,
-        {} as never,
+        commercialAvailability as never,
         {} as never,
     )
-    return { prisma, service }
+    return { prisma, service, commercialAvailability }
 }
 
 const retailOrder = (
@@ -99,6 +102,52 @@ describe('SalesOrderService retail order source', () => {
         await expect(
             service.createRetail(retailOrder({ channel: 'ECOMMERCE' }), 'someone-else'),
         ).rejects.toBeInstanceOf(UnauthorizedException)
+        expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
+    })
+
+    it('requires live MM ATP before a POS sale exists', async () => {
+        const { prisma, service, commercialAvailability } = setup()
+        await service.createRetail(
+            retailOrder({
+                channel: 'POS',
+                branchId: 'BR_AWIC_DAVAO_MAIN',
+                shippingAmount: 0,
+                totalAmount: 200,
+                paymentReceived: 200,
+            }),
+        )
+        expect(commercialAvailability.assertCheckoutAvailability).toHaveBeenCalledWith(
+            expect.objectContaining({
+                companyId: 'company-1',
+                channel: 'POS',
+                branchId: 'BR_AWIC_DAVAO_MAIN',
+                lines: [
+                    expect.objectContaining({
+                        sku: 'SKU-1',
+                        quantity: 2,
+                        divisionId: 'DIV_RETAIL',
+                    }),
+                ],
+            }),
+        )
+    })
+
+    it('does not create a POS order when the ATP preflight rejects the sale', async () => {
+        const { prisma, service, commercialAvailability } = setup()
+        commercialAvailability.assertCheckoutAvailability.mockRejectedValueOnce(
+            new BadRequestException('Item is out of stock. Available: 1'),
+        )
+        await expect(
+            service.createRetail(
+                retailOrder({
+                    channel: 'POS',
+                    branchId: 'BR_AWIC_DAVAO_MAIN',
+                    shippingAmount: 0,
+                    totalAmount: 200,
+                    paymentReceived: 200,
+                }),
+            ),
+        ).rejects.toBeInstanceOf(BadRequestException)
         expect(prisma.sdSalesOrder.create).not.toHaveBeenCalled()
     })
 })

@@ -529,6 +529,22 @@ export class SalesOrderService {
             )
         }
 
+        // A counter sale is a request for stock too: require current MM ATP for
+        // the fulfillment warehouse before the order exists. Without this a POS
+        // terminal could sell stock that another terminal already took, and the
+        // sale would only fail later at reservation/PGI.
+        if (isPos) {
+            await this.commercialAvailability.assertCheckoutAvailability({
+                companyId: checkoutCompanyId,
+                lines: dto.lines.map((line) => ({
+                    ...line,
+                    divisionId: dto.divisionId,
+                })),
+                channel: 'POS',
+                branchId: dto.branchId ?? null,
+            })
+        }
+
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber(
                 isPos ? 'POS' : 'SO',
@@ -550,7 +566,9 @@ export class SalesOrderService {
                 })
                 const { integrated } =
                     await this.mmPipeline.integrateConfirmedOrder(created.id)
-                if (isPos && integrated) {
+                // A staged POS checkout completes the order only after the
+                // tenders are captured and the goods issue is posted.
+                if (isPos && integrated && dto.deferCompletion !== true) {
                     return this.prisma.sdSalesOrder.update({
                         where: { id: created.id },
                         data: { status: 'COMPLETED' },
@@ -677,7 +695,7 @@ export class SalesOrderService {
         // resolve the product-to-material assignments and require current MM
         // ATP for the actual fulfillment warehouse. This prevents an
         // out-of-stock cart from becoming an order that cannot be reserved.
-        await this.commercialAvailability.assertMarketplaceCheckoutAvailability(
+        await this.commercialAvailability.assertCheckoutAvailability(
             {
                 companyId: checkoutCompanyId,
                 lines: dto.cartItems,
@@ -829,8 +847,17 @@ export class SalesOrderService {
         createdBy?: string,
     ) {
         if (!order.companyId) return null
-        return this.prisma.sdSalesOrderPayment.upsert({
+        // The first checkout is authoritative. A retry only heals a missing
+        // record; it must not rewrite its payment outcome. A POS sale may carry
+        // several tenders, so the write is keyed by the order, not by a unique
+        // per-order constraint.
+        const existing = await this.prisma.sdSalesOrderPayment.findFirst({
             where: { salesOrderId: order.id },
+        })
+        if (existing) return existing
+        const idempotencyKey = `order:${order.id}`
+        return this.prisma.sdSalesOrderPayment.upsert({
+            where: { idempotencyKey },
             create: {
                 companyId: order.companyId,
                 salesOrderId: order.id,
@@ -838,15 +865,15 @@ export class SalesOrderService {
                 paymentMethod: payment.method,
                 paymentProvider: payment.provider,
                 amount: order.totalAmount ?? new Decimal(0),
+                tenderAmount: order.totalAmount ?? new Decimal(0),
                 currency: SD_CATALOG_CURRENCY,
                 status: payment.status,
                 referenceNumber: payment.reference,
+                idempotencyKey,
                 isDemo: payment.isDemo,
                 paidAt: payment.paidAt,
                 createdBy: createdBy ?? null,
             },
-            // The first checkout is authoritative. A retry only heals a
-            // missing record; it must not rewrite its payment outcome.
             update: {},
         })
     }
@@ -1045,6 +1072,9 @@ export class SalesOrderService {
         | Prisma.SdSalesOrderCreateInput
         | Prisma.SdSalesOrderUncheckedCreateInput {
         const isPos = dto.channel === 'POS'
+        // A staged POS checkout keeps the order CONFIRMED until the tenders are
+        // captured and the goods issue is posted.
+        const deferred = isPos && dto.deferCompletion === true
         const shipTo = isPos ? undefined : dto.shippingAddress
         return {
             orderNumber,
@@ -1067,6 +1097,7 @@ export class SalesOrderService {
             discountAmount: totals.discountAmount,
             promoCode: dto.promoCode ?? null,
             shippingAmount: totals.shippingAmount,
+            taxAmount: totals.taxAmount,
             totalAmount: totals.totalAmount,
             paymentReceived: totals.paymentReceived,
             changeAmount: totals.changeAmount,
@@ -1075,7 +1106,7 @@ export class SalesOrderService {
             paymentReference: payment?.reference ?? null,
             paymentProvider: payment?.provider ?? null,
             isDemoPayment: payment?.isDemo ?? false,
-            status: isPos ? 'COMPLETED' : 'CONFIRMED',
+            status: isPos ? (deferred ? 'CONFIRMED' : 'COMPLETED') : 'CONFIRMED',
             correlationId,
             idempotencyKey: dto.idempotencyKey,
             createdBy: dto.createdBy ?? null,
@@ -1113,7 +1144,8 @@ export class SalesOrderService {
                         quantity: new Decimal(line.quantity),
                         unitPrice: new Decimal(line.unitPrice),
                         lineTotal: new Decimal(line.lineTotal),
-                        integrationStatus: isPos ? 'FULFILLED' : 'OPEN',
+                        integrationStatus:
+                            isPos && !deferred ? 'FULFILLED' : 'OPEN',
                     }
                 }),
             },
@@ -1884,6 +1916,7 @@ export class SalesOrderService {
             | 'shippingAmount'
             | 'totalAmount'
             | 'paymentReceived'
+            | 'taxAmount'
         >,
     ) {
         const money = (value: number | Decimal) =>
@@ -1911,7 +1944,15 @@ export class SalesOrderService {
             throw new BadRequestException('Discount cannot exceed subtotal')
         }
         const shippingAmount = money(dto.shippingAmount)
-        const totalAmount = subtotal.minus(discountAmount).plus(shippingAmount)
+        // Tax is a POS concept: the amount the customer pays on top of the
+        // catalogue price (VAT-exclusive lines). VAT-inclusive lines already
+        // carry their tax inside the price.
+        const taxAmount =
+            dto.channel === 'POS' ? money(dto.taxAmount ?? 0) : new Decimal(0)
+        const totalAmount = subtotal
+            .minus(discountAmount)
+            .plus(shippingAmount)
+            .plus(taxAmount)
         mismatch('Total', totalAmount, dto.totalAmount)
 
         if (dto.channel === 'POS') {
@@ -1935,6 +1976,7 @@ export class SalesOrderService {
                 subtotal,
                 discountAmount,
                 shippingAmount,
+                taxAmount,
                 totalAmount,
                 paymentReceived,
                 changeAmount: paymentReceived.minus(totalAmount),
@@ -1962,6 +2004,7 @@ export class SalesOrderService {
             subtotal,
             discountAmount,
             shippingAmount,
+            taxAmount: new Decimal(0),
             totalAmount,
             paymentReceived: null,
             changeAmount: null,

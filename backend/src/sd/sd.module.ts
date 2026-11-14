@@ -49,6 +49,16 @@ import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
+import { ProductImportController } from './product-import.controller'
+import { ProductImportService } from './product-import.service'
+import { ProductBarcodeController } from './product-barcode.controller'
+import { ProductBarcodeService } from './product-barcode.service'
+import { PosController } from './pos/pos.controller'
+import { PosCheckoutService } from './pos/pos-checkout.service'
+import { PosSessionService } from './pos/pos-session.service'
+import { PosHoldService } from './pos/pos-hold.service'
+import { PosCustomerService } from './pos/pos-customer.service'
+import { PosVoidService } from './pos/pos-void.service'
 
 @Module({
     imports: [
@@ -73,6 +83,9 @@ import { BackorderReportService } from './backorder-report.service'
         SalesAnalyticsController,
         UploadsController,
         BackorderReportController,
+        ProductImportController,
+        ProductBarcodeController,
+        PosController,
     ],
     providers: [
         CustomerService,
@@ -106,6 +119,13 @@ import { BackorderReportService } from './backorder-report.service'
          PricingResolutionService,
         SalesAnalyticsService,
         BackorderReportService,
+        ProductImportService,
+        ProductBarcodeService,
+        PosCheckoutService,
+        PosSessionService,
+        PosHoldService,
+        PosCustomerService,
+        PosVoidService,
     ],
     exports: [
         SalesOrderService,

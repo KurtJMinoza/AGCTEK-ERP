@@ -1,4 +1,9 @@
-import { bucketLabels, resolveRange } from './sales-analytics.service'
+import {
+    bucketLabels,
+    previousWindow,
+    resolveCustomRange,
+    resolveRange,
+} from './sales-analytics.service'
 
 // 2026-10-17 01:30 in Manila (UTC+8) = 2026-10-16 17:30 UTC.
 const NOW = new Date('2026-10-16T17:30:00.000Z')
@@ -28,6 +33,24 @@ describe('bucketLabels', () => {
             '2026-10-16',
             '2026-10-17',
         ])
+    })
+
+    it('resolves an inclusive Manila custom range', () => {
+        const { from, to, bucket } = resolveCustomRange(
+            '2026-10-11',
+            '2026-10-17',
+            NOW,
+        )
+        expect(from.toISOString()).toBe('2026-10-10T16:00:00.000Z')
+        expect(to.toISOString()).toBe(NOW.toISOString())
+        expect(bucket).toBe('day')
+    })
+
+    it('compares against the window of the same length just before', () => {
+        const { from } = resolveRange('7days', NOW)
+        const previous = previousWindow(from, NOW)
+        expect(previous.to.toISOString()).toBe(from.toISOString())
+        expect(previous.from.toISOString()).toBe('2026-10-04T14:30:00.000Z')
     })
 
     it('lists months for year to date', () => {

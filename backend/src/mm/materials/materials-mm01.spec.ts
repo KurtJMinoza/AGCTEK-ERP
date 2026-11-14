@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { ConflictException, BadRequestException } from '@nestjs/common'
 import { MaterialsService } from './materials.service'
+import { MaterialTaxService } from './material-tax.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { BarcodesService } from '../barcodes/barcodes.service'
 
 describe('MaterialsService MM-01 lifecycle (mocked)', () => {
     let service: MaterialsService
@@ -63,6 +65,20 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
                                 id: 'txn-mock',
                                 movementType: 'ADJUSTMENT_IN',
                             }),
+                    },
+                },
+                { provide: BarcodesService, useValue: {} },
+                {
+                    provide: MaterialTaxService,
+                    useValue: {
+                        validateForWrite: jest.fn().mockResolvedValue({
+                            data: {},
+                            warnings: [],
+                            taxCode: null,
+                        }),
+                        projection: jest.fn().mockReturnValue(null),
+                        recordHistory: jest.fn(),
+                        taxChanged: jest.fn().mockReturnValue(false),
                     },
                 },
             ],

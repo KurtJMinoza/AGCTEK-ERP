@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common'
+import { Controller, Get, Post, Delete, Body, Param, Query, Patch } from '@nestjs/common'
 import { BarcodesService } from './barcodes.service'
 import { MmMutation, MmRead } from '../common/mm-mutation.decorator'
 import { MM_REFERENCE_READ, mmFeatures } from '../../permissions/permissions.constants'
@@ -29,5 +29,11 @@ export class BarcodesController {
     @MmMutation(mmFeatures('material-master', 'barcodes'), 'delete')
     remove(@Param('id') id: string) {
         return this.service.softDelete(id)
+    }
+
+    @Patch(':id/primary')
+    @MmMutation(mmFeatures('material-master', 'barcodes'), 'update')
+    setPrimary(@Param('id') id: string) {
+        return this.service.setPrimary(id)
     }
 }

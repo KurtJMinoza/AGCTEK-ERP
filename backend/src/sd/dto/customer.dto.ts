@@ -5,20 +5,29 @@ import {
     IsNumber,
     IsOptional,
     IsString,
-    Matches,
     Max,
     MaxLength,
     Min,
-    MinLength,
-    ValidateIf,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
-export const CUSTOMER_STATUSES = ['ACTIVE', 'BLOCKED'] as const
+export const CUSTOMER_STATUSES = ['ACTIVE', 'BLOCKED', 'INACTIVE'] as const
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number]
 
-export const CUSTOMER_TYPES = ['RETAIL', 'B2B'] as const
-export type CustomerType = (typeof CUSTOMER_TYPES)[number]
+export const CUSTOMER_ACCOUNT_TYPES = ['NON_CREDIT', 'CREDIT'] as const
+export type CustomerAccountType = (typeof CUSTOMER_ACCOUNT_TYPES)[number]
+
+export const CUSTOMER_CATEGORIES = ['RETAIL', 'CORPORATE', 'EMPLOYEE', 'WHOLESALE'] as const
+export type CustomerCategory = (typeof CUSTOMER_CATEGORIES)[number]
+
+export const PAYMENT_TERMS = ['IMMEDIATE', 'NET_30'] as const
+export type PaymentTerm = (typeof PAYMENT_TERMS)[number]
+
+export const PAYMENT_MODES = ['CASH', 'BANK_TRANSFER', 'LOAN_SALARY_DEDUCT'] as const
+export type PaymentMode = (typeof PAYMENT_MODES)[number]
+
+export const CREDIT_STATUSES = ['NOT_APPLICABLE', 'PENDING', 'APPROVED', 'SUSPENDED'] as const
+export type CreditStatus = (typeof CREDIT_STATUSES)[number]
 
 const MAX_CREDIT_LIMIT = 999_999_999_999.99
 
@@ -37,6 +46,10 @@ export class ListCustomersQueryDto {
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)
     status?: CustomerStatus
+
+    @IsOptional()
+    @IsIn(CUSTOMER_ACCOUNT_TYPES)
+    customerAccountType?: CustomerAccountType
 }
 
 export class CreateCustomerDto {
@@ -63,8 +76,8 @@ export class CreateCustomerDto {
     @MaxLength(40)
     phone?: string
 
-    /** Required for B2B; RETAIL customers carry no credit (omit or send 0). */
-    @ValidateIf((o: CreateCustomerDto) => o.customerType !== 'RETAIL' || o.creditLimit !== undefined)
+    /** Required for CREDIT account type; NON_CREDIT customers carry no credit (omit or send 0). */
+    @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
     @Max(MAX_CREDIT_LIMIT)
@@ -74,29 +87,30 @@ export class CreateCustomerDto {
     @IsIn(CUSTOMER_STATUSES)
     status?: CustomerStatus
 
-    /** Defaults to B2B. */
+    /** Defaults to NON_CREDIT. */
     @IsOptional()
-    @IsIn(CUSTOMER_TYPES)
-    customerType?: CustomerType
+    @IsIn(CUSTOMER_ACCOUNT_TYPES)
+    customerAccountType?: CustomerAccountType
 
-    /** RETAIL: link an existing shop login (mutually exclusive with password). */
+    /** Defaults to RETAIL. */
     @IsOptional()
-    @Transform(trim)
-    @IsString()
-    @IsNotEmpty()
-    retailClientId?: string
+    @IsIn(CUSTOMER_CATEGORIES)
+    customerCategory?: CustomerCategory
 
-    /**
-     * RETAIL: create a new shop login with the customer's email and this password.
-     * Mirrors the Shop sign-up password policy.
-     */
+    /** Defaults to IMMEDIATE for NON_CREDIT, NET_30 for CREDIT. */
     @IsOptional()
-    @IsString()
-    @MinLength(8)
-    @MaxLength(72)
-    @Matches(/[A-Za-z]/, { message: 'Password must include at least one letter' })
-    @Matches(/\d/, { message: 'Password must include at least one number' })
-    password?: string
+    @IsIn(PAYMENT_TERMS)
+    paymentTerms?: PaymentTerm
+
+    /** Defaults to NOT_APPLICABLE for NON_CREDIT, PENDING for CREDIT. */
+    @IsOptional()
+    @IsIn(CREDIT_STATUSES)
+    creditStatus?: CreditStatus
+
+    /** Defaults to CASH. How a non-credit customer pays: CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT. */
+    @IsOptional()
+    @IsIn(PAYMENT_MODES)
+    paymentMode?: PaymentMode
 
     @IsOptional()
     @IsString()
@@ -136,14 +150,30 @@ export class UpdateCustomerDto {
     @Max(MAX_CREDIT_LIMIT)
     creditLimit?: number
 
-    /** Shop (storefront) account to link (nullable clears the link). */
-    @IsOptional()
-    @IsString()
-    retailClientId?: string
-
     @IsOptional()
     @IsIn(CUSTOMER_STATUSES)
     status?: CustomerStatus
+
+    @IsOptional()
+    @IsIn(CUSTOMER_ACCOUNT_TYPES)
+    customerAccountType?: CustomerAccountType
+
+    @IsOptional()
+    @IsIn(CUSTOMER_CATEGORIES)
+    customerCategory?: CustomerCategory
+
+    @IsOptional()
+    @IsIn(PAYMENT_TERMS)
+    paymentTerms?: PaymentTerm
+
+    @IsOptional()
+    @IsIn(CREDIT_STATUSES)
+    creditStatus?: CreditStatus
+
+    /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT. */
+    @IsOptional()
+    @IsIn(PAYMENT_MODES)
+    paymentMode?: PaymentMode
 
     @IsOptional()
     @IsString()

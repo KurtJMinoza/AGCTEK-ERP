@@ -47,7 +47,7 @@ const MaterialCatalogReferencePanel = ({
                         target="_blank"
                         rel="noopener noreferrer"
                     >
-                        Open in Material Master
+                        View Material Master
                     </Link>
                 ) : null}
             </div>

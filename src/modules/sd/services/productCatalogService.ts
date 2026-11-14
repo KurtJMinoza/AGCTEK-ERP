@@ -100,6 +100,11 @@ export type ProductInput = {
      * Catalog never creates a material.
      */
     materialId?: string
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material without a
+     * sale-ready tax configuration. Without it the API rejects the product.
+     */
+    allowIncompleteTaxSetup?: boolean
 }
 
 /** Stock ownership for the product (variants link existing materials). */
@@ -261,8 +266,34 @@ export async function fetchStorefrontAvailability(
     }
 }
 
-export async function suggestProductSku(divisionId: string): Promise<string> {
+/**
+ * Live ATP for MANY products in one call — the POS terminal polls its whole
+ * cart here instead of one request per line. The backend answers in the same
+ * order as the requested items.
+ */
+export async function fetchStorefrontAvailabilityBatch(
+    divisionId: string,
+    items: Array<{ sku: string; variantId?: string | null }>,
+): Promise<StorefrontAvailability[]> {
+    if (!items.length) return []
     try {
+        const { data } = await ErpAxiosBase.post<StorefrontAvailability[]>(
+            '/sd/products/availability/batch',
+            {
+                divisionId,
+                items: items.map((item) => ({
+                    sku: item.sku,
+                    variantId: item.variantId ?? undefined,
+                })),
+            },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toError(error, 'Unable to load stock')
+    }
+}
+
+export async function suggestProductSku(divisionId: string): Promise<string> {    try {
         const { data } = await ErpAxiosBase.get<{ sku: string }>(
             '/sd/products/suggested-sku',
             { params: { divisionId } },

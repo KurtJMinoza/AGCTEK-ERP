@@ -6,6 +6,8 @@ import type {
     Material,
     CreateMaterialPayload,
     UpdateMaterialPayload,
+    MaterialTaxCodeOption,
+    MaterialTaxHistoryEntry,
 } from '../types'
 
 const BASE = '/mm/materials'
@@ -85,4 +87,33 @@ export const materialService = {
 
     removeAttachment: (id: string, attachmentId: string) =>
         ErpAxiosBase.delete(`${BASE}/${id}/attachments/${attachmentId}`).then((r) => r.data),
+
+    barcodes: (materialId: string) =>
+        ErpAxiosBase.get<any[]>(`${BASE}/${materialId}/barcodes`).then((r) => r.data),
+
+    createBarcode: (data: {
+        materialId: string
+        barcodeType: string
+        barcodeValue: string
+        isPrimary?: boolean
+    }) =>
+        ErpAxiosBase.post<any>('/mm/barcodes', data).then((r) => r.data),
+
+    setPrimaryBarcode: (barcodeId: string) =>
+        ErpAxiosBase.patch<any>(`/mm/barcodes/${barcodeId}/primary`).then((r) => r.data),
+
+    removeBarcode: (barcodeId: string) =>
+        ErpAxiosBase.delete<any>(`/mm/barcodes/${barcodeId}`).then((r) => r.data),
+
+    /** FICO tax codes available to a company (empty until FICO creates them). */
+    listTaxCodes: (companyId: string) =>
+        ErpAxiosBase.get<{
+            companyId: string
+            data: MaterialTaxCodeOption[]
+        }>(`${BASE}/tax-codes`, { params: { companyId } }).then((r) => r.data),
+
+    taxHistory: (id: string) =>
+        ErpAxiosBase.get<MaterialTaxHistoryEntry[]>(
+            `${BASE}/${id}/tax-history`,
+        ).then((r) => r.data),
 }

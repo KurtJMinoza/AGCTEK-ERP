@@ -158,6 +158,73 @@ export interface MmMaterialAudit {
     performedAt: string
 }
 
+/** Read-only product tax projection owned by MM Material Master. */
+export interface MaterialTaxProjection {
+    configured: boolean
+    readyForSale: boolean
+    source: 'MM_MATERIAL_MASTER'
+    classification: 'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED' | null
+    classificationLabel: string | null
+    taxCodeId: string | null
+    taxCode: string | null
+    taxCodeName: string | null
+    taxType: string | null
+    taxRate: number | null
+    rateUnit: string | null
+    rateEffectiveFrom: string | null
+    rateEffectiveTo: string | null
+    priceTaxTreatment: 'VAT_INCLUSIVE' | 'VAT_EXCLUSIVE' | null
+    priceTaxTreatmentLabel: string | null
+    status: 'ACTIVE' | 'INACTIVE' | null
+    effectiveStatus:
+        | 'ACTIVE'
+        | 'INACTIVE'
+        | 'SCHEDULED'
+        | 'EXPIRED'
+        | 'INCOMPLETE'
+        | 'NOT_CONFIGURED'
+    effectiveFrom: string | null
+    effectiveTo: string | null
+    description: string | null
+    warnings: string[]
+}
+
+export interface MaterialTaxCodeOption {
+    id: string
+    code: string
+    name: string
+    taxCategory: string | null
+    taxType: string
+    status: string
+    calculationMethod: string | null
+    compatibleClassifications: Array<'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED'>
+    rate: number | null
+    rateUnit: string | null
+    rateEffectiveFrom: string | null
+    rateEffectiveTo: string | null
+}
+
+export interface MaterialTaxHistoryEntry {
+    id: string
+    materialId: string
+    companyId: string | null
+    taxClassification: string | null
+    taxCodeId: string | null
+    taxCode: string | null
+    taxCodeName: string | null
+    taxType: string | null
+    taxRate: number | null
+    rateUnit: string | null
+    priceTaxTreatment: string | null
+    taxStatus: string | null
+    taxEffectiveFrom: string | null
+    taxEffectiveTo: string | null
+    taxDescription: string | null
+    changeType: 'CREATE' | 'UPDATE' | 'CLEAR'
+    changedBy: string | null
+    createdAt: string
+}
+
 export interface Material {
     id: string
     materialCode: string
@@ -197,6 +264,8 @@ export interface Material {
     sellable: boolean
     batchManaged: boolean
     serialManaged: boolean
+    /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
+    serialTrackingPolicy: string
     expiryManaged: boolean
     qualityInspectionRequired: boolean
 
@@ -232,6 +301,31 @@ export interface Material {
 
     preferredSupplierId?: string | null
     preferredSupplier?: { id: string; supplierCode: string; supplierName: string } | null
+
+    /** Product tax classification — owned by MM Material Master. */
+    taxClassification?: 'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED' | null
+    taxCodeId?: string | null
+    taxCode?: {
+        id: string
+        code: string
+        name: string
+        taxType: string
+        status: string
+        taxRates?: Array<{
+            rate: number
+            rateUnit?: string | null
+            effectiveFrom: string
+            effectiveTo?: string | null
+            status?: string | null
+        }>
+    } | null
+    priceTaxTreatment?: 'VAT_INCLUSIVE' | 'VAT_EXCLUSIVE' | null
+    taxStatus?: 'ACTIVE' | 'INACTIVE' | null
+    taxEffectiveFrom?: string | null
+    taxEffectiveTo?: string | null
+    taxDescription?: string | null
+    /** Read-only projection computed by the API. */
+    tax?: MaterialTaxProjection
 
     /** SD variant that triggered auto-creation (null = independently created). */
     catalogVariantId?: string | null
@@ -313,6 +407,8 @@ export interface CreateMaterialPayload {
     sellable?: boolean
     batchManaged?: boolean
     serialManaged?: boolean
+    /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
+    serialTrackingPolicy?: string
     expiryManaged?: boolean
     qualityInspectionRequired?: boolean
     onHandQty?: number
@@ -333,6 +429,24 @@ export interface CreateMaterialPayload {
     preferredSupplierId?: string
     /** Storage bin used for the initial on-hand posting (company scope). */
     storageBinId?: string | null
+
+    /** Product tax classification — owned by MM Material Master. */
+    taxClassification?: 'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED'
+    taxCodeId?: string
+    priceTaxTreatment?: 'VAT_INCLUSIVE' | 'VAT_EXCLUSIVE'
+    taxStatus?: 'ACTIVE' | 'INACTIVE'
+    taxEffectiveFrom?: string
+    taxEffectiveTo?: string
+    taxDescription?: string
+
+    /** Primary barcode to register for this material. */
+    barcodeValue?: string
+
+    /** Barcode type (EAN13, UPC_A, CODE128, QR). */
+    barcodeType?: string
+
+    /** Serial number to register for serial-managed materials. */
+    serialNumber?: string
 }
 
 export type UpdateMaterialPayload = Partial<CreateMaterialPayload>

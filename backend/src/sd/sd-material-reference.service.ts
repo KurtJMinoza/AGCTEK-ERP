@@ -15,6 +15,7 @@ import {
     ReorderRuleService,
     type ResolvedPlanningParams,
 } from '../mm/planning/reorder-rule.service'
+import { buildMaterialTaxProjection } from '../mm/materials/material-tax'
 
 type CatalogWarehouse = {
     id: string
@@ -134,6 +135,7 @@ export class SdMaterialReferenceService {
                         deletedAt: true,
                     },
                 },
+                taxCode: { include: { taxRates: true } },
             },
         })
         if (!material) throw new NotFoundException('Material not found')
@@ -453,6 +455,8 @@ export class SdMaterialReferenceService {
                 currencyCode: material.currency?.code ?? 'PHP',
                 valuationClass: material.valuationClass?.name ?? null,
             },
+            /** Read-only product tax classification, owned by MM Material Master. */
+            tax: buildMaterialTaxProjection(material as any),
         }
     }
 

@@ -7,11 +7,14 @@ import {
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
-import { RetailClientService } from '../retail/retail-client.service'
 import {
     CreateCustomerDto,
-    CustomerType,
+    CustomerAccountType,
+    CustomerCategory,
+    CreditStatus,
     ListCustomersQueryDto,
+    PaymentMode,
+    PaymentTerm,
     UpdateCustomerDto,
 } from './dto/customer.dto'
 import {
@@ -25,15 +28,15 @@ type Client = PrismaService | Prisma.TransactionClient
 
 @Injectable()
 export class CustomerService {
-    constructor(
-        private prisma: PrismaService,
-        private retailClients: RetailClientService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     list(query: ListCustomersQueryDto) {
         const search = query.search?.trim()
         const where: Prisma.SdCustomerWhereInput = {
             ...(query.status ? { status: query.status } : {}),
+            ...(query.customerAccountType
+                ? { customerAccountType: query.customerAccountType }
+                : {}),
             ...(search
                 ? {
                       OR: [
@@ -116,28 +119,17 @@ export class CustomerService {
      * number-collision retries only run on the root client.
      */
     async create(dto: CreateCustomerDto, client: Client = this.prisma) {
-        const customerType = this.resolveCustomerType(dto)
+        const account = this.resolveCustomerAccount(dto)
         const onRoot = client === this.prisma
         const attempts = onRoot ? MAX_CREATE_ATTEMPTS : 1
         for (let attempt = 0; attempt < attempts; attempt++) {
             try {
-                // A new shop login must not outlive a failed customer insert.
-                if (dto.password && onRoot) {
-                    return await this.prisma.$transaction((tx) =>
-                        this.insert(dto, customerType, attempt, tx),
-                    )
-                }
-                return await this.insert(dto, customerType, attempt, client)
+                return await this.insert(dto, account, attempt, client)
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('email')) {
                     throw new ConflictException(
                         `A customer with email ${dto.email} already exists`,
-                    )
-                }
-                if (target?.includes('retailClientId')) {
-                    throw new ConflictException(
-                        'This shop account is already linked to another customer',
                     )
                 }
                 if (target?.includes('customerNumber')) continue
@@ -149,78 +141,55 @@ export class CustomerService {
         )
     }
 
-    private resolveCustomerType(dto: CreateCustomerDto): CustomerType {
-        const customerType = dto.customerType ?? 'B2B'
-        const linksAccount = Boolean(dto.retailClientId)
-        const createsAccount = Boolean(dto.password)
+    private resolveCustomerAccount(
+        dto: CreateCustomerDto,
+    ): {
+        customerAccountType: CustomerAccountType
+        customerCategory: CustomerCategory
+        paymentTerms: PaymentTerm
+        creditStatus: CreditStatus
+    } {
+        const customerAccountType =
+            dto.customerAccountType ?? 'NON_CREDIT'
+        const customerCategory = dto.customerCategory ?? 'RETAIL'
 
-        if (linksAccount && createsAccount) {
-            throw new BadRequestException(
-                'Reference an existing shop account or set a new shop login password, not both',
-            )
-        }
-        if (customerType === 'B2B') {
-            if (linksAccount || createsAccount) {
+        if (customerAccountType === 'NON_CREDIT') {
+            if ((dto.creditLimit ?? 0) > 0) {
                 throw new BadRequestException(
-                    'Shop accounts apply only to RETAIL customers',
+                    'NON_CREDIT customers do not carry a credit limit',
                 )
             }
-            if (dto.creditLimit === undefined) {
-                throw new BadRequestException('B2B customers need a credit limit')
+            return {
+                customerAccountType: 'NON_CREDIT',
+                customerCategory,
+                paymentTerms: 'IMMEDIATE',
+                creditStatus: 'NOT_APPLICABLE',
             }
-            return customerType
         }
 
-        if ((dto.creditLimit ?? 0) > 0) {
-            throw new BadRequestException('RETAIL customers do not carry a credit limit')
+        // CREDIT
+        if (dto.creditLimit === undefined || dto.creditLimit <= 0) {
+            throw new BadRequestException('CREDIT customers need a credit limit')
         }
-        return customerType
-    }
-
-    /**
-     * Links the referenced shop account, provisions a new shop login from the
-     * supplied password, or auto-links a shop account that already uses the email.
-     */
-    private async resolveShopAccountId(
-        dto: CreateCustomerDto,
-        customerType: CustomerType,
-        client: Client,
-    ): Promise<string | undefined> {
-        if (dto.retailClientId) {
-            return (await this.retailClients.requireAccount(dto.retailClientId, client)).id
+        return {
+            customerAccountType: 'CREDIT',
+            customerCategory,
+            paymentTerms: dto.paymentTerms ?? 'NET_30',
+            creditStatus: dto.creditStatus ?? 'PENDING',
         }
-        if (dto.password) {
-            const account = await this.retailClients.createAccount(
-                {
-                    email: dto.email,
-                    password: dto.password,
-                    fullName: dto.contactName,
-                    phone: dto.phone,
-                },
-                client,
-            )
-            return account.id
-        }
-        const byEmail = await client.retailClient.findUnique({
-            where: { email: dto.email },
-            select: { id: true },
-        })
-        if (byEmail) return byEmail.id
-        if (customerType === 'RETAIL') {
-            throw new BadRequestException(
-                'RETAIL customers need either an existing shop account or a new shop login password',
-            )
-        }
-        return undefined
     }
 
     private async insert(
         dto: CreateCustomerDto,
-        customerType: CustomerType,
+        account: {
+            customerAccountType: CustomerAccountType
+            customerCategory: CustomerCategory
+            paymentTerms: PaymentTerm
+            creditStatus: CreditStatus
+        },
         attempt: number,
         client: Client,
     ) {
-        const retailClientId = await this.resolveShopAccountId(dto, customerType, client)
         const customerNumber = await this.nextCustomerNumber(attempt, client)
         const creditLimit = new Decimal(dto.creditLimit ?? 0)
         return client.sdCustomer.create({
@@ -233,8 +202,11 @@ export class CustomerService {
                 creditLimit,
                 availableCredit: creditLimit,
                 status: dto.status ?? 'ACTIVE',
-                customerType,
-                retailClientId,
+                customerAccountType: account.customerAccountType,
+                customerCategory: account.customerCategory,
+                paymentTerms: account.paymentTerms,
+                creditStatus: account.creditStatus,
+                paymentMode: dto.paymentMode ?? 'CASH',
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -256,24 +228,49 @@ export class CustomerService {
         if (dto.email !== undefined) data.email = dto.email
         if (dto.phone !== undefined) data.phone = dto.phone
         if (dto.status !== undefined) data.status = dto.status
-        if (dto.retailClientId !== undefined) {
-            if (dto.retailClientId) {
-                await this.retailClients.requireAccount(dto.retailClientId)
-            }
-            data.retailClientId = dto.retailClientId || null
-        }
         if (
-            current.customerType === 'RETAIL' &&
+            current.customerAccountType === 'NON_CREDIT' &&
             dto.creditLimit !== undefined &&
             dto.creditLimit > 0
         ) {
-            throw new BadRequestException('RETAIL customers do not carry a credit limit')
+            throw new BadRequestException(
+                'NON_CREDIT customers do not carry a credit limit',
+            )
         }
         if (dto.creditLimit !== undefined) {
             const newLimit = new Decimal(dto.creditLimit)
             const delta = newLimit.minus(current.creditLimit)
             data.creditLimit = newLimit
             data.availableCredit = new Decimal(current.availableCredit).plus(delta)
+        }
+        if (dto.customerAccountType !== undefined) {
+            data.customerAccountType = dto.customerAccountType
+            if (dto.customerAccountType === 'NON_CREDIT') {
+                data.creditLimit = new Decimal(0)
+                data.availableCredit = new Decimal(0)
+                data.creditStatus = 'NOT_APPLICABLE'
+                data.paymentTerms = 'IMMEDIATE'
+            } else if (
+                new Decimal(
+                    dto.creditLimit ?? current.creditLimit.toNumber(),
+                ).lessThanOrEqualTo(0)
+            ) {
+                throw new BadRequestException(
+                    'CREDIT customers need a credit limit',
+                )
+            }
+        }
+        if (dto.customerCategory !== undefined) {
+            data.customerCategory = dto.customerCategory
+        }
+        if (dto.paymentTerms !== undefined) {
+            data.paymentTerms = dto.paymentTerms
+        }
+        if (dto.creditStatus !== undefined) {
+            data.creditStatus = dto.creditStatus
+        }
+        if (dto.paymentMode !== undefined) {
+            data.paymentMode = dto.paymentMode
         }
 
         if (Object.keys(data).length === 1) {

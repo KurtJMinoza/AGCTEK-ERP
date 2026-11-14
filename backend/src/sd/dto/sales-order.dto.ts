@@ -285,6 +285,23 @@ export class CreateRetailSalesOrderDto {
     @Min(0)
     totalAmount!: number
 
+    /**
+     * Tax the customer pays on top of the catalogue price (VAT-exclusive
+     * lines). POS only; e-commerce prices are server-priced without tax.
+     */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    taxAmount?: number
+
+    /**
+     * Keep the order CONFIRMED so the caller can capture the tenders and post
+     * the goods issue before the sale is completed (staged POS checkout).
+     */
+    @IsOptional()
+    @IsBoolean()
+    deferCompletion?: boolean
+
     @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)

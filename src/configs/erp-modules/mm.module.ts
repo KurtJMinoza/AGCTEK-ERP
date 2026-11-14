@@ -115,13 +115,7 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         title: 'UOM Conversions',
                         icon: 'receipt',
                     },
-                    { code: 'barcodes', title: 'Barcodes', icon: 'fileText' },
                     { code: 'batches', title: 'Batches', icon: 'boxes' },
-                    {
-                        code: 'serial-numbers',
-                        title: 'Serial Numbers',
-                        icon: 'clipboard',
-                    },
                 ],
             ),
             mmHub(
@@ -732,30 +726,6 @@ export const MM_CATEGORIES: ErpCategory[] = [
                         code: 'mobile-counting',
                         title: 'Mobile Counting',
                         icon: 'calculator',
-                    },
-                ],
-            ),
-            mmHub(
-                'supporting-operations',
-                'Supporting Operations',
-                'Controlled documents, audit trail, and compliance monitoring.',
-                'clipboard',
-                'Supporting Operations',
-                [
-                    {
-                        code: 'document-management',
-                        title: 'Document Management',
-                        icon: 'fileText',
-                    },
-                    {
-                        code: 'audit-trail',
-                        title: 'Audit Trail',
-                        icon: 'search',
-                    },
-                    {
-                        code: 'compliance-dashboard',
-                        title: 'Compliance Dashboard',
-                        icon: 'barChart',
                     },
                 ],
             ),

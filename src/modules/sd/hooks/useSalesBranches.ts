@@ -11,6 +11,7 @@ export const toSalesBranch = (branch: MmBranch): SalesBranch => ({
     label: branch.name,
     code: branch.code,
     companyName: branch.company?.name ?? null,
+    companyId: branch.companyId,
 })
 
 /**

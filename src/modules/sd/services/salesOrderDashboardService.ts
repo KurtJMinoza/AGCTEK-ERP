@@ -74,6 +74,8 @@ export type SalesOrderRecord = {
         productImage: string | null
         productName: string | null
         variantName?: string
+        /** Scannable barcode snapshot of the sold variant. */
+        variantBarcode?: string
         /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
         integrationStatus: string | null
     })[]
@@ -156,6 +158,8 @@ type ApiSalesOrderLine = {
     productNameSnapshot: string | null
     productImageSnapshot: string | null
     variantName: string | null
+    variantSku: string | null
+    variantBarcode: string | null
     integrationStatus: string | null
     quantity: DecimalString
     unitPrice: DecimalString
@@ -279,6 +283,7 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             productImage: line.productImageSnapshot,
             productName: line.productNameSnapshot,
             variantName: line.variantName ?? undefined,
+            variantBarcode: line.variantBarcode ?? undefined,
             integrationStatus: line.integrationStatus ?? null,
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),

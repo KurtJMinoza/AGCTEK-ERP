@@ -5,6 +5,7 @@ import { ProcurementCommonModule } from './procurement/procurement-common.module
 import { ScmModule } from '../scm/scm.module'
 import { MaterialsController } from './materials/materials.controller'
 import { MaterialsService } from './materials/materials.service'
+import { MaterialTaxService } from './materials/material-tax.service'
 import { MaterialTypesController } from './material-types/material-types.controller'
 import { MaterialTypesService } from './material-types/material-types.service'
 import { MaterialCategoriesController } from './material-categories/material-categories.controller'
@@ -15,6 +16,8 @@ import { UomConversionsController } from './uom-conversions/uom-conversions.cont
 import { UomConversionsService } from './uom-conversions/uom-conversions.service'
 import { BarcodesController } from './barcodes/barcodes.controller'
 import { BarcodesService } from './barcodes/barcodes.service'
+import { MmBarcodeSerialModule } from './barcode-serial/mm-barcode-serial.module'
+import { MmBarcodeSerialService } from './barcode-serial/mm-barcode-serial.service'
 import { BatchesController } from './batches/batches.controller'
 import { BatchesService } from './batches/batches.service'
 import { SerialNumbersController } from './serial-numbers/serial-numbers.controller'
@@ -245,9 +248,6 @@ import { BarcodeRegistryService } from './supporting-ops/barcode-registry.servic
 import { RfidTagService } from './supporting-ops/rfid-tag.service'
 import { ScanSessionService } from './supporting-ops/scan-session.service'
 import { ScanOverrideService } from './supporting-ops/scan-override.service'
-import { ControlledDocumentService } from './supporting-ops/controlled-document.service'
-import { ComplianceAuditService } from './supporting-ops/compliance-audit.service'
-import { ComplianceDashboardService } from './supporting-ops/compliance-dashboard.service'
 import { PutawayService } from './warehouse/putaway/putaway.service'
 import { PutawayStrategyRegistry } from './warehouse/tasks/strategies/putaway-strategy.registry'
 import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capacity-based-putaway.strategy'
@@ -264,6 +264,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         DemandIntegrationModule,
         DocumentFlowModule,
         ExceptionCenterModule,
+        MmBarcodeSerialModule,
         forwardRef(() => PpModule),
         forwardRef(() => FicoModule),
     ],
@@ -338,6 +339,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
     ],
     providers: [
         MaterialsService,
+        MaterialTaxService,
         MaterialTypesService,
         MaterialCategoriesService,
         UomService,
@@ -508,9 +510,7 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         RfidTagService,
         ScanSessionService,
         ScanOverrideService,
-        ControlledDocumentService,
-        ComplianceAuditService,
-        ComplianceDashboardService,
+        MmBarcodeSerialService,
     ],
     exports: [
         SdIntegrationModule,
@@ -528,6 +528,9 @@ import { CapacityBasedPutawayStrategy } from './warehouse/tasks/strategies/capac
         ReorderRuleService,
         CustomerReturnService,
         MaterialsService,
+        MaterialTaxService,
+        BarcodeResolveService,
+        MmBarcodeSerialService,
     ],
 })
 export class MmModule {}
