@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react'
 import type { FilterChip, FilterField } from '@/components/shared/FilterBar'
-import type { SalesLineReportRow } from '../services/salesAnalyticsService'
+import {
+    salesChannelLabel,
+    type SalesLineReportRow,
+} from '../services/salesAnalyticsService'
 
 export type SalesLineReportFilterState = {
     search: string
+    channel: string
     location: string
     salesType: string
 }
@@ -14,6 +18,12 @@ export function filterSalesLineReport(
 ) {
     const q = filters.search.trim().toLowerCase()
     return rows.filter((row) => {
+        if (
+            filters.channel !== 'ALL' &&
+            row.salesChannel !== filters.channel
+        ) {
+            return false
+        }
         if (
             filters.location !== 'ALL' &&
             row.location !== filters.location
@@ -39,8 +49,19 @@ export function filterSalesLineReport(
 
 export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
     const [search, setSearch] = useState('')
+    const [channel, setChannel] = useState('ALL')
     const [location, setLocation] = useState('ALL')
     const [salesType, setSalesType] = useState('ALL')
+
+    const channelOptions = useMemo(() => {
+        const values = [
+            ...new Set(rows.map((row) => row.salesChannel).filter(Boolean)),
+        ].sort((a, b) => salesChannelLabel(a).localeCompare(salesChannelLabel(b)))
+        return [
+            { value: 'ALL', label: 'All channels' },
+            ...values.map((value) => ({ value, label: salesChannelLabel(value) })),
+        ]
+    }, [rows])
 
     const locationOptions = useMemo(() => {
         const values = [
@@ -52,11 +73,12 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
         ]
     }, [rows])
 
-    const state: SalesLineReportFilterState = { search, location, salesType }
+    const state: SalesLineReportFilterState = { search, channel, location, salesType }
 
     const filteredRows = useMemo(
         () => filterSalesLineReport(rows, state),
-        [rows, search, location, salesType],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [rows, search, channel, location, salesType],
     )
 
     const fields: FilterField[] = useMemo(
@@ -71,6 +93,15 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
                 silent: true,
                 className: 'min-w-[12rem] flex-1',
                 onChange: setSearch,
+            },
+            {
+                key: 'channel',
+                label: 'Channel',
+                kind: 'select',
+                value: channel,
+                options: channelOptions,
+                className: 'w-full sm:w-40',
+                onChange: setChannel,
             },
             {
                 key: 'location',
@@ -95,11 +126,18 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
                 onChange: setSalesType,
             },
         ],
-        [search, location, salesType, locationOptions],
+        [search, channel, location, salesType, channelOptions, locationOptions],
     )
 
     const chips: FilterChip[] = useMemo(() => {
         const active: FilterChip[] = []
+        if (channel !== 'ALL') {
+            active.push({
+                key: 'channel',
+                label: `Channel: ${salesChannelLabel(channel)}`,
+                onRemove: () => setChannel('ALL'),
+            })
+        }
         if (location !== 'ALL') {
             active.push({
                 key: 'location',
@@ -122,10 +160,11 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
             })
         }
         return active
-    }, [location, salesType, search])
+    }, [channel, location, salesType, search])
 
     const clearFilters = () => {
         setSearch('')
+        setChannel('ALL')
         setLocation('ALL')
         setSalesType('ALL')
     }

@@ -4,7 +4,10 @@ import type { ColumnDef } from '@/components/shared/DataTable'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
 import { SdMoneyCell } from './SdDataTableCells'
-import type { SalesLineReportRow } from '../services/salesAnalyticsService'
+import {
+    salesChannelLabel,
+    type SalesLineReportRow,
+} from '../services/salesAnalyticsService'
 
 const formatQty = (value: number) =>
     Number.isInteger(value)
@@ -126,6 +129,20 @@ const ALL_COLUMN_BUILDERS: Array<
       >
         {row.original.customerName}
       </span>
+    ),
+  }),
+  (opts) => ({
+    header: 'Channel',
+    id: 'salesChannel',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 120 : 104,
+    minSize: relaxed(opts.variant) ? 100 : 88,
+    cell: ({ row }) => (
+      <Tag className="whitespace-nowrap text-[11px]">
+        {salesChannelLabel(row.original.salesChannel)}
+      </Tag>
     ),
   }),
   (opts) => ({
@@ -381,6 +398,7 @@ const ALL_COLUMN_BUILDERS: Array<
 
 const SUMMARY_IDS = new Set([
   'customerName',
+  'salesChannel',
   'location',
   'particular',
   'qty',

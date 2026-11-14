@@ -77,6 +77,20 @@ export function SourceBadge({
     )
 }
 
+/** How the platform sale was paid / settled. */
+export const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
+    { value: 'PLATFORM_PAYOUT', label: 'Platform payout' },
+    { value: 'COD', label: 'Cash on delivery (via platform)' },
+    { value: 'GCASH', label: 'GCash' },
+    { value: 'BANK_TRANSFER', label: 'Bank transfer' },
+    { value: 'CARD', label: 'Card' },
+    { value: 'CASH', label: 'Cash' },
+    { value: 'OTHER', label: 'Other' },
+]
+
+export const paymentMethodLabel = (value?: string | null) =>
+    PAYMENT_METHODS.find((p) => p.value === value)?.label ?? value ?? '—'
+
 const TAX_CLASS_META: Record<string, { label: string; className: string }> = {
     VATABLE: { label: 'VATable', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
     VAT_EXEMPT: { label: 'VAT-exempt', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },

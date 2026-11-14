@@ -7,7 +7,19 @@ export type SalesAnalyticsRange =
     | 'month'
     | 'ytd'
     | 'custom'
-export type SalesAnalyticsChannel = 'ALL' | 'ECOMMERCE' | 'POS'
+/** EXTERNAL = manually recorded external platform sales (Shopee, Lazada, …). */
+export type SalesAnalyticsChannel = 'ALL' | 'ECOMMERCE' | 'POS' | 'EXTERNAL'
+
+const SALES_CHANNEL_LABEL: Record<string, string> = {
+    ECOMMERCE: 'E-commerce',
+    POS: 'POS',
+    STANDARD: 'Standard',
+    EXTERNAL: 'External platforms',
+}
+
+/** Display name of a sales channel; external platform rows already carry the platform name. */
+export const salesChannelLabel = (channel: string) =>
+    SALES_CHANNEL_LABEL[channel] ?? channel
 
 export type SalesAnalyticsTotals = {
     totalRevenue: number
@@ -20,6 +32,8 @@ export type SalesAnalyticsTotals = {
 
 export type SalesLineReportRow = {
     productImageUrl: string | null
+    /** POS | ECOMMERCE | STANDARD, or the external platform name (Shopee, Lazada, …). */
+    salesChannel: string
     customerName: string
     location: string
     barcode: string

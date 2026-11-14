@@ -9,7 +9,8 @@ export const SALES_ANALYTICS_RANGES = [
 ] as const
 export type SalesAnalyticsRange = (typeof SALES_ANALYTICS_RANGES)[number]
 
-export const SALES_ANALYTICS_CHANNELS = ['ALL', 'ECOMMERCE', 'POS'] as const
+/** EXTERNAL = manually recorded external platform sales (Shopee, Lazada, …). */
+export const SALES_ANALYTICS_CHANNELS = ['ALL', 'ECOMMERCE', 'POS', 'EXTERNAL'] as const
 export type SalesAnalyticsChannel = (typeof SALES_ANALYTICS_CHANNELS)[number]
 
 export class SalesAnalyticsQueryDto {

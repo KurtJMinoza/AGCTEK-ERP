@@ -40,7 +40,13 @@ import type {
     SalesSource,
 } from '../types/extPlatform'
 import { formatSdMoney } from './SdDataTableCells'
-import { SourceBadge, SourceIcon, TaxClassTag, sourceColorClass } from './extPlatformUi'
+import {
+    PAYMENT_METHODS,
+    SourceBadge,
+    SourceIcon,
+    TaxClassTag,
+    sourceColorClass,
+} from './extPlatformUi'
 
 type Option = { value: string; label: string }
 /** One sellable SD Product Catalog entry: a SIMPLE product, or one variant of a VARIABLE product. */
@@ -82,16 +88,6 @@ const catalogKey = (productId: string, variantId: string) => `${productId}:${var
 type HeaderErrors = Partial<
     Record<'source' | 'company' | 'date' | 'lines', string>
 >
-
-const PAYMENT_METHODS: Option[] = [
-    { value: 'PLATFORM_PAYOUT', label: 'Platform payout' },
-    { value: 'COD', label: 'Cash on delivery (via platform)' },
-    { value: 'GCASH', label: 'GCash' },
-    { value: 'BANK_TRANSFER', label: 'Bank transfer' },
-    { value: 'CARD', label: 'Card' },
-    { value: 'CASH', label: 'Cash' },
-    { value: 'OTHER', label: 'Other' },
-]
 
 const PREVIEW_DEBOUNCE_MS = 400
 

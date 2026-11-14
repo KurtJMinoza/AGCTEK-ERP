@@ -1,11 +1,12 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { HiOutlineChartPie, HiOutlineUserGroup } from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import Avatar from '@/components/ui/Avatar'
 import Progress from '@/components/ui/Progress'
+import Segment from '@/components/ui/Segment'
 import Skeleton from '@/components/ui/Skeleton'
 import classNames from '@/utils/classNames'
 import { formatSdMoney } from './SdDataTableCells'
@@ -226,6 +227,137 @@ export const TopCustomersList = ({
                 )
             })}
         </ul>
+    )
+}
+
+type BestSellerMetric = 'revenue' | 'units'
+
+/** Gold / silver / bronze for the podium, neutral after that. */
+const RANK_CLASS = [
+    'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+    'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100',
+    'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300',
+]
+
+/**
+ * Ranked best-seller list with proportional bars. Long product names get a
+ * full row each, so the layout stays clean however many products there are.
+ */
+export const BestSellersLeaderboard = ({
+    products,
+    totalRevenue,
+    currency,
+    loading,
+    selectedProduct,
+    onSelect,
+}: {
+    products: TopProduct[]
+    totalRevenue: number
+    currency: string
+    loading: boolean
+    selectedProduct: TopProduct | null
+    onSelect: (product: TopProduct) => void
+}) => {
+    const [metric, setMetric] = useState<BestSellerMetric>('revenue')
+    const ranked = useMemo(
+        () => [...products].sort((a, b) => b[metric] - a[metric] || b.revenue - a.revenue),
+        [products, metric],
+    )
+
+    if (loading) return <ListSkeleton rows={6} />
+    if (!products.length) return <EmptyState height={300} />
+
+    const max = Math.max(...ranked.map((p) => p[metric]), 1)
+    const totalUnits = products.reduce((sum, p) => sum + p.units, 0)
+
+    return (
+        <div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-xs text-gray-500">
+                    Top {products.length} by {metric === 'revenue' ? 'revenue' : 'units sold'}
+                </span>
+                <Segment
+                    size="xs"
+                    value={metric}
+                    onChange={(value) => setMetric(value as BestSellerMetric)}
+                >
+                    <Segment.Item value="revenue">Revenue</Segment.Item>
+                    <Segment.Item value="units">Units</Segment.Item>
+                </Segment>
+            </div>
+            <ol className="max-h-[360px] space-y-1 overflow-y-auto pr-1">
+                {ranked.map((product, index) => {
+                    const value = product[metric]
+                    const share =
+                        metric === 'revenue'
+                            ? sharePercent(product.revenue, totalRevenue)
+                            : sharePercent(product.units, totalUnits)
+                    const selected = product === selectedProduct
+                    return (
+                        <li key={`${product.sku ?? ''}-${product.productName}`}>
+                            <button
+                                type="button"
+                                title={`${product.productName} — show who bought it`}
+                                onClick={() => onSelect(product)}
+                                className={classNames(
+                                    'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
+                                    selected
+                                        ? 'bg-primary-subtle ring-1 ring-primary/30'
+                                        : 'hover:bg-gray-50 dark:hover:bg-gray-800/60',
+                                )}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span
+                                        className={classNames(
+                                            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                                            RANK_CLASS[index] ??
+                                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300',
+                                        )}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-baseline justify-between gap-3">
+                                            <p className="truncate text-sm font-semibold heading-text">
+                                                {product.productName}
+                                            </p>
+                                            <span className="shrink-0 text-sm font-bold tabular-nums heading-text">
+                                                {metric === 'revenue'
+                                                    ? formatSdMoney(product.revenue, currency)
+                                                    : `${product.units.toLocaleString('en-PH')} units`}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                                            <div
+                                                className={classNames(
+                                                    'h-full rounded-full',
+                                                    index === 0 ? 'bg-primary' : 'bg-primary/60',
+                                                )}
+                                                style={{ width: `${Math.max(2, (value / max) * 100)}%` }}
+                                            />
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-gray-500">
+                                            <span className="truncate font-mono">
+                                                {product.sku ?? '—'}
+                                                <span className="font-sans">
+                                                    {' · '}
+                                                    {metric === 'revenue'
+                                                        ? `${product.units.toLocaleString('en-PH')} units`
+                                                        : formatSdMoney(product.revenue, currency)}
+                                                    {' · '}
+                                                    {product.orders} order{product.orders === 1 ? '' : 's'}
+                                                </span>
+                                            </span>
+                                            <span className="shrink-0 tabular-nums">{share}% of {metric === 'revenue' ? 'sales' : 'units'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+                        </li>
+                    )
+                })}
+            </ol>
+        </div>
     )
 }
 

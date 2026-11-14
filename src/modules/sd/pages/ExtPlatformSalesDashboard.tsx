@@ -16,7 +16,6 @@ import PageHeader from '@/components/shared/PageHeader'
 import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
-import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import Card from '@/components/ui/Card'
@@ -28,7 +27,8 @@ import toast from '@/components/ui/toast'
 import { sdParentBreadcrumbs } from '../utils/sdPageUi'
 import { SdMoneyCell } from '../components/SdDataTableCells'
 import ExtPlatformTransactionDialog from '../components/ExtPlatformTransactionDialog'
-import { SourceBadge, TaxClassTag } from '../components/extPlatformUi'
+import ExtPlatformTransactionDetailDialog from '../components/ExtPlatformTransactionDetailDialog'
+import { SourceBadge } from '../components/extPlatformUi'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import {
     fetchSalesSources,
@@ -370,21 +370,6 @@ export default function ExtPlatformSalesDashboard() {
         loadSummary()
     }
 
-    // ── Detail dialog tax table ──
-
-    const TaxSummaryRow = ({
-        label,
-        value,
-    }: {
-        label: string
-        value: number | string
-    }) => (
-        <div className="flex justify-between py-1">
-            <span className="text-gray-600 dark:text-gray-400">{label}</span>
-            <span className="font-medium">{formatMoney(value)}</span>
-        </div>
-    )
-
     return (
         <PageContainer>
             <PageHeader
@@ -598,235 +583,26 @@ export default function ExtPlatformSalesDashboard() {
             />
 
             {/* ── Detail dialog ── */}
-            {detailTx && (
-                <FormDialog
-                    isOpen
-                    onClose={() => setDetailTx(null)}
-                    title={`${detailTx.transactionNumber} — Details`}
-                    size="xl"
-                    width={960}
-                    closable
-                    footer={
-                        <Button onClick={() => setDetailTx(null)}>Close</Button>
-                    }
-                >
-                    <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-                        <div>
-                            <span className="text-gray-500">Source:</span>{' '}
-                            <SourceBadge source={detailTx.salesSource} />
-                        </div>
-                        <div>
-                            <span className="text-gray-500">Status:</span>{' '}
-                            <StatusBadge
-                                tone={
-                                    (
-                                        STATUS_META[detailTx.status] ?? {
-                                            tone: 'default',
-                                        }
-                                    ).tone
-                                }
-                            >
-                                {STATUS_META[detailTx.status]?.label ??
-                                    detailTx.status}
-                            </StatusBadge>
-                        </div>
-                        <div>
-                            <span className="text-gray-500">Date:</span>{' '}
-                            {dayjs(detailTx.transactionDate).format(
-                                'MMM DD, YYYY',
-                            )}
-                        </div>
-                        <div>
-                            <span className="text-gray-500">Company:</span>{' '}
-                            {detailTx.company?.name}
-                        </div>
-                        {detailTx.branch && (
-                            <div>
-                                <span className="text-gray-500">Branch:</span>{' '}
-                                {detailTx.branch.name}
-                            </div>
-                        )}
-                        {(detailTx.customer || detailTx.customerName) && (
-                            <div>
-                                <span className="text-gray-500">
-                                    Customer:
-                                </span>{' '}
-                                {detailTx.customer?.companyName ??
-                                    detailTx.customerName}
-                            </div>
-                        )}
-                        {detailTx.externalOrderRef && (
-                            <div>
-                                <span className="text-gray-500">Ext. Ref:</span>{' '}
-                                {detailTx.externalOrderRef}
-                            </div>
-                        )}
-                        {detailTx.externalPlatformName && (
-                            <div>
-                                <span className="text-gray-500">
-                                    Platform:
-                                </span>{' '}
-                                {detailTx.externalPlatformName}
-                            </div>
-                        )}
-                        {detailTx.paymentMethod && (
-                            <div>
-                                <span className="text-gray-500">Payment:</span>{' '}
-                                {detailTx.paymentMethod}
-                            </div>
-                        )}
-                        {detailTx.settlementReference && (
-                            <div>
-                                <span className="text-gray-500">
-                                    Settlement:
-                                </span>{' '}
-                                {detailTx.settlementReference}
-                            </div>
-                        )}
-                        <div>
-                            <span className="text-gray-500">Inventory:</span>{' '}
-                            {detailTx.isCompanyInventory
-                                ? 'Company-Owned'
-                                : 'Third-Party'}
-                        </div>
-                    </div>
-
-                    {/* ── Line items with tax ── */}
-                    <h4 className="text-sm font-semibold mb-2">Line Items</h4>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full text-xs">
-                            <thead className="bg-gray-50 dark:bg-gray-800">
-                                <tr>
-                                    <th className="px-2 py-1.5 text-left">#</th>
-                                    <th className="px-2 py-1.5 text-left">
-                                        Product
-                                    </th>
-                                    <th className="px-2 py-1.5 text-left">
-                                        SKU
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Qty
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Price
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Discount
-                                    </th>
-                                    <th className="px-2 py-1.5 text-left">
-                                        Tax Class
-                                    </th>
-                                    <th className="px-2 py-1.5 text-left">
-                                        Tax Code
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Tax Rate
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Tax
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Net
-                                    </th>
-                                    <th className="px-2 py-1.5 text-right">
-                                        Gross
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {detailTx.lines.map((line) => (
-                                    <tr
-                                        key={line.id}
-                                        className="border-b border-gray-100 dark:border-gray-700"
-                                    >
-                                        <td className="px-2 py-1">
-                                            {line.lineNumber}
-                                        </td>
-                                        <td className="px-2 py-1">
-                                            <div>
-                                                {line.productName ?? line.materialName ?? line.materialCode}
-                                                {line.variantName ? (
-                                                    <span className="text-gray-500"> — {line.variantName}</span>
-                                                ) : null}
-                                            </div>
-                                            <div className="text-[11px] text-gray-400">
-                                                MM {line.materialCode}
-                                            </div>
-                                        </td>
-                                        <td className="px-2 py-1">
-                                            {line.sku ?? '—'}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {Number(line.quantity)}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {formatMoney(line.unitPrice)}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {formatMoney(line.discount)}
-                                        </td>
-                                        <td className="px-2 py-1">
-                                            <TaxClassTag
-                                                classification={line.taxClassification}
-                                                taxCode={line.taxCode}
-                                            />
-                                        </td>
-                                        <td className="px-2 py-1">
-                                            {line.taxCode ?? '—'}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {line.taxRate != null
-                                                ? `${Number(line.taxRate)}%`
-                                                : '—'}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {formatMoney(line.taxAmount)}
-                                        </td>
-                                        <td className="px-2 py-1 text-right">
-                                            {formatMoney(line.netAmount)}
-                                        </td>
-                                        <td className="px-2 py-1 text-right font-medium">
-                                            {formatMoney(line.grossAmount)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* ── Totals ── */}
-                    <div className="mt-4 max-w-xs ml-auto">
-                        <TaxSummaryRow
-                            label="Subtotal"
-                            value={detailTx.subtotal}
-                        />
-                        <TaxSummaryRow
-                            label="Discount"
-                            value={detailTx.discountTotal}
-                        />
-                        <TaxSummaryRow label="Tax" value={detailTx.taxTotal} />
-                        {Number(detailTx.platformFees) > 0 && (
-                            <TaxSummaryRow
-                                label="Platform Fees"
-                                value={detailTx.platformFees}
-                            />
-                        )}
-                        <div className="border-t border-gray-200 dark:border-gray-700 mt-1 pt-1">
-                            <TaxSummaryRow
-                                label="Grand Total"
-                                value={detailTx.grandTotal}
-                            />
-                        </div>
-                    </div>
-
-                    {detailTx.remarks && (
-                        <div className="mt-4 text-sm">
-                            <span className="text-gray-500">Remarks:</span>{' '}
-                            {detailTx.remarks}
-                        </div>
-                    )}
-                </FormDialog>
-            )}
+            <ExtPlatformTransactionDetailDialog
+                transaction={detailTx}
+                onClose={() => setDetailTx(null)}
+                onEdit={(tx) => {
+                    setDetailTx(null)
+                    setEntry({ mode: 'edit', tx })
+                }}
+                onConfirm={(tx) => {
+                    setDetailTx(null)
+                    void handleConfirm(tx)
+                }}
+                onApprove={(tx) => {
+                    setDetailTx(null)
+                    void handleApprove(tx)
+                }}
+                onDelete={(tx) => {
+                    setDetailTx(null)
+                    setDeleteTx(tx)
+                }}
+            />
 
             {/* ── Delete confirm ── */}
             <ConfirmDialog

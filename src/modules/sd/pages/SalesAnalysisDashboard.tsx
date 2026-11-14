@@ -35,6 +35,7 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import SdDataTable from '../components/SdDataTable'
 import { SdMoneyCell, formatSdMoney } from '../components/SdDataTableCells'
 import {
+    BestSellersLeaderboard,
     CustomerAvatar,
     EmptyState,
     KpiCard,
@@ -64,12 +65,14 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     { value: 'ALL', label: 'All channels' },
     { value: 'ECOMMERCE', label: 'E-commerce' },
     { value: 'POS', label: 'POS' },
+    { value: 'EXTERNAL', label: 'External platforms' },
 ]
 
 const CHANNEL_LABEL: Record<string, string> = {
     ECOMMERCE: 'E-commerce',
     POS: 'POS',
     STANDARD: 'Standard',
+    EXTERNAL: 'External platforms',
 }
 
 type TopProduct = SalesAnalytics['topProducts'][number]
@@ -102,9 +105,6 @@ const bucketLabel = (bucket: string, granularity: SalesAnalytics['bucket']) => {
               timeZone: 'UTC',
           })
 }
-
-const truncateLabel = (label: string, max = 28) =>
-    label.length > max ? `${label.slice(0, max - 1)}…` : label
 
 const SalesAnalysisDashboard = () => {
     const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
@@ -696,48 +696,16 @@ const SalesAnalysisDashboard = () => {
                 <AdaptiveCard className="xl:col-span-2">
                     <SectionTitle
                         title="Best-selling products"
-                        description="Top products by revenue in the period"
+                        description="Top products in the period · click one to see who bought it"
                     />
-                    {loading ? (
-                        <Skeleton height={340} />
-                    ) : products.length ? (
-                        <Chart
-                            type="bar"
-                            height={Math.max(220, products.length * 38)}
-                            xAxis={products.map((p) =>
-                                truncateLabel(p.productName),
-                            )}
-                            series={[
-                                {
-                                    name: 'Revenue',
-                                    data: products.map((p) => p.revenue),
-                                },
-                            ]}
-                            customOptions={{
-                                plotOptions: {
-                                    bar: {
-                                        horizontal: true,
-                                        borderRadius: 4,
-                                        barHeight: '60%',
-                                        distributed: true,
-                                    },
-                                },
-                                legend: { show: false },
-                                dataLabels: { enabled: false },
-                                grid: {
-                                    xaxis: { lines: { show: true } },
-                                    yaxis: { lines: { show: false } },
-                                },
-                                tooltip: {
-                                    y: {
-                                        formatter: (v: number) => money(v),
-                                    },
-                                },
-                            }}
-                        />
-                    ) : (
-                        <EmptyState height={340} />
-                    )}
+                    <BestSellersLeaderboard
+                        products={products}
+                        totalRevenue={totalRevenue}
+                        currency={currency}
+                        loading={loading}
+                        selectedProduct={selectedProductKey ? selectedProduct : null}
+                        onSelect={(product) => selectProduct(productKey(product))}
+                    />
                 </AdaptiveCard>
 
                 <AdaptiveCard>
