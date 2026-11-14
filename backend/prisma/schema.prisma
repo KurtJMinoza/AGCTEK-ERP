@@ -345,6 +345,7 @@ model Company {
   ficoTaxCodeAuditLogs             FicoTaxCodeAuditLog[]
   ficoDocumentTypes                FicoDocumentType[]
   ficoTaxRates                     FicoTaxRate[]
+  extPlatformTransactions          SdExtPlatformTransaction[] @relation("ExtPlatformTxCompany")
 
   @@map("companies")
 }
@@ -388,6 +389,7 @@ model Branch {
   updatedAt  DateTime    @updatedAt
   deletedAt  DateTime?
   warehouses Warehouse[]
+  extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxBranch")
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -1144,6 +1146,7 @@ model MmUom {
   sdOrderLineBaseUom      SdSalesOrderLine[]             @relation("SdOrderLineBaseUom")
   sdVariantSalesUoms      SdProductVariant[]             @relation("SdVariantSalesUom")
   sdVariantMaterialUoms   SdProductVariant[]             @relation("SdVariantMaterialUom")
+  extPlatformLineUoms     SdExtPlatformTransactionLine[] @relation("ExtPlatformLineUom")
 
   @@map("mm_uoms")
 }
@@ -1387,6 +1390,7 @@ model MmMaterial {
   ppProductionOrders           PpProductionOrder[]               @relation("ProductionFinishedMaterial")
   ppProductionOrderMaterials   PpProductionOrderMaterial[]
   ppProductionOutputs          PpProductionOutput[]
+  extPlatformTransactionLines  SdExtPlatformTransactionLine[] @relation("ExtPlatformLineMaterial")
 
   @@index([status])
   @@index([materialTypeId])
@@ -4763,6 +4767,7 @@ model SdCustomer {
   crmLoyaltyAccount CrmLoyaltyAccount?
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
+  extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxCustomer")
 
   @@index([status])
   @@index([companyName])
@@ -5226,6 +5231,18 @@ model SdSalesOrderLine {
   variantName          String?
   variantSku           String?
   variantBarcode       String?
+  /// VAT snapshot frozen at sale time (POS) from the MM material tax setup + FICO rate,
+  /// so receipts and reprints keep the tax that applied. Null classification = not configured.
+  /// VATABLE | VAT_EXEMPT | ZERO_RATED
+  taxClassification    String?
+  taxCode              String?
+  taxRate              Decimal?              @db.Decimal(18, 6)
+  /// VAT_INCLUSIVE | VAT_EXCLUSIVE
+  taxTreatment         String?
+  /// VAT inside (inclusive) or on top of (exclusive) the line total.
+  taxAmount            Decimal               @default(0) @db.Decimal(18, 4)
+  /// Line amount net of VAT.
+  taxableAmount        Decimal?              @db.Decimal(18, 4)
   reservedQuantity     Decimal               @default(0)
   issuedQuantity       Decimal               @default(0)
   reservationHeaderId  String?
@@ -9127,4 +9144,127 @@ model CrmLoyaltyTransaction {
   @@index([loyaltyAccountId, createdAt])
   @@index([referenceType, referenceId])
   @@map("crm_loyalty_transactions")
+}
+
+// ────────────────────────────────────────────────────────────────
+// SD External Platform Sales — manual entry of third-party channel transactions
+// ────────────────────────────────────────────────────────────────
+
+/// Configurable sales sources / channels (POS, Shopee, Lazada, TikTok, etc.).
+model SdSalesSource {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  description String?
+  /// Visual badge color (Tailwind class or hex); null = default gray.
+  badgeColor  String?
+  /// SYSTEM sources are pre-seeded and cannot be deleted.
+  origin      String    @default("USER") // SYSTEM | USER
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  transactions SdExtPlatformTransaction[]
+
+  @@index([isActive, sortOrder])
+  @@map("sd_sales_sources")
+}
+
+/// Header for a manually entered external platform sales transaction.
+model SdExtPlatformTransaction {
+  id                    String    @id @default(cuid())
+  /// Business number EPT-000001; assigned by DB sequence.
+  transactionNumber     String    @unique
+  salesSourceId         String
+  salesSource           SdSalesSource @relation(fields: [salesSourceId], references: [id], onDelete: Restrict)
+  /// Free-text platform name (when "Other" source is used).
+  externalPlatformName  String?
+  /// Order/reference number on the external platform.
+  externalOrderRef      String?
+  transactionDate       DateTime  @db.Date
+  companyId             String
+  company               Company   @relation("ExtPlatformTxCompany", fields: [companyId], references: [id], onDelete: Restrict)
+  branchId              String?
+  branch                Branch?   @relation("ExtPlatformTxBranch", fields: [branchId], references: [id], onDelete: Restrict)
+  customerId            String?
+  customer              SdCustomer? @relation("ExtPlatformTxCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  customerName          String?
+  currency              String    @default("PHP")
+  /// DRAFT | CONFIRMED | APPROVED | CANCELLED
+  status                String    @default("DRAFT")
+  subtotal              Decimal   @default(0) @db.Decimal(18, 4)
+  discountTotal         Decimal   @default(0) @db.Decimal(18, 4)
+  taxTotal              Decimal   @default(0) @db.Decimal(18, 4)
+  grandTotal            Decimal   @default(0) @db.Decimal(18, 4)
+  /// Payment method used to settle the platform sale.
+  paymentMethod         String?
+  /// Settlement reference (payout ID, bank UTR, etc.).
+  settlementReference   String?
+  /// Platform fees / marketplace commission.
+  platformFees          Decimal   @default(0) @db.Decimal(18, 4)
+  remarks               String?
+  /// Whether the inventory is company-owned (true = deduct stock) or third-party.
+  isCompanyInventory    Boolean   @default(true)
+  /// Idempotency: (salesSourceId, companyId, externalOrderRef) is unique when ref is present.
+  createdBy             String?
+  approvedBy            String?
+  approvedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  lines                 SdExtPlatformTransactionLine[]
+
+  @@unique([salesSourceId, companyId, externalOrderRef])
+  @@index([companyId, status])
+  @@index([salesSourceId, transactionDate])
+  @@index([transactionDate])
+  @@index([branchId])
+  @@map("sd_ext_platform_transactions")
+}
+
+/// Line item of an external platform transaction; each line snapshots its tax determination.
+model SdExtPlatformTransactionLine {
+  id                    String    @id @default(cuid())
+  transactionId         String
+  transaction           SdExtPlatformTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  lineNumber            Int
+  /// Sold SD Product Catalog item (not an FK, like SdSalesOrderLine.productId); snapshots below keep history readable.
+  productId             String?
+  variantId             String?
+  productName           String?
+  variantName           String?
+  /// MM material resolved from the variant or product–material assignment; owns the tax classification.
+  materialId            String
+  material              MmMaterial @relation("ExtPlatformLineMaterial", fields: [materialId], references: [id], onDelete: Restrict)
+  materialCode          String?
+  materialName          String?
+  sku                   String?
+  description           String?
+  quantity              Decimal   @db.Decimal(18, 4)
+  uomId                 String?
+  uom                   MmUom?    @relation("ExtPlatformLineUom", fields: [uomId], references: [id])
+  unitPrice             Decimal   @db.Decimal(18, 4)
+  discount              Decimal   @default(0) @db.Decimal(18, 4)
+  lineSubtotal          Decimal   @default(0) @db.Decimal(18, 4)
+  /// ── Tax determination snapshot (from MM Material Master + FICO) ──
+  /// VATABLE | VAT_EXEMPT | ZERO_RATED
+  taxClassification     String?
+  taxCodeId             String?
+  taxCode               String?
+  taxRate               Decimal?  @db.Decimal(18, 6)
+  /// TAX_INCLUSIVE | TAX_EXCLUSIVE
+  calculationMethod     String?
+  taxableAmount         Decimal   @default(0) @db.Decimal(18, 4)
+  taxAmount             Decimal   @default(0) @db.Decimal(18, 4)
+  exemptAmount          Decimal   @default(0) @db.Decimal(18, 4)
+  zeroRatedAmount       Decimal   @default(0) @db.Decimal(18, 4)
+  netAmount             Decimal   @default(0) @db.Decimal(18, 4)
+  grossAmount           Decimal   @default(0) @db.Decimal(18, 4)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([transactionId, lineNumber])
+  @@index([materialId])
+  @@index([productId])
+  @@map("sd_ext_platform_transaction_lines")
 }

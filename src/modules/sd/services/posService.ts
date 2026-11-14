@@ -60,6 +60,9 @@ export type PosReceiptLine = {
     quantity: number
     unitPrice: number
     lineTotal: number
+    /** VATABLE | VAT_EXEMPT | ZERO_RATED, frozen at sale time; null = no tax setup. */
+    taxClassification: string | null
+    taxCode: string | null
     taxRate: number
     taxIncluded: number
     taxAdded: number
@@ -99,8 +102,15 @@ export type PosReceipt = {
     lines: PosReceiptLine[]
     subtotal: number
     discountAmount: number
+    /** VAT added on top of VAT-exclusive prices (part of the total). */
     taxAmount: number
+    /** VAT already inside VAT-inclusive prices. */
     taxIncludedAmount: number
+    /** BIR receipt breakdown from the VAT frozen on the order lines. */
+    vatableSales: number
+    vatAmount: number
+    vatExemptSales: number
+    zeroRatedSales: number
     total: number
     tendered: number
     change: number

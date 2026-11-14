@@ -48,6 +48,13 @@ const TENDER_LABEL: Record<string, string> = {
     SALARY_LOAN: 'Salary deduction',
 }
 
+/** BIR-style item markers after the line amount. */
+const VAT_CODE: Record<string, string> = {
+    VATABLE: 'V',
+    VAT_EXEMPT: 'E',
+    ZERO_RATED: 'Z',
+}
+
 /** Settlement the server recorded for a tender. */
 const TENDER_STATUS: Record<string, string> = {
     Paid: 'Paid',
@@ -69,6 +76,16 @@ const POSReceipt = ({
     const completedAt = new Date(receipt.completedAt)
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
     const voided = receipt.status === 'CANCELLED'
+    // Sales recorded before the VAT snapshot existed carry no classification.
+    const hasVat = receipt.lines.some((line) => line.taxClassification)
+    const vatRates = [
+        ...new Set(
+            receipt.lines
+                .filter((line) => line.taxClassification === 'VATABLE' && line.taxRate)
+                .map((line) => line.taxRate),
+        ),
+    ]
+    const vatRateLabel = vatRates.length === 1 ? ` (${vatRates[0]}%)` : ''
 
     return (
         <div
@@ -125,7 +142,7 @@ const POSReceipt = ({
                     ) : null}
                     <Row
                         label={`  ${line.quantity} x ${money(line.unitPrice)}`}
-                        value={money(line.lineTotal)}
+                        value={`${money(line.lineTotal)} ${VAT_CODE[line.taxClassification ?? ''] ?? ' '}`}
                     />
                 </div>
             ))}
@@ -138,9 +155,19 @@ const POSReceipt = ({
                 <Row label="Discount" value={`-${money(receipt.discountAmount)}`} />
             ) : null}
             {receipt.taxAmount ? (
-                <Row label="Tax" value={money(receipt.taxAmount)} />
+                <Row label="VAT (added)" value={money(receipt.taxAmount)} />
             ) : null}
             <Row label="TOTAL" value={`PHP ${money(receipt.total)}`} bold />
+            {hasVat ? (
+                <>
+                    <Divider />
+                    <Row label="VATable Sales" value={money(receipt.vatableSales)} />
+                    <Row label={`VAT${vatRateLabel}`} value={money(receipt.vatAmount)} />
+                    <Row label="VAT-Exempt Sales" value={money(receipt.vatExemptSales)} />
+                    <Row label="Zero-Rated Sales" value={money(receipt.zeroRatedSales)} />
+                    <div className="mt-1 text-[10px]">V = VATable · E = VAT-exempt · Z = Zero-rated</div>
+                </>
+            ) : null}
             <Divider />
             {receipt.tenders.map((tender, index) => (
                 <div key={`${tender.method}-${index}`} className="mb-1">

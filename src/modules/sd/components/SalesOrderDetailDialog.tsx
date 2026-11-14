@@ -13,6 +13,7 @@ import {
 import Dialog from '@/components/ui/Dialog'
 import Tag from '@/components/ui/Tag'
 import StatusBadge from '@/components/shared/StatusBadge'
+import { TaxClassTag } from './extPlatformUi'
 import {
     PAYMENT_METHOD_LABEL,
     type SalesOrderRecord,
@@ -105,6 +106,20 @@ const OrderLineRow = ({ line }: { line: Line }) => (
                     <div className="mt-0.5 text-sm font-bold tabular-nums">
                         {formatOrderPrice(line.lineTotal)}
                     </div>
+                    {line.taxClassification ? (
+                        <div className="mt-1 flex flex-col items-end gap-0.5">
+                            <TaxClassTag
+                                classification={line.taxClassification}
+                                taxRate={line.taxRate}
+                            />
+                            {line.taxAmount > 0 ? (
+                                <span className="text-[11px] tabular-nums text-gray-500">
+                                    VAT {formatOrderPrice(line.taxAmount)}
+                                    {line.taxTreatment === 'VAT_EXCLUSIVE' ? ' added' : ' incl.'}
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -138,6 +153,23 @@ const SalesOrderDetailDialog = ({
     }
 
     const items = orderItemCount(order)
+    // Totals of the VAT frozen on the lines at sale time (display only).
+    const vat = order.lines.some((line) => line.taxClassification)
+        ? order.lines.reduce(
+              (acc, line) => {
+                  if (line.taxClassification === 'VATABLE') {
+                      acc.vatable += line.taxableAmount ?? line.lineTotal
+                  } else if (line.taxClassification === 'VAT_EXEMPT') {
+                      acc.exempt += line.lineTotal
+                  } else if (line.taxClassification === 'ZERO_RATED') {
+                      acc.zeroRated += line.lineTotal
+                  }
+                  acc.vat += line.taxAmount
+                  return acc
+              },
+              { vatable: 0, vat: 0, exempt: 0, zeroRated: 0 },
+          )
+        : null
     const paidTone =
         order.payment?.status === 'Paid'
             ? 'success'
@@ -391,6 +423,21 @@ const SalesOrderDetailDialog = ({
                                 {formatOrderPrice(order.totalAmount)}
                             </dd>
                         </div>
+                        {vat ? (
+                            <div className="space-y-1 border-t border-dashed border-gray-200 pt-2 text-xs dark:border-gray-700">
+                                {[
+                                    ['VATable sales', vat.vatable],
+                                    ['VAT', vat.vat],
+                                    ['VAT-exempt sales', vat.exempt],
+                                    ['Zero-rated sales', vat.zeroRated],
+                                ].map(([label, value]) => (
+                                    <div key={label as string} className="flex justify-between text-gray-500">
+                                        <dt>{label}</dt>
+                                        <dd className="tabular-nums">{formatOrderPrice(value as number)}</dd>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
                     </dl>
                 </section>
             </div>

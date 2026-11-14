@@ -114,6 +114,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/billing',
                         icon: 'fileText',
                     },
+                    {
+                        code: 'ext-platform-sales',
+                        permissionCode: 'sd.ext-platform-sales',
+                        title: 'External Platform Sales',
+                        description:
+                            'Manually record sales from Shopee, Lazada, TikTok Shop, Facebook Marketplace, distributors, resellers, and other external channels with automatic tax determination.',
+                        path: '/modules/sd/ext-platform-sales',
+                        icon: 'shoppingCart',
+                    },
                 ],
             },
             {

@@ -47,6 +47,7 @@ import { useDivisionProducts } from '../hooks/useDivisionProducts'
 import { usePOSCatalogSearch } from '../hooks/usePOSCatalogSearch'
 import { usePOSLiveStock } from '../hooks/usePOSLiveStock'
 import { useSalesBranches } from '../hooks/useSalesBranches'
+import { useBarcodeWedge } from '../hooks/useBarcodeWedge'
 import {
     usePOSCartStore,
     posLineKey,
@@ -93,7 +94,10 @@ import POSTenderDialog from '../components/POSTenderDialog'
 import POSCustomerDialog, {
     type PosCustomerDetails,
 } from '../components/POSCustomerDialog'
-import POSTransactionsDialog from '../components/POSTransactionsDialog'
+import POSTransactionsDialog, {
+    POSTransactionsCountBadge,
+    posReceiptKey,
+} from '../components/POSTransactionsDialog'
 import POSVoidDialog from '../components/POSVoidDialog'
 import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
@@ -108,6 +112,9 @@ const CameraBarcodeScanner = dynamic(
     () => import('@/modules/mm/barcode-rfid/components/CameraBarcodeScanner'),
     { ssr: false },
 )
+
+/** Latest register transactions loaded into the history (and counted on its badge). */
+const TRANSACTIONS_LIMIT = 50
 
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -208,11 +215,18 @@ const POSDashboard = () => {
     const [transactionsOpen, setTransactionsOpen] = useState(false)
     const [transactionsLoading, setTransactionsLoading] = useState(false)
     const [receipts, setReceipts] = useState<PosReceipt[]>([])
+    /** Rows added by the last sale / void, highlighted in the history. */
+    const [newReceiptKeys, setNewReceiptKeys] = useState<ReadonlySet<string>>(
+        () => new Set(),
+    )
+    const receiptsRef = useRef<PosReceipt[]>([])
     /** The sale that is voided (the void dialog). */
     const [voidTarget, setVoidTarget] = useState<PosReceipt | null>(null)
     const [voiding, setVoiding] = useState(false)
     /** Sale whose checkout stopped and is being finished. */
     const [completingId, setCompletingId] = useState<string | null>(null)
+    /** Last scanned code, shown next to the scan field for feedback. */
+    const [lastScan, setLastScan] = useState<{ code: string; at: number } | null>(null)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
     const search = usePOSCatalogSearch(catalog.products, sku)
@@ -502,29 +516,55 @@ const POSDashboard = () => {
         }
     }
 
-    /** The POS sales of the register (transaction history). */
-    const openTransactions = async () => {
-        setTransactionsOpen(true)
-        setTransactionsLoading(true)
-        try {
-            setReceipts(
-                await listPosOrders({
+    /**
+     * The POS sales of the register (transaction history). Loaded with the
+     * register and after every sale / void so the Transactions badge is live;
+     * `markNew` highlights the rows that action added.
+     */
+    const loadTransactions = useCallback(
+        async (markNew = false) => {
+            setTransactionsLoading(true)
+            try {
+                const rows = await listPosOrders({
                     companyId,
                     branchId,
-                    limit: 50,
-                }),
-            )
-        } catch (error) {
-            notify(
-                'danger',
-                'Could not load the transactions',
-                error instanceof Error
-                    ? error.message
-                    : 'Unable to load the transactions',
-            )
-        } finally {
-            setTransactionsLoading(false)
-        }
+                    limit: TRANSACTIONS_LIMIT,
+                })
+                if (markNew && receiptsRef.current.length) {
+                    const seen = new Set(receiptsRef.current.map(posReceiptKey))
+                    const added = rows.map(posReceiptKey).filter((key) => !seen.has(key))
+                    if (added.length) setNewReceiptKeys(new Set(added))
+                }
+                receiptsRef.current = rows
+                setReceipts(rows)
+            } catch (error) {
+                notify(
+                    'danger',
+                    'Could not load the transactions',
+                    error instanceof Error
+                        ? error.message
+                        : 'Unable to load the transactions',
+                )
+            } finally {
+                setTransactionsLoading(false)
+            }
+        },
+        [companyId, branchId],
+    )
+
+    useEffect(() => {
+        if (!companyId) return
+        void Promise.resolve().then(() => loadTransactions())
+    }, [companyId, loadTransactions])
+
+    const openTransactions = () => {
+        setTransactionsOpen(true)
+        void loadTransactions()
+    }
+
+    const closeTransactions = () => {
+        setTransactionsOpen(false)
+        setNewReceiptKeys(new Set())
     }
 
     /** Finishes a sale whose checkout stopped after the order was recorded. */
@@ -538,7 +578,7 @@ const POSDashboard = () => {
             setReceipt(completed)
             void refreshStock()
             void loadShift()
-            await openTransactions()
+            await loadTransactions(true)
             notify(
                 'success',
                 'Sale completed',
@@ -568,7 +608,7 @@ const POSDashboard = () => {
             setVoidTarget(null)
             void refreshStock()
             void loadShift()
-            await openTransactions()
+            await loadTransactions(true)
             notify(
                 'success',
                 'Sale voided',
@@ -979,6 +1019,7 @@ const POSDashboard = () => {
                 void selectBarcodeHit(search.barcode.code)
                 return
             }
+            if (sku.trim()) setLastScan({ code: sku.trim(), at: Date.now() })
             void handleAdd()
         }
     }
@@ -1131,6 +1172,7 @@ const POSDashboard = () => {
             setReceipt(result)
             void refreshStock()
             void loadShift()
+            void loadTransactions(true)
         } catch (error) {
             notify(
                 'danger',
@@ -1149,6 +1191,22 @@ const POSDashboard = () => {
     useEffect(() => {
         if (branchId) focusScanner()
     }, [branchId])
+
+    // A USB scanner works without clicking the scan field first; a scan while
+    // the last sale's receipt is open closes it and starts the next sale.
+    useBarcodeWedge({
+        enabled: Boolean(branchId),
+        inputRef: skuInputRef,
+        allowInModal: () =>
+            receipt !== null &&
+            document.querySelectorAll('[aria-modal="true"]').length === 1,
+        onScan: (code) => {
+            setLastScan({ code, at: Date.now() })
+            setReceipt(null)
+            setSearchFocused(false)
+            void handleAdd(code)
+        },
+    })
 
     const columns = useMemo<ColumnDef<POSCartItem>[]>(
         () => [
@@ -1374,9 +1432,10 @@ const POSDashboard = () => {
                                     Scan items
                                 </h3>
                                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                    Use a USB barcode wedge, type the SKU or
-                                    product name to search live, or scan with
-                                    your device camera.
+                                    Scan with a USB barcode scanner at any time —
+                                    no need to click the field first. You can
+                                    also type the SKU or product name to search
+                                    live, or scan with your device camera.
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1387,9 +1446,15 @@ const POSDashboard = () => {
                                     size="sm"
                                     variant="plain"
                                     icon={<HiOutlineClipboardList />}
-                                    onClick={() => void openTransactions()}
+                                    onClick={openTransactions}
                                 >
-                                    Transactions
+                                    <span className="inline-flex items-center">
+                                        Transactions
+                                        <POSTransactionsCountBadge
+                                            count={receipts.length}
+                                            max={TRANSACTIONS_LIMIT - 1}
+                                        />
+                                    </span>
                                 </Button>
                                 {shift ? (
                                     <>
@@ -1426,9 +1491,29 @@ const POSDashboard = () => {
                         </div>
 
                         <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/80 p-4 dark:border-gray-600 dark:bg-gray-800/40">
-                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                Scan SKU / barcode
-                            </label>
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                    Scan SKU / barcode
+                                </label>
+                                <div className="flex items-center gap-2 text-xs">
+                                    {lastScan ? (
+                                        <span
+                                            key={lastScan.at}
+                                            className="animate-[pulse_0.6s_ease-in-out_2] rounded-full bg-primary-subtle px-2 py-0.5 font-mono text-primary"
+                                            title="Last scanned code"
+                                        >
+                                            Last scanned: {lastScan.code}
+                                        </span>
+                                    ) : null}
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                                            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                                        </span>
+                                        USB scanner ready
+                                    </span>
+                                </div>
+                            </div>
                             <div className="relative">
                                 <Input
                                     ref={skuInputRef}
@@ -1906,28 +1991,21 @@ const POSDashboard = () => {
                 </p>
             </ConfirmDialog>
             {/* Transaction history — reprint a receipt or void a sale. */}
-            <Dialog
+            <POSTransactionsDialog
                 isOpen={transactionsOpen}
-                width={900}
-                aria={{ labelledby: 'pos-transactions-title' }}
-                onClose={() => setTransactionsOpen(false)}
-                onRequestClose={() => setTransactionsOpen(false)}
-            >
-                <POSTransactionsDialog
-                    isOpen={transactionsOpen}
-                    loading={transactionsLoading}
-                    receipts={receipts}
-                    onShowReceipt={(row) => {
-                        setReceipt(row)
-                        setTransactionsOpen(false)
-                    }}
-                    onVoid={(row) => setVoidTarget(row)}
-                    onComplete={(row) => void handleCompletePending(row)}
-                    onClose={() => setTransactionsOpen(false)}
-                    completingId={completingId}
-                    formatPrice={formatPrice}
-                />
-            </Dialog>
+                loading={transactionsLoading}
+                receipts={receipts}
+                newKeys={newReceiptKeys}
+                onShowReceipt={(row) => {
+                    setReceipt(row)
+                    closeTransactions()
+                }}
+                onVoid={(row) => setVoidTarget(row)}
+                onComplete={(row) => void handleCompletePending(row)}
+                onClose={closeTransactions}
+                completingId={completingId}
+                formatPrice={formatPrice}
+            />
             {/* Void of a completed sale. */}
             {voidTarget ? (
                 <POSVoidDialog

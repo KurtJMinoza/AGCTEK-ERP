@@ -74,7 +74,11 @@ describe('PosCheckoutService', () => {
         ],
     }
 
+    /** VAT snapshot written per order line (lineNumber → data), as the DB would keep it. */
+    let lineTax: Record<number, Record<string, unknown>>
+
     beforeEach(() => {
+        lineTax = {}
         prisma = {
             sdSalesOrder: {
                 findUnique: jest.fn().mockResolvedValue(null),
@@ -82,6 +86,7 @@ describe('PosCheckoutService', () => {
                 findFirst: jest.fn().mockResolvedValue(null),
                 update: jest.fn().mockImplementation(async () => ({
                     ...order,
+                    lines: order.lines.map((line) => ({ ...line, ...lineTax[line.lineNumber] })),
                     status: 'COMPLETED',
                     receiptNumber: 'RCP-000005',
                     payments: [
@@ -98,7 +103,13 @@ describe('PosCheckoutService', () => {
                 })),
             },
             sdSalesOrderPayment: { upsert: jest.fn().mockResolvedValue({}) },
-            sdSalesOrderLine: { findMany: jest.fn().mockResolvedValue(order.lines) },
+            sdSalesOrderLine: {
+                findMany: jest.fn().mockResolvedValue(order.lines),
+                updateMany: jest.fn(async ({ where, data }: { where: { lineNumber: number }; data: Record<string, unknown> }) => {
+                    lineTax[where.lineNumber] = data
+                    return { count: 1 }
+                }),
+            },
             mmMaterial: {
                 findMany: jest.fn().mockResolvedValue([makeMaterial('VAT_INCLUSIVE')]),
                 findUnique: jest.fn().mockResolvedValue({ baseUomId: 'uom-1' }),
@@ -248,6 +259,37 @@ describe('PosCheckoutService', () => {
         expect(receipt.receiptNumber).toBe('RCP-000005')
     })
 
+    it('freezes the VAT of VAT-inclusive lines on the order and shows it on the receipt', async () => {
+        const receipt = await service.complete(dto() as never)
+
+        expect(prisma.sdSalesOrderLine.updateMany).toHaveBeenCalledWith({
+            where: { salesOrderId: 'order-1', lineNumber: 1 },
+            data: {
+                taxClassification: 'VATABLE',
+                taxCode: 'VAT12',
+                taxRate: 12,
+                taxTreatment: 'VAT_INCLUSIVE',
+                taxAmount: 782.14,
+                taxableAmount: 6517.86,
+            },
+        })
+        expect(receipt.total).toBe(7300)
+        expect(receipt).toMatchObject({
+            vatableSales: 6517.86,
+            vatAmount: 782.14,
+            taxIncludedAmount: 782.14,
+            vatExemptSales: 0,
+            zeroRatedSales: 0,
+        })
+        expect(receipt.lines[0]).toMatchObject({
+            taxClassification: 'VATABLE',
+            taxCode: 'VAT12',
+            taxRate: 12,
+            taxIncluded: 782.14,
+            taxAdded: 0,
+        })
+    })
+
     it('records one tender row per payment method', async () => {
         await service.complete(
             dto({
@@ -269,12 +311,14 @@ describe('PosCheckoutService', () => {
         prisma.mmMaterial.findMany.mockResolvedValue([
             makeMaterial('VAT_EXCLUSIVE'),
         ])
-        await service.complete(
+        const receipt = await service.complete(
             dto({ tenders: [{ method: 'CASH', amount: 8176 }] }) as never,
         )
         expect(salesOrders.createRetail).toHaveBeenCalledWith(
             expect.objectContaining({ taxAmount: 876, totalAmount: 8176 }),
         )
+        expect(receipt).toMatchObject({ vatableSales: 7300, vatAmount: 876, taxIncludedAmount: 0 })
+        expect(receipt.lines[0]).toMatchObject({ taxAdded: 876, taxIncluded: 0 })
     })
 
     it('lists the void transaction after the completed sale it reversed', async () => {

@@ -38,6 +38,8 @@ type ResolvedLine = {
     unitPrice: number
     lineTotal: number
     materialId: string | null
+    taxClassification: string | null
+    taxCode: string | null
     taxRate: number
     taxTreatment: string | null
     taxIncluded: number
@@ -76,14 +78,24 @@ export type PosReceipt = {
         quantity: number
         unitPrice: number
         lineTotal: number
+        /** VATABLE | VAT_EXEMPT | ZERO_RATED; null when the material has no tax setup. */
+        taxClassification: string | null
+        taxCode: string | null
         taxRate: number
         taxIncluded: number
         taxAdded: number
     }>
     subtotal: number
     discountAmount: number
+    /** VAT added on top of VAT-exclusive prices (part of the total). */
     taxAmount: number
+    /** VAT already inside VAT-inclusive prices. */
     taxIncludedAmount: number
+    /** BIR receipt breakdown, from the VAT frozen on the order lines. */
+    vatableSales: number
+    vatAmount: number
+    vatExemptSales: number
+    zeroRatedSales: number
     total: number
     tendered: number
     change: number
@@ -298,9 +310,6 @@ export class PosCheckoutService {
                 'The discount cannot exceed the cart subtotal.',
             )
         }
-        const taxIncludedAmount = round2(
-            lines.reduce((sum, line) => sum + line.taxIncluded, 0),
-        )
         const taxAmount = round2(
             lines.reduce((sum, line) => sum + line.taxAdded, 0),
         )
@@ -356,6 +365,8 @@ export class PosCheckoutService {
             deferCompletion: true,
             createdBy: dto.createdBy,
         })
+
+        await this.saveLineTaxSnapshot(order.id, lines)
 
         const orderCompanyId = order.companyId ?? session.companyId
         await this.recordTenders({
@@ -425,7 +436,7 @@ export class PosCheckoutService {
             idempotencyKey: dto.idempotencyKey,
         })
 
-        return this.receipt(completed, completed.payments ?? [], warnings, lines)
+        return this.receipt(completed, completed.payments ?? [], warnings)
     }
 
     /**
@@ -606,6 +617,8 @@ export class PosCheckoutService {
                 unitPrice: round2(line.unitPrice),
                 lineTotal,
                 materialId,
+                taxClassification: null,
+                taxCode: null,
                 taxRate: 0,
                 taxTreatment: null,
                 taxIncluded: 0,
@@ -654,6 +667,8 @@ export class PosCheckoutService {
                 line.taxWarning = `Tax configuration for ${line.sku} is ${projection.effectiveStatus}.`
             }
             const rate = projection.taxRate ?? 0
+            line.taxClassification = projection.classification
+            line.taxCode = projection.taxCode
             line.taxRate = rate
             line.taxTreatment = projection.priceTaxTreatment
             if (!rate) continue
@@ -667,6 +682,31 @@ export class PosCheckoutService {
         }
 
         return resolved
+    }
+
+    /**
+     * Freezes each line's VAT on the sales order so receipts, reprints and the
+     * sales order keep the tax that applied at sale time. Order lines are
+     * created in cart order (lineNumber = index + 1).
+     */
+    private async saveLineTaxSnapshot(orderId: string, lines: ResolvedLine[]) {
+        await this.prisma.$transaction(
+            lines.map((line, index) =>
+                this.prisma.sdSalesOrderLine.updateMany({
+                    where: { salesOrderId: orderId, lineNumber: index + 1 },
+                    data: {
+                        taxClassification: line.taxClassification,
+                        taxCode: line.taxCode,
+                        taxRate: line.taxClassification ? line.taxRate : null,
+                        taxTreatment: line.taxTreatment,
+                        taxAmount: round2(line.taxIncluded + line.taxAdded),
+                        taxableAmount: line.taxClassification
+                            ? round2(line.lineTotal - line.taxIncluded)
+                            : null,
+                    },
+                }),
+            ),
+        )
     }
 
     /** One tender row per payment method (a sale may be split). */
@@ -942,6 +982,12 @@ export class PosCheckoutService {
                 quantity: Prisma.Decimal
                 unitPrice: Prisma.Decimal | null
                 lineTotal: Prisma.Decimal | null
+                taxClassification?: string | null
+                taxCode?: string | null
+                taxRate?: Prisma.Decimal | null
+                taxTreatment?: string | null
+                taxAmount?: Prisma.Decimal | null
+                taxableAmount?: Prisma.Decimal | null
             }>
         },
         payments: Array<{
@@ -954,11 +1000,22 @@ export class PosCheckoutService {
             verificationStatus: string
         }>,
         warnings: string[] = [],
-        resolvedLines?: ResolvedLine[],
     ): PosReceipt {
-        const taxBySku = new Map(
-            (resolvedLines ?? []).map((line) => [line.sku, line]),
-        )
+        const lines = order.lines.map((line) => {
+            const lineTotal = Number(line.lineTotal ?? 0)
+            const tax = Number(line.taxAmount ?? 0)
+            const inclusive = line.taxTreatment !== 'VAT_EXCLUSIVE'
+            return {
+                line,
+                lineTotal,
+                classification: line.taxClassification ?? null,
+                taxIncluded: inclusive ? tax : 0,
+                taxAdded: inclusive ? 0 : tax,
+                taxable: Number(line.taxableAmount ?? lineTotal - (inclusive ? tax : 0)),
+            }
+        })
+        const sumWhere = (classification: string, pick: (l: (typeof lines)[number]) => number) =>
+            round2(lines.filter((l) => l.classification === classification).reduce((s, l) => s + pick(l), 0))
         return {
             receiptNumber: order.receiptNumber ?? order.orderNumber,
             salesOrderId: order.id,
@@ -972,8 +1029,7 @@ export class PosCheckoutService {
             voidedAt: order.voidedAt?.toISOString() ?? null,
             voidedBy: order.voidedBy ?? null,
             voidReason: order.voidReason ?? null,
-            lines: order.lines.map((line) => {
-                const tax = taxBySku.get(line.sku ?? '')
+            lines: lines.map(({ line, lineTotal, classification, taxIncluded, taxAdded }) => {
                 return {
                     sku: line.sku ?? '',
                     description: line.description,
@@ -988,16 +1044,22 @@ export class PosCheckoutService {
                     imageUrl: line.productImageSnapshot?.trim() || null,
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),
-                    lineTotal: Number(line.lineTotal ?? 0),
-                    taxRate: tax?.taxRate ?? 0,
-                    taxIncluded: tax?.taxIncluded ?? 0,
-                    taxAdded: tax?.taxAdded ?? 0,
+                    lineTotal,
+                    taxClassification: classification,
+                    taxCode: line.taxCode ?? null,
+                    taxRate: Number(line.taxRate ?? 0),
+                    taxIncluded,
+                    taxAdded,
                 }
             }),
             subtotal: Number(order.subtotal ?? 0),
             discountAmount: Number(order.discountAmount ?? 0),
             taxAmount: Number(order.taxAmount ?? 0),
-            taxIncludedAmount: 0,
+            taxIncludedAmount: round2(lines.reduce((s, l) => s + l.taxIncluded, 0)),
+            vatableSales: sumWhere('VATABLE', (l) => l.taxable),
+            vatAmount: round2(lines.reduce((s, l) => s + l.taxIncluded + l.taxAdded, 0)),
+            vatExemptSales: sumWhere('VAT_EXEMPT', (l) => l.lineTotal),
+            zeroRatedSales: sumWhere('ZERO_RATED', (l) => l.lineTotal),
             total: Number(order.totalAmount ?? 0),
             tendered: Number(order.paymentReceived ?? 0),
             change: Number(order.changeAmount ?? 0),

@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { MmModule } from '../mm/mm.module'
 import { ScmModule } from '../scm/scm.module'
+import { FicoModule } from '../fico/fico.module'
 import { RetailModule } from '../retail/retail.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { CustomerController } from './customer.controller'
@@ -59,11 +60,14 @@ import { PosSessionService } from './pos/pos-session.service'
 import { PosHoldService } from './pos/pos-hold.service'
 import { PosCustomerService } from './pos/pos-customer.service'
 import { PosVoidService } from './pos/pos-void.service'
+import { ExtPlatformTransactionController } from './ext-platform-transaction.controller'
+import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 
 @Module({
     imports: [
         forwardRef(() => MmModule),
         forwardRef(() => ScmModule),
+        FicoModule,
         RetailModule,
         NotificationsModule,
         ReviewModule,
@@ -86,6 +90,7 @@ import { PosVoidService } from './pos/pos-void.service'
         ProductImportController,
         ProductBarcodeController,
         PosController,
+        ExtPlatformTransactionController,
     ],
     providers: [
         CustomerService,
@@ -126,6 +131,7 @@ import { PosVoidService } from './pos/pos-void.service'
         PosHoldService,
         PosCustomerService,
         PosVoidService,
+        ExtPlatformTransactionService,
     ],
     exports: [
         SalesOrderService,

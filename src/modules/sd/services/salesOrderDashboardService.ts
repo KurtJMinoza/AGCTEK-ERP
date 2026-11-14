@@ -78,6 +78,13 @@ export type SalesOrderRecord = {
         variantBarcode?: string
         /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
         integrationStatus: string | null
+        /** VAT frozen at sale time (POS): VATABLE | VAT_EXEMPT | ZERO_RATED; null = none. */
+        taxClassification: string | null
+        taxRate: number | null
+        /** VAT_INCLUSIVE | VAT_EXCLUSIVE */
+        taxTreatment: string | null
+        taxAmount: number
+        taxableAmount: number | null
     })[]
     subtotal: number
     promoCode: string | null
@@ -164,6 +171,11 @@ type ApiSalesOrderLine = {
     quantity: DecimalString
     unitPrice: DecimalString
     lineTotal: DecimalString
+    taxClassification?: string | null
+    taxRate?: DecimalString
+    taxTreatment?: string | null
+    taxAmount?: DecimalString
+    taxableAmount?: DecimalString
 }
 
 type ApiSalesOrder = {
@@ -288,6 +300,11 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),
             lineTotal: num(line.lineTotal),
+            taxClassification: line.taxClassification ?? null,
+            taxRate: numOrNull(line.taxRate ?? null),
+            taxTreatment: line.taxTreatment ?? null,
+            taxAmount: num(line.taxAmount ?? 0),
+            taxableAmount: numOrNull(line.taxableAmount ?? null),
         })),
         subtotal: num(order.subtotal),
         promoCode: order.promoCode,

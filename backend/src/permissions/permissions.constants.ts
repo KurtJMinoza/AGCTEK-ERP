@@ -359,6 +359,11 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ],
         ['billing', 'Billing', 'Customer invoices and billing documents.'],
         [
+            'ext-platform-sales',
+            'External Platform Sales',
+            'Manual entry of Shopee, Lazada, TikTok and other external channel sales.',
+        ],
+        [
             'reports',
             'Reports & Analytics',
             'Sales analysis and backorder reports.',
