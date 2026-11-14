@@ -430,8 +430,8 @@ export interface CreateMaterialPayload {
     /** Storage bin used for the initial on-hand posting (company scope). */
     storageBinId?: string | null
 
-    /** Product tax classification — owned by MM Material Master. */
-    taxClassification?: 'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED'
+    /** Product tax classification — owned by MM Material Master. Optional; null on update clears the tax setup. */
+    taxClassification?: 'VATABLE' | 'VAT_EXEMPT' | 'ZERO_RATED' | null
     taxCodeId?: string
     priceTaxTreatment?: 'VAT_INCLUSIVE' | 'VAT_EXCLUSIVE'
     taxStatus?: 'ACTIVE' | 'INACTIVE'

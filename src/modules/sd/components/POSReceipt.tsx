@@ -158,15 +158,16 @@ const POSReceipt = ({
                 <Row label="VAT (added)" value={money(receipt.taxAmount)} />
             ) : null}
             <Row label="TOTAL" value={`PHP ${money(receipt.total)}`} bold />
+            <Divider />
+            <Row label="VATable Sales" value={money(receipt.vatableSales ?? 0)} />
+            <Row label={`VAT${vatRateLabel}`} value={money(receipt.vatAmount ?? 0)} />
+            <Row label="VAT-Exempt Sales" value={money(receipt.vatExemptSales ?? 0)} />
+            <Row label="Zero-Rated Sales" value={money(receipt.zeroRatedSales ?? 0)} />
+            {receipt.nonVatSales ? (
+                <Row label="Non-VAT Sales" value={money(receipt.nonVatSales)} />
+            ) : null}
             {hasVat ? (
-                <>
-                    <Divider />
-                    <Row label="VATable Sales" value={money(receipt.vatableSales)} />
-                    <Row label={`VAT${vatRateLabel}`} value={money(receipt.vatAmount)} />
-                    <Row label="VAT-Exempt Sales" value={money(receipt.vatExemptSales)} />
-                    <Row label="Zero-Rated Sales" value={money(receipt.zeroRatedSales)} />
-                    <div className="mt-1 text-[10px]">V = VATable · E = VAT-exempt · Z = Zero-rated</div>
-                </>
+                <div className="mt-1 text-[10px]">V = VATable · E = VAT-exempt · Z = Zero-rated</div>
             ) : null}
             <Divider />
             {receipt.tenders.map((tender, index) => (

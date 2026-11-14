@@ -96,6 +96,8 @@ export type PosReceipt = {
     vatAmount: number
     vatExemptSales: number
     zeroRatedSales: number
+    /** Items whose material has no tax setup (no VAT computed). */
+    nonVatSales: number
     total: number
     tendered: number
     change: number
@@ -659,10 +661,8 @@ export class PosCheckoutService {
         for (const line of resolved) {
             if (!line.materialId) continue
             const projection = projections.get(line.materialId)
-            if (!projection?.configured) {
-                line.taxWarning = `Tax classification is not configured for ${line.sku}.`
-                continue
-            }
+            // No tax setup on the material = a non-VAT sale, not a warning.
+            if (!projection?.configured) continue
             if (!projection.readyForSale) {
                 line.taxWarning = `Tax configuration for ${line.sku} is ${projection.effectiveStatus}.`
             }
@@ -1060,6 +1060,9 @@ export class PosCheckoutService {
             vatAmount: round2(lines.reduce((s, l) => s + l.taxIncluded + l.taxAdded, 0)),
             vatExemptSales: sumWhere('VAT_EXEMPT', (l) => l.lineTotal),
             zeroRatedSales: sumWhere('ZERO_RATED', (l) => l.lineTotal),
+            nonVatSales: round2(
+                lines.filter((l) => !l.classification).reduce((s, l) => s + l.lineTotal, 0),
+            ),
             total: Number(order.totalAmount ?? 0),
             tendered: Number(order.paymentReceived ?? 0),
             change: Number(order.changeAmount ?? 0),

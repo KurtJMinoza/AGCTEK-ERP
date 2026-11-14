@@ -307,6 +307,17 @@ describe('PosCheckoutService', () => {
         expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledTimes(2)
     })
 
+    it('treats an item without tax setup as a non-VAT sale, without a receipt warning', async () => {
+        prisma.mmMaterial.findMany.mockResolvedValue([
+            { id: MATERIAL_ID, taxClassification: null, taxCodeId: null, priceTaxTreatment: null, taxStatus: null, taxCode: null },
+        ])
+        const receipt = await service.complete(dto() as never)
+
+        expect(receipt.warnings).toEqual([])
+        expect(receipt).toMatchObject({ vatableSales: 0, vatAmount: 0, nonVatSales: 7300, total: 7300 })
+        expect(receipt.lines[0]).toMatchObject({ taxClassification: null, taxIncluded: 0, taxAdded: 0 })
+    })
+
     it('adds the tax of VAT-exclusive lines to the amount due', async () => {
         prisma.mmMaterial.findMany.mockResolvedValue([
             makeMaterial('VAT_EXCLUSIVE'),

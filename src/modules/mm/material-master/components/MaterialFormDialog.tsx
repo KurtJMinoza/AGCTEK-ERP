@@ -958,16 +958,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             return
         }
 
-        // MM Material Master owns the tax classification. A new material must
-        // carry it; existing materials may stay unconfigured until edited.
-        if (mode === 'create' && !values.taxClassification) {
-            setError('taxClassification', {
-                type: 'manual',
-                message: 'Select a tax classification',
-            })
-            setTab('tax')
-            return
-        }
+        // Tax is optional; once a classification is chosen the setup must be complete.
         if (
             values.taxClassification &&
             (!values.taxCodeId ||
@@ -1031,16 +1022,24 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
-            taxClassification: (values.taxClassification ||
-                undefined) as CreateMaterialPayload['taxClassification'],
-            taxCodeId: values.taxCodeId || undefined,
-            priceTaxTreatment: (values.priceTaxTreatment ||
-                undefined) as CreateMaterialPayload['priceTaxTreatment'],
-            taxStatus: (values.taxStatus ||
-                undefined) as CreateMaterialPayload['taxStatus'],
-            taxEffectiveFrom: values.taxEffectiveFrom || undefined,
-            taxEffectiveTo: values.taxEffectiveTo || undefined,
-            taxDescription: values.taxDescription?.trim() || undefined,
+            // No classification = no tax fields (the default tax status alone
+            // would read as an incomplete setup); clearing it on edit removes the tax.
+            ...(values.taxClassification
+                ? {
+                      taxClassification:
+                          values.taxClassification as CreateMaterialPayload['taxClassification'],
+                      taxCodeId: values.taxCodeId || undefined,
+                      priceTaxTreatment: (values.priceTaxTreatment ||
+                          undefined) as CreateMaterialPayload['priceTaxTreatment'],
+                      taxStatus: (values.taxStatus ||
+                          undefined) as CreateMaterialPayload['taxStatus'],
+                      taxEffectiveFrom: values.taxEffectiveFrom || undefined,
+                      taxEffectiveTo: values.taxEffectiveTo || undefined,
+                      taxDescription: values.taxDescription?.trim() || undefined,
+                  }
+                : mode === 'edit' && material?.taxClassification
+                  ? { taxClassification: null }
+                  : {}),
         }
         await onSubmit(payload)
         clearMaterialFormDraft()
@@ -1874,8 +1873,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         ) : null}
                         <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                             <FormItem
-                                label="Tax classification"
-                                asterisk={mode === 'create'}
+                                label="Tax classification (optional)"
                                 invalid={Boolean(errors.taxClassification)}
                                 errorMessage={errors.taxClassification?.message}
                             >

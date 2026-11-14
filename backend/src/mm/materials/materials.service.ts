@@ -27,6 +27,10 @@ const TAX_FIELD_KEYS = [
     'taxDescription',
 ] as const
 
+const CLEARED_TAX_FIELDS = Object.fromEntries(
+    TAX_FIELD_KEYS.map((key) => [key, null]),
+) as Record<(typeof TAX_FIELD_KEYS)[number], null>
+
 function pickTaxFields(source: Record<string, any>): Record<string, any> {
     const out: Record<string, any> = {}
     for (const key of TAX_FIELD_KEYS) {
@@ -867,11 +871,15 @@ export class MaterialsService {
         delete (dto as any).reservedQty
         delete (dto as any).storageBinId
 
+        // Tax is optional: an explicit null classification removes the setup.
+        const clearTax = (dto as { taxClassification?: string | null }).taxClassification === null
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
             data: {
                 ...this.mapUpdateDto(dto),
-                ...(hasMaterialTaxFields(dto as Record<string, unknown>)
+                ...(clearTax
+                    ? CLEARED_TAX_FIELDS
+                    : hasMaterialTaxFields(dto as Record<string, unknown>)
                     ? (
                           await this.materialTax.validateForWrite(
                               (existing.companyId as string | null | undefined) ?? dto.companyId ?? null,

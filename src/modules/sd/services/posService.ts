@@ -111,6 +111,8 @@ export type PosReceipt = {
     vatAmount: number
     vatExemptSales: number
     zeroRatedSales: number
+    /** Items whose material has no tax setup (no VAT computed). */
+    nonVatSales: number
     total: number
     tendered: number
     change: number
