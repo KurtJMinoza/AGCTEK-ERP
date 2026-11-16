@@ -191,7 +191,7 @@ const MarketplaceGmailAuthForm = ({
         document.body.appendChild(script)
     }, [clientId])
 
-    const onSendCode = async (event: React.FormEvent) => {
+    const onSendCode = async (event: FormEvent) => {
         event.preventDefault()
         setFormError(null)
         setInfo(null)

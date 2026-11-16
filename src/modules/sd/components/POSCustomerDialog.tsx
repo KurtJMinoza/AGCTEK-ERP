@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Dialog from '@/components/ui/Dialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -29,6 +29,26 @@ const ACCOUNT_TYPE_OPTIONS = [
     { value: 'CREDIT', label: 'Credit customer (limit)' },
 ]
 
+/** Philippine mobile body after +63: 9XXXXXXXXX (10 digits). */
+const PH_MOBILE_BODY = /^9\d{9}$/
+
+/**
+ * Keep only the local mobile digits. Strips +63 / 0 / spaces so cashiers
+ * never type the country code — the field always shows a fixed +63 prefix.
+ */
+function normalizePhMobileDigits(raw: string): string {
+    let digits = raw.replace(/\D/g, '')
+    if (digits.startsWith('63')) digits = digits.slice(2)
+    if (digits.startsWith('0')) digits = digits.slice(1)
+    return digits.slice(0, 10)
+}
+
+function toE164PhMobile(digits: string): string | undefined {
+    const clean = normalizePhMobileDigits(digits)
+    if (!clean) return undefined
+    return `+63${clean}`
+}
+
 /**
  * Customer form of the register: a customer who is not in the Customer Master
  * yet. The record is created in the master and linked to the running sale.
@@ -37,17 +57,33 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
     const [name, setName] = useState('')
     const [contactName, setContactName] = useState('')
     const [email, setEmail] = useState('')
-    const [phone, setPhone] = useState('')
+    /** Digits after +63 only (e.g. 9171234567). */
+    const [phoneDigits, setPhoneDigits] = useState('')
     const [accountType, setAccountType] = useState<'NON_CREDIT' | 'CREDIT'>(
         'NON_CREDIT',
     )
     const [creditLimit, setCreditLimit] = useState('0')
     const [error, setError] = useState<string | null>(null)
 
+    useEffect(() => {
+        if (!isOpen) return
+        setName('')
+        setContactName('')
+        setEmail('')
+        setPhoneDigits('')
+        setAccountType('NON_CREDIT')
+        setCreditLimit('0')
+        setError(null)
+    }, [isOpen])
+
     const submit = async () => {
         const clean = name.trim()
         if (!clean) {
             setError('Enter the customer name.')
+            return
+        }
+        if (phoneDigits && !PH_MOBILE_BODY.test(phoneDigits)) {
+            setError('Enter a valid mobile number (e.g. 917 123 4567).')
             return
         }
         if (accountType === 'CREDIT' && Number(creditLimit || 0) <= 0) {
@@ -60,7 +96,7 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
                 name: clean,
                 contactName: contactName.trim() || undefined,
                 email: email.trim() || undefined,
-                phone: phone.trim() || undefined,
+                phone: toE164PhMobile(phoneDigits),
                 customerAccountType: accountType,
                 creditLimit:
                     accountType === 'CREDIT'
@@ -133,10 +169,22 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
                         </label>
                         <Input
                             id="pos-customer-phone"
-                            placeholder="Optional"
-                            value={phone}
-                            onChange={(e) => setPhone(e.target.value)}
+                            type="tel"
+                            inputMode="numeric"
+                            autoComplete="tel-national"
+                            prefix="+63"
+                            placeholder="917 123 4567"
+                            value={phoneDigits}
+                            onChange={(e) =>
+                                setPhoneDigits(
+                                    normalizePhMobileDigits(e.target.value),
+                                )
+                            }
                         />
+                        <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                            Optional. Country code is fixed — enter the mobile
+                            number only (no 0 or +63).
+                        </p>
                     </div>
                 </div>
 

@@ -29,7 +29,10 @@ import ProductMaterialSection from './ProductMaterialSection'
 import ProductReviewSection from './ProductReviewSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
-import type { MaterialCatalogReference } from '../services/materialCatalogReferenceService'
+import {
+    fetchMaterialCatalogReference,
+    type MaterialCatalogReference,
+} from '../services/materialCatalogReferenceService'
 import {
     EMPTY_MEASUREMENTS,
     measurementsFromMaterial,
@@ -422,6 +425,8 @@ const ProductFormDialog = ({
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
         setValuationCurrency(null)
+        setTaxReady(true)
+        setAllowIncompleteTaxSetup(false)
         setWizardStep(0)
         setOptionsAttempted(false)
         setOptionsInitial(null)
@@ -433,6 +438,9 @@ const ProductFormDialog = ({
     const productConfig = useWatch({ control, name: 'productConfig' })
     const productType = useWatch({ control, name: 'productType' })
     const materialIds = useWatch({ control, name: 'materialIds' })
+    const rawMaterialId = useWatch({ control, name: 'materialId' })
+    const materialIdWatch =
+        typeof rawMaterialId === 'string' ? rawMaterialId : ''
     const rawCompanyId = useWatch({ control, name: 'companyId' })
     // The company field holds the option VALUE (a string).
     const companyId =
@@ -617,11 +625,16 @@ const ProductFormDialog = ({
         const primary = materials[0]
         setMmCategory(primary?.general.materialCategory ?? null)
         setValuationCurrency(primary?.valuation.currencyCode ?? null)
-        setTaxReady(
+        const ready =
             materials.length === 0
                 ? true
-                : materials.every((row) => row.tax?.readyForSale),
-        )
+                : materials.every((row) => row.tax?.readyForSale)
+        setTaxReady(ready)
+        // Create: incomplete tax is a warning, not a silent blocker. Pre-ack so
+        // catalog listing works before MM tax is configured (stock may be zero).
+        if (!editing) {
+            setAllowIncompleteTaxSetup(!ready)
+        }
         if (!primary || measuredMaterialRef.current === primary.materialId)
             return
         // Editing: the first load only fills blanks so saved shop specs survive.
@@ -642,6 +655,49 @@ const ProductFormDialog = ({
             { shouldDirty: true },
         )
     }
+
+    /**
+     * Create wizard: the Material step uses `materialId` (not `materialIds`),
+     * so edit-mode `ProductCatalogMaterialSection` never runs. Fetch the same
+     * MM catalog reference here and apply UOM / specs into measurements.unit.
+     */
+    useEffect(() => {
+        if (!isOpen || editing) return
+        if (!companyId || !materialIdWatch.trim()) {
+            if (measuredMaterialRef.current !== null) {
+                measuredMaterialRef.current = null
+                setMmCategory(null)
+                setValuationCurrency(null)
+                setTaxReady(true)
+                setAllowIncompleteTaxSetup(false)
+                setValue('measurements', EMPTY_MEASUREMENTS, {
+                    shouldDirty: true,
+                })
+            }
+            return
+        }
+        if (measuredMaterialRef.current === materialIdWatch) return
+        let cancelled = false
+        void fetchMaterialCatalogReference(
+            materialIdWatch,
+            companyId,
+            divisionId || undefined,
+        )
+            .then((ref) => {
+                if (cancelled) return
+                applyMaterialMeasurements([ref])
+            })
+            .catch(() => {
+                if (cancelled) return
+                // Keep the form usable; UOM can still be typed manually.
+            })
+        return () => {
+            cancelled = true
+        }
+        // applyMaterialMeasurements closes over editing/setValue/getValues;
+        // re-run only when the create material selection changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, editing, companyId, materialIdWatch, divisionId])
 
     const onValid = async (values: FormShape) => {
         const optionIssues = values.productConfig === 'VARIABLE'
@@ -682,16 +738,22 @@ const ProductFormDialog = ({
         }
         setOptionsAttempted(false)
 
-        if (
+        /**
+         * Incomplete MM tax must not silently fail create. Stock can be zero —
+         * catalog listing is allowed. Create prefers /sd/products/family which
+         * does not require tax; the legacy createProduct path still needs the
+         * incomplete-setup flag. Warn on the Material step; only hard-block
+         * when the operator explicitly refuses the incomplete-setup option.
+         */
+        const incompleteTaxNeedsAck =
             !editing &&
             values.productType === 'STOCK_ITEM' &&
             values.productConfig !== 'VARIABLE' &&
-            !taxReady &&
-            !allowIncompleteTaxSetup
-        ) {
-            setError('materialIds', {
+            !taxReady
+        if (incompleteTaxNeedsAck && !allowIncompleteTaxSetup) {
+            setError('materialId', {
                 message:
-                    'The linked MM material has no sale-ready tax configuration. Configure Tax Information in Material Master, or enable the incomplete-setup option.',
+                    'This material has no sale-ready tax configuration. Configure Tax Information in Material Master, or enable “Create product with incomplete tax setup” below.',
             })
             if (createWizard) setWizardStep(1)
             return
@@ -761,6 +823,7 @@ const ProductFormDialog = ({
             autoGenerateSku: !editing && autoSku,
             imageGallery,
             attributes,
+            ...(mmCategory ? { category: mmCategory } : {}),
         }
         if (optionsDraft) {
             payload.optionsVariants = optionsDraft
@@ -770,11 +833,22 @@ const ProductFormDialog = ({
             payload.materialLinkMode = materialLinkMode
             payload.companyId = companyId
             payload.materialId = materialId
+            // Family create ignores this; legacy createProduct requires it when tax is incomplete.
             payload.allowIncompleteTaxSetup = taxReady
                 ? undefined
-                : allowIncompleteTaxSetup
+                : true
         }
-        await onSubmit(payload)
+        try {
+            await onSubmit(payload)
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Unable to create the product'
+            setError('materialId', { message })
+            if (createWizard) setWizardStep(1)
+            return
+        }
         clearProductFormDraft()
         setDraftRestored(false)
     }
@@ -1247,6 +1321,33 @@ const ProductFormDialog = ({
                                 disabled={saving || uploading}
                                 productConfig={productConfig}
                             />
+                            {!taxReady ? (
+                                <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                    <p className="font-semibold">
+                                        Tax Classification Not Configured
+                                    </p>
+                                    <p className="mt-1">
+                                        Zero stock does not block catalog
+                                        listing. This material has no
+                                        sale-ready tax setup in Material Master
+                                        yet — you can still create the product
+                                        and configure tax later.
+                                    </p>
+                                    <label className="mt-2 flex items-center gap-2 font-medium">
+                                        <input
+                                            type="checkbox"
+                                            checked={allowIncompleteTaxSetup}
+                                            onChange={(e) =>
+                                                setAllowIncompleteTaxSetup(
+                                                    e.target.checked,
+                                                )
+                                            }
+                                        />
+                                        Create product with incomplete tax
+                                        setup
+                                    </label>
+                                </div>
+                            ) : null}
                         </>
                     )}
                     {divisionId === LPG_DIVISION_ID ? (

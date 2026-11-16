@@ -564,7 +564,7 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                const { integrated } =
+                const { integrated, order: enriched } =
                     await this.mmPipeline.integrateConfirmedOrder(created.id)
                 // A staged POS checkout completes the order only after the
                 // tenders are captured and the goods issue is posted.
@@ -575,7 +575,15 @@ export class SalesOrderService {
                         include: { lines: { orderBy: { lineNumber: 'asc' } } },
                     })
                 }
-                return created
+                // Enrichment rewrites companyId/warehouseId from the linked MM
+                // material (e.g. AWIC stock while checkout defaulted to AGCTEK).
+                // Return that refreshed row so POS goods-issue looks up bins
+                // under the company that actually holds the stock.
+                if (enriched) return enriched
+                return this.prisma.sdSalesOrder.findUniqueOrThrow({
+                    where: { id: created.id },
+                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                })
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {

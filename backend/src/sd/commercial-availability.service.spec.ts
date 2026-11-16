@@ -121,6 +121,52 @@ describe('CommercialAvailabilityService checkout ATP gate', () => {
             { warehouseId: 'warehouse-1', materialId: 'material-1' },
         ])
     })
+
+    it('ATPs an AWIC-owned variant against AWIC stock even when checkout defaults to AGCTEK', async () => {
+        prisma.sdProductVariant.findFirst.mockResolvedValue({
+            materialId: 'material-awic',
+            companyId: 'company-awic',
+            salesUomId: 'uom-each',
+            materialUomId: null,
+        })
+        inventoryAtp.getPickableAvailabilityBatch.mockResolvedValue(
+            new Map([
+                [
+                    atpPairKey('warehouse-awic', 'material-awic'),
+                    { available: 5 },
+                ],
+            ]),
+        )
+        fulfillmentDetermination.determineWarehouse.mockResolvedValue({
+            warehouseId: 'warehouse-awic',
+        })
+
+        await expect(
+            service.assertCheckoutAvailability({
+                companyId: 'company-agctek',
+                lines: [
+                    {
+                        ...line(1),
+                        variantId: 'variant-awic',
+                    },
+                ],
+            }),
+        ).resolves.toBeUndefined()
+
+        expect(
+            fulfillmentDetermination.determineWarehouse,
+        ).toHaveBeenCalledWith(
+            expect.objectContaining({
+                companyId: 'company-awic',
+                materialId: 'material-awic',
+            }),
+        )
+        expect(
+            inventoryAtp.getPickableAvailabilityBatch,
+        ).toHaveBeenCalledWith('company-awic', [
+            { warehouseId: 'warehouse-awic', materialId: 'material-awic' },
+        ])
+    })
 })
 
 describe('CommercialAvailabilityService.getQuotationLineStock (soft quotation signal)', () => {

@@ -807,8 +807,15 @@ export class PosCheckoutService {
             where: {
                 demandReferenceType: 'SALES_ORDER',
                 demandReferenceId: order.id,
+                status: { not: 'CANCELLED' },
             },
             orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                companyId: true,
+                warehouseId: true,
+                createdBy: true,
+            },
         })
         if (!header) {
             throw new BadRequestException(
@@ -816,7 +823,11 @@ export class PosCheckoutService {
             )
         }
 
-        const companyId = order.companyId ?? session.companyId
+        // Reservation company/warehouse are authoritative: enrichment may have
+        // moved the order onto AWIC stock while a stale in-memory order still
+        // carried the AGCTEK checkout default.
+        const companyId =
+            header.companyId || order.companyId || session.companyId
         const giLines: Array<{
             materialId: string
             quantity: number
@@ -834,6 +845,10 @@ export class PosCheckoutService {
                 where: { id: line.materialId },
                 select: { baseUomId: true },
             })
+            // Prefer quantity in base UOM when enrichment stamped it.
+            const requiredQty = Number(
+                line.baseQuantity != null ? line.baseQuantity : line.quantity,
+            )
             // The quantity may sit across several bins: take it bin by bin
             // until the line is covered, instead of failing on a bin that
             // holds only part of it.
@@ -846,11 +861,12 @@ export class PosCheckoutService {
                     batchId: null,
                     serialNumberId: null,
                     quantity: { gt: 0 },
+                    storageBinId: { not: null },
                 },
                 orderBy: { updatedAt: 'asc' },
                 select: { storageBinId: true, quantity: true },
             })
-            let remaining = Number(line.quantity)
+            let remaining = requiredQty
             for (const balance of balances) {
                 if (!balance.storageBinId || remaining <= 0) continue
                 const take = Math.min(remaining, Number(balance.quantity))

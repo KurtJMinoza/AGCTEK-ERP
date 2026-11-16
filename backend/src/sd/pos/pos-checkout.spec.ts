@@ -117,6 +117,7 @@ describe('PosCheckoutService', () => {
             mmInventoryReservationHeader: {
                 findFirst: jest.fn().mockResolvedValue({
                     id: 'res-1',
+                    companyId: COMPANY_ID,
                     warehouseId: 'wh-1',
                     createdBy: 'cashier-1',
                 }),

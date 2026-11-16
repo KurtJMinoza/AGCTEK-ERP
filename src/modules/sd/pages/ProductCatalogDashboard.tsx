@@ -68,6 +68,7 @@ function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null
         originalPrice: values.originalPrice ?? undefined,
         imageUrl: values.imageUrl,
         badge: values.badge ?? undefined,
+        category: values.category || undefined,
         productConfig,
         sku: values.sku || undefined,
         materialDefaults: { companyId: values.companyId },
@@ -313,6 +314,9 @@ const ProductCatalogDashboard = () => {
                 dialog.mode === 'create' ? 'Product not added' : 'Product not updated',
                 err instanceof Error ? err.message : 'Please try again.',
             )
+            // Re-throw so ProductFormDialog can keep the wizard open and show
+            // the failure on the Material step instead of closing silently.
+            throw err
         } finally {
             setSaving(false)
         }
