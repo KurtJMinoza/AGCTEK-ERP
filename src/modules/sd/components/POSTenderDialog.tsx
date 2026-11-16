@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
     HiOutlineCash,
     HiOutlineCreditCard,
     HiOutlineDeviceMobile,
     HiOutlineDocumentText,
+    HiOutlineGlobeAlt,
     HiOutlineOfficeBuilding,
     HiOutlinePlus,
     HiOutlineTrash,
@@ -26,6 +27,10 @@ import type {
     PosTenderMethod,
 } from '../types/pos.schema'
 import { POS_TENDER_METHODS } from '../types/pos.schema'
+import {
+    listPaymentMethods,
+    type PaymentMethod,
+} from '../services/posPaymentMethodService'
 
 type POSTenderDialogProps = {
     isOpen: boolean
@@ -51,47 +56,38 @@ type MethodOption = {
     icon: ReactNode
 }
 
-/** Labels and hints of the tender methods (the vocabulary comes from SD). */
-const METHOD_META: Record<
-    PosTenderMethod,
-    { label: string; hint: string; icon: ReactNode }
-> = {
-    CASH: {
-        label: 'Cash',
-        hint: 'Cash handed over; change is returned',
-        icon: <HiOutlineCash />,
-    },
-    GCASH: {
-        label: 'GCash',
-        hint: 'Reference number required',
-        icon: <HiOutlineDeviceMobile />,
-    },
-    BANK_TRANSFER: {
-        label: 'Bank transfer',
-        hint: 'Reference, bank and date required',
-        icon: <HiOutlineOfficeBuilding />,
-    },
-    CARD: {
-        label: 'Card',
-        hint: 'Card transaction reference required',
-        icon: <HiOutlineCreditCard />,
-    },
-    CHEQUE: {
-        label: 'Cheque',
-        hint: 'Cheque number required',
-        icon: <HiOutlineDocumentText />,
-    },
-    SALARY_LOAN: {
-        label: 'Salary deduction',
-        hint: 'Employee number required',
-        icon: <HiOutlineUser />,
-    },
+/** Icon by the icon key stored in the DB; falls back to a globe. */
+const ICON_MAP: Record<string, ReactNode> = {
+    HiOutlineCash: <HiOutlineCash />,
+    HiOutlineCreditCard: <HiOutlineCreditCard />,
+    HiOutlineDeviceMobile: <HiOutlineDeviceMobile />,
+    HiOutlineDocumentText: <HiOutlineDocumentText />,
+    HiOutlineOfficeBuilding: <HiOutlineOfficeBuilding />,
+    HiOutlineUser: <HiOutlineUser />,
+    HiOutlineGlobeAlt: <HiOutlineGlobeAlt />,
 }
 
-const METHODS: MethodOption[] = POS_TENDER_METHODS.map((method) => ({
+/** Hardcoded fallback when the API is unreachable. */
+const FALLBACK_METHODS: MethodOption[] = POS_TENDER_METHODS.map((method) => ({
     method,
-    ...METHOD_META[method],
+    ...({
+        CASH: { label: 'Cash', hint: 'Cash handed over; change is returned', icon: <HiOutlineCash /> },
+        GCASH: { label: 'GCash', hint: 'Reference number required', icon: <HiOutlineDeviceMobile /> },
+        BANK_TRANSFER: { label: 'Bank transfer', hint: 'Reference, bank and date required', icon: <HiOutlineOfficeBuilding /> },
+        CARD: { label: 'Card', hint: 'Card transaction reference required', icon: <HiOutlineCreditCard /> },
+        CHEQUE: { label: 'Cheque', hint: 'Cheque number required', icon: <HiOutlineDocumentText /> },
+        SALARY_LOAN: { label: 'Salary deduction', hint: 'Employee number required', icon: <HiOutlineUser /> },
+    })[method],
 }))
+
+function toMethodOptions(records: PaymentMethod[]): MethodOption[] {
+    return records.map((pm) => ({
+        method: pm.code as PosTenderMethod,
+        label: pm.name,
+        hint: pm.description ?? '',
+        icon: ICON_MAP[pm.icon ?? ''] ?? <HiOutlineGlobeAlt />,
+    }))
+}
 
 /** Quick cash denominations offered at the register (PHP). */
 const CASH_DENOMINATIONS = [500, 1000, 2000, 5000]
@@ -106,9 +102,6 @@ const notify = (type: 'success' | 'danger' | 'info', title: string, message: str
         </Notification>,
         { placement: 'top-end' },
     )
-
-const methodLabel = (method: string) =>
-    METHODS.find((row) => row.method === method)?.label ?? method
 
 /** Settlement the cashier should expect; the server owns the final status. */
 const expectedTenderStatus = (tender: PosTenderInput) => {
@@ -155,6 +148,7 @@ const POSTenderDialog = ({
     onComplete,
     formatPrice,
 }: POSTenderDialogProps) => {
+    const [methods, setMethods] = useState<MethodOption[]>(FALLBACK_METHODS)
     const [method, setMethod] = useState<PosTenderMethod>('CASH')
     const [tenders, setTenders] = useState<PosTenderInput[]>([])
     const [amount, setAmount] = useState(() =>
@@ -166,6 +160,19 @@ const POSTenderDialog = ({
     const [referenceNumber, setReferenceNumber] = useState('')
     const [bankName, setBankName] = useState('')
     const [transactionDate, setTransactionDate] = useState('')
+
+    const methodLabel = (code: string) =>
+        methods.find((row) => row.method === code)?.label ?? code
+
+    // Load configurable payment methods when the dialog opens.
+    useEffect(() => {
+        if (!isOpen) return
+        listPaymentMethods(true)
+            .then((records) => {
+                if (records.length) setMethods(toMethodOptions(records))
+            })
+            .catch(() => {})
+    }, [isOpen])
     const [employeeNumber, setEmployeeNumber] = useState('')
     const [payrollReference, setPayrollReference] = useState('')
     const [verified, setVerified] = useState(false)
@@ -330,7 +337,7 @@ const POSTenderDialog = ({
         onComplete(tenders)
     }
 
-    const selected = METHODS.find((row) => row.method === method)!
+    const selected = methods.find((row) => row.method === method)!
     const showVerification =
         (method === 'GCASH' || method === 'BANK_TRANSFER') &&
         Boolean(cashierUserId)
@@ -358,7 +365,7 @@ const POSTenderDialog = ({
                 {/* LEFT — payment methods and the tenders already taken */}
                 <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2">
-                        {METHODS.map((row) => (
+                        {methods.map((row) => (
                             <button
                                 key={row.method}
                                 type="button"

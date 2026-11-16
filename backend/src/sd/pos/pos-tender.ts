@@ -41,7 +41,13 @@ export type PosTender = {
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
+/** Accept any code that exists in the payment methods table OR the built-in list. */
+let _dynamicCodes: Set<string> | null = null
+export function setDynamicMethodCodes(codes: string[]) {
+    _dynamicCodes = new Set(codes)
+}
 const isMethod = (value: string): value is PosTenderMethod =>
+    (_dynamicCodes?.has(value) ?? false) ||
     (POS_TENDER_METHODS as readonly string[]).includes(value)
 
 const text = (value?: string | null) => {

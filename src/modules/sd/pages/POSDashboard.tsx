@@ -2111,10 +2111,10 @@ const POSDashboard = () => {
                 </div>
             </Dialog>
 
-            {/* Close the shift: counted cash against the expected cash. */}
+            {/* Close the shift: per-method reconciliation. */}
             <Dialog
                 isOpen={closeShiftOpen}
-                width={440}
+                width={560}
                 shouldReturnFocusAfterClose={false}
                 onAfterClose={focusScanner}
                 onClose={() => setCloseShiftOpen(false)}
@@ -2122,40 +2122,23 @@ const POSDashboard = () => {
             >
                 <h5 className="mb-1">Close shift</h5>
                 <p className="mb-4 text-sm text-gray-500">
-                    Register {shift?.terminalCode} · count the cash in the
-                    drawer.
+                    Register {shift?.terminalCode} · reconcile the drawer.
                 </p>
-                <div className="space-y-3">
-                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
-                        <span className="text-gray-500">Opening float</span>
-                        <span className="font-semibold tabular-nums">
-                            {formatPrice(shift?.openingCash ?? 0)}
-                        </span>
+
+                {/* ── Cash section ── */}
+                <div className="mb-4 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <h6 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Cash</h6>
+                    <div className="space-y-1 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-500">Opening float</span><span className="tabular-nums font-semibold">{formatPrice(shift?.openingCash ?? 0)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Cash tendered</span><span className="tabular-nums">{formatPrice(collections?.cashCollected ?? 0)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Change given</span><span className="tabular-nums">− {formatPrice(collections?.cashChange ?? 0)}</span></div>
+                        <div className="flex justify-between border-t border-gray-100 pt-1 font-semibold dark:border-gray-700">
+                            <span>Expected cash in drawer</span>
+                            <span className="tabular-nums">{formatPrice(expectedCash)}</span>
+                        </div>
                     </div>
-                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
-                        <span className="text-gray-500">Cash collected</span>
-                        <span className="font-semibold tabular-nums">
-                            {formatPrice(collections?.cashCollected ?? 0)}
-                        </span>
-                    </div>
-                    <div className="flex justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
-                        <span className="text-gray-500">Change given</span>
-                        <span className="font-semibold tabular-nums">
-                            {formatPrice(collections?.cashChange ?? 0)}
-                        </span>
-                    </div>
-                    <div className="flex justify-between rounded-lg border border-primary px-3 py-2 text-sm dark:border-primary/40">
-                        <span className="font-semibold">
-                            Expected cash (estimate)
-                        </span>
-                        <span className="font-bold tabular-nums">
-                            {formatPrice(expectedCash)}
-                        </span>
-                    </div>
-                    <div>
-                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Counted cash
-                        </label>
+                    <div className="mt-3">
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Counted cash</label>
                         <NumericInput
                             placeholder="0.00"
                             thousandSeparator=","
@@ -2163,29 +2146,79 @@ const POSDashboard = () => {
                             fixedDecimalScale
                             allowNegative={false}
                             value={countedCash}
-                            onValueChange={(v) =>
-                                setCountedCash(v.value ?? '0')
-                            }
+                            onValueChange={(v) => setCountedCash(v.value ?? '0')}
                         />
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            Variance:{' '}
-                            {formatPrice(
-                                Number(countedCash || 0) - expectedCash,
-                            )}
-                        </p>
+                        {(() => {
+                            const variance = Number(countedCash || 0) - expectedCash
+                            return (
+                                <p className={`mt-1 text-xs font-semibold ${variance === 0 ? 'text-emerald-600' : variance > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                                    Variance: {formatPrice(variance)}
+                                    {variance === 0 ? ' ✓' : variance > 0 ? ' (over)' : ' (short)'}
+                                </p>
+                            )
+                        })()}
                     </div>
                 </div>
-                <div className="mt-4 flex justify-end gap-2">
-                    <Button size="sm" onClick={() => setCloseShiftOpen(false)}>
-                        Cancel
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="solid"
-                        onClick={() => void handleCloseShift()}
-                    >
-                        Close shift
-                    </Button>
+
+                {/* ── Non-cash collections ── */}
+                {collections && Object.keys(collections.net).filter(m => m !== 'CASH').length > 0 ? (
+                    <div className="mb-4 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                        <h6 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Non-cash collections</h6>
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+                                    <th className="pb-1">Method</th>
+                                    <th className="pb-1 text-right">Collected</th>
+                                    <th className="pb-1 text-right">Pending</th>
+                                    <th className="pb-1 text-right">Net</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Object.keys(collections.net).filter(m => m !== 'CASH').map(method => (
+                                    <tr key={method} className="border-t border-gray-100 dark:border-gray-700">
+                                        <td className="py-1 font-medium">{method.replace(/_/g, ' ')}</td>
+                                        <td className="py-1 text-right tabular-nums">{formatPrice(collections.collected[method] ?? 0)}</td>
+                                        <td className="py-1 text-right tabular-nums text-amber-600">{(collections.pending[method] ?? 0) > 0 ? formatPrice(collections.pending[method]) : '—'}</td>
+                                        <td className="py-1 text-right tabular-nums font-semibold">{formatPrice(collections.net[method] ?? 0)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : null}
+
+                {/* ── Receivables ── */}
+                {collections && collections.totalReceivable > 0 ? (
+                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-500/30 dark:bg-amber-500/5">
+                        <h6 className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Salary-loan receivables</h6>
+                        {Object.entries(collections.receivable).map(([method, amount]) => (
+                            <div key={method} className="flex justify-between text-sm">
+                                <span>{method.replace(/_/g, ' ')}</span>
+                                <span className="tabular-nums font-semibold">{formatPrice(amount)}</span>
+                            </div>
+                        ))}
+                        <div className="mt-1 flex justify-between border-t border-amber-200 pt-1 text-sm font-semibold dark:border-amber-500/30">
+                            <span>Total receivable</span>
+                            <span className="tabular-nums">{formatPrice(collections.totalReceivable)}</span>
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* ── Summary ── */}
+                {collections ? (
+                    <div className="mb-4 space-y-1 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-500">Total collected</span><span className="tabular-nums font-semibold">{formatPrice(collections.totalCollected)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Total pending</span><span className="tabular-nums text-amber-600">{formatPrice(collections.totalPending)}</span></div>
+                        {collections.totalRefunded > 0 ? (
+                            <div className="flex justify-between"><span className="text-gray-500">Total refunded</span><span className="tabular-nums text-red-600">− {formatPrice(collections.totalRefunded)}</span></div>
+                        ) : null}
+                        <div className="flex justify-between"><span className="text-gray-500">Tenders processed</span><span className="tabular-nums">{collections.tenderCount}</span></div>
+                    </div>
+                ) : null}
+
+                <div className="flex justify-end gap-2">
+                    <Button size="sm" onClick={() => setCloseShiftOpen(false)}>Cancel</Button>
+                    <Button size="sm" variant="solid" onClick={() => void handleCloseShift()}>Close shift</Button>
                 </div>
             </Dialog>
 

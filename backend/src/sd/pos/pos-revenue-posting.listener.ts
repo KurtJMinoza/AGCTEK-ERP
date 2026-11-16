@@ -3,20 +3,11 @@ import { OnEvent } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FicoJournalService } from '../../fico/fico-journal.service'
+import { PosPaymentMethodService } from './pos-payment-method.service'
 import { SD_EVENTS } from '../sd-event.types'
 
 const Decimal = Prisma.Decimal
 const ZERO = new Decimal(0)
-
-/** Tender method → G/L account code. Falls back to Cash on Hand (1000). */
-const DEFAULT_TENDER_GL: Record<string, string> = {
-    CASH: '1000',
-    GCASH: '1160',
-    BANK_TRANSFER: '1180',
-    CARD: '1170',
-    CHEQUE: '1190',
-    SALARY_LOAN: '1110',
-}
 
 type PosSaleEvent = {
     salesOrderId: string
@@ -52,6 +43,7 @@ export class PosRevenuePostingListener {
     constructor(
         private readonly prisma: PrismaService,
         private readonly journal: FicoJournalService,
+        private readonly paymentMethods: PosPaymentMethodService,
     ) {}
 
     @OnEvent(SD_EVENTS.POS_SALE_COMPLETED, { async: true })
@@ -148,11 +140,14 @@ export class PosRevenuePostingListener {
             }> = []
             let lineNum = 1
 
+            // Load tender → G/L mapping from the configurable payment methods table
+            const tenderGlMap = await this.paymentMethods.glAccountMap()
+
             for (const tender of tenders) {
                 const amount = new Decimal(tender.amount)
                 if (amount.lte(0)) continue
 
-                const glCode = DEFAULT_TENDER_GL[tender.method] ?? '1000'
+                const glCode = tenderGlMap[tender.method] ?? '1000'
                 const gl = glByCode.get(glCode)
                 if (!gl) {
                     this.logger.warn(

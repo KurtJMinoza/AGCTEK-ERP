@@ -1,8 +1,10 @@
 import {
     Body,
     Controller,
+    Delete,
     Get,
     Param,
+    Patch,
     Post,
     Query,
 } from '@nestjs/common'
@@ -12,6 +14,8 @@ import { PosCustomerService } from './pos-customer.service'
 import { PosVoidService } from './pos-void.service'
 import { PosSessionService } from './pos-session.service'
 import { PosHoldService } from './pos-hold.service'
+import { PosPaymentMethodService } from './pos-payment-method.service'
+import { PosRefundService, type CreatePosRefundInput } from './pos-refund.service'
 import {
     ClosePosSessionDto,
     HoldPosSaleDto,
@@ -39,7 +43,48 @@ export class PosController {
         private readonly holds: PosHoldService,
         private readonly customers: PosCustomerService,
         private readonly voids: PosVoidService,
+        private readonly paymentMethods: PosPaymentMethodService,
+        private readonly refunds: PosRefundService,
     ) {}
+
+    // ── Partial refunds ──
+
+    @Post('orders/:id/refund')
+    @RequirePermission('sd.pos', 'update')
+    createRefund(@Param('id') id: string, @Body() dto: Omit<CreatePosRefundInput, 'salesOrderId'>) {
+        return this.refunds.create({ ...dto, salesOrderId: id })
+    }
+
+    @Get('orders/:id/refunds')
+    @RequirePermission('sd.pos', 'read')
+    listRefunds(@Param('id') id: string) {
+        return this.refunds.listForOrder(id)
+    }
+
+    // ── Payment methods ──
+
+    @Get('payment-methods')
+    listPaymentMethods(@Query('activeOnly') activeOnly?: string) {
+        return this.paymentMethods.list(activeOnly === 'true')
+    }
+
+    @Post('payment-methods')
+    @RequirePermission('sd.pos', 'create')
+    createPaymentMethod(@Body() dto: Record<string, unknown>) {
+        return this.paymentMethods.create(dto as Parameters<PosPaymentMethodService['create']>[0])
+    }
+
+    @Patch('payment-methods/:id')
+    @RequirePermission('sd.pos', 'update')
+    updatePaymentMethod(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
+        return this.paymentMethods.update(id, dto)
+    }
+
+    @Delete('payment-methods/:id')
+    @RequirePermission('sd.pos', 'delete')
+    deletePaymentMethod(@Param('id') id: string) {
+        return this.paymentMethods.delete(id)
+    }
 
     /** The POS sales of a branch (transaction history). */
     @Get('orders')

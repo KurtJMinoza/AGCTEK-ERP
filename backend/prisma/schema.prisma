@@ -5781,6 +5781,45 @@ model SdSalesOrderPayment {
   @@map("sd_sales_order_payments")
 }
 
+// ── Configurable payment methods ──────────────────────────────────────
+
+/// Administrator-managed payment methods for POS and external platform sales.
+/// The six built-in methods are seeded as SYSTEM origin and cannot be deleted.
+model SdPaymentMethod {
+  id                   String  @id @default(cuid())
+  code                 String  @unique
+  name                 String
+  description          String?
+  /// Icon key used by the frontend (e.g. HiOutlineCash).
+  icon                 String?
+  /// SYSTEM methods are seeded and cannot be deleted.
+  origin               String  @default("USER") // SYSTEM | USER
+  isActive             Boolean @default(true)
+  sortOrder            Int     @default(0)
+  /// Whether the tender amount can exceed the applied amount (cash change).
+  allowChange          Boolean @default(false)
+  /// Whether a reference number is required at the register.
+  requiresReference    Boolean @default(false)
+  /// Whether a bank name is required (bank transfer).
+  requiresBank         Boolean @default(false)
+  /// Whether a transaction date is required (bank transfer).
+  requiresDate         Boolean @default(false)
+  /// Whether an employee number is required (salary deduction).
+  requiresEmployee     Boolean @default(false)
+  /// IMMEDIATE | PENDING | RECEIVABLE — how the tender settles.
+  settlementType       String  @default("IMMEDIATE") // IMMEDIATE | PENDING | RECEIVABLE
+  /// G/L account code that the revenue journal debits for this method.
+  glAccountCode        String?
+  /// Company restrictions (null = all companies).
+  companyRestrictions  Json?
+  createdBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("sd_payment_methods")
+}
+
 /// Cashier shift (POS register session): opening float, collections, closing count.
 model SdPosSession {
   id             String       @id @default(cuid())

@@ -193,6 +193,7 @@ describe('PosCheckoutService', () => {
             goodsIssue,
             sdEvents,
             customers,
+            { list: jest.fn().mockResolvedValue([]) } as any,
         )
     })
 

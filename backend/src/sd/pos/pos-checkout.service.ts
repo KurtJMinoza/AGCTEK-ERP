@@ -16,6 +16,8 @@ import { SdEventEmitterService } from '../sd-event-emitter.service'
 import { SD_EVENTS } from '../sd-event.types'
 import { PosSessionService } from './pos-session.service'
 import { PosCustomerService } from './pos-customer.service'
+import { PosPaymentMethodService } from './pos-payment-method.service'
+import { setDynamicMethodCodes } from './pos-tender'
 import { allocateTenders, type PosTender } from './pos-tender'
 import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 
@@ -133,7 +135,14 @@ export class PosCheckoutService {
         private readonly goodsIssue: GoodsIssueService,
         private readonly sdEvents: SdEventEmitterService,
         private readonly customers: PosCustomerService,
+        private readonly paymentMethods: PosPaymentMethodService,
     ) {}
+
+    /** Ensure allocateTenders knows about admin-added payment methods. */
+    private async syncMethodCodes() {
+        const methods = await this.paymentMethods.list(true)
+        setDynamicMethodCodes(methods.map((m) => m.code))
+    }
 
     /**
      * Amount due of a running cart: the server prices the lines, applies the
@@ -317,6 +326,7 @@ export class PosCheckoutService {
         )
         const total = round2(subtotal - discountAmount + taxAmount)
 
+        await this.syncMethodCodes()
         const { tenders, change } = allocateTenders(total, dto.tenders)
         const warnings = lines
             .map((line) => line.taxWarning)

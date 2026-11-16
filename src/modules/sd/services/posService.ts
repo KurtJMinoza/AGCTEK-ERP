@@ -38,6 +38,18 @@ export type PosSessionCollections = {
     cashCollected: number
     cashChange: number
     tenderCount: number
+    /** Amounts confirmed received (Paid / Verified). */
+    collected: Record<string, number>
+    /** Amounts still pending verification (GCash, bank, cheque). */
+    pending: Record<string, number>
+    /** Salary-loan receivables (Authorized / Receivable). */
+    receivable: Record<string, number>
+    /** Net per method (collected − refunds). */
+    net: Record<string, number>
+    totalCollected: number
+    totalPending: number
+    totalReceivable: number
+    totalRefunded: number
 }
 
 /** Parked (held) sale: the cart snapshot owned by the terminal. */
@@ -264,6 +276,14 @@ export async function getPosSessionCollections(
             cashCollected: num(data.cashCollected),
             cashChange: num(data.cashChange),
             tenderCount: num(data.tenderCount),
+            collected: data.collected ?? {},
+            pending: data.pending ?? {},
+            receivable: data.receivable ?? {},
+            net: data.net ?? {},
+            totalCollected: num(data.totalCollected),
+            totalPending: num(data.totalPending),
+            totalReceivable: num(data.totalReceivable),
+            totalRefunded: num(data.totalRefunded),
         }
     } catch (error) {
         throw toApiError(error, 'Unable to load the shift collections')
