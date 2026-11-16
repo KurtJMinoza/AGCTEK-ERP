@@ -29,6 +29,7 @@ import {
 import { MaterialResolutionService } from './material-resolution.service'
 import { ProductService } from './product.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
+import { GoodsIssueService } from '../mm/stock-ops/goods-issue.service'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
 
 const Decimal = Prisma.Decimal
@@ -50,6 +51,8 @@ type StockRow = {
     availableQuantity: number
     state: string
 }
+/** MM goods-issue source type for approved company-owned external platform sales. */
+const EXT_GI_SOURCE = 'EXT_PLATFORM_SALE'
 /** Max items per storefront availability batch call. */
 const STOCK_BATCH_SIZE = 200
 type CatalogLine = Omit<ExtPlatformTransactionLineDto, 'variantId'> &
@@ -109,6 +112,7 @@ export class ExtPlatformTransactionService {
         private readonly materialResolution: MaterialResolutionService,
         private readonly products: ProductService,
         private readonly availability: CommercialAvailabilityService,
+        private readonly goodsIssue: GoodsIssueService,
     ) {}
 
     // ─── Sales Sources ───────────────────────────────────────────
@@ -229,7 +233,13 @@ export class ExtPlatformTransactionService {
             this.prisma.sdExtPlatformTransaction.count({ where }),
         ])
 
-        return { data, total, limit, offset }
+        const issues = await this.goodsIssuesFor(data.map((tx) => tx.id))
+        return {
+            data: data.map((tx) => ({ ...tx, goodsIssues: issues.get(tx.id) ?? [] })),
+            total,
+            limit,
+            offset,
+        }
     }
 
     async findById(id: string) {
@@ -238,7 +248,8 @@ export class ExtPlatformTransactionService {
             include: TX_INCLUDE,
         })
         if (!tx) throw new NotFoundException('Transaction not found.')
-        return tx
+        const issues = await this.goodsIssuesFor([tx.id])
+        return { ...tx, goodsIssues: issues.get(tx.id) ?? [] }
     }
 
     async create(dto: CreateExtPlatformTransactionDto, userId?: string) {
@@ -407,16 +418,186 @@ export class ExtPlatformTransactionService {
             )
         }
 
-        return this.prisma.sdExtPlatformTransaction.update({
-            where: { id },
+        const actor = userId || dto.updatedBy || null
+        // Claim the transition first so a double click cannot move stock twice.
+        const claimed = await this.prisma.sdExtPlatformTransaction.updateMany({
+            where: { id, status: existing.status },
             data: {
                 status: dto.status,
                 ...(dto.status === 'APPROVED'
-                    ? { approvedBy: userId || dto.updatedBy, approvedAt: new Date() }
+                    ? { approvedBy: actor, approvedAt: new Date() }
                     : {}),
             },
-            include: TX_INCLUDE,
         })
+        if (claimed.count === 0) {
+            throw new ConflictException(
+                'This transaction was just changed by someone else. Refresh and try again.',
+            )
+        }
+
+        try {
+            // Company-owned stock leaves MM only when the sale is approved;
+            // cancelling an approved sale returns it.
+            if (dto.status === 'APPROVED' && existing.isCompanyInventory) {
+                await this.issueStock(existing, actor)
+            }
+            if (dto.status === 'CANCELLED' && existing.status === 'APPROVED') {
+                await this.reverseStock(existing.id, actor)
+            }
+        } catch (err) {
+            await this.prisma.sdExtPlatformTransaction.update({
+                where: { id },
+                data: {
+                    status: existing.status,
+                    approvedBy: existing.approvedBy,
+                    approvedAt: existing.approvedAt,
+                },
+            })
+            throw err
+        }
+
+        return this.findById(id)
+    }
+
+    // ─── MM stock (goods issue) ──────────────────────────────────
+
+    /**
+     * Posts the MM goods issue(s) of an approved company-owned sale through the
+     * MM goods-issue flow (InventoryPostingService). Takes only AVAILABLE stock
+     * (never another order's reservation), preferring the branch's warehouses;
+     * one goods issue per warehouse. Safe to repeat: posted issues are reused,
+     * unposted drafts are rebuilt, and a partial failure reverses what posted.
+     */
+    private async issueStock(
+        tx: { id: string; transactionNumber: string; companyId: string; branchId: string | null },
+        actor: string | null,
+    ) {
+        const existing = await this.prisma.mmGoodsIssue.findMany({
+            where: { sourceDocumentType: EXT_GI_SOURCE, sourceDocumentId: tx.id, status: { in: ['POSTED', 'DRAFT'] } },
+            select: { id: true, status: true },
+        })
+        if (existing.some((gi) => gi.status === 'POSTED')) return
+        for (const draft of existing) {
+            await this.prisma.$transaction([
+                this.prisma.mmGoodsIssueLine.deleteMany({ where: { issueId: draft.id } }),
+                this.prisma.mmGoodsIssue.delete({ where: { id: draft.id } }),
+            ])
+        }
+
+        const lines = await this.prisma.sdExtPlatformTransactionLine.findMany({
+            where: { transactionId: tx.id },
+            orderBy: { lineNumber: 'asc' },
+            select: { materialId: true, quantity: true, productName: true, materialCode: true },
+        })
+        const branchWarehouses = new Set(
+            tx.branchId
+                ? (await this.prisma.warehouse.findMany({ where: { branchId: tx.branchId }, select: { id: true } })).map((w) => w.id)
+                : [],
+        )
+
+        type IssueLine = { materialId: string; quantity: number; uomId: string; storageBinId: string }
+        const byWarehouse = new Map<string, IssueLine[]>()
+        const takenFromBin = new Map<string, number>()
+        for (const line of lines) {
+            const material = await this.prisma.mmMaterial.findUnique({
+                where: { id: line.materialId },
+                select: { baseUomId: true },
+            })
+            const balances = await this.prisma.mmInventoryBalance.findMany({
+                where: {
+                    companyId: tx.companyId,
+                    materialId: line.materialId,
+                    stockStatus: 'UNRESTRICTED',
+                    batchId: null,
+                    serialNumberId: null,
+                    storageBinId: { not: null },
+                    quantity: { gt: 0 },
+                },
+                select: { warehouseId: true, storageBinId: true, quantity: true, reservedQuantity: true },
+            })
+            const candidates = balances
+                .map((b) => {
+                    const key = `${b.warehouseId}:${b.storageBinId}:${line.materialId}`
+                    const free = Number(b.quantity) - Number(b.reservedQuantity ?? 0) - (takenFromBin.get(key) ?? 0)
+                    return { ...b, key, free }
+                })
+                .filter((b) => b.free > 0)
+                .sort((a, b) =>
+                    Number(branchWarehouses.has(b.warehouseId)) - Number(branchWarehouses.has(a.warehouseId)) ||
+                    b.free - a.free,
+                )
+
+            let remaining = Number(line.quantity)
+            for (const bin of candidates) {
+                if (remaining <= 0) break
+                const take = Math.min(remaining, bin.free)
+                const list = byWarehouse.get(bin.warehouseId) ?? []
+                list.push({ materialId: line.materialId, quantity: take, uomId: material?.baseUomId ?? '', storageBinId: bin.storageBinId! })
+                byWarehouse.set(bin.warehouseId, list)
+                takenFromBin.set(bin.key, (takenFromBin.get(bin.key) ?? 0) + take)
+                remaining = Math.round((remaining - take) * 10000) / 10000
+            }
+            if (remaining > 0) {
+                throw new BadRequestException(
+                    `Not enough available stock for ${line.productName ?? line.materialCode}: ${remaining} short. The sale was not approved.`,
+                )
+            }
+        }
+
+        const posted: string[] = []
+        try {
+            const now = new Date().toISOString()
+            for (const [warehouseId, issueLines] of byWarehouse) {
+                const gi = await this.goodsIssue.create({
+                    companyId: tx.companyId,
+                    warehouseId,
+                    postingDate: now,
+                    documentDate: now,
+                    issuePurpose: 'SALES',
+                    sourceDocumentType: EXT_GI_SOURCE,
+                    sourceDocumentId: tx.id,
+                    createdBy: actor ?? undefined,
+                    remarks: `External platform sale ${tx.transactionNumber}`,
+                    lines: issueLines,
+                })
+                await this.goodsIssue.verifySupervisor(gi.id, {
+                    verifiedBy: actor ?? 'EXT_PLATFORM_APPROVAL',
+                    sourceDocumentReference: tx.transactionNumber,
+                    verificationNotes: 'Verified by approving the external platform sale',
+                })
+                await this.goodsIssue.post(gi.id)
+                posted.push(gi.id)
+            }
+        } catch (err) {
+            for (const id of posted) await this.goodsIssue.reverse(id, actor ?? undefined)
+            throw err
+        }
+    }
+
+    /** Returns the stock of a cancelled approved sale (reverses its posted goods issues). */
+    private async reverseStock(transactionId: string, actor: string | null) {
+        const issues = await this.prisma.mmGoodsIssue.findMany({
+            where: { sourceDocumentType: EXT_GI_SOURCE, sourceDocumentId: transactionId, status: 'POSTED' },
+            select: { id: true },
+        })
+        for (const gi of issues) await this.goodsIssue.reverse(gi.id, actor ?? undefined)
+    }
+
+    /** MM goods issues per transaction, for display. */
+    private async goodsIssuesFor(transactionIds: string[]) {
+        if (!transactionIds.length) return new Map<string, Array<{ documentNumber: string; status: string }>>()
+        const issues = await this.prisma.mmGoodsIssue.findMany({
+            where: { sourceDocumentType: EXT_GI_SOURCE, sourceDocumentId: { in: transactionIds } },
+            orderBy: { createdAt: 'asc' },
+            select: { sourceDocumentId: true, documentNumber: true, status: true },
+        })
+        const map = new Map<string, Array<{ documentNumber: string; status: string }>>()
+        for (const gi of issues) {
+            const list = map.get(gi.sourceDocumentId!) ?? []
+            list.push({ documentNumber: gi.documentNumber, status: gi.status })
+            map.set(gi.sourceDocumentId!, list)
+        }
+        return map
     }
 
     async delete(id: string) {

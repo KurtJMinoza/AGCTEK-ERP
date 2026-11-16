@@ -321,7 +321,8 @@ export default function ExtPlatformSalesDashboard() {
             await updateExtPlatformTransactionStatus(tx.id, 'APPROVED')
             toast.push(
                 <Notification type="success" title="Approved">
-                    {tx.transactionNumber} approved.
+                    {tx.transactionNumber} approved
+                    {tx.isCompanyInventory ? ' — stock deducted from MM.' : ' (third-party stock, no MM deduction).'}
                 </Notification>,
             )
             loadTransactions()

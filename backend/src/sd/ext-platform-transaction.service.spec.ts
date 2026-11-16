@@ -6,6 +6,7 @@ import type { MaterialResolutionService } from './material-resolution.service'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
 import type { ProductService } from './product.service'
 import type { CommercialAvailabilityService } from './commercial-availability.service'
+import type { GoodsIssueService } from '../mm/stock-ops/goods-issue.service'
 
 const vatCode = {
     id: 'tc-vat',
@@ -95,6 +96,7 @@ function makeService(findUnique: jest.Mock = jest.fn().mockResolvedValue(null)) 
         materialResolution as unknown as MaterialResolutionService,
         productService as unknown as ProductService,
         {} as CommercialAvailabilityService,
+        {} as GoodsIssueService,
     )
 }
 
@@ -260,6 +262,115 @@ describe('ExtPlatformTransactionService stock check', () => {
             'Only 1 of Vatable item in stock (2 entered).',
         )
         await expect(service.resolveLines(lines, 'co-1', '2026-11-14', false)).resolves.toHaveLength(1)
+    })
+})
+
+describe('ExtPlatformTransactionService stock movement on approval', () => {
+    const baseTx = {
+        id: 'tx-1',
+        transactionNumber: 'EPT-000001',
+        companyId: 'co-1',
+        branchId: null,
+        status: 'CONFIRMED',
+        isCompanyInventory: true,
+        approvedBy: null,
+        approvedAt: null,
+    }
+
+    function makeStatusService(opts: {
+        tx?: Partial<typeof baseTx>
+        available?: number
+        claimCount?: number
+        postedIssues?: Array<{ id: string; status: string }>
+    } = {}) {
+        const tx = { ...baseTx, ...opts.tx }
+        const prisma = {
+            sdExtPlatformTransaction: {
+                findUnique: jest.fn().mockResolvedValue(tx),
+                updateMany: jest.fn().mockResolvedValue({ count: opts.claimCount ?? 1 }),
+                update: jest.fn().mockResolvedValue(tx),
+            },
+            sdExtPlatformTransactionLine: {
+                findMany: jest.fn().mockResolvedValue([
+                    { materialId: 'm-1', quantity: 2, productName: 'Necklace', materialCode: 'MAT-000028' },
+                ]),
+            },
+            mmGoodsIssue: { findMany: jest.fn().mockResolvedValue(opts.postedIssues ?? []) },
+            mmGoodsIssueLine: { deleteMany: jest.fn() },
+            warehouse: { findMany: jest.fn().mockResolvedValue([]) },
+            mmMaterial: { findUnique: jest.fn().mockResolvedValue({ baseUomId: 'uom-pcs' }) },
+            mmInventoryBalance: {
+                findMany: jest.fn().mockResolvedValue([
+                    { warehouseId: 'wh-1', storageBinId: 'bin-1', quantity: (opts.available ?? 5) + 1, reservedQuantity: 1 },
+                ]),
+            },
+            $transaction: jest.fn(),
+        }
+        const goodsIssue = {
+            create: jest.fn().mockResolvedValue({ id: 'gi-1' }),
+            verifySupervisor: jest.fn().mockResolvedValue({}),
+            post: jest.fn().mockResolvedValue({ id: 'gi-1', status: 'POSTED' }),
+            reverse: jest.fn().mockResolvedValue({}),
+        }
+        const service = new ExtPlatformTransactionService(
+            prisma as unknown as PrismaService,
+            new FicoTaxCalculationService(),
+            {} as MaterialResolutionService,
+            {} as ProductService,
+            {} as CommercialAvailabilityService,
+            goodsIssue as unknown as GoodsIssueService,
+        )
+        return { service, prisma, goodsIssue }
+    }
+
+    it('posts an MM goods issue from available stock when a company-owned sale is approved', async () => {
+        const { service, goodsIssue } = makeStatusService()
+        await service.updateStatus('tx-1', { status: 'APPROVED' }, 'user-1')
+
+        expect(goodsIssue.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                companyId: 'co-1',
+                warehouseId: 'wh-1',
+                issuePurpose: 'SALES',
+                sourceDocumentType: 'EXT_PLATFORM_SALE',
+                sourceDocumentId: 'tx-1',
+                lines: [{ materialId: 'm-1', quantity: 2, uomId: 'uom-pcs', storageBinId: 'bin-1' }],
+            }),
+        )
+        expect(goodsIssue.verifySupervisor).toHaveBeenCalledWith('gi-1', expect.objectContaining({ sourceDocumentReference: 'EPT-000001' }))
+        expect(goodsIssue.post).toHaveBeenCalledWith('gi-1')
+    })
+
+    it('refuses the approval and restores the status when available stock is short', async () => {
+        const { service, prisma, goodsIssue } = makeStatusService({ available: 1 })
+        await expect(service.updateStatus('tx-1', { status: 'APPROVED' }, 'user-1')).rejects.toThrow(
+            'Not enough available stock for Necklace: 1 short',
+        )
+        expect(goodsIssue.create).not.toHaveBeenCalled()
+        expect(prisma.sdExtPlatformTransaction.update).toHaveBeenCalledWith(
+            expect.objectContaining({ data: expect.objectContaining({ status: 'CONFIRMED' }) }),
+        )
+    })
+
+    it('moves no stock for a third-party sale', async () => {
+        const { service, goodsIssue } = makeStatusService({ tx: { isCompanyInventory: false } })
+        await service.updateStatus('tx-1', { status: 'APPROVED' }, 'user-1')
+        expect(goodsIssue.create).not.toHaveBeenCalled()
+    })
+
+    it('reverses the goods issue when an approved sale is cancelled', async () => {
+        const { service, goodsIssue } = makeStatusService({
+            tx: { status: 'APPROVED' },
+            postedIssues: [{ id: 'gi-9', status: 'POSTED' }],
+        })
+        await service.updateStatus('tx-1', { status: 'CANCELLED' }, 'user-1')
+        expect(goodsIssue.reverse).toHaveBeenCalledWith('gi-9', 'user-1')
+    })
+
+    it('rejects a second simultaneous approval instead of issuing stock twice', async () => {
+        const { service, goodsIssue } = makeStatusService({ claimCount: 0 })
+        await expect(service.updateStatus('tx-1', { status: 'APPROVED' }, 'user-1')).rejects.toBeInstanceOf(ConflictException)
+        expect(goodsIssue.create).not.toHaveBeenCalled()
     })
 })
 

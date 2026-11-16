@@ -83,6 +83,34 @@ function StatusTracker({ status }: { status: string }) {
     )
 }
 
+/** Whether the sale moved MM stock, and through which goods issue. */
+function StockMovement({ tx }: { tx: ExtPlatformTransaction }) {
+    if (!tx.isCompanyInventory) {
+        return <span className="text-gray-500">None — third-party stock</span>
+    }
+    const issues = tx.goodsIssues ?? []
+    const posted = issues.filter((gi) => gi.status === 'POSTED')
+    const reversed = issues.filter((gi) => gi.status === 'REVERSED')
+    if (posted.length) {
+        return (
+            <span className="whitespace-normal text-emerald-600 dark:text-emerald-400">
+                Issued from MM · <span className="font-mono">{posted.map((gi) => gi.documentNumber).join(', ')}</span>
+            </span>
+        )
+    }
+    if (reversed.length) {
+        return (
+            <span className="whitespace-normal text-amber-600">
+                Returned to stock · <span className="font-mono">{reversed.map((gi) => gi.documentNumber).join(', ')}</span> reversed
+            </span>
+        )
+    }
+    if (tx.status === 'APPROVED') {
+        return <span className="whitespace-normal text-amber-600">Not issued (approved before stock deduction was enabled)</span>
+    }
+    return <span className="whitespace-normal text-gray-500">Deducted from MM when the sale is approved</span>
+}
+
 function Panel({
     icon,
     title,
@@ -363,6 +391,9 @@ export default function ExtPlatformTransactionDetailDialog({
                                 </Field>
                                 <Field label="Inventory">
                                     {tx.isCompanyInventory ? 'Company-owned stock' : 'Third-party stock'}
+                                </Field>
+                                <Field label="MM stock movement">
+                                    <StockMovement tx={tx} />
                                 </Field>
                             </dl>
                         </Panel>

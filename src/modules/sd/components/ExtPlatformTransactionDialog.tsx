@@ -743,7 +743,7 @@ export default function ExtPlatformTransactionDialog({
                             <div className="text-xs text-gray-600 dark:text-gray-300">
                                 <span className="font-semibold">Whose stock was sold?</span>{' '}
                                 {isCompanyInventory
-                                    ? 'Only products in stock can be picked and quantities cannot exceed MM availability. Goods issue is not posted from this screen — post it in MM.'
+                                    ? 'Only products in stock can be picked and quantities cannot exceed MM availability. The stock is deducted from MM when the sale is approved.'
                                     : 'Third-party stock: company inventory is not checked or affected.'}
                             </div>
                             <Segment

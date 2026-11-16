@@ -80,6 +80,8 @@ export type ExtPlatformTransaction = {
     createdAt: string
     updatedAt: string
     lines: ExtPlatformTransactionLine[]
+    /** MM goods issues posted when a company-owned sale was approved (REVERSED after a cancel). */
+    goodsIssues?: Array<{ documentNumber: string; status: string }>
 }
 
 export type ExtPlatformTransactionListResult = {
