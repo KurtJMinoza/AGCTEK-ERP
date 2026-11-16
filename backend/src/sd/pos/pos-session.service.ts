@@ -10,10 +10,27 @@ const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
 export type PosSessionCollections = {
+    /** Amount applied per tender method (includes pending and receivable). */
     byMethod: Record<string, number>
     cashCollected: number
     cashChange: number
     tenderCount: number
+    /** Amounts that are confirmed received (Paid / Authorized status). */
+    collected: Record<string, number>
+    /** Amounts still pending verification (GCash, bank transfer, cheque). */
+    pending: Record<string, number>
+    /** Salary-loan receivables (AUTHORIZED / RECEIVABLE status). */
+    receivable: Record<string, number>
+    /** Net per method (collected − refunds). */
+    net: Record<string, number>
+    /** Total collected (sum of `collected`). */
+    totalCollected: number
+    /** Total pending. */
+    totalPending: number
+    /** Total receivable. */
+    totalReceivable: number
+    /** Total refunded in this shift. */
+    totalRefunded: number
 }
 
 /**
@@ -137,39 +154,87 @@ export class PosSessionService {
     /** Money collected during the shift, per tender method. */
     async collections(sessionId: string): Promise<PosSessionCollections> {
         const payments = await this.prisma.sdSalesOrderPayment.findMany({
-            where: {
-                posSessionId: sessionId,
-                status: { notIn: ['Cancelled', 'Refunded', 'Failed'] },
-            },
+            where: { posSessionId: sessionId },
             select: {
                 paymentMethod: true,
                 amount: true,
                 tenderAmount: true,
                 changeAmount: true,
+                status: true,
+                verificationStatus: true,
             },
         })
 
         const byMethod: Record<string, number> = {}
+        const collected: Record<string, number> = {}
+        const pending: Record<string, number> = {}
+        const receivable: Record<string, number> = {}
+        const refunded: Record<string, number> = {}
         let cashCollected = 0
         let cashChange = 0
+
         for (const payment of payments) {
             const method = payment.paymentMethod
-            byMethod[method] = round2(
-                (byMethod[method] ?? 0) + Number(payment.amount),
-            )
+            const amount = Number(payment.amount)
+            const status = payment.status
+            const verification = payment.verificationStatus
+
+            if (['Cancelled', 'Failed'].includes(status)) continue
+
+            if (status === 'Refunded') {
+                refunded[method] = round2((refunded[method] ?? 0) + amount)
+                continue
+            }
+
+            byMethod[method] = round2((byMethod[method] ?? 0) + amount)
+
             if (method === 'CASH') {
                 cashCollected = round2(
                     cashCollected + Number(payment.tenderAmount),
                 )
                 cashChange = round2(cashChange + Number(payment.changeAmount))
             }
+
+            if (verification === 'RECEIVABLE' || method === 'SALARY_LOAN') {
+                receivable[method] = round2((receivable[method] ?? 0) + amount)
+            } else if (verification === 'PENDING') {
+                pending[method] = round2((pending[method] ?? 0) + amount)
+            } else {
+                collected[method] = round2((collected[method] ?? 0) + amount)
+            }
+        }
+
+        const sumValues = (obj: Record<string, number>) =>
+            round2(Object.values(obj).reduce((s, v) => s + v, 0))
+        const totalRefunded = sumValues(refunded)
+
+        // Net per method = collected + pending + receivable − refunded
+        const net: Record<string, number> = {}
+        const allMethods = new Set([
+            ...Object.keys(byMethod),
+            ...Object.keys(refunded),
+        ])
+        for (const method of allMethods) {
+            net[method] = round2(
+                (byMethod[method] ?? 0) - (refunded[method] ?? 0),
+            )
         }
 
         return {
             byMethod,
             cashCollected,
             cashChange,
-            tenderCount: payments.length,
+            tenderCount: payments.filter(
+                (p) => !['Cancelled', 'Failed'].includes(p.status),
+            ).length,
+            collected,
+            pending,
+            receivable,
+            net,
+            totalCollected: sumValues(collected),
+            totalPending: sumValues(pending),
+            totalReceivable: sumValues(receivable),
+            totalRefunded,
         }
     }
 
