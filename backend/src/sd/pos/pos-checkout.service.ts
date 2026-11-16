@@ -18,7 +18,13 @@ import { PosSessionService } from './pos-session.service'
 import { PosCustomerService } from './pos-customer.service'
 import { PosPaymentMethodService } from './pos-payment-method.service'
 import { setDynamicMethodCodes } from './pos-tender'
-import { allocateTenders, type PosTender } from './pos-tender'
+import {
+    allocateTenders,
+    resolvePosOrderPaymentStatus,
+    type PosTender,
+    type PosTenderInput,
+} from './pos-tender'
+import { POS_TENDER_SETTLEMENT_STATUS } from './pos.constants'
 import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 
 const round2 = (value: number) =>
@@ -109,9 +115,11 @@ export type PosReceipt = {
         tenderAmount: number
         changeAmount: number
         referenceNumber: string | null
+        employeeName?: string | null
         status: string
         verificationStatus: string
     }>
+    paymentStatus?: string | null
     warnings: string[]
 }
 
@@ -327,7 +335,8 @@ export class PosCheckoutService {
         const total = round2(subtotal - discountAmount + taxAmount)
 
         await this.syncMethodCodes()
-        const { tenders, change } = allocateTenders(total, dto.tenders)
+        const enrichedTenders = await this.enrichSalaryTenders(dto.tenders)
+        const { tenders, change } = allocateTenders(total, enrichedTenders)
         const warnings = lines
             .map((line) => line.taxWarning)
             .filter((warning): warning is string => Boolean(warning))
@@ -344,13 +353,6 @@ export class PosCheckoutService {
                 : null
         const customerId = customer?.id ?? dto.customerId
         const customerName = customer?.companyName ?? dto.customerName
-
-        const salaryLoan = tenders.find(
-            (tender) => tender.method === 'SALARY_LOAN',
-        )
-        if (salaryLoan) {
-            await this.assertEmployeeCredit(customerId, total)
-        }
 
         const order = await this.salesOrders.createRetail({
             channel: 'POS',
@@ -401,9 +403,7 @@ export class PosCheckoutService {
                 status: 'COMPLETED',
                 paymentMethod:
                     tenders.length > 1 ? 'SPLIT' : tenders[0].method,
-                paymentStatus: tenders.every((t) => t.status === 'Paid')
-                    ? 'Paid'
-                    : 'Pending Verification',
+                paymentStatus: resolvePosOrderPaymentStatus(tenders),
                 paymentReference: tenders[0].referenceNumber ?? null,
                 paymentProvider: tenders[0].provider ?? null,
                 changeAmount: change,
@@ -417,10 +417,6 @@ export class PosCheckoutService {
                 payments: true,
             },
         })
-
-        if (salaryLoan) {
-            await this.consumeEmployeeCredit(customerId, total)
-        }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
             salesOrderId: completed.id,
@@ -502,13 +498,6 @@ export class PosCheckoutService {
         await this.postGoodsIssue(order, session)
 
         const payments = order.payments
-        const salaryLoanTotal = payments
-            .filter(
-                (payment) =>
-                    payment.paymentMethod === 'SALARY_LOAN' &&
-                    !['Cancelled', 'Refunded'].includes(payment.status),
-            )
-            .reduce((sum, payment) => sum + Number(payment.amount), 0)
         const receiptNumber =
             order.receiptNumber ??
             (await this.nextReceiptNumber(
@@ -530,11 +519,7 @@ export class PosCheckoutService {
                     payments.length > 1
                         ? 'SPLIT'
                         : payments[0].paymentMethod,
-                paymentStatus: payments.every(
-                    (payment) => payment.status === 'Paid',
-                )
-                    ? 'Paid'
-                    : 'Pending Verification',
+                paymentStatus: resolvePosOrderPaymentStatus(payments),
                 paymentReference: payments[0].referenceNumber ?? null,
                 paymentProvider: payments[0].paymentProvider ?? null,
                 changeAmount: order.changeAmount ?? changeAmount,
@@ -547,14 +532,6 @@ export class PosCheckoutService {
                 payments: true,
             },
         })
-
-        // The salary deduction was booked when the tender was captured.
-        if (salaryLoanTotal > 0 && order.customerId) {
-            await this.consumeEmployeeCredit(
-                order.customerId,
-                salaryLoanTotal,
-            )
-        }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
             salesOrderId: completed.id,
@@ -751,6 +728,7 @@ export class PosCheckoutService {
                     bankName: tender.bankName,
                     transactionDate: tender.transactionDate,
                     employeeNumber: tender.employeeNumber,
+                    employeeName: tender.employeeName,
                     payrollReference: tender.payrollReference,
                     collectedBy: args.cashierUserId,
                     isDemo: false,
@@ -911,49 +889,87 @@ export class PosCheckoutService {
         return this.goodsIssue.post(gi.id)
     }
 
-    /** A salary deduction needs a credit account with enough headroom. */
-    private async assertEmployeeCredit(customerId: string, amount: number) {
-        const customer = await this.prisma.sdCustomer.findUnique({
-            where: { id: customerId },
-            select: {
-                id: true,
-                customerAccountType: true,
-                creditLimit: true,
-                availableCredit: true,
-            },
+    /** Mark payroll-collected salary deductions as Paid (POS only). */
+    async markSalaryDeductionPaid(orderId: string, actor?: string | null) {
+        const order = await this.prisma.sdSalesOrder.findFirst({
+            where: { id: orderId, channel: 'POS' },
+            include: { payments: true },
         })
-        if (!customer) {
-            throw new BadRequestException(
-                'The customer of a salary deduction must exist in the Customer Master.',
+        if (!order) throw new NotFoundException('Sale not found')
+        if (order.status !== 'COMPLETED') {
+            throw new ConflictException(
+                'Only a completed sale can be marked paid.',
             )
         }
-        if (customer.customerAccountType !== 'CREDIT') {
+        const unpaid = order.payments.filter(
+            (payment) =>
+                payment.paymentMethod === 'SALARY_LOAN' &&
+                payment.status === POS_TENDER_SETTLEMENT_STATUS.UNPAID,
+        )
+        if (!unpaid.length) {
             throw new BadRequestException(
-                'A salary deduction requires a CREDIT customer account with a credit limit.',
+                'This sale has no unpaid salary deduction to collect.',
             )
         }
-        const available = Number(customer.availableCredit ?? 0)
-        if (available < amount) {
-            throw new BadRequestException(
-                `Employee credit limit exceeded: ${available.toFixed(2)} available, ${amount.toFixed(2)} required.`,
-            )
-        }
+
+        await this.prisma.$transaction(async (tx) => {
+            const now = new Date()
+            for (const payment of unpaid) {
+                const claimed = await tx.sdSalesOrderPayment.updateMany({
+                    where: {
+                        id: payment.id,
+                        status: POS_TENDER_SETTLEMENT_STATUS.UNPAID,
+                    },
+                    data: {
+                        status: POS_TENDER_SETTLEMENT_STATUS.PAID,
+                        verificationStatus: 'VERIFIED',
+                        paidAt: now,
+                        collectedBy: actor ?? payment.collectedBy,
+                    },
+                })
+                if (claimed.count === 0) {
+                    throw new ConflictException(
+                        'The salary deduction was already updated.',
+                    )
+                }
+            }
+            const active = await tx.sdSalesOrderPayment.findMany({
+                where: {
+                    salesOrderId: order.id,
+                    status: { notIn: ['Cancelled', 'Refunded'] },
+                },
+            })
+            await tx.sdSalesOrder.update({
+                where: { id: order.id },
+                data: {
+                    paymentStatus: resolvePosOrderPaymentStatus(active),
+                },
+            })
+        })
+
+        return this.receiptFor(orderId)
     }
 
-    /** Book the receivable against the customer's credit limit. */
-    private async consumeEmployeeCredit(customerId: string, amount: number) {
-        const claimed = await this.prisma.sdCustomer.updateMany({
-            where: {
-                id: customerId,
-                availableCredit: { gte: new Decimal(amount) },
-            },
-            data: { availableCredit: { decrement: new Decimal(amount) } },
+    /** Snapshot free-text employee name on salary-deduction tenders (no HR lookup). */
+    private async enrichSalaryTenders(
+        inputs: PosTenderInput[],
+    ): Promise<PosTenderInput[]> {
+        return inputs.map((input) => {
+            if (input.method !== 'SALARY_LOAN') return input
+            const name = input.employeeName?.trim()
+            if (!name) {
+                throw new BadRequestException(
+                    'Enter the employee full name for the salary deduction.',
+                )
+            }
+            return {
+                ...input,
+                employeeName: name,
+                employeeNumber: null,
+                employeeUserId: null,
+                payrollReference: null,
+            }
         })
-        if (claimed.count === 0) {
-            this.logger.warn(
-                `Employee credit could not be consumed for customer ${customerId}`,
-            )
-        }
     }
 
     private async nextReceiptNumber(companyId: string) {
@@ -1022,6 +1038,7 @@ export class PosCheckoutService {
             tenderAmount: Prisma.Decimal
             changeAmount: Prisma.Decimal
             referenceNumber: string | null
+            employeeName?: string | null
             status: string
             verificationStatus: string
         }>,
@@ -1098,9 +1115,11 @@ export class PosCheckoutService {
                 tenderAmount: Number(payment.tenderAmount),
                 changeAmount: Number(payment.changeAmount),
                 referenceNumber: payment.referenceNumber,
+                employeeName: payment.employeeName ?? null,
                 status: payment.status,
                 verificationStatus: payment.verificationStatus,
             })),
+            paymentStatus: resolvePosOrderPaymentStatus(payments),
             warnings,
         }
     }

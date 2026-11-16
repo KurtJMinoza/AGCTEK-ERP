@@ -53,6 +53,8 @@ export type SalesLineReportRow = {
     invoiceNumber: string
     orderNumber: string
     createdAt: string
+    /** PAID | UNPAID for salary-deduction lines only; otherwise null. */
+    paidStatus: string | null
 }
 
 export type SalesAnalyticsBuyer = {

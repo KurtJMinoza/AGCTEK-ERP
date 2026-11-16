@@ -99,17 +99,19 @@ describe('POS tender allocation', () => {
         ).toThrow('the transaction date is required')
     })
 
-    it('treats a salary deduction as a receivable, not cash', () => {
+    it('treats a salary deduction as unpaid receivable', () => {
         const result = allocateTenders(1000, [
             {
                 method: 'SALARY_LOAN',
                 amount: 1000,
+                employeeName: 'Jane Dela Cruz',
                 employeeNumber: 'EMP-001',
                 payrollReference: 'PR-2026-11',
             },
         ])
-        expect(result.tenders[0].status).toBe('Authorized')
+        expect(result.tenders[0].status).toBe('Unpaid')
         expect(result.tenders[0].verificationStatus).toBe('RECEIVABLE')
+        expect(result.tenders[0].employeeName).toBe('Jane Dela Cruz')
         expect(result.tenders[0].paidAt).toBeNull()
     })
 

@@ -347,6 +347,30 @@ const ALL_COLUMN_BUILDERS: Array<
     ),
   }),
   (opts) => ({
+    header: 'Paid status',
+    id: 'paidStatus',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 88 : 108,
+    minSize: relaxed(opts.variant) ? 72 : 92,
+    cell: ({ row }) =>
+      row.original.paidStatus ? (
+        <Tag
+          className={classNames(
+            row.original.paidStatus === 'PAID' &&
+              'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+            row.original.paidStatus === 'UNPAID' &&
+              'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+          )}
+        >
+          {row.original.paidStatus}
+        </Tag>
+      ) : (
+        <span className="text-gray-400">—</span>
+      ),
+  }),
+  (opts) => ({
     header: 'Sales type',
     id: 'salesType',
     meta: relaxed(opts.variant)
@@ -358,7 +382,8 @@ const ALL_COLUMN_BUILDERS: Array<
       <Tag
         className={classNames(
           relaxed(opts.variant) && 'text-[10px]',
-          row.original.salesType === 'CREDIT' &&
+          (row.original.salesType === 'CREDIT' ||
+            row.original.salesType === 'SALARY DEDUCTION') &&
             'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
         )}
       >
@@ -404,6 +429,7 @@ const SUMMARY_IDS = new Set([
   'qty',
   'totalSales',
   'salesType',
+  'paidStatus',
   'invoiceNumber',
 ])
 

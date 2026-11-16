@@ -58,6 +58,7 @@ const VAT_CODE: Record<string, string> = {
 /** Settlement the server recorded for a tender. */
 const TENDER_STATUS: Record<string, string> = {
     Paid: 'Paid',
+    Unpaid: 'Unpaid (salary deduction)',
     'Pending Verification': 'Pending verification',
     Authorized: 'Authorized (receivable)',
     Failed: 'Failed',
@@ -176,6 +177,11 @@ const POSReceipt = ({
                         label={TENDER_LABEL[tender.method] ?? tender.method}
                         value={money(tender.amount)}
                     />
+                    {tender.employeeName ? (
+                        <div className="break-words text-[10px]">
+                            Employee: {tender.employeeName}
+                        </div>
+                    ) : null}
                     {tender.referenceNumber ? (
                         <div className="break-words text-[10px]">
                             Ref: {tender.referenceNumber}

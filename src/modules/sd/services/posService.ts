@@ -86,8 +86,15 @@ export type PosReceiptTender = {
     tenderAmount: number
     changeAmount: number
     referenceNumber: string | null
+    employeeName?: string | null
     status: string
     verificationStatus: string
+}
+
+export type PosEmployeeOption = {
+    id: string
+    employeeCode: string
+    fullName: string
 }
 
 /** The server receipt — the only authority for the totals of a sale. */
@@ -129,6 +136,8 @@ export type PosReceipt = {
     tendered: number
     change: number
     tenders: PosReceiptTender[]
+    /** Paid | Unpaid | Pending Verification — header collection state. */
+    paymentStatus?: string | null
     warnings: string[]
 }
 
@@ -400,6 +409,37 @@ export async function listPosOrders(params: {
         return data ?? []
     } catch (error) {
         throw toApiError(error, 'Unable to load the transactions')
+    }
+}
+
+/** Search employees by name for salary deduction (GET /sd/pos/employees). */
+export async function searchPosEmployees(
+    q: string,
+): Promise<PosEmployeeOption[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<PosEmployeeOption[]>(
+            '/sd/pos/employees',
+            { params: { q, limit: 20 } },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toApiError(error, 'Unable to search employees')
+    }
+}
+
+/** Payroll collected an unpaid salary-deduction sale. */
+export async function markPosSalaryDeductionPaid(
+    orderId: string,
+    completedBy?: string | null,
+): Promise<PosReceipt> {
+    try {
+        const { data } = await ErpAxiosBase.post<PosReceipt>(
+            `/sd/pos/orders/${encodeURIComponent(orderId)}/mark-salary-paid`,
+            { completedBy: completedBy ?? undefined },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to mark salary deduction paid')
     }
 }
 

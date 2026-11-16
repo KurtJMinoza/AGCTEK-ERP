@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { HiOutlineClipboardList } from 'react-icons/hi'
+import { HiOutlineClipboardList, HiOutlineDownload } from 'react-icons/hi'
 import Dialog from '@/components/ui/Dialog'
 import Button from '@/components/ui/Button'
 import Tag from '@/components/ui/Tag'
@@ -15,6 +15,7 @@ import {
     SalesLineReportFilterTrigger,
     SalesLineReportFiltersPanel,
 } from './SalesLineReportFiltersPanel'
+import { downloadSalesLineReportExcel } from '../utils/salesLineReportExport'
 import type { SalesLineReportRow } from '../services/salesAnalyticsService'
 
 type Props = {
@@ -117,10 +118,23 @@ const SalesLineReportDialog = ({
                             </div>
                         </div>
                     </div>
-                    <SalesLineReportFilterTrigger
-                        activeCount={activeFilterCount}
-                        onClick={() => setFiltersOpen(true)}
-                    />
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <Button
+                            size="sm"
+                            variant="default"
+                            icon={<HiOutlineDownload />}
+                            disabled={!rows.length || loading}
+                            onClick={() =>
+                                downloadSalesLineReportExcel(rows, periodLabel)
+                            }
+                        >
+                            Export Excel
+                        </Button>
+                        <SalesLineReportFilterTrigger
+                            activeCount={activeFilterCount}
+                            onClick={() => setFiltersOpen(true)}
+                        />
+                    </div>
                 </header>
 
                 <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2 sm:px-4 sm:pb-3">

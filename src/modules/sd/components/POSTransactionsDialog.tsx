@@ -34,8 +34,12 @@ type Props = {
     onVoid: (receipt: PosReceipt) => void
     /** Finishes a sale whose checkout stopped before completion. */
     onComplete: (receipt: PosReceipt) => void
+    /** Payroll collected an unpaid salary-deduction sale. */
+    onMarkSalaryPaid?: (receipt: PosReceipt) => void
     /** Sale currently being completed. */
     completingId?: string | null
+    /** Sale currently being marked paid. */
+    markingPaidId?: string | null
     formatPrice: (value: number) => string
 }
 
@@ -151,7 +155,9 @@ const POSTransactionsDialog = ({
     onShowReceipt,
     onVoid,
     onComplete,
+    onMarkSalaryPaid,
     completingId = null,
+    markingPaidId = null,
     formatPrice,
 }: Props) => {
     const [filter, setFilter] = useState<Filter>('ALL')
@@ -287,10 +293,12 @@ const POSTransactionsDialog = ({
                                         receipt={receipt}
                                         isNew={newKeys?.has(posReceiptKey(receipt)) ?? false}
                                         completingId={completingId}
+                                        markingPaidId={markingPaidId}
                                         formatPrice={formatPrice}
                                         onShowReceipt={onShowReceipt}
                                         onVoid={onVoid}
                                         onComplete={onComplete}
+                                        onMarkSalaryPaid={onMarkSalaryPaid}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -321,14 +329,18 @@ function TransactionRow({
     onShowReceipt,
     onVoid,
     onComplete,
+    onMarkSalaryPaid,
+    markingPaidId,
 }: {
     receipt: PosReceipt
     isNew: boolean
     completingId: string | null
+    markingPaidId?: string | null
     formatPrice: (value: number) => string
     onShowReceipt: (receipt: PosReceipt) => void
     onVoid: (receipt: PosReceipt) => void
     onComplete: (receipt: PosReceipt) => void
+    onMarkSalaryPaid?: (receipt: PosReceipt) => void
 }) {
     const voidTransaction = isVoidRow(receipt)
     const voided = receipt.status === 'CANCELLED'
@@ -351,6 +363,12 @@ function TransactionRow({
               : receipt.status === 'COMPLETED'
                 ? 'success'
                 : 'default'
+    const hasUnpaidSalary =
+        receipt.paymentStatus === 'Unpaid' ||
+        receipt.tenders.some(
+            (tender) =>
+                tender.method === 'SALARY_LOAN' && tender.status === 'Unpaid',
+        )
     const tenders = receipt.tenders
         .map((tender) => TENDER_LABEL[tender.method] ?? tender.method)
         .join(' + ')
@@ -364,7 +382,7 @@ function TransactionRow({
             exit={{ opacity: 0 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
             className={classNames(
-                'relative grid grid-cols-1 items-center gap-3 rounded-xl border bg-white px-4 py-3 transition-shadow md:grid-cols-[minmax(0,1fr)_9rem_8.5rem_11rem] dark:bg-gray-800',
+                'relative grid grid-cols-1 items-center gap-3 rounded-xl border bg-white px-4 py-3 transition-shadow md:grid-cols-[minmax(0,1fr)_8.5rem_minmax(6.5rem,7.5rem)_minmax(14rem,auto)] md:gap-x-4 dark:bg-gray-800',
                 voidTransaction
                     ? 'ml-6 border-red-200 bg-red-50/70 dark:border-red-500/30 dark:bg-red-500/10'
                     : voided
@@ -415,12 +433,17 @@ function TransactionRow({
                     </div>
                 ) : null}
                 {tenders ? <div className="truncate">{tenders}</div> : null}
+                {hasUnpaidSalary ? (
+                    <div className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">
+                        Unpaid salary deduction
+                    </div>
+                ) : null}
             </div>
 
             {/* Amount */}
             <div
                 className={classNames(
-                    'text-base font-bold tabular-nums md:text-right',
+                    'shrink-0 text-base font-bold tabular-nums md:pr-1 md:text-right',
                     voidTransaction ? 'text-red-600' : voided ? 'text-gray-400 line-through' : 'heading-text',
                 )}
             >
@@ -429,7 +452,7 @@ function TransactionRow({
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-start gap-2 md:justify-end">
+            <div className="flex shrink-0 flex-wrap items-center justify-start gap-2 md:justify-end">
                 {voidTransaction ? null : pending ? (
                     <Button
                         size="xs"
@@ -445,6 +468,20 @@ function TransactionRow({
                         <Button size="xs" variant="default" onClick={() => onShowReceipt(receipt)}>
                             Receipt
                         </Button>
+                        {hasUnpaidSalary && onMarkSalaryPaid ? (
+                            <Button
+                                size="xs"
+                                variant="solid"
+                                loading={markingPaidId === receipt.salesOrderId}
+                                disabled={
+                                    markingPaidId !== null &&
+                                    markingPaidId !== undefined
+                                }
+                                onClick={() => onMarkSalaryPaid(receipt)}
+                            >
+                                Mark paid
+                            </Button>
+                        ) : null}
                         {voided ? null : (
                             <Button
                                 size="xs"

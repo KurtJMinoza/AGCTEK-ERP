@@ -76,7 +76,7 @@ const FALLBACK_METHODS: MethodOption[] = POS_TENDER_METHODS.map((method) => ({
         BANK_TRANSFER: { label: 'Bank transfer', hint: 'Reference, bank and date required', icon: <HiOutlineOfficeBuilding /> },
         CARD: { label: 'Card', hint: 'Card transaction reference required', icon: <HiOutlineCreditCard /> },
         CHEQUE: { label: 'Cheque', hint: 'Cheque number required', icon: <HiOutlineDocumentText /> },
-        SALARY_LOAN: { label: 'Salary deduction', hint: 'Employee number required', icon: <HiOutlineUser /> },
+        SALARY_LOAN: { label: 'Salary deduction', hint: 'Employee full name', icon: <HiOutlineUser /> },
     })[method],
 }))
 
@@ -121,6 +121,11 @@ const expectedTenderStatus = (tender: PosTenderInput) => {
             return {
                 label: 'Pending clearing',
                 className: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+            }
+        case 'SALARY_LOAN':
+            return {
+                label: 'Unpaid',
+                className: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
             }
         default:
             return {
@@ -173,8 +178,7 @@ const POSTenderDialog = ({
             })
             .catch(() => {})
     }, [isOpen])
-    const [employeeNumber, setEmployeeNumber] = useState('')
-    const [payrollReference, setPayrollReference] = useState('')
+    const [employeeName, setEmployeeName] = useState('')
     const [verified, setVerified] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -223,8 +227,7 @@ const POSTenderDialog = ({
             setReferenceNumber('')
             setBankName('')
             setTransactionDate('')
-            setEmployeeNumber('')
-            setPayrollReference('')
+            setEmployeeName('')
             setVerified(false)
             setError(null)
         },
@@ -289,14 +292,11 @@ const POSTenderDialog = ({
             tender.transactionDate = transactionDate.trim()
         }
         if (method === 'SALARY_LOAN') {
-            if (!employeeNumber.trim()) {
-                setError('Enter the employee number.')
+            if (!employeeName.trim()) {
+                setError('Enter the employee full name.')
                 return
             }
-            tender.employeeNumber = employeeNumber.trim()
-            if (payrollReference.trim()) {
-                tender.payrollReference = payrollReference.trim()
-            }
+            tender.employeeName = employeeName.trim()
         }
         if (
             (method === 'GCASH' || method === 'BANK_TRANSFER') &&
@@ -458,10 +458,10 @@ const POSTenderDialog = ({
                                                         {tender.referenceNumber}
                                                     </div>
                                                 ) : null}
-                                                {tender.employeeNumber ? (
+                                                {tender.employeeName ? (
                                                     <div className="truncate text-[11px] text-gray-500">
                                                         Employee{' '}
-                                                        {tender.employeeNumber}
+                                                        {tender.employeeName}
                                                     </div>
                                                 ) : null}
                                             </div>
@@ -661,51 +661,26 @@ const POSTenderDialog = ({
 
                             {method === 'SALARY_LOAN' ? (
                                 <>
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                        <div>
-                                            <label
-                                                htmlFor="pos-tender-employee"
-                                                className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
-                                            >
-                                                Employee number
-                                            </label>
-                                            <Input
-                                                id="pos-tender-employee"
-                                                value={employeeNumber}
-                                                placeholder="e.g. EMP-0142"
-                                                onChange={(e) =>
-                                                    setEmployeeNumber(
-                                                        e.target.value,
-                                                    )
-                                                }
-                                            />
-                                        </div>
-                                        <div>
-                                            <label
-                                                htmlFor="pos-tender-payroll"
-                                                className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
-                                            >
-                                                Payroll reference
-                                            </label>
-                                            <Input
-                                                id="pos-tender-payroll"
-                                                value={payrollReference}
-                                                placeholder="Optional"
-                                                onChange={(e) =>
-                                                    setPayrollReference(
-                                                        e.target.value,
-                                                    )
-                                                }
-                                            />
-                                        </div>
+                                    <div>
+                                        <label
+                                            htmlFor="pos-tender-employee"
+                                            className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                                        >
+                                            Employee full name
+                                        </label>
+                                        <Input
+                                            id="pos-tender-employee"
+                                            value={employeeName}
+                                            placeholder="e.g. Juan Dela Cruz"
+                                            onChange={(e) =>
+                                                setEmployeeName(e.target.value)
+                                            }
+                                        />
                                     </div>
                                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                                        A salary deduction is a credit sale: the
-                                        customer account must be a CREDIT
-                                        account with a credit limit.
-                                        {customerName
-                                            ? ` ${customerName} is a ${customerAccountType ?? 'NON_CREDIT'} account.`
-                                            : ' Pick a CREDIT customer before taking this payment.'}
+                                        This sale is recorded as Unpaid until
+                                        payroll collects it. Enter the employee
+                                        full name only.
                                     </div>
                                 </>
                             ) : null}

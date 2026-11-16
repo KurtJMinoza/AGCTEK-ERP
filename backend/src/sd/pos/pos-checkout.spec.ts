@@ -147,6 +147,13 @@ describe('PosCheckoutService', () => {
                 }),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
+            user: {
+                findFirst: jest.fn().mockResolvedValue({
+                    employeeCode: 'EMP-1',
+                    firstName: 'Jane',
+                    lastName: 'Doe',
+                }),
+            },
         }
         salesOrders = {
             createRetail: jest.fn().mockResolvedValue(order),
@@ -455,48 +462,48 @@ describe('PosCheckoutService', () => {
         expect(receipt.receiptNumber).toBe('RCP-000005')
     })
 
-    it('rejects a salary deduction without a credit account', async () => {
+    it('allows a salary deduction without a CREDIT customer account', async () => {
         prisma.sdCustomer.findUnique.mockResolvedValue({
             id: 'cust-1',
             customerAccountType: 'NON_CREDIT',
             creditLimit: 0,
             availableCredit: 0,
         })
-        await expect(
-            service.complete(
-                dto({
-                    tenders: [
-                        {
-                            method: 'SALARY_LOAN',
-                            amount: 7300,
-                            employeeNumber: 'EMP-1',
-                        },
-                    ],
-                }) as never,
-            ),
-        ).rejects.toBeInstanceOf(BadRequestException)
-        expect(salesOrders.createRetail).not.toHaveBeenCalled()
-    })
-
-    it('rejects a salary deduction above the credit limit', async () => {
-        prisma.sdCustomer.findUnique.mockResolvedValue({
-            id: 'cust-1',
-            customerAccountType: 'CREDIT',
-            creditLimit: 10000,
-            availableCredit: 100,
-        })
-        await expect(
-            service.complete(
-                dto({
-                    tenders: [
-                        {
-                            method: 'SALARY_LOAN',
-                            amount: 7300,
-                            employeeNumber: 'EMP-1',
-                        },
-                    ],
-                }) as never,
-            ),
-        ).rejects.toThrow('Employee credit limit exceeded')
+        prisma.sdSalesOrder.update.mockImplementation(async () => ({
+            ...order,
+            lines: order.lines.map((line) => ({
+                ...line,
+                ...lineTax[line.lineNumber],
+            })),
+            status: 'COMPLETED',
+            receiptNumber: 'RCP-000006',
+            paymentStatus: 'Unpaid',
+            payments: [
+                {
+                    paymentMethod: 'SALARY_LOAN',
+                    amount: 7300,
+                    tenderAmount: 7300,
+                    changeAmount: 0,
+                    referenceNumber: null,
+                    employeeName: 'Jane Doe',
+                    status: 'Unpaid',
+                    verificationStatus: 'RECEIVABLE',
+                },
+            ],
+        }))
+        const receipt = await service.complete(
+            dto({
+                tenders: [
+                    {
+                        method: 'SALARY_LOAN',
+                        amount: 7300,
+                        employeeName: 'Jane Doe',
+                    },
+                ],
+            }) as never,
+        )
+        expect(salesOrders.createRetail).toHaveBeenCalled()
+        expect(receipt.paymentStatus).toBe('Unpaid')
+        expect(receipt.tenders[0].employeeName).toBe('Jane Doe')
     })
 })

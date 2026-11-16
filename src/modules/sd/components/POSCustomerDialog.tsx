@@ -29,22 +29,22 @@ const ACCOUNT_TYPE_OPTIONS = [
     { value: 'CREDIT', label: 'Credit customer (limit)' },
 ]
 
-/** Philippine mobile body after +63: 9XXXXXXXXX (10 digits). */
-const PH_MOBILE_BODY = /^9\d{9}$/
+/** Local digits after +63: 7–10 digits (mobile or landline). */
+const PH_LOCAL_BODY = /^\d{7,10}$/
 
 /**
- * Keep only the local mobile digits. Strips +63 / 0 / spaces so cashiers
- * never type the country code — the field always shows a fixed +63 prefix.
+ * Keep only the local digits. Strips +63 / 0 / spaces so cashiers never type
+ * the country code — the field always shows a fixed +63 prefix.
  */
-function normalizePhMobileDigits(raw: string): string {
+function normalizePhLocalDigits(raw: string): string {
     let digits = raw.replace(/\D/g, '')
     if (digits.startsWith('63')) digits = digits.slice(2)
     if (digits.startsWith('0')) digits = digits.slice(1)
     return digits.slice(0, 10)
 }
 
-function toE164PhMobile(digits: string): string | undefined {
-    const clean = normalizePhMobileDigits(digits)
+function toE164PhPhone(digits: string): string | undefined {
+    const clean = normalizePhLocalDigits(digits)
     if (!clean) return undefined
     return `+63${clean}`
 }
@@ -82,8 +82,8 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
             setError('Enter the customer name.')
             return
         }
-        if (phoneDigits && !PH_MOBILE_BODY.test(phoneDigits)) {
-            setError('Enter a valid mobile number (e.g. 917 123 4567).')
+        if (phoneDigits && !PH_LOCAL_BODY.test(phoneDigits)) {
+            setError('Enter 7–10 digits after +63 (e.g. 973296216).')
             return
         }
         if (accountType === 'CREDIT' && Number(creditLimit || 0) <= 0) {
@@ -96,7 +96,7 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
                 name: clean,
                 contactName: contactName.trim() || undefined,
                 email: email.trim() || undefined,
-                phone: toE164PhMobile(phoneDigits),
+                phone: toE164PhPhone(phoneDigits),
                 customerAccountType: accountType,
                 creditLimit:
                     accountType === 'CREDIT'
@@ -173,17 +173,17 @@ const POSCustomerDialog = ({ isOpen, saving = false, onSave, onClose }: Props) =
                             inputMode="numeric"
                             autoComplete="tel-national"
                             prefix="+63"
-                            placeholder="917 123 4567"
+                            placeholder="973 296 216"
                             value={phoneDigits}
                             onChange={(e) =>
                                 setPhoneDigits(
-                                    normalizePhMobileDigits(e.target.value),
+                                    normalizePhLocalDigits(e.target.value),
                                 )
                             }
                         />
                         <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
-                            Optional. Country code is fixed — enter the mobile
-                            number only (no 0 or +63).
+                            Optional. Country code is fixed — enter digits only
+                            (no 0 or +63).
                         </p>
                     </div>
                 </div>

@@ -60,6 +60,15 @@ export class PosTenderDto {
     @IsOptional()
     @IsString()
     @MaxLength(120)
+    employeeName?: string
+
+    @IsOptional()
+    @IsString()
+    employeeUserId?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
     payrollReference?: string
 
     /** Cashier that confirmed the tender; without it the tender stays pending. */

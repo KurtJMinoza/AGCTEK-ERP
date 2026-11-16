@@ -5765,6 +5765,8 @@ model SdSalesOrderPayment {
   transactionDate DateTime?
   /// Employee number for a salary-deduction tender.
   employeeNumber  String?
+  /// Employee full name snapshot at checkout (salary deduction).
+  employeeName    String?
   /// Payroll deduction reference for a salary-deduction tender.
   payrollReference String?
   /// Cashier (User id) that collected the tender.

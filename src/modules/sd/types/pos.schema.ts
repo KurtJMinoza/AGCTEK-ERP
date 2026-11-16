@@ -36,6 +36,8 @@ export const PosTenderSchema = z.object({
     bankName: z.string().trim().min(1).optional(),
     transactionDate: z.string().trim().min(1).optional(),
     employeeNumber: z.string().trim().min(1).optional(),
+    employeeName: z.string().trim().min(1).optional(),
+    employeeUserId: z.string().trim().min(1).optional(),
     payrollReference: z.string().trim().min(1).optional(),
     /** Cashier that confirmed the tender; without it the tender stays pending. */
     verifiedBy: z.string().trim().min(1).optional(),

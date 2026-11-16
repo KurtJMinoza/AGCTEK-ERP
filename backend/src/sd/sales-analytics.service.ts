@@ -202,6 +202,7 @@ type LineReportRow = {
     invoice_number: string | null
     order_number: string
     created_at: Date
+    paid_status: string | null
 }
 type RecentOrderRow = {
     id: string
@@ -265,7 +266,7 @@ function scopedOrders(
               AND o."status" NOT IN ('CANCELLED', 'DRAFT')
               AND (
                   o."status" IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
-                  OR o."paymentStatus" = 'Paid'
+                  OR o."paymentStatus" IN ('Paid', 'Unpaid')
               )
               ${channel === 'ALL' || channel === 'EXTERNAL' ? Prisma.empty : Prisma.sql`AND o."channel" = ${channel}`}
             UNION ALL
@@ -546,12 +547,35 @@ export class SalesAnalyticsService {
                         )
                     ) AS total_sales,
                     CASE
+                        WHEN o."paymentMethod" = 'SALARY_LOAN'
+                            OR EXISTS (
+                                SELECT 1
+                                FROM "sd_sales_order_payments" sp
+                                WHERE sp."salesOrderId" = o."id"
+                                  AND sp."paymentMethod" = 'SALARY_LOAN'
+                                  AND sp."status" NOT IN ('Cancelled', 'Refunded')
+                            )
+                        THEN 'SALARY DEDUCTION'
                         WHEN c."customerAccountType" = 'CREDIT'
                             OR UPPER(COALESCE(o."paymentMethod", '')) LIKE '%CREDIT%'
-                            OR o."paymentMethod" = 'SALARY_LOAN'
                         THEN 'CREDIT'
                         ELSE 'CASH'
                     END AS sales_type,
+                    CASE
+                        WHEN o."paymentMethod" = 'SALARY_LOAN'
+                            OR EXISTS (
+                                SELECT 1
+                                FROM "sd_sales_order_payments" sp
+                                WHERE sp."salesOrderId" = o."id"
+                                  AND sp."paymentMethod" = 'SALARY_LOAN'
+                                  AND sp."status" NOT IN ('Cancelled', 'Refunded')
+                            )
+                        THEN CASE
+                            WHEN o."paymentStatus" = 'Paid' THEN 'PAID'
+                            ELSE 'UNPAID'
+                        END
+                        ELSE NULL
+                    END AS paid_status,
                     CASE
                         WHEN inv."id" IS NOT NULL
                             AND c."customerAccountType" = 'CREDIT'
@@ -619,6 +643,7 @@ export class SalesAnalyticsService {
                     el."lineSubtotal" AS subtotal,
                     el."grossAmount" AS total_sales,
                     CASE WHEN c."customerAccountType" = 'CREDIT' THEN 'CREDIT' ELSE 'CASH' END AS sales_type,
+                    NULL::text AS paid_status,
                     'NONE' AS invoice_type,
                     COALESCE(NULLIF(TRIM(t."externalOrderRef"), ''), s.order_number) AS invoice_number,
                     s.order_number,
@@ -771,6 +796,7 @@ export class SalesAnalyticsService {
                 invoiceNumber: row.invoice_number ?? '',
                 orderNumber: row.order_number,
                 createdAt: row.created_at,
+                paidStatus: row.paid_status,
             })),
         }
     }

@@ -74,6 +74,7 @@ import {
     getPosSessionCollections,
     holdPosSale,
     listPosHolds,
+    markPosSalaryDeductionPaid,
     newIdempotencyKey,
     pricePOSCart,
     quotePosCart,
@@ -225,6 +226,7 @@ const POSDashboard = () => {
     const [voiding, setVoiding] = useState(false)
     /** Sale whose checkout stopped and is being finished. */
     const [completingId, setCompletingId] = useState<string | null>(null)
+    const [markingPaidId, setMarkingPaidId] = useState<string | null>(null)
     /** Last scanned code, shown next to the scan field for feedback. */
     const [lastScan, setLastScan] = useState<{ code: string; at: number } | null>(null)
 
@@ -565,6 +567,36 @@ const POSDashboard = () => {
     const closeTransactions = () => {
         setTransactionsOpen(false)
         setNewReceiptKeys(new Set())
+    }
+
+    /** Payroll collected a salary-deduction sale. */
+    const handleMarkSalaryPaid = async (row: PosReceipt) => {
+        setMarkingPaidId(row.salesOrderId)
+        try {
+            const updated = await markPosSalaryDeductionPaid(
+                row.salesOrderId,
+                cashierUserId,
+            )
+            if (receipt?.salesOrderId === row.salesOrderId) {
+                setReceipt(updated)
+            }
+            await loadTransactions(true)
+            notify(
+                'success',
+                'Marked paid',
+                `${updated.receiptNumber} salary deduction is now paid.`,
+            )
+        } catch (error) {
+            notify(
+                'danger',
+                'Payment not updated',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to mark salary deduction paid',
+            )
+        } finally {
+            setMarkingPaidId(null)
+        }
     }
 
     /** Finishes a sale whose checkout stopped after the order was recorded. */
@@ -2002,8 +2034,10 @@ const POSDashboard = () => {
                 }}
                 onVoid={(row) => setVoidTarget(row)}
                 onComplete={(row) => void handleCompletePending(row)}
+                onMarkSalaryPaid={(row) => void handleMarkSalaryPaid(row)}
                 onClose={closeTransactions}
                 completingId={completingId}
+                markingPaidId={markingPaidId}
                 formatPrice={formatPrice}
             />
             {/* Void of a completed sale. */}

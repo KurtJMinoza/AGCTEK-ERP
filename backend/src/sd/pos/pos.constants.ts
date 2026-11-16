@@ -27,9 +27,13 @@ export type PosTenderVerificationStatus =
 /** Cash tender settlement status (mirrors `sd_sales_order_payments.status`). */
 export const POS_TENDER_SETTLEMENT_STATUS = {
     PAID: 'Paid',
+    UNPAID: 'Unpaid',
     PENDING_VERIFICATION: 'Pending Verification',
     AUTHORIZED: 'Authorized',
 } as const
+
+/** Order header paymentStatus for salary-deduction sales awaiting payroll collection. */
+export const POS_SALARY_DEDUCTION_UNPAID = 'Unpaid'
 
 export const POS_SESSION_STATUSES = ['OPEN', 'CLOSED'] as const
 export type PosSessionStatus = (typeof POS_SESSION_STATUSES)[number]

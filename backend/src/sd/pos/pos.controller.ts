@@ -16,6 +16,7 @@ import { PosSessionService } from './pos-session.service'
 import { PosHoldService } from './pos-hold.service'
 import { PosPaymentMethodService } from './pos-payment-method.service'
 import { PosRefundService, type CreatePosRefundInput } from './pos-refund.service'
+import { PosEmployeeService } from './pos-employee.service'
 import {
     ClosePosSessionDto,
     HoldPosSaleDto,
@@ -45,7 +46,15 @@ export class PosController {
         private readonly voids: PosVoidService,
         private readonly paymentMethods: PosPaymentMethodService,
         private readonly refunds: PosRefundService,
+        private readonly employees: PosEmployeeService,
     ) {}
+
+    /** Search HR employees by name for salary-deduction checkout. */
+    @Get('employees')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'read')
+    searchEmployees(@Query('q') q?: string, @Query('limit') limit?: string) {
+        return this.employees.search(q ?? '', limit ? Number(limit) : 20)
+    }
 
     // ── Partial refunds ──
 
@@ -106,6 +115,19 @@ export class PosController {
     @RequirePermission(['sd.pos', 'sd.sales-orders'], 'read')
     orderReceipt(@Param('id') id: string) {
         return this.checkout.receiptFor(id)
+    }
+
+    /** Payroll collected an unpaid salary-deduction sale. */
+    @Post('orders/:id/mark-salary-paid')
+    @RequirePermission(['sd.pos', 'sd.sales-orders'], 'update')
+    markSalaryPaid(
+        @Param('id') id: string,
+        @Body() dto: PosCompleteDto,
+    ) {
+        return this.checkout.markSalaryDeductionPaid(
+            id,
+            dto.completedBy ?? null,
+        )
     }
 
     /** Void a completed sale: the stock returns and the tenders are cancelled. */

@@ -195,7 +195,11 @@ export class PosSessionService {
                 cashChange = round2(cashChange + Number(payment.changeAmount))
             }
 
-            if (verification === 'RECEIVABLE' || method === 'SALARY_LOAN') {
+            if (
+                verification === 'RECEIVABLE' ||
+                method === 'SALARY_LOAN' ||
+                status === 'Unpaid'
+            ) {
                 receivable[method] = round2((receivable[method] ?? 0) + amount)
             } else if (verification === 'PENDING') {
                 pending[method] = round2((pending[method] ?? 0) + amount)
