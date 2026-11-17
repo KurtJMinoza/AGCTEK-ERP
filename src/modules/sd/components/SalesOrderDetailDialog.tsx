@@ -170,12 +170,18 @@ const SalesOrderDetailDialog = ({
               { vatable: 0, vat: 0, exempt: 0, zeroRated: 0 },
           )
         : null
+    const outstandingDue = Number(order.outstandingBalance ?? 0)
+    const isPartiallyPaid =
+        order.payment?.status === 'PARTIALLY_PAID' || outstandingDue > 0.005
     const paidTone =
         order.payment?.status === 'Paid'
             ? 'success'
-            : order.payment?.status === 'Failed'
+            : order.payment?.status === 'Failed' ||
+                order.payment?.status === 'Cancelled'
               ? 'danger'
-              : 'warning'
+              : isPartiallyPaid
+                ? 'warning'
+                : 'warning'
 
     return (
         <Dialog
@@ -330,6 +336,40 @@ const SalesOrderDetailDialog = ({
                                             </span>
                                         </div>
                                     </>
+                                ) : null}
+                                {order.downPaymentAmount != null &&
+                                Number(order.downPaymentAmount) > 0 ? (
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">
+                                            Down payment
+                                            {order.downPaymentPct != null
+                                                ? ` (${Number(order.downPaymentPct)}%)`
+                                                : ''}
+                                        </span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatOrderPrice(
+                                                Number(order.downPaymentAmount),
+                                            )}
+                                        </span>
+                                    </div>
+                                ) : null}
+                                {isPartiallyPaid && outstandingDue > 0 ? (
+                                    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-500/40 dark:bg-amber-500/10">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                                Balance due
+                                            </span>
+                                            <span className="text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                                                {formatOrderPrice(outstandingDue)}
+                                            </span>
+                                        </div>
+                                        {order.dueDate ? (
+                                            <p className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                                                Due{' '}
+                                                {formatOrderDateTime(order.dueDate)}
+                                            </p>
+                                        ) : null}
+                                    </div>
                                 ) : null}
                                 {order.payment.reference ? (
                                     <p className="font-mono text-xs text-gray-500">

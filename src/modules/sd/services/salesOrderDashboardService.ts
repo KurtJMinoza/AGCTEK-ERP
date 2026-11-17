@@ -107,6 +107,12 @@ export type SalesOrderRecord = {
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
+    /** Outstanding balance of a partially paid POS sale (0 when fully paid). */
+    outstandingBalance: number | null
+    downPaymentType: string | null
+    downPaymentPct: number | null
+    downPaymentAmount: number | null
+    dueDate: string | null
     /** Demo payment snapshot (null for non-checkout orders). */
     payment: {
         method: string | null
@@ -196,6 +202,11 @@ type ApiSalesOrder = {
     totalAmount: DecimalString
     paymentReceived: DecimalString
     changeAmount: DecimalString
+    outstandingBalance?: DecimalString | null
+    downPaymentType?: string | null
+    downPaymentPct?: DecimalString | null
+    downPaymentAmount?: DecimalString | null
+    dueDate?: string | null
     paymentMethod: string | null
     paymentStatus: string | null
     paymentReference: string | null
@@ -322,6 +333,11 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             })) ?? [],
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
+        outstandingBalance: numOrNull(order.outstandingBalance ?? null),
+        downPaymentType: order.downPaymentType ?? null,
+        downPaymentPct: numOrNull(order.downPaymentPct ?? null),
+        downPaymentAmount: numOrNull(order.downPaymentAmount ?? null),
+        dueDate: order.dueDate ?? null,
         payment:
             order.paymentMethod !== undefined && order.paymentMethod !== null
                 ? {

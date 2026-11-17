@@ -139,6 +139,14 @@ export type PosReceipt = {
     /** Paid | Unpaid | Pending Verification — header collection state. */
     paymentStatus?: string | null
     warnings: string[]
+    /** Partial-payment fields (null / 0 for full-payment sales). */
+    paymentMode?: string | null
+    downPaymentType?: string | null
+    downPaymentPct?: number | null
+    downPaymentAmount?: number | null
+    outstandingBalance?: number
+    dueDate?: string | null
+    paymentStatus?: string
 }
 
 /** Server quote of a running cart: the amount the checkout will ask for. */
@@ -598,6 +606,114 @@ export async function discardPosHold(id: string): Promise<PosHold> {
     } catch (error) {
         throw toApiError(error, 'Unable to discard the held sale')
     }
+}
+
+// ── Receivables & Collections ──────────────────────────────────────
+
+export type PosReceivable = {
+    id: string
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber: string | null
+    customerName: string | null
+    customerId: string
+    employeeId: string | null
+    originalTotal: number
+    originalAmount: number
+    paidAmount: number
+    pendingAmount: number
+    balance: number
+    status: string
+    isOverdue: boolean
+    dueDate: string | null
+    saleDate: string
+    createdAt: string
+}
+
+export type ReceivableSummary = {
+    totalOutstanding: number
+    totalOverdue: number
+    totalCustomerReceivables: number
+    totalEmployeeLoanBalance: number
+    totalPendingVerification: number
+    openCount: number
+    overdueCount: number
+}
+
+export type CollectionReceipt = {
+    collectionNumber: string
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber: string | null
+    customerName: string | null
+    collectionDate: string
+    previousBalance: number
+    collectedAmount: number
+    remainingBalance: number
+    tenders: Array<{
+        method: string
+        amount: number
+        referenceNumber: string | null
+        status: string
+    }>
+    collectedBy: string | null
+}
+
+export async function listReceivables(
+    companyId: string,
+    opts: { status?: string; search?: string; limit?: number } = {},
+): Promise<PosReceivable[]> {
+    const params = new URLSearchParams({ companyId })
+    if (opts.status) params.set('status', opts.status)
+    if (opts.search) params.set('search', opts.search)
+    if (opts.limit) params.set('limit', String(opts.limit))
+    const { data } = await ErpAxiosBase.get<PosReceivable[]>(
+        `/sd/pos/receivables?${params}`,
+    )
+    return data
+}
+
+export async function getReceivableSummary(
+    companyId: string,
+): Promise<ReceivableSummary> {
+    const { data } = await ErpAxiosBase.get<ReceivableSummary>(
+        `/sd/pos/receivables/summary?companyId=${encodeURIComponent(companyId)}`,
+    )
+    return data
+}
+
+export async function collectPayment(
+    salesOrderId: string,
+    input: {
+        tenders: Array<{
+            method: string
+            amount: number
+            tenderAmount?: number
+            referenceNumber?: string
+            bankName?: string
+            transactionDate?: string
+            employeeNumber?: string
+            verifiedBy?: string
+        }>
+        posSessionId?: string
+        collectedBy?: string
+        idempotencyKey?: string
+    },
+): Promise<CollectionReceipt> {
+    const { data } = await ErpAxiosBase.post<CollectionReceipt>(
+        `/sd/pos/orders/${encodeURIComponent(salesOrderId)}/collections`,
+        input,
+    )
+    return data
+}
+
+export async function getCollectionReceipt(
+    collectionId: string,
+): Promise<CollectionReceipt> {
+    const { data } = await ErpAxiosBase.get<CollectionReceipt>(
+        `/sd/pos/collections/${encodeURIComponent(collectionId)}/receipt`,
+    )
+    return data
 }
 
 export { newIdempotencyKey }

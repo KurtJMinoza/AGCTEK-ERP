@@ -91,10 +91,11 @@ import POSReceipt from '../components/POSReceipt'
 import POSCheckoutPanel, {
     type POSCustomerOption,
 } from '../components/POSCheckoutPanel'
-import POSTenderDialog from '../components/POSTenderDialog'
+import POSTenderDialog, { type TenderResult } from '../components/POSTenderDialog'
 import POSCustomerDialog, {
     type PosCustomerDetails,
 } from '../components/POSCustomerDialog'
+import POSCollectionDialog from '../components/POSCollectionDialog'
 import POSTransactionsDialog, {
     POSTransactionsCountBadge,
     posReceiptKey,
@@ -106,6 +107,7 @@ import {
     POS_GATEWAY_PATH,
     useActivePOSBranch,
 } from '../store/usePOSBranchStore'
+import { printPosReceipt } from '../utils/printPosReceipt'
 import useCurrentSession from '@/utils/hooks/useCurrentSession'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -183,9 +185,17 @@ const POSDashboard = () => {
     const [checkingOut, setCheckingOut] = useState(false)
     const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
     const [receipt, setReceipt] = useState<PosReceipt | null>(null)
+    /** Receipt # to auto-print once after checkout; reprints never re-post the sale. */
+    const pendingAutoPrintKeyRef = useRef<string | null>(null)
+    const [printingReceipt, setPrintingReceipt] = useState(false)
+    const [receiptPrintCount, setReceiptPrintCount] = useState(0)
+    const printIsolateRef = useRef<HTMLDivElement | null>(null)
     const [cameraOpen, setCameraOpen] = useState(false)
     const [addingSku, setAddingSku] = useState(false)
     const [registerBarcode, setRegisterBarcode] = useState<string | null>(null)
+
+    /** Collection dialog for partially paid sales. */
+    const [collectTarget, setCollectTarget] = useState<PosReceipt | null>(null)
 
     /** Tender screen state. */
     const [tenderOpen, setTenderOpen] = useState(false)
@@ -607,6 +617,8 @@ const POSDashboard = () => {
                 row.salesOrderId,
                 cashierUserId,
             )
+            pendingAutoPrintKeyRef.current = completed.receiptNumber
+            setReceiptPrintCount(0)
             setReceipt(completed)
             void refreshStock()
             void loadShift()
@@ -885,8 +897,9 @@ const POSDashboard = () => {
                         )
                     const parent = catalog.products.find(
                         (p) =>
+                            p.productId === variant.product?.id ||
                             p.sku.toLowerCase() ===
-                            variant.product?.sku?.toLowerCase(),
+                                variant.product?.sku?.toLowerCase(),
                     )
                     if (!parent) {
                         notify(
@@ -916,7 +929,10 @@ const POSDashboard = () => {
                     const listing = hit.listing
                     if (listing) {
                         const parent = catalog.products.find(
-                            (p) => p.productId === listing.productId,
+                            (p) =>
+                                p.productId === listing.productId ||
+                                p.sku.toLowerCase() ===
+                                    listing.productSku.toLowerCase(),
                         )
                         if (!parent) {
                             notify(
@@ -937,32 +953,32 @@ const POSDashboard = () => {
                         return
                     }
                     if (hit.found) {
-                        // The material exists but has no listing in this division.
                         notify(
                             'info',
                             'Not in the catalog',
-                            `${hit.material?.name ?? code} exists in Material Master but is not listed. Add the listing to sell it.`,
+                            `${hit.material?.name ?? code} exists in Material Master but is not listed. Use Quick Add to create the listing.`,
                         )
-                        setCameraOpen(false)
-                        setRegisterBarcode(code)
                         setAddingSku(false)
                         return
                     }
-                } catch {
-                    /* registry unavailable — fall through to registration */
+                    notify(
+                        'danger',
+                        'Barcode not found',
+                        `${code} is not registered. Use Quick Add if you need to create it.`,
+                    )
+                    setAddingSku(false)
+                    return
+                } catch (error) {
+                    notify(
+                        'danger',
+                        'Barcode lookup failed',
+                        error instanceof Error
+                            ? error.message
+                            : 'Unable to look up the barcode. Try again.',
+                    )
+                    setAddingSku(false)
+                    return
                 }
-
-                // Unknown barcode: register the MM material first, then the SD
-                // listing. The dialog is shared with the catalog.
-                notify(
-                    'info',
-                    'Barcode not registered',
-                    `${code} is not in the catalog. Register the material to sell it.`,
-                )
-                setCameraOpen(false)
-                setRegisterBarcode(code)
-                setAddingSku(false)
-                return
             }
             // Products with options: ask the cashier to choose the exact variant.
             try {
@@ -1067,8 +1083,8 @@ const POSDashboard = () => {
     )
 
     /**
-     * Picking a barcode-registry row: add the existing listing, offer to create
-     * one when the material is not listed, otherwise run the normal scan path.
+     * Picking a barcode-registry row: listed → cart; otherwise open Quick Add
+     * (explicit choice from the dropdown — scans themselves never open it).
      */
     const selectBarcodeHit = useCallback(
         async (code: string) => {
@@ -1079,7 +1095,10 @@ const POSDashboard = () => {
             const listing = hit?.listing
             if (listing) {
                 const parent = catalog.products.find(
-                    (p) => p.productId === listing.productId,
+                    (p) =>
+                        p.productId === listing.productId ||
+                        p.sku.toLowerCase() ===
+                            listing.productSku.toLowerCase(),
                 )
                 if (parent) {
                     setSku('')
@@ -1092,15 +1111,11 @@ const POSDashboard = () => {
                     return
                 }
             }
-            if (hit?.found && !listing) {
-                setSku('')
-                setCameraOpen(false)
-                setRegisterBarcode(code)
-                return
-            }
-            await handleAdd(code)
+            setSku('')
+            setCameraOpen(false)
+            setRegisterBarcode(code)
         },
-        [addToCart, catalog.products, handleAdd, search.barcode],
+        [addToCart, catalog.products, search.barcode],
     )
 
     const handleCameraDetected = useCallback(
@@ -1123,7 +1138,8 @@ const POSDashboard = () => {
      * Completes the sale: the server prices the cart, adds the tax from the MM
      * tax configuration, captures the tenders and posts the goods issue.
      */
-    const handleCompleteSale = async (tenders: PosTenderInput[]) => {
+    const handleCompleteSale = async (result: TenderResult) => {
+        const { tenders, paymentMode, downPaymentType, downPaymentPct, downPaymentAmount } = result
         if (!branchId || !companyId) {
             notify(
                 'danger',
@@ -1197,10 +1213,16 @@ const POSDashboard = () => {
                     unitPrice: line.unitPrice,
                 })),
                 tenders,
+                ...(paymentMode ? { paymentMode } : {}),
+                ...(downPaymentType ? { downPaymentType } : {}),
+                ...(downPaymentPct !== undefined ? { downPaymentPct } : {}),
+                ...(downPaymentAmount !== undefined ? { downPaymentAmount } : {}),
             })
             clearCart()
             checkoutKeyRef.current = null
             setTenderOpen(false)
+            pendingAutoPrintKeyRef.current = result.receiptNumber
+            setReceiptPrintCount(0)
             setReceipt(result)
             void refreshStock()
             void loadShift()
@@ -1223,6 +1245,50 @@ const POSDashboard = () => {
     useEffect(() => {
         if (branchId) focusScanner()
     }, [branchId])
+
+    /**
+     * Prints the open receipt to the Xprinter (or the OS default thermal).
+     * Reprint / retry only re-sends the same receipt — never another sale.
+     */
+    const handlePrintReceipt = useCallback(async () => {
+        if (!receipt || printingReceipt) return
+        setPrintingReceipt(true)
+        try {
+            // Wait for the print-isolate portal to paint before cloning it.
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                    requestAnimationFrame(() => resolve()),
+                ),
+            )
+            const result = await printPosReceipt(printIsolateRef.current)
+            if (result.ok && !result.cancelled) {
+                setReceiptPrintCount((count) => count + 1)
+                notify('success', 'Receipt printed', result.message)
+            } else if (result.cancelled) {
+                notify('info', 'Print closed', result.message)
+            } else {
+                notify('danger', 'Print failed', result.message)
+            }
+        } catch (error) {
+            notify(
+                'danger',
+                'Print failed',
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to print the receipt. The sale was not changed.',
+            )
+        } finally {
+            setPrintingReceipt(false)
+        }
+    }, [printingReceipt, receipt])
+
+    // After checkout (or completing a pending sale), send the receipt once.
+    useEffect(() => {
+        if (!receipt) return
+        if (pendingAutoPrintKeyRef.current !== receipt.receiptNumber) return
+        pendingAutoPrintKeyRef.current = null
+        void handlePrintReceipt()
+    }, [receipt, handlePrintReceipt])
 
     // A USB scanner works without clicking the scan field first; a scan while
     // the last sale's receipt is open closes it and starts the next sale.
@@ -1684,7 +1750,7 @@ const POSDashboard = () => {
                                                                       search
                                                                           .barcode
                                                                           .code)
-                                                                    : `Register “${search.barcode.code}”`}
+                                                                    : `Not found: ${search.barcode.code}`}
                                                             </span>
                                                             <span className="block truncate font-mono text-xs text-gray-500">
                                                                 {
@@ -1700,9 +1766,9 @@ const POSDashboard = () => {
                                                                           .barcode
                                                                           .result
                                                                           .listing
-                                                                        ? 'In catalog'
-                                                                        : 'Material found — not listed'
-                                                                    : 'Barcode not registered'}
+                                                                        ? 'In catalog — Enter to add'
+                                                                        : 'Material found — use Quick Add to list'
+                                                                    : 'Not registered — use Quick Add'}
                                                             </span>
                                                         </span>
                                                         {search.barcode.result
@@ -1724,8 +1790,8 @@ const POSDashboard = () => {
                                             {searchRows === 0 ? (
                                                 <li className="flex items-center gap-2 px-3 py-3 text-sm text-gray-500">
                                                     <HiOutlineSearch className="text-base" />
-                                                    No matching product. Press
-                                                    Enter to register this code.
+                                                    No matching product. Use
+                                                    Quick Add to create one.
                                                 </li>
                                             ) : null}
                                         </ul>
@@ -1741,13 +1807,13 @@ const POSDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             {canCreate && (
                                 <Button
                                     block
                                     size="lg"
                                     variant="solid"
-                                    className="h-12 sm:col-span-1"
+                                    className="h-12"
                                     icon={
                                         <HiOutlineQrcode className="text-lg" />
                                     }
@@ -1758,6 +1824,20 @@ const POSDashboard = () => {
                                     Add item
                                 </Button>
                             )}
+                            <Button
+                                block
+                                size="lg"
+                                variant="default"
+                                className="h-12"
+                                icon={<HiOutlinePlus className="text-lg" />}
+                                disabled={addingSku}
+                                onClick={() => {
+                                    setCameraOpen(false)
+                                    setRegisterBarcode(sku.trim())
+                                }}
+                            >
+                                Quick Add
+                            </Button>
                             <Button
                                 block
                                 size="lg"
@@ -1962,6 +2042,49 @@ const POSDashboard = () => {
                     setRegisterBarcode(null)
                     focusScanner()
                 }}
+                onAddListed={(hit) => {
+                    const listing = hit.listing
+                    if (!listing) return
+                    const parent = catalog.products.find(
+                        (p) =>
+                            p.productId === listing.productId ||
+                            p.sku.toLowerCase() ===
+                                listing.productSku.toLowerCase(),
+                    )
+                    if (parent) {
+                        void addToCart(parent, {
+                            id: listing.variantId,
+                            name: listing.variantName,
+                            sku: listing.variantSku,
+                            unitPrice: listing.price,
+                        })
+                        return
+                    }
+                    addItem(
+                        {
+                            productId: listing.productId,
+                            itemId: listing.productId,
+                            sku: listing.productSku,
+                            name: listing.productName,
+                            description: hit.material?.description ?? '',
+                            details: '',
+                            features: [],
+                            reviews: [],
+                            basePrice: listing.price,
+                            category: 'General Goods',
+                            imageUrl: '',
+                            imageGallery: [],
+                            salesOrgId: RETAIL_DIVISION_ID,
+                        },
+                        1,
+                        {
+                            id: listing.variantId,
+                            name: listing.variantName,
+                            sku: listing.variantSku,
+                            unitPrice: listing.price,
+                        },
+                    )
+                }}
                 onCreated={(created) => {
                     void catalog.reload()
                     const listing = created.listing
@@ -2029,15 +2152,34 @@ const POSDashboard = () => {
                 receipts={receipts}
                 newKeys={newReceiptKeys}
                 onShowReceipt={(row) => {
+                    pendingAutoPrintKeyRef.current = null
+                    setReceiptPrintCount(0)
                     setReceipt(row)
                     closeTransactions()
                 }}
                 onVoid={(row) => setVoidTarget(row)}
                 onComplete={(row) => void handleCompletePending(row)}
                 onMarkSalaryPaid={(row) => void handleMarkSalaryPaid(row)}
+                onCollect={(row) => {
+                    setCollectTarget(row)
+                    closeTransactions()
+                }}
                 onClose={closeTransactions}
                 completingId={completingId}
                 markingPaidId={markingPaidId}
+                formatPrice={formatPrice}
+            />
+            <POSCollectionDialog
+                isOpen={Boolean(collectTarget)}
+                receipt={collectTarget}
+                cashierUserId={cashierUserId}
+                posSessionId={shift?.id ?? null}
+                onClose={() => setCollectTarget(null)}
+                onCollected={() => {
+                    setCollectTarget(null)
+                    void loadTransactions(true)
+                    void loadShift()
+                }}
                 formatPrice={formatPrice}
             />
             {/* Void of a completed sale. */}
@@ -2070,10 +2212,11 @@ const POSDashboard = () => {
                 cashierUserId={cashierUserId}
                 customerName={customer?.name ?? null}
                 customerAccountType={customer?.accountType ?? null}
+                customerId={customer?.id ?? null}
                 completing={checkingOut}
                 onClose={() => setTenderOpen(false)}
                 onAfterClose={focusScanner}
-                onComplete={(tenders) => void handleCompleteSale(tenders)}
+                onComplete={(result) => void handleCompleteSale(result)}
                 formatPrice={formatPrice}
             />
 
@@ -2261,8 +2404,14 @@ const POSDashboard = () => {
                 width={380}
                 shouldReturnFocusAfterClose={false}
                 onAfterClose={focusScanner}
-                onClose={() => setReceipt(null)}
-                onRequestClose={() => setReceipt(null)}
+                onClose={() => {
+                    setReceipt(null)
+                    setPrintingReceipt(false)
+                }}
+                onRequestClose={() => {
+                    if (printingReceipt) return
+                    setReceipt(null)
+                }}
             >
                 <h5 className="mb-4">
                     {receipt?.status === 'COMPLETED'
@@ -2287,6 +2436,12 @@ const POSDashboard = () => {
                         handing the receipt to the customer.
                     </p>
                 ) : null}
+                {printingReceipt ? (
+                    <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+                        Sending to the Xprinter… Confirm or cancel in the print
+                        dialog. The sale is already saved.
+                    </p>
+                ) : null}
                 {receipt ? (
                     <div className="max-h-[60vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
                         <POSReceipt
@@ -2299,7 +2454,11 @@ const POSDashboard = () => {
                 ) : null}
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {canCreate && (
-                        <Button size="sm" onClick={() => setReceipt(null)}>
+                        <Button
+                            size="sm"
+                            disabled={printingReceipt}
+                            onClick={() => setReceipt(null)}
+                        >
                             New sale
                         </Button>
                     )}
@@ -2308,6 +2467,7 @@ const POSDashboard = () => {
                             size="sm"
                             variant="plain"
                             className="!text-red-500"
+                            disabled={printingReceipt}
                             onClick={() => setVoidTarget(receipt)}
                         >
                             Void sale
@@ -2317,15 +2477,20 @@ const POSDashboard = () => {
                         size="sm"
                         variant="solid"
                         icon={<HiOutlinePrinter />}
-                        onClick={() => window.print()}
+                        loading={printingReceipt}
+                        disabled={!receipt || printingReceipt}
+                        onClick={() => void handlePrintReceipt()}
                     >
-                        Print
+                        {receiptPrintCount > 0 ? 'Reprint' : 'Print'}
                     </Button>
                 </div>
             </Dialog>
             {receipt
                 ? createPortal(
-                      <div className="print-isolate hidden print:block">
+                      <div
+                          ref={printIsolateRef}
+                          className="print-isolate hidden print:block"
+                      >
                           <POSReceipt
                               receipt={receipt}
                               branchName={branch?.label}

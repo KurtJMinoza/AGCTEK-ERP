@@ -57,6 +57,9 @@ export const PosCheckoutLineSchema = z.object({
     unitPrice: z.number().nonnegative(),
 })
 
+export const POS_PAYMENT_MODES = ['FULL', 'SPLIT', 'DOWN_PAYMENT'] as const
+export type PosPaymentMode = (typeof POS_PAYMENT_MODES)[number]
+
 /** Body of POST /sd/pos/checkout. */
 export const PosCheckoutPayloadSchema = z.object({
     /** Known shift of the register; the server opens one when it is missing. */
@@ -75,6 +78,12 @@ export const PosCheckoutPayloadSchema = z.object({
     discountAmount: z.number().nonnegative().optional(),
     lines: z.array(PosCheckoutLineSchema).min(1, 'Cart is empty'),
     tenders: PosTenderListSchema,
+    /** FULL | SPLIT | DOWN_PAYMENT */
+    paymentMode: z.enum(POS_PAYMENT_MODES).optional(),
+    downPaymentType: z.enum(['PERCENTAGE', 'FIXED']).optional(),
+    downPaymentPct: z.number().min(0).max(100).optional(),
+    downPaymentAmount: z.number().nonnegative().optional(),
+    dueDate: z.string().trim().min(1).optional(),
 })
 
 export type PosTenderInput = z.infer<typeof PosTenderSchema>

@@ -201,6 +201,39 @@ const POSReceipt = ({
             ))}
             <Row label="Tendered" value={money(receipt.tendered)} />
             <Row label="Change" value={money(receipt.change)} />
+            {(receipt as Record<string, unknown>).outstandingBalance != null &&
+            Number((receipt as Record<string, unknown>).outstandingBalance) > 0 ? (
+                <>
+                    <Divider />
+                    {(receipt as Record<string, unknown>).downPaymentPct ? (
+                        <Row
+                            label="Down Payment"
+                            value={`${Number((receipt as Record<string, unknown>).downPaymentPct)}% — PHP ${money(Number((receipt as Record<string, unknown>).downPaymentAmount ?? 0))}`}
+                        />
+                    ) : (receipt as Record<string, unknown>).downPaymentAmount ? (
+                        <Row
+                            label="Down Payment"
+                            value={`PHP ${money(Number((receipt as Record<string, unknown>).downPaymentAmount))}`}
+                        />
+                    ) : null}
+                    <Row
+                        label="BALANCE DUE"
+                        value={`PHP ${money(Number((receipt as Record<string, unknown>).outstandingBalance))}`}
+                        bold
+                    />
+                    <Row
+                        label="Payment Status"
+                        value={String((receipt as Record<string, unknown>).paymentStatus ?? 'PARTIALLY PAID')}
+                        bold
+                    />
+                    {(receipt as Record<string, unknown>).dueDate ? (
+                        <Row
+                            label="Due Date"
+                            value={new Date(String((receipt as Record<string, unknown>).dueDate)).toLocaleDateString('en-PH')}
+                        />
+                    ) : null}
+                </>
+            ) : null}
             {receipt.warnings.length ? (
                 <>
                     <Divider />

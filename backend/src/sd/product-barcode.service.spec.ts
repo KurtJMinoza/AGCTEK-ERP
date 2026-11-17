@@ -104,6 +104,7 @@ describe('ProductBarcodeService', () => {
                         price: 150,
                         isActive: true,
                         status: 'ACTIVE',
+                        divisionId: 'DIV_RETAIL',
                     },
                 }),
             },
@@ -115,6 +116,39 @@ describe('ProductBarcodeService', () => {
         expect(result.action).toBe('OPEN_IN_CATALOG')
         expect(result.listing?.productId).toBe('p1')
         expect(productFamily.createProductFamily).not.toHaveBeenCalled()
+    })
+
+    it('resolves an SD-only variant barcode when MM registry misses', async () => {
+        resolver.resolve.mockRejectedValue(new Error('not found'))
+        const prisma = makePrisma({
+            sdProductVariant: {
+                findFirst: jest
+                    .fn()
+                    .mockResolvedValueOnce({ materialId: 'm1' })
+                    .mockResolvedValueOnce({
+                        id: 'v1',
+                        sku: 'SKU-1-V01',
+                        variantName: 'Default',
+                        price: 150,
+                        product: {
+                            id: 'p1',
+                            name: 'Kirkland Vitamin E',
+                            sku: 'RET-1',
+                            price: 150,
+                            isActive: true,
+                            status: 'ACTIVE',
+                            divisionId: 'DIV_RETAIL',
+                        },
+                    }),
+            },
+        })
+        const service = build(prisma)
+
+        const result = await service.lookup('4805555555555', 'c1')
+
+        expect(result.found).toBe(true)
+        expect(result.source).toBe('SD')
+        expect(result.listing?.productId).toBe('p1')
     })
 
     it('quick-add creates the MM material first, then the SD listing', async () => {

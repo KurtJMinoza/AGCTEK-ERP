@@ -244,3 +244,49 @@ export function resolvePosOrderPaymentStatus(
     }
     return POS_TENDER_SETTLEMENT_STATUS.PAID
 }
+
+/**
+ * Validate and allocate tenders for a down-payment checkout.
+ *
+ * Identical logic to `allocateTenders` except the tenders must cover
+ * `downPaymentAmount` (not the full order total). The outstanding balance
+ * is tracked as a receivable, not fabricated as a tender.
+ */
+export function allocatePartialTenders(
+    orderTotal: number,
+    downPaymentAmount: number,
+    inputs: PosTenderInput[],
+): {
+    tenders: PosTender[]
+    totalApplied: number
+    totalTendered: number
+    change: number
+    outstandingBalance: number
+} {
+    if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+        throw new BadRequestException('The sale has no payable amount.')
+    }
+    const dp = round2(downPaymentAmount)
+    if (!Number.isFinite(dp) || dp <= 0) {
+        throw new BadRequestException(
+            'The down payment must be greater than zero.',
+        )
+    }
+    if (dp > round2(orderTotal) + 0.005) {
+        throw new BadRequestException(
+            'The down payment cannot exceed the order total.',
+        )
+    }
+    // If the down payment equals the full total, delegate to full-pay path
+    if (Math.abs(dp - round2(orderTotal)) <= 0.005) {
+        const result = allocateTenders(orderTotal, inputs)
+        return { ...result, outstandingBalance: 0 }
+    }
+
+    // Validate tenders against the down-payment amount
+    const result = allocateTenders(dp, inputs)
+    return {
+        ...result,
+        outstandingBalance: round2(orderTotal - dp),
+    }
+}

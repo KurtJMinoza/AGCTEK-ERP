@@ -346,6 +346,9 @@ model Company {
   ficoDocumentTypes                FicoDocumentType[]
   ficoTaxRates                     FicoTaxRate[]
   extPlatformTransactions          SdExtPlatformTransaction[] @relation("ExtPlatformTxCompany")
+  posReceivables                   SdPosReceivable[]
+  posCollections                   SdPosCollection[]
+  employeeLoanItems                SdEmployeeLoanItem[]
 
   @@map("companies")
 }
@@ -5168,6 +5171,17 @@ model SdSalesOrder {
   trackingNumber     String?
   courierName        String?
   proofOfDeliveryUrl String?
+  /// Outstanding balance of a partially-paid POS sale (zero for full payment).
+  outstandingBalance Decimal?              @default(0) @db.Decimal(18, 2)
+  /// When the remaining balance is due; null for full-payment sales.
+  dueDate            DateTime?
+  /// PERCENTAGE | FIXED | null (full payment / split payment).
+  downPaymentType    String?
+  /// Percentage applied (e.g. 50.00 for 50%); null when type is FIXED or full.
+  downPaymentPct     Decimal?              @db.Decimal(5, 2)
+  /// Absolute down-payment amount; null for full-payment sales.
+  downPaymentAmount  Decimal?              @db.Decimal(18, 2)
+
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]
@@ -5181,6 +5195,12 @@ model SdSalesOrder {
   productReviews     ProductReview[]
   /// The void transaction that reversed this POS sale (POS only, at most one).
   voidTransaction    SdPosVoidTransaction?
+  /// Receivable created when the sale is partially paid (at most one).
+  receivable         SdPosReceivable?
+  /// Subsequent payment collections against the receivable.
+  collections        SdPosCollection[]
+  /// Employee loan items for SALARY_LOAN tenders.
+  employeeLoanItems  SdEmployeeLoanItem[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -5773,6 +5793,9 @@ model SdSalesOrderPayment {
   collectedBy     String?
   isDemo          Boolean      @default(true)
   paidAt          DateTime?
+  /// Links this tender to a subsequent collection (null for initial-sale tenders).
+  collectionId    String?
+  collection      SdPosCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   createdBy       String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -5780,6 +5803,7 @@ model SdSalesOrderPayment {
   @@index([companyId, status])
   @@index([salesOrderId])
   @@index([posSessionId])
+  @@index([collectionId])
   @@map("sd_sales_order_payments")
 }
 
@@ -5911,6 +5935,95 @@ model SdPosVoidTransaction {
   @@index([companyId, createdAt])
   @@index([branchId, createdAt])
   @@map("sd_pos_void_transactions")
+}
+
+// ── POS Receivables & Collections ─────────────────────────────────────────────
+
+/// Outstanding balance of a partially-paid POS sale. One per order.
+model SdPosReceivable {
+  id              String              @id @default(cuid())
+  companyId       String
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrderId    String              @unique
+  salesOrder      SdSalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  customerId      String
+  /// Employee id when the receivable includes a salary-loan component.
+  employeeId      String?
+  /// Total unpaid amount at creation (order total minus initial payment).
+  originalAmount  Decimal             @db.Decimal(18, 2)
+  /// Confirmed payments collected so far.
+  paidAmount      Decimal             @default(0) @db.Decimal(18, 2)
+  /// Pending-verification payments (not yet counted as collected).
+  pendingAmount   Decimal             @default(0) @db.Decimal(18, 2)
+  /// Current outstanding balance (originalAmount - paidAmount).
+  balance         Decimal             @db.Decimal(18, 2)
+  /// OPEN | SETTLED | CANCELLED
+  status          String              @default("OPEN")
+  dueDate         DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  collections     SdPosCollection[]
+
+  @@index([companyId, status])
+  @@index([customerId])
+  @@map("sd_pos_receivables")
+}
+
+/// A subsequent payment collected against a POS receivable.
+model SdPosCollection {
+  id               String              @id @default(cuid())
+  companyId        String
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  receivableId     String
+  receivable       SdPosReceivable     @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  salesOrderId     String
+  salesOrder       SdSalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  collectionNumber String              @unique
+  totalAmount      Decimal             @db.Decimal(18, 2)
+  posSessionId     String?
+  collectedBy      String?
+  idempotencyKey   String?             @unique
+  /// COMPLETED | CANCELLED
+  status           String              @default("COMPLETED")
+  createdAt        DateTime            @default(now())
+  tenders          SdSalesOrderPayment[]
+
+  @@index([companyId, createdAt])
+  @@index([receivableId])
+  @@index([salesOrderId])
+  @@map("sd_pos_collections")
+}
+
+/// Item-level salary-loan tracking for SALARY_LOAN POS tenders.
+model SdEmployeeLoanItem {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrderId     String
+  salesOrder       SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  salesOrderLineId String
+  customerId       String
+  employeeNumber   String
+  receiptNumber    String?
+  sku              String?
+  productName      String?
+  variantName      String?
+  barcode          String?
+  quantity         Decimal      @db.Decimal(18, 4)
+  unitPrice        Decimal      @db.Decimal(18, 2)
+  loanAmount       Decimal      @db.Decimal(18, 2)
+  repaidAmount     Decimal      @default(0) @db.Decimal(18, 2)
+  balance          Decimal      @db.Decimal(18, 2)
+  /// OPEN | PARTIAL | SETTLED | CANCELLED
+  status           String       @default("OPEN")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([companyId])
+  @@index([salesOrderId])
+  @@index([customerId, status])
+  @@index([employeeNumber, status])
+  @@map("sd_employee_loan_items")
 }
 
 model SdEventOutbox {

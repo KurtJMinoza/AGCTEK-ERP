@@ -64,6 +64,12 @@ describe('PosVoidService', () => {
                 }),
                 findUnique: jest.fn().mockResolvedValue(null),
             },
+            sdPosReceivable: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            sdEmployeeLoanItem: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
             $transaction: jest.fn(async (fn: (tx: any) => unknown) => fn(prisma)),
             mmGoodsIssue: {
                 findFirst: jest.fn().mockResolvedValue({

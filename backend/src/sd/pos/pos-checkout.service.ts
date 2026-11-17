@@ -20,6 +20,7 @@ import { PosPaymentMethodService } from './pos-payment-method.service'
 import { setDynamicMethodCodes } from './pos-tender'
 import {
     allocateTenders,
+    allocatePartialTenders,
     resolvePosOrderPaymentStatus,
     type PosTender,
     type PosTenderInput,
@@ -121,6 +122,14 @@ export type PosReceipt = {
     }>
     paymentStatus?: string | null
     warnings: string[]
+    /** Partial payment fields (null for full-payment sales). */
+    paymentMode: string | null
+    downPaymentType: string | null
+    downPaymentPct: number | null
+    downPaymentAmount: number | null
+    outstandingBalance: number
+    dueDate: string | null
+    paymentStatus: string
 }
 
 /**
@@ -336,7 +345,38 @@ export class PosCheckoutService {
 
         await this.syncMethodCodes()
         const enrichedTenders = await this.enrichSalaryTenders(dto.tenders)
-        const { tenders, change } = allocateTenders(total, enrichedTenders)
+
+        // Determine payment mode
+        const isDownPayment = dto.paymentMode === 'DOWN_PAYMENT'
+        let tenders: PosTender[]
+        let change: number
+        let outstandingBalance = 0
+
+        if (isDownPayment) {
+            // Compute effective down-payment amount
+            let dpAmount = round2(dto.downPaymentAmount ?? 0)
+            if (dto.downPaymentType === 'PERCENTAGE' && dto.downPaymentPct) {
+                dpAmount = round2((total * dto.downPaymentPct) / 100)
+            }
+            if (dpAmount <= 0 || dpAmount > total + 0.005) {
+                throw new BadRequestException(
+                    'The down payment must be between ₱0.01 and the order total.',
+                )
+            }
+            const result = allocatePartialTenders(
+                total,
+                dpAmount,
+                enrichedTenders,
+            )
+            tenders = result.tenders
+            change = result.change
+            outstandingBalance = result.outstandingBalance
+        } else {
+            const result = allocateTenders(total, enrichedTenders)
+            tenders = result.tenders
+            change = result.change
+        }
+
         const warnings = lines
             .map((line) => line.taxWarning)
             .filter((warning): warning is string => Boolean(warning))
@@ -353,6 +393,31 @@ export class PosCheckoutService {
                 : null
         const customerId = customer?.id ?? dto.customerId
         const customerName = customer?.companyName ?? dto.customerName
+
+        // A partial payment must have an identifiable customer
+        if (isDownPayment && outstandingBalance > 0) {
+            if (!customerId || customerId === 'WALK-IN') {
+                throw new BadRequestException(
+                    'A partial payment requires an identified customer. Select or create a customer before completing the sale.',
+                )
+            }
+        }
+
+        const salaryLoan = tenders.find(
+            (tender) => tender.method === 'SALARY_LOAN',
+        )
+        const salaryLoanAmount = round2(
+            tenders
+                .filter((t) => t.method === 'SALARY_LOAN')
+                .reduce((sum, t) => sum + t.amount, 0),
+        )
+        if (salaryLoan) {
+            await this.assertEmployeeCredit(customerId, salaryLoanAmount)
+        }
+
+        const initialPayment = round2(
+            tenders.reduce((sum, t) => sum + t.amount, 0),
+        )
 
         const order = await this.salesOrders.createRetail({
             channel: 'POS',
@@ -375,8 +440,11 @@ export class PosCheckoutService {
             shippingAmount: 0,
             taxAmount,
             totalAmount: total,
-            paymentReceived: round2(total + change),
+            paymentReceived: round2(initialPayment + change),
             deferCompletion: true,
+            // Let createRetail accept paymentReceived < totalAmount when this
+            // checkout is a down payment with an outstanding balance.
+            allowPartialPayment: isDownPayment && outstandingBalance > 0.005,
             createdBy: dto.createdBy,
         })
 
@@ -394,16 +462,31 @@ export class PosCheckoutService {
         })
 
         // The money is captured; now deduct the stock through the MM engine.
+        // Products are released immediately, even on partial payment.
         await this.postGoodsIssue(order, session)
 
+        // Determine payment status
+        let paymentStatus: string
+        if (outstandingBalance > 0.005) {
+            paymentStatus = 'PARTIALLY_PAID'
+        } else if (tenders.every((t) => t.status === 'Paid')) {
+            paymentStatus = 'Paid'
+        } else {
+            paymentStatus = 'Pending Verification'
+        }
+
         const receiptNumber = await this.nextReceiptNumber(orderCompanyId)
+        const dueDate = dto.dueDate ? new Date(dto.dueDate) : null
         const completed = await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
                 status: 'COMPLETED',
                 paymentMethod:
                     tenders.length > 1 ? 'SPLIT' : tenders[0].method,
-                paymentStatus: resolvePosOrderPaymentStatus(tenders),
+                paymentStatus:
+                    outstandingBalance > 0.005
+                        ? paymentStatus
+                        : resolvePosOrderPaymentStatus(tenders),
                 paymentReference: tenders[0].referenceNumber ?? null,
                 paymentProvider: tenders[0].provider ?? null,
                 changeAmount: change,
@@ -411,12 +494,52 @@ export class PosCheckoutService {
                 posSessionId: session.id,
                 cashierUserId: dto.cashierUserId ?? null,
                 receiptNumber,
+                outstandingBalance,
+                dueDate,
+                downPaymentType: isDownPayment
+                    ? (dto.downPaymentType ?? null)
+                    : null,
+                downPaymentPct: isDownPayment ? (dto.downPaymentPct ?? null) : null,
+                downPaymentAmount: isDownPayment
+                    ? round2(initialPayment)
+                    : null,
             },
             include: {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
                 payments: true,
             },
         })
+
+        // Create the receivable for a partial payment
+        if (outstandingBalance > 0.005) {
+            await this.prisma.sdPosReceivable.upsert({
+                where: { salesOrderId: order.id },
+                create: {
+                    companyId: orderCompanyId,
+                    salesOrderId: order.id,
+                    customerId,
+                    employeeId: salaryLoan?.employeeNumber ?? null,
+                    originalAmount: outstandingBalance,
+                    balance: outstandingBalance,
+                    dueDate,
+                },
+                update: {},
+            })
+        }
+
+        // Employee item-level loan tracking
+        if (salaryLoanAmount > 0 && salaryLoan) {
+            await this.consumeEmployeeCredit(customerId, salaryLoanAmount)
+            await this.createEmployeeLoanItems({
+                companyId: orderCompanyId,
+                salesOrderId: order.id,
+                customerId,
+                employeeNumber: salaryLoan.employeeNumber ?? '',
+                receiptNumber,
+                loanAmount: salaryLoanAmount,
+                lines,
+            })
+        }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
             salesOrderId: completed.id,
@@ -432,6 +555,8 @@ export class PosCheckoutService {
             discountAmount: discountAmount.toFixed(2),
             taxAmount: taxAmount.toFixed(2),
             totalAmount: total.toFixed(2),
+            outstandingBalance: outstandingBalance.toFixed(2),
+            paymentStatus,
             tenders: tenders.map((tender) => ({
                 method: tender.method,
                 amount: tender.amount.toFixed(2),
@@ -972,6 +1097,120 @@ export class PosCheckoutService {
         })
     }
 
+    private async assertEmployeeCredit(customerId: string, amount: number) {
+        const customer = await this.prisma.sdCustomer.findUnique({
+            where: { id: customerId },
+            select: {
+                id: true,
+                customerAccountType: true,
+                creditLimit: true,
+                availableCredit: true,
+            },
+        })
+        if (!customer) {
+            throw new BadRequestException(
+                'The customer of a salary deduction must exist in the Customer Master.',
+            )
+        }
+        if (customer.customerAccountType !== 'CREDIT') {
+            throw new BadRequestException(
+                'A salary deduction requires a CREDIT customer account with a credit limit.',
+            )
+        }
+        const available = Number(customer.availableCredit ?? 0)
+        if (available < amount) {
+            throw new BadRequestException(
+                `Employee credit limit exceeded: ${available.toFixed(2)} available, ${amount.toFixed(2)} required.`,
+            )
+        }
+    }
+
+    /** Book the receivable against the customer's credit limit. */
+    private async consumeEmployeeCredit(customerId: string, amount: number) {
+        const claimed = await this.prisma.sdCustomer.updateMany({
+            where: {
+                id: customerId,
+                availableCredit: { gte: new Decimal(amount) },
+            },
+            data: { availableCredit: { decrement: new Decimal(amount) } },
+        })
+        if (claimed.count === 0) {
+            this.logger.warn(
+                `Employee credit could not be consumed for customer ${customerId}`,
+            )
+        }
+    }
+
+    /**
+     * Create item-level loan records for a SALARY_LOAN tender.
+     * Allocates the loan amount proportionally across the order lines.
+     */
+    private async createEmployeeLoanItems(args: {
+        companyId: string
+        salesOrderId: string
+        customerId: string
+        employeeNumber: string
+        receiptNumber: string
+        loanAmount: number
+        lines: ResolvedLine[]
+    }) {
+        const orderLines = await this.prisma.sdSalesOrderLine.findMany({
+            where: { salesOrderId: args.salesOrderId },
+            orderBy: { lineNumber: 'asc' },
+            include: {
+                material: {
+                    select: {
+                        barcodes: {
+                            where: { isPrimary: true },
+                            select: { barcodeValue: true },
+                            take: 1,
+                        },
+                    },
+                },
+            },
+        })
+        const totalLineValue = round2(
+            orderLines.reduce((sum, l) => sum + Number(l.lineTotal ?? 0), 0),
+        )
+        if (totalLineValue <= 0) return
+
+        let remaining = args.loanAmount
+        for (const [index, line] of orderLines.entries()) {
+            const lineTotal = Number(line.lineTotal ?? 0)
+            if (lineTotal <= 0) continue
+            // Last line gets the remainder to avoid rounding drift
+            const proportion =
+                index === orderLines.length - 1
+                    ? remaining
+                    : round2((lineTotal / totalLineValue) * args.loanAmount)
+            const amount = round2(Math.min(proportion, remaining))
+            if (amount <= 0) continue
+            remaining = round2(remaining - amount)
+
+            await this.prisma.sdEmployeeLoanItem.create({
+                data: {
+                    companyId: args.companyId,
+                    salesOrderId: args.salesOrderId,
+                    salesOrderLineId: line.id,
+                    customerId: args.customerId,
+                    employeeNumber: args.employeeNumber,
+                    receiptNumber: args.receiptNumber,
+                    sku: line.sku,
+                    productName: line.description ?? line.productNameSnapshot,
+                    variantName: line.variantName,
+                    barcode:
+                        line.variantBarcode ??
+                        line.material?.barcodes?.[0]?.barcodeValue ??
+                        null,
+                    quantity: Number(line.quantity),
+                    unitPrice: Number(line.unitPrice ?? 0),
+                    loanAmount: amount,
+                    balance: amount,
+                },
+            })
+        }
+    }
+
     private async nextReceiptNumber(companyId: string) {
         for (let attempt = 0; attempt < 5; attempt++) {
             const count = await this.prisma.sdSalesOrder.count({
@@ -1008,6 +1247,12 @@ export class PosCheckoutService {
             totalAmount: Prisma.Decimal | null
             paymentReceived: Prisma.Decimal | null
             changeAmount: Prisma.Decimal | null
+            paymentStatus?: string | null
+            outstandingBalance?: Prisma.Decimal | null
+            dueDate?: Date | null
+            downPaymentType?: string | null
+            downPaymentPct?: Prisma.Decimal | null
+            downPaymentAmount?: Prisma.Decimal | null
             updatedAt: Date
             lines: Array<{
                 sku: string | null
@@ -1121,6 +1366,17 @@ export class PosCheckoutService {
             })),
             paymentStatus: resolvePosOrderPaymentStatus(payments),
             warnings,
+            paymentMode: order.downPaymentType ? 'DOWN_PAYMENT' : null,
+            downPaymentType: order.downPaymentType ?? null,
+            downPaymentPct: order.downPaymentPct
+                ? Number(order.downPaymentPct)
+                : null,
+            downPaymentAmount: order.downPaymentAmount
+                ? Number(order.downPaymentAmount)
+                : null,
+            outstandingBalance: Number(order.outstandingBalance ?? 0),
+            dueDate: order.dueDate?.toISOString() ?? null,
+            paymentStatus: order.paymentStatus ?? order.status,
         }
     }
 }
