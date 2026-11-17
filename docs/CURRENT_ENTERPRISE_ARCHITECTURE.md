@@ -424,6 +424,16 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
   - Each line gets OK / LOW / NONE / NOT_TRACKED / UNKNOWN.
   - The figure is the checkout company's MM pickable stock (on hand − reserved, all active warehouses), compared with the line quantity in the material base UOM.
   - It is indicative only: it reserves nothing, never blocks draft or send, and is never printed on the customer PDF. A failed read is UNKNOWN, never NONE.
+- **Payment terms:** `SdQuotation.paymentTerms` (free text, migration `20261113170000_sd_quotation_payment_terms`) is set on create (CRM) or draft edit, copied to revisions, shown on the quotation page, and printed in the PDF details only when set.
+- **Email (SD-owned):** `POST /sd/quotations/:id/email` emails a SENT / ACCEPTED quotation only; a DRAFT gets 409 "Send the quotation first", so a delivery failure never changes the status.
+  - The cover letter comes from `sd_email_templates` (`{{placeholders}}`).
+  - The PDF bytes are stored once per revision (`sd_quotation_documents`, `QUOTATION_DOCUMENT_DIR`) and reused for resends.
+  - Results are recorded as EMAIL_SENT / RESENT / FAILED / SKIPPED events. `npm run mail:dev` runs Maildev locally.
+- **Emails** (CRM › Communications › Emails, `/emails`, permission `emails.templates`): cover-letter templates and Gmail-style Compose for quotation PDFs. Not a sidebar/Home module (avoids redundancy with CRM).
+  - Compose picks a SENT / ACCEPTED quotation, then opens the existing floating `QuotationEmailComposer`; send still uses `POST /sd/quotations/:id/email` (`sd.quotations` update) and always attaches the PDF.
+  - `/sd/email-templates` (`GET` list / `:key`, `PATCH :key`) uses `emails.templates` read / update.
+  - Old `/crm/documents`, `/modules/documents`, and `/documents/*` URLs redirect to `/emails`.
+  - Quotation PDF rendering still reads the active default `sd_pdf_layout_profiles` row (config / optional design / logo) when present; there is no PDF template editor or `/sd/pdf-layout-profiles` API.
 - **Permissions:**
   - Creating from CRM needs crm:update and sd:create.
   - SD endpoints use sd:read and sd:update.

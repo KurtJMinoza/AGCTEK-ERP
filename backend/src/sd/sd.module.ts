@@ -25,8 +25,14 @@ import { SdMmPipelineService } from './sd-mm-pipeline.service'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
 import { QuotationService } from './quotation.service'
+import { QuotationMailService } from './mail.service'
 import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
+import { QuotationEmailService } from './quotation-email.service'
+import {
+    QuotationEmailController,
+    QuotationEmailTemplateController,
+} from './quotation-email.controller'
 import { SalesReturnService } from './sales-return.service'
 import { SalesReturnController } from './sales-return.controller'
 import { SalesInvoiceService } from './sales-invoice.service'
@@ -84,6 +90,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        QuotationEmailController,
+        QuotationEmailTemplateController,
         SalesReturnController,
         ReturnRequestController,
         DeliveryController,
@@ -114,6 +122,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         SdMaterialReferenceService,
         QuotationService,
         QuotationPdfService,
+        QuotationMailService,
+        QuotationEmailService,
         SalesReturnService,
         SalesInvoiceService,
         SdFulfillmentEventsListener,
@@ -150,6 +160,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        QuotationEmailService,
+        QuotationMailService,
         SalesReturnService,
         ReturnRequestService,
         ReviewModule,

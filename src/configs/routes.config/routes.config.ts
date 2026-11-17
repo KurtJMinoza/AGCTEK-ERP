@@ -263,6 +263,38 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'contained',
         },
     },
+    '/crm/documents': {
+        key: 'crmDocuments',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/documents/email-templates': {
+        key: 'documentsEmailTemplatesRedirect',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/documents/pdf-templates': {
+        key: 'documentsPdfTemplatesRedirect',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/emails': {
+        key: 'emails',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/modules/[moduleCode]': {
         key: 'erpModule',
         authority: [],
