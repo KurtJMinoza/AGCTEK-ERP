@@ -1917,6 +1917,7 @@ export class SalesOrderService {
             | 'totalAmount'
             | 'paymentReceived'
             | 'taxAmount'
+            | 'allowPartialPayment'
         >,
     ) {
         const money = (value: number | Decimal) =>
@@ -1967,9 +1968,23 @@ export class SalesOrderService {
                 )
             }
             const paymentReceived = money(dto.paymentReceived)
-            if (paymentReceived.lt(totalAmount)) {
+            // Down payment / partial payment: tenders cover only the initial
+            // amount; the rest is an outstanding receivable. Full-payment POS
+            // sales still require paymentReceived >= totalAmount.
+            if (
+                paymentReceived.lt(totalAmount) &&
+                !dto.allowPartialPayment
+            ) {
                 throw new BadRequestException(
                     `Insufficient payment: received ${paymentReceived.toFixed(2)}, due ${totalAmount.toFixed(2)}`,
+                )
+            }
+            if (
+                dto.allowPartialPayment &&
+                (paymentReceived.lte(0) || paymentReceived.gt(totalAmount))
+            ) {
+                throw new BadRequestException(
+                    'A down payment must be greater than zero and not exceed the order total.',
                 )
             }
             return {
@@ -1979,7 +1994,11 @@ export class SalesOrderService {
                 taxAmount,
                 totalAmount,
                 paymentReceived,
-                changeAmount: paymentReceived.minus(totalAmount),
+                // Partial payment never produces change from this total check;
+                // cash change is recorded on the individual tender rows.
+                changeAmount: paymentReceived.gt(totalAmount)
+                    ? paymentReceived.minus(totalAmount)
+                    : new Decimal(0),
             }
         }
 

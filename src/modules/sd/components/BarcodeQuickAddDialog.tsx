@@ -30,6 +30,8 @@ type Props = {
     divisionId?: string
     onClose: () => void
     onCreated?: (result: QuickAddResult) => void
+    /** When a barcode is already listed, POS can add it straight to the cart. */
+    onAddListed?: (result: BarcodeLookup) => void
 }
 
 type Option = { value: string; label: string }
@@ -60,6 +62,7 @@ const BarcodeQuickAddDialog = ({
     divisionId = RETAIL_DIVISION_ID,
     onClose,
     onCreated,
+    onAddListed,
 }: Props) => {
     const [barcode, setBarcode] = useState(initialBarcode)
     const [result, setResult] = useState<BarcodeLookup | null>(null)
@@ -255,7 +258,21 @@ const BarcodeQuickAddDialog = ({
             <Button size="sm" disabled={busy} onClick={onClose}>
                 Close
             </Button>
-            {listed ? null : (
+            {listed ? (
+                onAddListed && result ? (
+                    <Button
+                        size="sm"
+                        variant="solid"
+                        disabled={busy}
+                        onClick={() => {
+                            onAddListed(result)
+                            onClose()
+                        }}
+                    >
+                        Add to cart
+                    </Button>
+                ) : null
+            ) : (
                 <Button
                     size="sm"
                     variant="solid"

@@ -31,6 +31,10 @@ export type PosSessionCollections = {
     totalReceivable: number
     /** Total refunded in this shift. */
     totalRefunded: number
+    /** Cash from initial POS sales (not from subsequent collections). */
+    initialSaleCash: number
+    /** Cash from subsequent receivable collections. */
+    collectionCash: number
 }
 
 /**
@@ -162,6 +166,7 @@ export class PosSessionService {
                 changeAmount: true,
                 status: true,
                 verificationStatus: true,
+                collectionId: true,
             },
         })
 
@@ -172,12 +177,15 @@ export class PosSessionService {
         const refunded: Record<string, number> = {}
         let cashCollected = 0
         let cashChange = 0
+        let initialSaleCash = 0
+        let collectionCash = 0
 
         for (const payment of payments) {
             const method = payment.paymentMethod
             const amount = Number(payment.amount)
             const status = payment.status
             const verification = payment.verificationStatus
+            const isCollection = Boolean(payment.collectionId)
 
             if (['Cancelled', 'Failed'].includes(status)) continue
 
@@ -193,6 +201,11 @@ export class PosSessionService {
                     cashCollected + Number(payment.tenderAmount),
                 )
                 cashChange = round2(cashChange + Number(payment.changeAmount))
+                if (isCollection) {
+                    collectionCash = round2(collectionCash + Number(payment.tenderAmount))
+                } else {
+                    initialSaleCash = round2(initialSaleCash + Number(payment.tenderAmount))
+                }
             }
 
             if (verification === 'RECEIVABLE' || method === 'SALARY_LOAN') {
@@ -235,6 +248,8 @@ export class PosSessionService {
             totalPending: sumValues(pending),
             totalReceivable: sumValues(receivable),
             totalRefunded,
+            initialSaleCash,
+            collectionCash,
         }
     }
 

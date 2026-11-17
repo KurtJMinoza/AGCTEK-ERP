@@ -159,6 +159,33 @@ export class PosCheckoutDto {
     @Type(() => PosTenderDto)
     tenders!: PosTenderDto[]
 
+    /** FULL | SPLIT | DOWN_PAYMENT — how the customer pays. */
+    @IsOptional()
+    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT'])
+    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT'
+
+    /** PERCENTAGE | FIXED — how the down-payment amount was chosen. */
+    @IsOptional()
+    @IsIn(['PERCENTAGE', 'FIXED'])
+    downPaymentType?: 'PERCENTAGE' | 'FIXED'
+
+    /** Percentage of the total (e.g. 50 for 50%). */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    downPaymentPct?: number
+
+    /** Absolute down-payment amount the tenders must cover. */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    downPaymentAmount?: number
+
+    /** When the remaining balance is due. */
+    @IsOptional()
+    @IsString()
+    dueDate?: string
+
     @IsOptional()
     @IsString()
     createdBy?: string

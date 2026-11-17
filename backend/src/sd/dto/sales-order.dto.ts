@@ -302,6 +302,14 @@ export class CreateRetailSalesOrderDto {
     @IsBoolean()
     deferCompletion?: boolean
 
+    /**
+     * When true, POS may accept paymentReceived below totalAmount (down payment /
+     * partial payment). The remaining balance is tracked as a receivable.
+     */
+    @IsOptional()
+    @IsBoolean()
+    allowPartialPayment?: boolean
+
     @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)

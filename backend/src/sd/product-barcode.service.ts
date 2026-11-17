@@ -77,6 +77,12 @@ export class ProductBarcodeService {
             const hit = await this.barcodeResolver.resolve(value, companyId)
             materialId = hit.materialId ?? null
         } catch {
+            /* MM registry miss — try the SD variant barcode below */
+        }
+        // Always try the SD variant barcode when MM did not resolve a material.
+        // (Previously this ran only inside the catch, so a non-material MM hit
+        // left sellable variant barcodes looking "not found".)
+        if (!materialId) {
             const variant = await this.prisma.sdProductVariant.findFirst({
                 where: { barcode: value },
                 select: { materialId: true },
@@ -106,7 +112,7 @@ export class ProductBarcodeService {
             }
         }
 
-        const variant = await this.findListing(material.id)
+        const variant = await this.findListing(material.id, value)
         const ledger = await this.ledgerFor(
             material.id,
             companyId ?? material.companyId ?? undefined,
@@ -311,25 +317,52 @@ export class ProductBarcodeService {
         }
     }
 
-    private findListing(materialId: string) {
-        return this.prisma.sdProductVariant.findFirst({
-            where: { materialId },
-            select: {
-                id: true,
-                sku: true,
-                variantName: true,
-                price: true,
-                product: {
-                    select: {
-                        id: true,
-                        name: true,
-                        sku: true,
-                        price: true,
-                        isActive: true,
-                        status: true,
-                    },
+    private async findListing(materialId: string, barcode?: string) {
+        const select = {
+            id: true,
+            sku: true,
+            variantName: true,
+            price: true,
+            product: {
+                select: {
+                    id: true,
+                    name: true,
+                    sku: true,
+                    price: true,
+                    isActive: true,
+                    status: true,
+                    divisionId: true,
                 },
             },
+        } as const
+
+        // Prefer the exact variant that carries this barcode (correct size/color).
+        if (barcode) {
+            const byBarcode = await this.prisma.sdProductVariant.findFirst({
+                where: { materialId, barcode },
+                select,
+            })
+            if (byBarcode) return byBarcode
+            const byBarcodeOnly = await this.prisma.sdProductVariant.findFirst({
+                where: { barcode },
+                select,
+            })
+            if (byBarcodeOnly) return byBarcodeOnly
+        }
+
+        // Prefer an active retail listing when several variants share the material.
+        const retail = await this.prisma.sdProductVariant.findFirst({
+            where: {
+                materialId,
+                product: { isActive: true, divisionId: 'DIV_RETAIL' },
+            },
+            select,
+        })
+        if (retail) return retail
+
+        return this.prisma.sdProductVariant.findFirst({
+            where: { materialId },
+            select,
         })
     }
 

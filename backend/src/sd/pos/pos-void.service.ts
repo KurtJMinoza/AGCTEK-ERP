@@ -160,6 +160,16 @@ export class PosVoidService {
                     })
                 }
 
+                // Cancel the receivable and employee loan items (partial payment)
+                await tx.sdPosReceivable.updateMany({
+                    where: { salesOrderId: order.id, status: 'OPEN' },
+                    data: { status: 'CANCELLED', balance: 0 },
+                })
+                await tx.sdEmployeeLoanItem.updateMany({
+                    where: { salesOrderId: order.id, status: { in: ['OPEN', 'PARTIAL'] } },
+                    data: { status: 'CANCELLED', balance: 0 },
+                })
+
                 // The void is a transaction of its own: a reversal entry
                 // that follows the completed sale in the register history.
                 const voidTransaction = await tx.sdPosVoidTransaction.upsert({

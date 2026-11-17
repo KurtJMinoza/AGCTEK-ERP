@@ -16,6 +16,7 @@ import { PosSessionService } from './pos-session.service'
 import { PosHoldService } from './pos-hold.service'
 import { PosPaymentMethodService } from './pos-payment-method.service'
 import { PosRefundService, type CreatePosRefundInput } from './pos-refund.service'
+import { PosCollectionService, type CollectPaymentInput } from './pos-collection.service'
 import {
     ClosePosSessionDto,
     HoldPosSaleDto,
@@ -45,6 +46,7 @@ export class PosController {
         private readonly voids: PosVoidService,
         private readonly paymentMethods: PosPaymentMethodService,
         private readonly refunds: PosRefundService,
+        private readonly collections: PosCollectionService,
     ) {}
 
     // ── Partial refunds ──
@@ -59,6 +61,51 @@ export class PosController {
     @RequirePermission('sd.pos', 'read')
     listRefunds(@Param('id') id: string) {
         return this.refunds.listForOrder(id)
+    }
+
+    // ── Receivables & Collections ──
+
+    @Get('receivables')
+    @RequirePermission('sd.pos', 'read')
+    listReceivables(
+        @Query('companyId') companyId: string,
+        @Query('status') status?: string,
+        @Query('search') search?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.collections.listReceivables({
+            companyId,
+            status,
+            search,
+            limit: limit ? Number(limit) : undefined,
+        })
+    }
+
+    @Get('receivables/summary')
+    @RequirePermission('sd.pos', 'read')
+    receivablesSummary(@Query('companyId') companyId: string) {
+        return this.collections.summary(companyId)
+    }
+
+    @Get('receivables/:id')
+    @RequirePermission('sd.pos', 'read')
+    getReceivable(@Param('id') id: string) {
+        return this.collections.getReceivable(id)
+    }
+
+    @Post('orders/:id/collections')
+    @RequirePermission('sd.pos', 'update')
+    collectPayment(
+        @Param('id') id: string,
+        @Body() dto: Omit<CollectPaymentInput, 'salesOrderId'>,
+    ) {
+        return this.collections.collect({ ...dto, salesOrderId: id })
+    }
+
+    @Get('collections/:id/receipt')
+    @RequirePermission('sd.pos', 'read')
+    collectionReceipt(@Param('id') id: string) {
+        return this.collections.collectionReceipt(id)
     }
 
     // ── Payment methods ──

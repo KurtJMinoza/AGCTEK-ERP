@@ -25,12 +25,21 @@ import classNames from '@/utils/classNames'
 import type {
     PosTenderInput,
     PosTenderMethod,
+    PosPaymentMode,
 } from '../types/pos.schema'
 import { POS_TENDER_METHODS } from '../types/pos.schema'
 import {
     listPaymentMethods,
     type PaymentMethod,
 } from '../services/posPaymentMethodService'
+
+export type TenderResult = {
+    tenders: PosTenderInput[]
+    paymentMode?: PosPaymentMode
+    downPaymentType?: 'PERCENTAGE' | 'FIXED'
+    downPaymentPct?: number
+    downPaymentAmount?: number
+}
 
 type POSTenderDialogProps = {
     isOpen: boolean
@@ -41,11 +50,12 @@ type POSTenderDialogProps = {
     /** Customer of the sale; a salary deduction needs a CREDIT account. */
     customerName?: string | null
     customerAccountType?: string | null
+    customerId?: string | null
     completing?: boolean
     onClose: () => void
     /** Called when the dialog closes (the terminal refocuses the scanner). */
     onAfterClose?: () => void
-    onComplete: (tenders: PosTenderInput[]) => void
+    onComplete: (result: TenderResult) => void
     formatPrice: (value: number) => string
 }
 
@@ -136,12 +146,15 @@ const expectedTenderStatus = (tender: PosTenderInput) => {
  * The dialog only prepares the tenders — the server owns the totals, the tax
  * and the change, and the receipt renders what the server returned.
  */
+const DP_PERCENTAGES = [10, 20, 30, 40, 50, 60, 70, 80, 90] as const
+
 const POSTenderDialog = ({
     isOpen,
     amountDue,
     cashierUserId,
     customerName,
     customerAccountType,
+    customerId,
     completing = false,
     onClose,
     onAfterClose,
@@ -151,12 +164,39 @@ const POSTenderDialog = ({
     const [methods, setMethods] = useState<MethodOption[]>(FALLBACK_METHODS)
     const [method, setMethod] = useState<PosTenderMethod>('CASH')
     const [tenders, setTenders] = useState<PosTenderInput[]>([])
+
+    // Payment mode (Full / Split / Down Payment)
+    const [paymentMode, setPaymentMode] = useState<PosPaymentMode>('FULL')
+    const [dpType, setDpType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE')
+    const [dpPct, setDpPct] = useState(50)
+    const [dpCustomAmount, setDpCustomAmount] = useState('')
+
+    // Effective down payment amount
+    const effectiveDpAmount = useMemo(() => {
+        if (paymentMode !== 'DOWN_PAYMENT') return amountDue
+        if (dpType === 'PERCENTAGE') return round2((amountDue * dpPct) / 100)
+        const custom = Number(dpCustomAmount)
+        if (Number.isFinite(custom) && custom > 0) return round2(Math.min(custom, amountDue))
+        return 0
+    }, [paymentMode, dpType, dpPct, dpCustomAmount, amountDue])
+
+    const effectiveAmountDue = paymentMode === 'DOWN_PAYMENT' ? effectiveDpAmount : amountDue
+    const balanceDue = paymentMode === 'DOWN_PAYMENT' ? round2(amountDue - effectiveDpAmount) : 0
+
     const [amount, setAmount] = useState(() =>
         amountDue > 0 ? amountDue.toFixed(2) : '',
     )
     const [cashReceived, setCashReceived] = useState(() =>
         amountDue > 0 ? amountDue.toFixed(2) : '',
     )
+
+    // Reset tender form amounts when DP amount changes
+    useEffect(() => {
+        if (effectiveAmountDue > 0 && tenders.length === 0) {
+            setAmount(effectiveAmountDue.toFixed(2))
+            setCashReceived(effectiveAmountDue.toFixed(2))
+        }
+    }, [effectiveAmountDue, tenders.length])
     const [referenceNumber, setReferenceNumber] = useState('')
     const [bankName, setBankName] = useState('')
     const [transactionDate, setTransactionDate] = useState('')
@@ -192,7 +232,7 @@ const POSTenderDialog = ({
             ),
         [tenders],
     )
-    const remaining = round2(amountDue - covered)
+    const remaining = round2(effectiveAmountDue - covered)
     // The server returns the change of every cash tender (handed over minus
     // what it covers); a split sale may still be fully covered.
     const change = useMemo(
@@ -330,11 +370,26 @@ const POSTenderDialog = ({
         }
         if (remaining > 0.005) {
             setError(
-                `The tenders cover ${formatPrice(covered)} of ${formatPrice(amountDue)}.`,
+                `The tenders cover ${formatPrice(covered)} of ${formatPrice(effectiveAmountDue)}.`,
             )
             return
         }
-        onComplete(tenders)
+        // Down payment requires an identified customer
+        if (paymentMode === 'DOWN_PAYMENT' && balanceDue > 0) {
+            if (!customerId || customerId === 'WALK-IN') {
+                setError('A partial payment requires an identified customer.')
+                return
+            }
+        }
+        onComplete({
+            tenders,
+            paymentMode,
+            ...(paymentMode === 'DOWN_PAYMENT' && {
+                downPaymentType: dpType,
+                downPaymentPct: dpType === 'PERCENTAGE' ? dpPct : undefined,
+                downPaymentAmount: effectiveDpAmount,
+            }),
+        })
     }
 
     const selected = methods.find((row) => row.method === method)!
@@ -355,11 +410,133 @@ const POSTenderDialog = ({
             <h5 id="pos-tender-title" className="mb-1">
                 Take payment
             </h5>
-            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
                 {formatPrice(amountDue)} due
-                {customerName ? ` · ${customerName}` : ''}. One sale may carry
-                several payment methods.
+                {customerName ? ` · ${customerName}` : ''}
             </p>
+
+            {/* Payment mode selector */}
+            <div className="mb-4 flex gap-2">
+                {(['FULL', 'SPLIT', 'DOWN_PAYMENT'] as const).map((mode) => (
+                    <button
+                        key={mode}
+                        type="button"
+                        className={classNames(
+                            'rounded-lg border px-4 py-2 text-sm font-semibold transition-colors',
+                            paymentMode === mode
+                                ? 'border-primary bg-primary-subtle text-primary dark:bg-primary/15'
+                                : 'border-gray-200 text-gray-600 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800',
+                        )}
+                        onClick={() => {
+                            setPaymentMode(mode)
+                            setTenders([])
+                            setError(null)
+                        }}
+                    >
+                        {mode === 'FULL' ? 'Full Payment' : mode === 'SPLIT' ? 'Split Payment' : 'Down Payment'}
+                    </button>
+                ))}
+            </div>
+
+            {/* Down payment configuration */}
+            {paymentMode === 'DOWN_PAYMENT' && (
+                <AdaptiveCard className="mb-4 border border-amber-200 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5">
+                    <div className="mb-3 flex items-center gap-3">
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                className={classNames(
+                                    'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                                    dpType === 'PERCENTAGE'
+                                        ? 'border-primary bg-primary-subtle text-primary'
+                                        : 'border-gray-200 text-gray-600 hover:border-primary dark:border-gray-700 dark:text-gray-300',
+                                )}
+                                onClick={() => setDpType('PERCENTAGE')}
+                            >
+                                Percentage
+                            </button>
+                            <button
+                                type="button"
+                                className={classNames(
+                                    'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                                    dpType === 'FIXED'
+                                        ? 'border-primary bg-primary-subtle text-primary'
+                                        : 'border-gray-200 text-gray-600 hover:border-primary dark:border-gray-700 dark:text-gray-300',
+                                )}
+                                onClick={() => setDpType('FIXED')}
+                            >
+                                Custom Amount
+                            </button>
+                        </div>
+                    </div>
+
+                    {dpType === 'PERCENTAGE' ? (
+                        <div className="flex flex-wrap gap-2">
+                            {DP_PERCENTAGES.map((pct) => (
+                                <button
+                                    key={pct}
+                                    type="button"
+                                    className={classNames(
+                                        'rounded-lg border px-3 py-1.5 text-sm font-semibold tabular-nums transition-colors',
+                                        dpPct === pct
+                                            ? 'border-primary bg-primary text-white'
+                                            : 'border-gray-200 text-gray-700 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800',
+                                    )}
+                                    onClick={() => {
+                                        setDpPct(pct)
+                                        setTenders([])
+                                    }}
+                                >
+                                    {pct}%
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="max-w-xs">
+                            <label
+                                htmlFor="dp-custom-amount"
+                                className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
+                                Down payment amount
+                            </label>
+                            <NumericInput
+                                id="dp-custom-amount"
+                                placeholder="0.00"
+                                thousandSeparator=","
+                                decimalScale={2}
+                                fixedDecimalScale
+                                allowNegative={false}
+                                value={dpCustomAmount}
+                                onValueChange={(v) => {
+                                    setDpCustomAmount(v.value ?? '')
+                                    setTenders([])
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Order total</div>
+                            <div className="text-sm font-semibold tabular-nums heading-text">{formatPrice(amountDue)}</div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Down payment</div>
+                            <div className="text-sm font-semibold tabular-nums text-primary">{formatPrice(effectiveDpAmount)}</div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Balance due</div>
+                            <div className="text-sm font-semibold tabular-nums text-amber-600">{formatPrice(balanceDue)}</div>
+                        </div>
+                    </div>
+
+                    {(!customerId || customerId === 'WALK-IN') && (
+                        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                            A partial payment requires an identified customer. Select or create a customer first.
+                        </div>
+                    )}
+                </AdaptiveCard>
+            )}
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {/* LEFT — payment methods and the tenders already taken */}
@@ -756,10 +933,10 @@ const POSTenderDialog = ({
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div>
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Amount due
+                            {paymentMode === 'DOWN_PAYMENT' ? 'Down payment' : 'Amount due'}
                         </div>
                         <div className="text-base font-semibold tabular-nums heading-text">
-                            {formatPrice(amountDue)}
+                            {formatPrice(effectiveAmountDue)}
                         </div>
                     </div>
                     <div>
@@ -815,7 +992,9 @@ const POSTenderDialog = ({
                     disabled={remaining > 0.005 || !tenders.length}
                     onClick={complete}
                 >
-                    Complete sale
+                    {paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
+                        ? `Complete sale (balance ${formatPrice(balanceDue)})`
+                        : 'Complete sale'}
                 </Button>
             </div>
         </Dialog>

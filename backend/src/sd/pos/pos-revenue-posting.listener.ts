@@ -19,11 +19,37 @@ type PosSaleEvent = {
     currency?: string
     totalAmount: string
     taxAmount?: string
+    outstandingBalance?: string
+    paymentStatus?: string
     tenders?: Array<{
         method: string
         amount: string
         status?: string
+        verificationStatus?: string
     }>
+}
+
+type PosCollectionEvent = {
+    collectionId: string
+    collectionNumber: string
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber?: string
+    companyId: string
+    branchId?: string
+    customerId: string
+    currency?: string
+    collectedAmount: string
+    previousBalance: string
+    newBalance: string
+    tenders?: Array<{
+        method: string
+        amount: string
+        status?: string
+        verificationStatus?: string
+        referenceNumber?: string
+    }>
+    idempotencyKey?: string
 }
 
 /**
@@ -130,7 +156,6 @@ export class PosRevenuePostingListener {
             }
 
             // For each tender, debit the tender's clearing account and credit revenue
-            // We'll build raw journal lines since the shape matches createResolvedJournal
             const rawLines: Array<{
                 lineNumber: number
                 glAccountId: string
@@ -142,6 +167,11 @@ export class PosRevenuePostingListener {
 
             // Load tender → G/L mapping from the configurable payment methods table
             const tenderGlMap = await this.paymentMethods.glAccountMap()
+
+            // Accounts Receivable account for outstanding balances
+            const arAccount = glByCode.get('1200')
+            // Employee Receivable account for salary-loan tenders
+            const empArAccount = glByCode.get('1210')
 
             for (const tender of tenders) {
                 const amount = new Decimal(tender.amount)
@@ -169,6 +199,33 @@ export class PosRevenuePostingListener {
                     creditAmount: ZERO,
                     description: `${tender.method} tender · ${event.orderNumber}`,
                 })
+            }
+
+            // For partial payments: debit Accounts Receivable for the outstanding portion
+            const outstandingBalance = new Decimal(event.outstandingBalance ?? '0')
+            if (outstandingBalance.gt(0)) {
+                // Check if part of the outstanding is an employee loan
+                const receivable = await this.prisma.sdPosReceivable.findUnique({
+                    where: { salesOrderId: event.salesOrderId },
+                    select: { employeeId: true },
+                })
+                const arAccountId = (receivable?.employeeId && empArAccount)
+                    ? empArAccount.id
+                    : (arAccount?.id ?? glByCode.get('1000')?.id)
+
+                if (arAccountId) {
+                    rawLines.push({
+                        lineNumber: lineNum++,
+                        glAccountId: arAccountId,
+                        debitAmount: outstandingBalance,
+                        creditAmount: ZERO,
+                        description: `Accounts Receivable · ${event.orderNumber}`,
+                    })
+                } else {
+                    this.logger.warn(
+                        `G/L 1200 (Accounts Receivable) not found; outstanding ₱${outstandingBalance} not posted for ${event.orderNumber}`,
+                    )
+                }
             }
 
             // CREDIT: Sales Revenue (net of VAT)
@@ -314,6 +371,192 @@ export class PosRevenuePostingListener {
             // Revenue posting must never block the POS sale
             this.logger.error(
                 `Revenue posting failed for ${event.orderNumber}: ${err instanceof Error ? err.message : String(err)}`,
+            )
+        }
+    }
+
+    /**
+     * Handle a subsequent payment collection: DEBIT Cash/etc, CREDIT Accounts Receivable.
+     * No second revenue recognition — the revenue was posted at sale time.
+     */
+    @OnEvent(SD_EVENTS.POS_COLLECTION_COMPLETED, { async: true })
+    async handlePosCollectionCompleted(event: PosCollectionEvent): Promise<void> {
+        if (!event?.collectionId || !event?.companyId) return
+
+        const idempotencyKey = `pos-collection:${event.collectionId}`
+
+        try {
+            const settings = await this.prisma.ficoCompanyAccountingSettings.findFirst({
+                where: { companyId: event.companyId, status: 'ACTIVE' },
+                select: { chartOfAccountsId: true },
+            })
+            if (!settings?.chartOfAccountsId) {
+                this.logger.debug(
+                    `Skipping collection posting for ${event.collectionNumber}: no active accounting settings`,
+                )
+                return
+            }
+
+            const glAccounts = await this.prisma.ficoGlAccount.findMany({
+                where: {
+                    chartOfAccountsId: settings.chartOfAccountsId,
+                    status: 'ACTIVE',
+                    isPostingAccount: true,
+                },
+                select: { id: true, accountCode: true },
+            })
+            const glByCode = new Map(glAccounts.map((a) => [a.accountCode, a]))
+
+            const arAccount = glByCode.get('1200')
+            if (!arAccount) {
+                this.logger.warn(
+                    `Skipping collection posting for ${event.collectionNumber}: G/L 1200 (Accounts Receivable) not found`,
+                )
+                return
+            }
+
+            const existing = await this.prisma.ficoJournalEntry.findUnique({
+                where: { idempotencyKey },
+                select: { id: true },
+            })
+            if (existing) {
+                this.logger.debug(`Collection journal already exists for ${event.collectionNumber}`)
+                return
+            }
+
+            const tenderGlMap = await this.paymentMethods.glAccountMap()
+            const rawLines: Array<{
+                lineNumber: number
+                glAccountId: string
+                debitAmount: Prisma.Decimal
+                creditAmount: Prisma.Decimal
+                description: string
+            }> = []
+            let lineNum = 1
+
+            // DEBIT side: one line per collection tender
+            const tenders = event.tenders ?? []
+            for (const tender of tenders) {
+                const amount = new Decimal(tender.amount)
+                if (amount.lte(0)) continue
+
+                const glCode = tenderGlMap[tender.method] ?? '1000'
+                const gl = glByCode.get(glCode)
+                const accountId = gl?.id ?? glByCode.get('1000')?.id
+                if (!accountId) continue
+
+                rawLines.push({
+                    lineNumber: lineNum++,
+                    glAccountId: accountId,
+                    debitAmount: amount,
+                    creditAmount: ZERO,
+                    description: `${tender.method} collection · ${event.collectionNumber}`,
+                })
+            }
+
+            // CREDIT: Accounts Receivable (reduce the outstanding balance)
+            const collectedAmount = new Decimal(event.collectedAmount)
+            if (collectedAmount.gt(0)) {
+                rawLines.push({
+                    lineNumber: lineNum++,
+                    glAccountId: arAccount.id,
+                    debitAmount: ZERO,
+                    creditAmount: collectedAmount,
+                    description: `AR collection · ${event.orderNumber} · ${event.collectionNumber}`,
+                })
+            }
+
+            // Balance check
+            const totalDebit = rawLines.reduce((s, l) => s.plus(l.debitAmount), ZERO)
+            const totalCredit = rawLines.reduce((s, l) => s.plus(l.creditAmount), ZERO)
+            if (!totalDebit.eq(totalCredit)) {
+                this.logger.error(
+                    `Collection journal imbalance for ${event.collectionNumber}: debit ${totalDebit} ≠ credit ${totalCredit}; skipping`,
+                )
+                return
+            }
+            if (!rawLines.length) return
+
+            const postingDate = new Date()
+            const fiscalPeriod = await this.prisma.ficoFinancialPeriod.findFirst({
+                where: {
+                    companyId: event.companyId,
+                    periodType: 'NORMAL',
+                    startDate: { lte: postingDate },
+                    endDate: { gte: postingDate },
+                    status: { in: ['OPEN', 'RESTRICTED'] },
+                },
+                select: { id: true, fiscalYear: true },
+            })
+
+            if (!fiscalPeriod) {
+                this.logger.warn(
+                    `No open fiscal period for collection ${event.collectionNumber}; posting skipped`,
+                )
+                return
+            }
+
+            const currency = event.currency ?? 'PHP'
+            const journal = await this.prisma.$transaction(async (tx) => {
+                await tx.$queryRaw`
+                    SELECT id FROM fico_financial_periods
+                    WHERE id = ${fiscalPeriod.id}
+                    FOR SHARE
+                `
+                const lockedPeriod = await tx.ficoFinancialPeriod.findUnique({
+                    where: { id: fiscalPeriod.id },
+                    select: { status: true },
+                })
+                if (!lockedPeriod || !['OPEN', 'RESTRICTED'].includes(lockedPeriod.status)) {
+                    throw new Error('Fiscal period changed; collection posting skipped')
+                }
+
+                const entry = await tx.ficoJournalEntry.create({
+                    data: {
+                        idempotencyKey,
+                        companyId: event.companyId,
+                        postingDate,
+                        documentDate: postingDate,
+                        fiscalYear: fiscalPeriod.fiscalYear,
+                        fiscalPeriodId: fiscalPeriod.id,
+                        totalAmount: totalDebit,
+                        currencyCode: currency,
+                        status: 'DRAFT',
+                        approvalStatus: 'POSTED',
+                        requiresApproval: false,
+                        documentType: 'SD_REVENUE',
+                        sourceModule: 'SD',
+                        sourceDocumentType: 'POS_COLLECTION',
+                        sourceDocumentId: event.collectionId,
+                        sourcePostingKey: idempotencyKey,
+                        description: `POS collection · ${event.collectionNumber} · ${event.orderNumber}`,
+                    },
+                })
+                await tx.ficoJournalEntryLine.createMany({
+                    data: rawLines.map((line) => ({
+                        journalEntryId: entry.id,
+                        lineNumber: line.lineNumber,
+                        glAccountId: line.glAccountId,
+                        companyId: event.companyId,
+                        debitAmount: line.debitAmount,
+                        creditAmount: line.creditAmount,
+                        currency,
+                        description: line.description,
+                    })),
+                })
+                await tx.ficoJournalEntry.update({
+                    where: { id: entry.id },
+                    data: { status: 'POSTED' },
+                })
+                return entry
+            })
+
+            this.logger.log(
+                `Collection journal ${journal.id} posted for ${event.collectionNumber}: ₱${totalDebit}`,
+            )
+        } catch (err) {
+            this.logger.error(
+                `Collection posting failed for ${event.collectionNumber}: ${err instanceof Error ? err.message : String(err)}`,
             )
         }
     }
