@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -29,7 +29,10 @@ import ProductMaterialSection from './ProductMaterialSection'
 import ProductReviewSection from './ProductReviewSection'
 import { productMaterialAssignmentService } from '../services/productMaterialAssignmentService'
 import { productAttribute } from '../services/productCatalogService'
-import type { MaterialCatalogReference } from '../services/materialCatalogReferenceService'
+import {
+    fetchMaterialCatalogReference,
+    type MaterialCatalogReference,
+} from '../services/materialCatalogReferenceService'
 import {
     EMPTY_MEASUREMENTS,
     measurementsFromMaterial,
@@ -44,7 +47,6 @@ import {
     suggestProductSku,
     type ProductInput,
     type SdProductRecord,
-    type SdProductType,
 } from '../services/productCatalogService'
 
 const MAX_PRICE = 999_999_999.99
@@ -62,10 +64,12 @@ const productSchema = z
             .number({ message: 'Selling price is required' })
             .min(0.01, 'Enter a selling price greater than zero')
             .max(MAX_PRICE, 'Price is too large'),
+        // Optional: a product without a discount has no compare-at price.
         originalPrice: z
-            .number({ message: 'Original price is required' })
+            .number({ message: 'Enter a number or leave it empty' })
             .min(0.01, 'Enter an original price greater than zero')
-            .max(MAX_PRICE, 'Price is too large'),
+            .max(MAX_PRICE, 'Price is too large')
+            .optional(),
         imageUrl: z
             .string()
             .trim()
@@ -78,7 +82,8 @@ const productSchema = z
         description: z.string().trim().max(2000),
         sortOrder: z.number().int().min(0).max(100_000),
         isActive: z.boolean(),
-        productType: z.literal('STOCK_ITEM'),
+        /** Stored item nature; only STOCK_ITEM is inventory-relevant. */
+        productType: z.enum(['STOCK_ITEM', 'NON_STOCK_ITEM', 'SERVICE']),
         /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
         productConfig: z.enum(['SIMPLE', 'VARIABLE']),
         companyId: z.string(),
@@ -97,27 +102,13 @@ const productSchema = z
             volume: z.string().trim().max(120),
         }),
     })
-    .refine((values) => values.originalPrice > values.price, {
+    .refine(
+        (values) =>
+            values.originalPrice == null || values.originalPrice > values.price,
+        {
         path: ['originalPrice'],
         message: 'Must be higher than the selling price',
     })
-    /**
-     * A SIMPLE product must link one existing material. A VARIABLE product
-     * links one material per variant (validated with the variants).
-     */
-    .refine(
-        (values) =>
-            values.productConfig === 'SIMPLE' &&
-            (values.companyId.trim().length === 0 ||
-                values.materialId.trim().length === 0)
-                ? false
-                : true,
-        {
-            path: ['materialId'],
-            message:
-                'Select the company and the existing MM material this product sells',
-        },
-    )
     .refine(
         (values) =>
             values.materialLinkMode !== 'single' ||
@@ -135,6 +126,30 @@ const productSchema = z
         {
             path: ['sku'],
             message: 'Enter a SKU or turn on auto-generate',
+        },
+    )
+
+/**
+ * A SIMPLE stock product must link an existing MM material before it can be
+ * saved. Create links the material through `materialId`; edit links it through
+ * the `materialIds` array populated from the active product–material
+ * assignment. VARIABLE products link one material per variant instead, and
+ * non-stock / service products carry no inventory link at all.
+ */
+const buildProductSchema = (editing: boolean) =>
+    productSchema.refine(
+        (values) =>
+            values.productType !== 'STOCK_ITEM' ||
+            values.productConfig !== 'SIMPLE' ||
+            (values.companyId.trim().length > 0 &&
+                (editing
+                    ? values.materialIds.length > 0
+                    : values.materialId.trim().length > 0)),
+        {
+            path: editing ? ['materialIds'] : ['materialId'],
+            message: editing
+                ? 'Link the existing MM material this product sells'
+                : 'Select the company and the existing MM material this product sells',
         },
     )
 
@@ -189,9 +204,7 @@ const toFormValues = (
               sku: product.sku,
               name: product.name,
               price: product.price,
-              originalPrice:
-                  product.originalPrice ??
-                  (undefined as unknown as FormShape['originalPrice']),
+              originalPrice: product.originalPrice ?? undefined,
               imageUrl: product.imageUrl,
               imageGallery: productImageGallery(product).filter(
                   (url) => url !== product.imageUrl,
@@ -202,8 +215,11 @@ const toFormValues = (
               description: product.description,
               sortOrder: product.sortOrder,
               isActive: product.isActive,
-              productType: 'STOCK_ITEM',
-              productConfig: ((product as SdProductRecord & { productConfig?: string }).productConfig === 'VARIABLE' ? 'VARIABLE' : 'SIMPLE') as 'SIMPLE' | 'VARIABLE',
+              // Keep the stored item nature: editing a service / non-stock
+              // product must not turn it into a stock item.
+              productType: product.productType ?? 'STOCK_ITEM',
+              productConfig:
+                  product.productConfig === 'VARIABLE' ? 'VARIABLE' : 'SIMPLE',
               companyId: '',
               materialLinkMode: 'single',
               materialIds: [],
@@ -216,7 +232,7 @@ const toFormValues = (
               sku: '',
               name: '',
               price: undefined as unknown as number,
-              originalPrice: undefined as unknown as number,
+              originalPrice: undefined,
               imageUrl: '',
               imageGallery: [],
               videoUrls: [],
@@ -359,6 +375,8 @@ const ProductFormDialog = ({
     onClose,
     onSubmit,
 }: ProductFormDialogProps) => {
+    const editing = mode === 'edit'
+    const schema = useMemo(() => buildProductSchema(editing), [editing])
     const {
         control,
         handleSubmit,
@@ -371,7 +389,7 @@ const ProductFormDialog = ({
         formState: { errors },
     } = useForm<FormShape>({
         defaultValues: toFormValues(product, defaultDivisionId),
-        resolver: zodResolver(productSchema),
+        resolver: zodResolver(schema),
     })
 
     /** Primary material whose MM measurements were last applied to the form. */
@@ -383,6 +401,9 @@ const ProductFormDialog = ({
     const [valuationCurrency, setValuationCurrency] = useState<string | null>(
         null,
     )
+    /** True when every linked MM material has a sale-ready tax configuration. */
+    const [taxReady, setTaxReady] = useState(true)
+    const [allowIncompleteTaxSetup, setAllowIncompleteTaxSetup] = useState(false)
 
     /**
      * Initialise the form when the dialog opens.
@@ -404,6 +425,8 @@ const ProductFormDialog = ({
         measuredMaterialRef.current = null
         setMmCategory(product?.category ?? null)
         setValuationCurrency(null)
+        setTaxReady(true)
+        setAllowIncompleteTaxSetup(false)
         setWizardStep(0)
         setOptionsAttempted(false)
         setOptionsInitial(null)
@@ -413,13 +436,16 @@ const ProductFormDialog = ({
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
     const productConfig = useWatch({ control, name: 'productConfig' })
+    const productType = useWatch({ control, name: 'productType' })
     const materialIds = useWatch({ control, name: 'materialIds' })
+    const rawMaterialId = useWatch({ control, name: 'materialId' })
+    const materialIdWatch =
+        typeof rawMaterialId === 'string' ? rawMaterialId : ''
     const rawCompanyId = useWatch({ control, name: 'companyId' })
     // The company field holds the option VALUE (a string).
     const companyId =
         typeof rawCompanyId === 'string' ? rawCompanyId : ''
     const CREATE_WIZARD_STEPS = getCreateWizardSteps(productConfig ?? 'SIMPLE')
-    const editing = mode === 'edit'
     const createWizard = !editing
     const [wizardStep, setWizardStep] = useState(0)
     const [uploading, setUploading] = useState(false)
@@ -599,6 +625,16 @@ const ProductFormDialog = ({
         const primary = materials[0]
         setMmCategory(primary?.general.materialCategory ?? null)
         setValuationCurrency(primary?.valuation.currencyCode ?? null)
+        const ready =
+            materials.length === 0
+                ? true
+                : materials.every((row) => row.tax?.readyForSale)
+        setTaxReady(ready)
+        // Create: incomplete tax is a warning, not a silent blocker. Pre-ack so
+        // catalog listing works before MM tax is configured (stock may be zero).
+        if (!editing) {
+            setAllowIncompleteTaxSetup(!ready)
+        }
         if (!primary || measuredMaterialRef.current === primary.materialId)
             return
         // Editing: the first load only fills blanks so saved shop specs survive.
@@ -619,6 +655,49 @@ const ProductFormDialog = ({
             { shouldDirty: true },
         )
     }
+
+    /**
+     * Create wizard: the Material step uses `materialId` (not `materialIds`),
+     * so edit-mode `ProductCatalogMaterialSection` never runs. Fetch the same
+     * MM catalog reference here and apply UOM / specs into measurements.unit.
+     */
+    useEffect(() => {
+        if (!isOpen || editing) return
+        if (!companyId || !materialIdWatch.trim()) {
+            if (measuredMaterialRef.current !== null) {
+                measuredMaterialRef.current = null
+                setMmCategory(null)
+                setValuationCurrency(null)
+                setTaxReady(true)
+                setAllowIncompleteTaxSetup(false)
+                setValue('measurements', EMPTY_MEASUREMENTS, {
+                    shouldDirty: true,
+                })
+            }
+            return
+        }
+        if (measuredMaterialRef.current === materialIdWatch) return
+        let cancelled = false
+        void fetchMaterialCatalogReference(
+            materialIdWatch,
+            companyId,
+            divisionId || undefined,
+        )
+            .then((ref) => {
+                if (cancelled) return
+                applyMaterialMeasurements([ref])
+            })
+            .catch(() => {
+                if (cancelled) return
+                // Keep the form usable; UOM can still be typed manually.
+            })
+        return () => {
+            cancelled = true
+        }
+        // applyMaterialMeasurements closes over editing/setValue/getValues;
+        // re-run only when the create material selection changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, editing, companyId, materialIdWatch, divisionId])
 
     const onValid = async (values: FormShape) => {
         const optionIssues = values.productConfig === 'VARIABLE'
@@ -658,8 +737,29 @@ const ProductFormDialog = ({
             return
         }
         setOptionsAttempted(false)
+
+        /**
+         * Incomplete MM tax must not silently fail create. Stock can be zero —
+         * catalog listing is allowed. Create prefers /sd/products/family which
+         * does not require tax; the legacy createProduct path still needs the
+         * incomplete-setup flag. Warn on the Material step; only hard-block
+         * when the operator explicitly refuses the incomplete-setup option.
+         */
+        const incompleteTaxNeedsAck =
+            !editing &&
+            values.productType === 'STOCK_ITEM' &&
+            values.productConfig !== 'VARIABLE' &&
+            !taxReady
+        if (incompleteTaxNeedsAck && !allowIncompleteTaxSetup) {
+            setError('materialId', {
+                message:
+                    'This material has no sale-ready tax configuration. Configure Tax Information in Material Master, or enable “Create product with incomplete tax setup” below.',
+            })
+            if (createWizard) setWizardStep(1)
+            return
+        }
+
         const {
-            productType: _productType,
             autoGenerateSku: autoSku,
             imageGallery,
             videoUrls,
@@ -718,11 +818,12 @@ const ProductFormDialog = ({
             ...rest,
             sku: autoSku ? '' : values.sku.toUpperCase(),
             badge: values.badge || null,
-            productType: 'STOCK_ITEM' satisfies SdProductType,
+            productType: values.productType,
             productConfig: values.productConfig,
             autoGenerateSku: !editing && autoSku,
             imageGallery,
             attributes,
+            ...(mmCategory ? { category: mmCategory } : {}),
         }
         if (optionsDraft) {
             payload.optionsVariants = optionsDraft
@@ -732,8 +833,22 @@ const ProductFormDialog = ({
             payload.materialLinkMode = materialLinkMode
             payload.companyId = companyId
             payload.materialId = materialId
+            // Family create ignores this; legacy createProduct requires it when tax is incomplete.
+            payload.allowIncompleteTaxSetup = taxReady
+                ? undefined
+                : true
         }
-        await onSubmit(payload)
+        try {
+            await onSubmit(payload)
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Unable to create the product'
+            setError('materialId', { message })
+            if (createWizard) setWizardStep(1)
+            return
+        }
         clearProductFormDraft()
         setDraftRestored(false)
     }
@@ -1116,7 +1231,22 @@ const ProductFormDialog = ({
                     {showStep(1) ? (
                     <>
                     {editing ? (
-                        productConfig === 'VARIABLE' ? (
+                        productType !== 'STOCK_ITEM' ? (
+                            <div className="md:col-span-2 rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-gray-700">
+                                <p className="font-semibold text-gray-900">
+                                    No inventory link
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    This is a{' '}
+                                    {productType === 'SERVICE'
+                                        ? 'service'
+                                        : 'non-stock'}{' '}
+                                    product, so it has no Material Master
+                                    link and orders never reserve or fulfill
+                                    stock for it.
+                                </p>
+                            </div>
+                        ) : productConfig === 'VARIABLE' ? (
                             <div className="md:col-span-2 rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-gray-700">
                                 <p className="font-semibold text-gray-900">
                                     Variants own their material
@@ -1147,6 +1277,35 @@ const ProductFormDialog = ({
                                     mmStockRefreshKey={mmStockRefreshKey}
                                     onMaterialsLoaded={applyMaterialMeasurements}
                                 />
+                                {!editing && !taxReady ? (
+                                    <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                        <p className="font-semibold">
+                                            Tax Classification Not Configured
+                                        </p>
+                                        <p className="mt-1">
+                                            This material cannot be sold until
+                                            MM Material Master has a complete,
+                                            active tax configuration. Configure
+                                            it in Material Master, or use the
+                                            explicit incomplete-setup workflow.
+                                        </p>
+                                        <label className="mt-2 flex items-center gap-2 font-medium">
+                                            <input
+                                                type="checkbox"
+                                                checked={
+                                                    allowIncompleteTaxSetup
+                                                }
+                                                onChange={(e) =>
+                                                    setAllowIncompleteTaxSetup(
+                                                        e.target.checked,
+                                                    )
+                                                }
+                                            />
+                                            Create product with incomplete tax
+                                            setup
+                                        </label>
+                                    </div>
+                                ) : null}
                             </>
                         )
                     ) : (
@@ -1162,6 +1321,33 @@ const ProductFormDialog = ({
                                 disabled={saving || uploading}
                                 productConfig={productConfig}
                             />
+                            {!taxReady ? (
+                                <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                    <p className="font-semibold">
+                                        Tax Classification Not Configured
+                                    </p>
+                                    <p className="mt-1">
+                                        Zero stock does not block catalog
+                                        listing. This material has no
+                                        sale-ready tax setup in Material Master
+                                        yet — you can still create the product
+                                        and configure tax later.
+                                    </p>
+                                    <label className="mt-2 flex items-center gap-2 font-medium">
+                                        <input
+                                            type="checkbox"
+                                            checked={allowIncompleteTaxSetup}
+                                            onChange={(e) =>
+                                                setAllowIncompleteTaxSetup(
+                                                    e.target.checked,
+                                                )
+                                            }
+                                        />
+                                        Create product with incomplete tax
+                                        setup
+                                    </label>
+                                </div>
+                            ) : null}
                         </>
                     )}
                     {divisionId === LPG_DIVISION_ID ? (
@@ -1274,17 +1460,16 @@ const ProductFormDialog = ({
                                 ? `Original price (${valuationCurrency})`
                                 : 'Original price'
                         }
-                        asterisk
                         extra={
                             valuationCurrency ? (
                                 <span className="text-xs text-gray-500">
-                                    Matches MM valuation currency on the linked
-                                    material
+                                    Optional — matches MM valuation currency on
+                                    the linked material
                                 </span>
                             ) : (
                                 <span className="text-xs text-gray-500">
-                                    Link an MM material to use its valuation
-                                    currency (e.g. PHP)
+                                    Optional — link an MM material to use its
+                                    valuation currency (e.g. PHP)
                                 </span>
                             )
                         }
@@ -1457,7 +1642,7 @@ const ProductFormDialog = ({
                         is kept as-is.
                     </p>
                 ) : null}
-                {(productConfig === 'VARIABLE' && showStep(4)) || (editing && (product as SdProductRecord & { productConfig?: string } | undefined)?.productConfig === 'VARIABLE') ? (
+                {(productConfig === 'VARIABLE' && showStep(4)) || (editing && productConfig === 'VARIABLE') ? (
                     <div className="mt-6" ref={optionsSectionRef}>
                         <p className="mb-3 text-sm font-semibold text-gray-900">
                             Options & Variants

@@ -70,6 +70,14 @@ function setup(stops: Array<[string, number, StopStatus, Link[]]>, tripOver: Par
             },
             findUnique: async ({ where }: { where: { clientActionId: string } }) =>
                 state.events.find((e) => e.clientActionId === where.clientActionId) ?? null,
+            findFirst: async ({ where }: { where: { stopId: string; eventType: string } }) =>
+                state.events.find(
+                    (e) =>
+                        e.stopId === where.stopId &&
+                        e.eventType === where.eventType &&
+                        e.latitude != null &&
+                        e.longitude != null,
+                ) ?? null,
         },
         shipment: {
             findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
@@ -129,6 +137,15 @@ const collected = (over: Record<string, unknown> = {}) => ({
     ...over,
 })
 
+/** Complete POD for a deliver stop: signature, photo and a geo-tagged timestamp. */
+const POD = {
+    podSignatureUrl: 'data:image/png;base64,sig',
+    podPhotoUrl: 'data:image/jpeg;base64,photo',
+    latitude: 14.55,
+    longitude: 121.02,
+    accuracy: 12,
+}
+
 const TWO_STOPS: Array<[string, number, StopStatus, Link[]]> = [
     ['s1', 1, StopStatus.PENDING, [{ action: 'DROPOFF', shipmentId: 'shA' }]],
     ['s2', 2, StopStatus.PENDING, [{ action: 'DROPOFF', shipmentId: 'shB' }]],
@@ -169,12 +186,51 @@ describe('TripsService stop execution', () => {
     it('deliver: ARRIVED → COMPLETED, DROPOFF shipment DELIVERED, COMPLETED event', async () => {
         const { service, state, stop, completeTrip } = setup(TWO_STOPS)
         await service.arriveStop('t1', 's1', 'drv-1')
-        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED', podNotes: 'left at gate' }, 'drv-1')
+        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED', podNotes: 'left at gate', ...POD }, 'drv-1')
         expect(stop('s1').status).toBe(StopStatus.COMPLETED)
-        expect(state.shipments.shA.status).toBe(ShipmentStatus.DELIVERED)
+        expect(state.shipments.shA).toMatchObject({
+            status: ShipmentStatus.DELIVERED,
+            podSignatureUrl: POD.podSignatureUrl,
+            podPhotoUrl: POD.podPhotoUrl,
+        })
         expect(state.events.map((e) => e.eventType)).toEqual(['ARRIVED', 'COMPLETED'])
-        expect(state.events[1].notes).toBe('left at gate')
+        expect(state.events[1]).toMatchObject({ notes: 'left at gate', latitude: 14.55, longitude: 121.02, accuracyM: 12 })
         expect(completeTrip).not.toHaveBeenCalled()
+    })
+
+    describe('POD evidence (ISO §5) — deliver stops', () => {
+        it('rejects DELIVERED without signature, photo and location, naming what is missing', async () => {
+            const { service, state, stop } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            await expect(service.deliverStop('t1', 's1', { outcome: 'DELIVERED' }, 'drv-1')).rejects.toThrow(
+                /customer signature, photo of the delivered goods, location/,
+            )
+            await expect(
+                service.deliverStop('t1', 's1', { outcome: 'DELIVERED', ...POD, podPhotoUrl: null }, 'drv-1'),
+            ).rejects.toThrow(/photo of the delivered goods/)
+            expect(stop('s1').status).toBe(StopStatus.ARRIVED)
+            expect(state.shipments.shA.status).toBe(ShipmentStatus.IN_TRANSIT)
+        })
+
+        it('accepts a geo-tagged arrival and POD saved earlier via …/pod', async () => {
+            const { service, stop } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1', { latitude: 14.55, longitude: 121.02 })
+            await service.saveStopPod(
+                't1',
+                's1',
+                { podSignatureUrl: POD.podSignatureUrl, podPhotoUrl: POD.podPhotoUrl },
+                'drv-1',
+            )
+            await service.deliverStop('t1', 's1', { outcome: 'DELIVERED' }, 'drv-1')
+            expect(stop('s1').status).toBe(StopStatus.COMPLETED)
+        })
+
+        it('a failed delivery needs no POD evidence', async () => {
+            const { service, stop } = setup(TWO_STOPS)
+            await service.arriveStop('t1', 's1', 'drv-1')
+            await service.deliverStop('t1', 's1', { outcome: 'FAILED', reasonCode: 'CUSTOMER_UNAVAILABLE' }, 'drv-1')
+            expect(stop('s1').status).toBe(StopStatus.FAILED)
+        })
     })
 
     it('fail: stores reason, holds linked shipment, and the trip continues', async () => {
@@ -264,7 +320,7 @@ describe('TripsService stop execution', () => {
         await service.arriveStop('t1', 's1', 'drv-1', { clientActionId: 'act-1' })
         expect(state.events).toHaveLength(1)
         await expect(
-            service.deliverStop('t1', 's1', { outcome: 'DELIVERED', clientActionId: 'act-1' }, 'drv-1'),
+            service.deliverStop('t1', 's1', { outcome: 'DELIVERED', clientActionId: 'act-1', ...POD }, 'drv-1'),
         ).rejects.toThrow(/different stop action/)
     })
 
@@ -277,7 +333,7 @@ describe('TripsService stop execution', () => {
     it('POD success notifies SD for the stop DROPOFF shipments (invoice posts on delivery)', async () => {
         const { service, events } = setup(TWO_STOPS)
         await service.arriveStop('t1', 's1', 'drv-1')
-        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED' }, 'drv-1')
+        await service.deliverStop('t1', 's1', { outcome: 'DELIVERED', ...POD }, 'drv-1')
         expect(events.emit).toHaveBeenCalledWith('shipment.delivered', { shipmentIds: ['shA'] })
     })
 

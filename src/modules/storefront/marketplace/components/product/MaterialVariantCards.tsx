@@ -8,7 +8,7 @@ import {
     type VariantStockAvailability,
     variantLabel,
 } from '@/modules/sd/services/productOptionVariantsService'
-import { formatPrice } from '../../marketplaceUi'
+import { ProductImage, formatPrice } from '../../marketplaceUi'
 import VariantStockBadge from './VariantStockBadge'
 
 export type MaterialVariantCardsProps = {
@@ -51,7 +51,12 @@ const MaterialVariantCards = ({
                 const stock = stockByVariantId.get(variant.id)
                 const soldOut = isVariantSoldOut(stock)
                 const disabled = disableUnavailable && soldOut
-                const label = variantLabel(variant)
+                // "Default" is an internal name: fall back to the material the
+                // variant sells, then to the product itself.
+                const label =
+                    variantLabel(variant) ||
+                    stock?.materialName?.trim() ||
+                    product.name
                 const subtitle =
                     stock?.materialName?.trim() &&
                     stock.materialName.trim() !== label
@@ -87,6 +92,15 @@ const MaterialVariantCards = ({
                                         src={variant.imageUrl}
                                         alt=""
                                         className="h-full w-full object-cover"
+                                    />
+                                ) : product.imageUrl ? (
+                                    // A variant without its own photo shows the
+                                    // product photo instead of bare initials.
+                                    <ProductImage
+                                        product={product}
+                                        sizes="44px"
+                                        fit="cover"
+                                        className="h-full w-full !bg-transparent"
                                     />
                                 ) : (
                                     label.slice(0, 2)

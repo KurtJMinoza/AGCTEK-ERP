@@ -13,14 +13,13 @@ import {
 } from './stop-location.rules'
 import {
     computeSchedule,
+    defaultServiceMinutes,
     recommendDeparture,
     type DepartureMode,
     type ScheduleLeg,
     type ScheduleStop,
     type ScheduledStop,
 } from './route-schedule'
-
-const DEFAULT_SERVICE_MIN = 30
 
 const ROUTE_TYPE: Record<TmsStopType, 'PICKUP' | 'SHIP_TO' | 'RETURN_TO'> = {
     SHIP: 'PICKUP',
@@ -244,8 +243,7 @@ function parseStopOrder(value: unknown): string[] | null {
 }
 
 function parseServiceMinutes(value: unknown): number {
-    const fallback = Number(process.env.ROUTE_DEFAULT_SERVICE_MIN) || DEFAULT_SERVICE_MIN
-    if (value == null || value === '') return fallback
+    if (value == null || value === '') return defaultServiceMinutes()
     const n = Number(value)
     if (!Number.isFinite(n) || n < 0 || n > 480) {
         throw new BadRequestException('serviceTimeMin must be between 0 and 480')

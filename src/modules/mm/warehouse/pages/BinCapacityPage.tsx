@@ -1,23 +1,37 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Tag from '@/components/ui/Tag'
 import Progress from '@/components/ui/Progress'
 import { HiOutlineCube, HiOutlineScale, HiOutlineDatabase } from 'react-icons/hi'
 import { storageBinService } from '../services/storageBinService'
 import type { StorageBin, BinCapacitySummary } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    WAREHOUSE_STORAGE_BINS_PATH,
+    warehouseParentBreadcrumbs,
+} from '../utils/warehousePageUi'
 
 const ROUTE = '/modules/mm/warehouse-management/bin-capacity'
 
+function binUtilizationPct(row: StorageBin): number {
+    const cap = Number(row.capacityQuantity)
+    const currentQty = Number(row.currentQuantity ?? 0)
+    if (row.utilizationPct != null && Number.isFinite(Number(row.utilizationPct))) {
+        return Math.min(Math.round(Number(row.utilizationPct)), 100)
+    }
+    return cap > 0 ? Math.min(Math.round((currentQty / cap) * 100), 100) : 0
+}
+
 const BinCapacityPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const router = useRouter()
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
     const [bins, setBins] = useState<StorageBin[]>([])
     const [summary, setSummary] = useState<BinCapacitySummary | null>(null)
     const [loading, setLoading] = useState(true)
@@ -78,10 +92,64 @@ const BinCapacityPage = () => {
         { header: 'Status', accessorKey: 'status', size: 100, cell: ({ row }) => <StatusBadge tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}>{row.original.status}</StatusBadge> },
     ], [])
 
+    const capacityMobile = useMemo(
+        () => ({
+            title: (row: StorageBin) => row.code,
+            subtitle: (row: StorageBin) =>
+                row.storageSection?.storageType?.warehouse?.name ?? row.storageSection?.code ?? undefined,
+            status: (row: StorageBin) => ({
+                text: `${binUtilizationPct(row)}% full`,
+                tone:
+                    binUtilizationPct(row) >= 90
+                        ? ('danger' as const)
+                        : binUtilizationPct(row) >= 70
+                          ? ('warning' as const)
+                          : ('success' as const),
+            }),
+            onPress: (row: StorageBin) => {
+                router.push(
+                    `${WAREHOUSE_STORAGE_BINS_PATH}?edit=${encodeURIComponent(row.id)}`,
+                )
+            },
+            fields: [
+                {
+                    label: 'Section',
+                    value: (row: StorageBin) => row.storageSection?.code ?? '—',
+                },
+                {
+                    label: 'Type',
+                    value: (row: StorageBin) => row.storageSection?.storageType?.name ?? '—',
+                },
+                {
+                    label: 'Qty cap',
+                    value: (row: StorageBin) => Number(row.capacityQuantity).toLocaleString(),
+                },
+                {
+                    label: 'Weight',
+                    value: (row: StorageBin) =>
+                        `${Number(row.capacityWeight).toLocaleString()} ${row.weightUom || ''}`.trim(),
+                },
+                {
+                    label: 'Volume',
+                    value: (row: StorageBin) =>
+                        `${Number(row.capacityVolume).toLocaleString()} ${row.volumeUom || ''}`.trim(),
+                },
+                {
+                    label: 'Status',
+                    value: (row: StorageBin) => row.status.replace(/_/g, ' '),
+                },
+            ],
+        }),
+        [router],
+    )
+
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Bin Capacity" description="Overview of storage bin capacity utilization across warehouses." />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Bin Capacity"
+                description="Overview of storage bin capacity utilization across warehouses."
+            />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <SummaryCard label="Total bins" value={summary?.totalBins ?? 0} icon={<HiOutlineCube className="text-lg" />} />
@@ -92,7 +160,17 @@ const BinCapacityPage = () => {
             </div>
 
             <AdaptiveCard className="mt-6">
-                <DataTable<StorageBin> columns={columns} data={bins} compact loading={loading} />
+                <WarehouseResponsiveTable<StorageBin>
+                    columns={columns}
+                    data={bins}
+                    compact
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    noData={!loading && bins.length === 0}
+                    tableMinWidthClass="min-w-[1040px]"
+                    mobile={capacityMobile}
+                    instanceId="bin-capacity"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

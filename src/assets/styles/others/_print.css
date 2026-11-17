@@ -1,13 +1,32 @@
 /*
  * Isolated print targets: while an element with .print-isolate is mounted as a
  * direct child of <body>, printing shows only that element (e.g. POS receipt).
+ * Tuned for 80mm thermal printers (Xprinter and similar).
  */
 @media print {
+    @page {
+        size: 80mm auto;
+        margin: 2mm;
+    }
+
     body:has(> .print-isolate) > *:not(.print-isolate) {
         display: none !important;
     }
 
     body:has(> .print-isolate) {
         background: #fff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body:has(> .print-isolate) > .print-isolate {
+        display: block !important;
+        width: 72mm !important;
+        max-width: 100% !important;
+        margin: 0 auto !important;
+        color: #000 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 }

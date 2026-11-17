@@ -18,6 +18,7 @@ import {
     CreateProductDto,
     ListProductsQueryDto,
     PRODUCT_GALLERY_MAX,
+    ProductAvailabilityBatchDto,
     UpdateProductDto,
     UpdateProductStatusDto,
 } from './dto/product.dto'
@@ -131,22 +132,6 @@ export class ProductController {
         return this.products.suggestSku(divisionId)
     }
 
-    /** Options + variants of a product (admin editor + storefront detail). */
-    @Get(':id/options-variants')
-    optionsVariants(@Param('id') id: string) {
-        return this.optionVariants.getForProduct(id)
-    }
-
-    /** Replace the full options + variants set (variant generator output). */
-    @Put(':id/options-variants')
-    @RequirePermission('sd.product-catalog', 'update')
-    updateOptionsVariants(
-        @Param('id') id: string,
-        @Body() dto: UpdateProductOptionsVariantsDto,
-    ) {
-        return this.optionVariants.updateOptionsAndVariants(id, dto)
-    }
-
     /** POS / scanner: barcode → the exact variant (plus parent product). */
     @Get('variants/barcode/:barcode')
     variantByBarcode(@Param('barcode') barcode: string) {
@@ -166,6 +151,22 @@ export class ProductController {
             companyId,
             branchId,
         )
+    }
+
+    /** Options + variants of a product (admin editor + storefront detail). */
+    @Get(':id/options-variants')
+    optionsVariants(@Param('id') id: string) {
+        return this.optionVariants.getForProduct(id)
+    }
+
+    /** Replace the full options + variants set (variant generator output). */
+    @Put(':id/options-variants')
+    @RequirePermission('sd.product-catalog', 'update')
+    updateOptionsVariants(
+        @Param('id') id: string,
+        @Body() dto: UpdateProductOptionsVariantsDto,
+    ) {
+        return this.optionVariants.updateOptionsAndVariants(id, dto)
     }
 
     /** Batch per-variant availability for a product page. */
@@ -194,6 +195,20 @@ export class ProductController {
             sku,
             this.availabilityService,
             variantId,
+        )
+    }
+
+    /**
+     * Live ATP for MANY products in one call — the POS terminal polls its whole
+     * cart here. Same MM ledger authority as the single-product availability.
+     */
+    @Post('availability/batch')
+    @RequirePermission(['sd.product-catalog', 'sd.pos'], 'read')
+    availabilityBatch(@Body() dto: ProductAvailabilityBatchDto) {
+        return this.products.getStorefrontAvailabilityBatch(
+            dto.divisionId,
+            dto.items,
+            this.availabilityService,
         )
     }
 

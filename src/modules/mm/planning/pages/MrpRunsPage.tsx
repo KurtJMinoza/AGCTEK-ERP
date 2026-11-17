@@ -3,11 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpDocNumberCell,
+    MrpPlainCell,
+    MRP_RUN_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import FormDialog from '@/components/shared/FormDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -21,7 +27,6 @@ import { HiOutlinePlus, HiOutlinePlay, HiOutlineChartBar } from 'react-icons/hi'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MrpRun, PlanningDashboard } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/mrp-runs'
 type Opt = { value: string; label: string }
@@ -36,7 +41,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const MrpRunsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MrpRun[]>([])
     const [dash, setDash] = useState<PlanningDashboard | null>(null)
     const [loading, setLoading] = useState(true)
@@ -86,35 +91,55 @@ const MrpRunsPage = () => {
 
     const columns: ColumnDef<MrpRun>[] = useMemo(
         () => [
-            { header: 'Run #', accessorKey: 'runNumber' },
+            {
+                header: 'MRP run',
+                accessorKey: 'runNumber',
+                cell: ({ row }) => (
+                    <MrpDocNumberCell
+                        icon="run"
+                        primary={row.original.runNumber}
+                        secondary={
+                            row.original.executionTime
+                                ? String(row.original.executionTime).slice(0, 19).replace('T', ' ')
+                                : 'Not executed'
+                        }
+                    />
+                ),
+            },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? 'All',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code ?? 'All'}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Horizon',
-                cell: ({ row }) => `${row.original.planningHorizonDays}d`,
+                cell: ({ row }) => (
+                    <MrpPlainCell>{`${row.original.planningHorizonDays} days`}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Open receipts',
-                cell: ({ row }) =>
-                    row.original.includeOpenReceipts ? 'Yes' : 'No',
+                cell: ({ row }) => (
+                    <MrpPlainCell>{row.original.includeOpenReceipts ? 'Included' : 'Excluded'}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <MrpAnimatedStatus
+                        status={row.original.status}
+                        tone={mrpStatusTone(row.original.status, MRP_RUN_STATUS)}
+                    />
+                ),
             },
             {
-                header: 'Req / Sug',
-                cell: ({ row }) =>
-                    `${row.original._count?.requirements ?? 0} / ${row.original._count?.suggestions ?? 0}`,
-            },
-            {
-                header: 'Executed',
-                cell: ({ row }) =>
-                    row.original.executionTime
-                        ? String(row.original.executionTime).slice(0, 19).replace('T', ' ')
-                        : '—',
+                header: 'Req / sug',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>
+                        {`${row.original._count?.requirements ?? 0} / ${row.original._count?.suggestions ?? 0}`}
+                    </MrpPlainCell>
+                ),
             },
             {
                 header: 'Actions',
@@ -172,8 +197,8 @@ const MrpRunsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="MRP Runs"
                 description="Execute material requirements planning and review dashboard signals"
                 actions={
@@ -223,7 +248,13 @@ const MrpRunsPage = () => {
             </AdaptiveCard>
 
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[960px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

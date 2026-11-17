@@ -3,10 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpDateCell,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+    MRP_FLAG_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import Select from '@/components/ui/Select'
 import Card from '@/components/ui/Card'
 import Notification from '@/components/ui/Notification'
@@ -15,7 +23,6 @@ import { FormItem } from '@/components/ui/Form'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MaterialRequirement, PlanningDashboard } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/shortage-monitor'
 type Opt = { value: string; label: string }
@@ -30,7 +37,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const ShortageMonitorPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialRequirement[]>([])
     const [dash, setDash] = useState<PlanningDashboard | null>(null)
     const [loading, setLoading] = useState(true)
@@ -76,59 +83,73 @@ const ShortageMonitorPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Projected avail.',
-                cell: ({ row }) =>
-                    Number(
-                        row.original.projectedAvailable ??
-                            row.original.availableQty,
-                    ),
+                cell: ({ row }) => (
+                    <MrpQtyCell
+                        value={
+                            row.original.projectedAvailable ?? row.original.availableQty
+                        }
+                    />
+                ),
             },
             {
                 header: 'Required date',
-                cell: ({ row }) =>
-                    row.original.requiredDate
-                        ? String(row.original.requiredDate).slice(0, 10)
-                        : '—',
+                cell: ({ row }) => <MrpDateCell iso={row.original.requiredDate} />,
             },
             {
                 header: 'Violation date',
-                cell: ({ row }) =>
-                    row.original.shortageDate
-                        ? String(row.original.shortageDate).slice(0, 10)
-                        : '—',
+                cell: ({ row }) => <MrpDateCell iso={row.original.shortageDate} />,
             },
             {
                 header: 'Safety deficit',
-                cell: ({ row }) =>
-                    row.original.safetyStockViolationQty != null
-                        ? Number(row.original.safetyStockViolationQty)
-                        : '—',
+                cell: ({ row }) => (
+                    <MrpQtyCell
+                        value={row.original.safetyStockViolationQty}
+                        emphasize="warning"
+                    />
+                ),
             },
             {
                 header: 'Shortage qty',
-                cell: ({ row }) =>
-                    Number(
-                        row.original.shortageQty ?? row.original.netRequirement,
-                    ),
+                cell: ({ row }) => (
+                    <MrpQtyCell
+                        value={row.original.shortageQty ?? row.original.netRequirement}
+                        emphasize="danger"
+                    />
+                ),
             },
             {
                 header: 'Source demand',
-                cell: ({ row }) => row.original.source ?? '—',
+                cell: ({ row }) => <MrpPlainCell>{row.original.source}</MrpPlainCell>,
             },
             {
                 header: 'Recommended action',
-                cell: ({ row }) => row.original.recommendedAction ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell>{row.original.recommendedAction}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Status',
-                cell: () => <StatusBadge status="SHORTAGE" />,
+                cell: () => (
+                    <MrpAnimatedStatus
+                        status="SHORTAGE"
+                        tone={mrpStatusTone('SHORTAGE', MRP_FLAG_STATUS)}
+                    />
+                ),
             },
         ],
         [],
@@ -138,8 +159,8 @@ const ShortageMonitorPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Shortage Monitor"
                 description="Materials with net requirement or below safety stock"
             />
@@ -182,7 +203,13 @@ const ShortageMonitorPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[1100px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

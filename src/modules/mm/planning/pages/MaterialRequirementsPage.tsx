@@ -3,11 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpDateCell,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+    MRP_FLAG_STATUS,
+    MRP_SOURCE_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import FormDialog from '@/components/shared/FormDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
@@ -18,7 +27,6 @@ import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import MrpExplanationPanel from '../components/MrpExplanationPanel'
 import type { BomExplosionTrace, MaterialRequirement, MrpRun } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/material-requirements'
 type Opt = { value: string; label: string }
@@ -36,7 +44,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const MaterialRequirementsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MaterialRequirement[]>([])
     const [traces, setTraces] = useState<BomExplosionTrace[]>([])
     const [selectedMaterialId, setSelectedMaterialId] = useState('')
@@ -110,85 +118,110 @@ const MaterialRequirementsPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Required date',
-                cell: ({ row }) =>
-                    row.original.requiredDate
-                        ? String(row.original.requiredDate).slice(0, 10)
-                        : '—',
+                cell: ({ row }) => <MrpDateCell iso={row.original.requiredDate} />,
             },
             {
                 header: 'Source',
                 cell: ({ row }) =>
                     row.original.source ? (
-                        <StatusBadge status={row.original.source} />
+                        <MrpAnimatedStatus
+                            status={row.original.source}
+                            tone={mrpStatusTone(row.original.source, MRP_SOURCE_STATUS)}
+                        />
                     ) : (
-                        '—'
+                        <MrpPlainCell muted>—</MrpPlainCell>
                     ),
             },
             {
                 header: 'Independent',
-                cell: ({ row }) =>
-                    row.original.independentDemandQty != null
-                        ? Number(row.original.independentDemandQty)
-                        : Number(row.original.demandQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell
+                        value={
+                            row.original.independentDemandQty != null
+                                ? row.original.independentDemandQty
+                                : row.original.demandQty
+                        }
+                    />
+                ),
             },
             {
                 header: 'BOM dep.',
-                cell: ({ row }) =>
-                    row.original.bomDependentDemandQty != null
-                        ? Number(row.original.bomDependentDemandQty)
-                        : 0,
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.bomDependentDemandQty ?? 0} />
+                ),
             },
             {
                 header: 'Total demand',
-                cell: ({ row }) => Number(row.original.demandQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.demandQty} />,
             },
             {
                 header: 'Available',
-                cell: ({ row }) => Number(row.original.availableQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.availableQty} />,
             },
             {
                 header: 'Incoming',
-                cell: ({ row }) => Number(row.original.incomingQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.incomingQty} emphasize="success" />
+                ),
             },
             {
                 header: 'Safety',
-                cell: ({ row }) => Number(row.original.safetyStock),
+                cell: ({ row }) => <MrpQtyCell value={row.original.safetyStock} />,
             },
             {
                 header: 'Net',
-                cell: ({ row }) => Number(row.original.netRequirement),
+                cell: ({ row }) => (
+                    <MrpQtyCell
+                        value={row.original.netRequirement}
+                        emphasize={Number(row.original.netRequirement) > 0 ? 'danger' : undefined}
+                    />
+                ),
             },
             {
                 header: 'Recommended',
-                cell: ({ row }) => Number(row.original.recommendedQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.recommendedQty} emphasize="warning" />
+                ),
             },
             {
                 header: 'Flags',
                 cell: ({ row }) => (
                     <div className="flex gap-1 flex-wrap">
                         {row.original.shortage && (
-                            <StatusBadge status="SHORTAGE" />
+                            <MrpAnimatedStatus
+                                status="SHORTAGE"
+                                tone={mrpStatusTone('SHORTAGE', MRP_FLAG_STATUS)}
+                            />
                         )}
                         {row.original.belowReorderPoint && (
-                            <StatusBadge status="BELOW_ROP" />
+                            <MrpAnimatedStatus
+                                status="BELOW_ROP"
+                                tone={mrpStatusTone('BELOW_ROP', MRP_FLAG_STATUS)}
+                            />
                         )}
                     </div>
                 ),
             },
             {
                 header: 'Procure by',
-                cell: ({ row }) =>
-                    row.original.expectedProcurementDate
-                        ? String(row.original.expectedProcurementDate).slice(0, 10)
-                        : '—',
+                cell: ({ row }) => (
+                    <MrpDateCell iso={row.original.expectedProcurementDate} />
+                ),
             },
             {
                 header: 'Actions',
@@ -211,29 +244,37 @@ const MaterialRequirementsPage = () => {
         () => [
             {
                 header: 'Parent',
-                cell: ({ row }) =>
-                    row.original.parentMaterial?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.parentMaterial?.materialCode}
+                        name={row.original.parentMaterial?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Component',
-                cell: ({ row }) =>
-                    row.original.componentMaterial?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.componentMaterial?.materialCode}
+                        name={row.original.componentMaterial?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Level',
-                cell: ({ row }) => row.original.level,
+                cell: ({ row }) => <MrpPlainCell mono>{row.original.level}</MrpPlainCell>,
             },
             {
                 header: 'Qty/Parent',
-                cell: ({ row }) => Number(row.original.quantityPer),
+                cell: ({ row }) => <MrpQtyCell value={row.original.quantityPer} />,
             },
             {
                 header: 'Gross',
-                cell: ({ row }) => Number(row.original.grossComponentQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.grossComponentQty} />,
             },
             {
                 header: 'Reason',
-                cell: ({ row }) => row.original.explosionReason ?? '—',
+                cell: ({ row }) => <MrpPlainCell>{row.original.explosionReason}</MrpPlainCell>,
             },
         ],
         [],
@@ -280,8 +321,8 @@ const MaterialRequirementsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Material Requirements"
                 description="Netting results from MRP runs"
             />
@@ -325,10 +366,12 @@ const MaterialRequirementsPage = () => {
                     </TabList>
                     <div className="mt-4">
                         <TabContent value="requirements">
-                            <DataTable
+                            <MrpResponsiveTable
                                 columns={columns}
                                 data={rows}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[1280px]"
                             />
                         </TabContent>
                         <TabContent value="trace">
@@ -362,13 +405,15 @@ const MaterialRequirementsPage = () => {
                                             }
                                         />
                                     </FormItem>
-                                    <DataTable
+                                    <MrpResponsiveTable
                                         columns={traceColumns}
                                         data={filteredTraces}
+                                        getRowId={(row, index) => row.id ?? String(index)}
                                         noData={
                                             !!selectedMaterialId &&
                                             filteredTraces.length === 0
                                         }
+                                        tableMinWidthClass="min-w-[960px]"
                                     />
                                 </>
                             )}

@@ -25,6 +25,7 @@ import {
 } from '@prisma/client'
 import {
     assertAssignedDriver,
+    assertDeliveryEvidence,
     assertStopTypeAllows,
     isTerminalStop,
     parseDeliverOutcome,
@@ -433,6 +434,20 @@ export class TripsService {
             reasonCode: failureCode,
             hasSignature: Boolean(optionalString(body.podSignatureUrl)),
         })
+        // POD may arrive with this call or have been saved earlier via …/pod.
+        const podSignatureUrl =
+            optionalString(body.podSignatureUrl) ?? optionalString(stop.podSignatureUrl) ?? null
+        const podPhotoUrl =
+            optionalString(body.podPhotoUrl) ?? optionalString(stop.podPhotoUrl) ?? null
+        if (outcome === 'COMPLETE') {
+            assertDeliveryEvidence({
+                stopType: stop.stopType,
+                sequence: stop.sequence,
+                hasSignature: Boolean(podSignatureUrl),
+                hasPhoto: Boolean(podPhotoUrl),
+                hasGeo: meta.latitude != null || (await this.arrivedWithGeo(stopId)),
+            })
+        }
         const now = new Date()
 
         await this.runStopTransition(async (tx) => {
@@ -455,7 +470,12 @@ export class TripsService {
                     status: StopStatus.COMPLETED,
                     completedAt: now,
                 })
-                await this.settleDeliveredShipments(tx, stop.shipments, body, now)
+                await this.settleDeliveredShipments(
+                    tx,
+                    stop.shipments,
+                    { ...body, podSignatureUrl, podPhotoUrl },
+                    now,
+                )
             }
             await this.recordStopEvent(tx, {
                 tripId,
@@ -799,6 +819,20 @@ export class TripsService {
         if (!existing) return false
         if (existing.stopId === stopId && existing.eventType === eventType) return true
         throw new ConflictException('clientActionId was already used for a different stop action')
+    }
+
+    /** Geo-tagged arrival on record for this stop (audit trail), used for POD evidence. */
+    private async arrivedWithGeo(stopId: string): Promise<boolean> {
+        const arrival = await this.prisma.tripStopEvent.findFirst({
+            where: {
+                stopId,
+                eventType: TripStopEventType.ARRIVED,
+                latitude: { not: null },
+                longitude: { not: null },
+            },
+            select: { id: true },
+        })
+        return arrival != null
     }
 
     /** Runs a stop transition; a concurrent replay racing on clientActionId surfaces as a conflict. */

@@ -4,10 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcMoneyCell,
+    PrcPlainCell,
+    PrcSupplierCell,
+    PRC_PO_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -32,7 +41,6 @@ import type {
     PurchaseRequisition,
 } from '../types'
 import { prRemainingQty } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
@@ -44,18 +52,6 @@ import {
 } from '@/modules/mm/shared/formValidation'
 
 const ROUTE_PATH = '/modules/mm/procurement/purchase-orders'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    PENDING_APPROVAL: 'warning',
-    APPROVED: 'success',
-    SENT: 'info',
-    PARTIALLY_RECEIVED: 'info',
-    FULLY_RECEIVED: 'success',
-    CLOSED: 'default',
-    CANCELLED: 'danger',
-    REJECTED: 'danger',
-}
 
 type FilterOption = {
     value: string
@@ -102,7 +98,7 @@ const emptyLine = (): LineDraft => ({
 
 const PurchaseOrderListPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
     const { canCreate } = useResourceAccess()
 
     const [data, setData] = useState<MmPurchaseOrder[]>([])
@@ -300,17 +296,16 @@ const PurchaseOrderListPage = () => {
 
     const columns = useMemo<ColumnDef<MmPurchaseOrder>[]>(() => [
         {
-            header: 'PO Number',
+            header: 'Purchase order',
             accessorKey: 'poNumber',
-            size: 140,
+            size: 180,
             cell: ({ row }) => (
-                <button
-                    type="button"
-                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                <PrcDocNumberCell
+                    icon="po"
+                    primary={row.original.poNumber}
+                    secondary={row.original.supplier?.supplierName}
                     onClick={() => router.push(`${ROUTE_PATH}/${row.original.id}`)}
-                >
-                    {row.original.poNumber}
-                </button>
+                />
             ),
         },
         {
@@ -318,27 +313,27 @@ const PurchaseOrderListPage = () => {
             id: 'supplier',
             size: 180,
             cell: ({ row }) => (
-                <span className="text-sm">
-                    {row.original.supplier
-                        ? `${row.original.supplier.supplierCode} — ${row.original.supplier.supplierName}`
-                        : row.original.supplierId}
-                </span>
+                <PrcSupplierCell
+                    code={row.original.supplier?.supplierCode}
+                    name={row.original.supplier?.supplierName ?? row.original.supplierId}
+                />
             ),
         },
         {
             header: 'Buyer',
             accessorKey: 'buyerId',
             size: 120,
-            cell: ({ row }) => <span className="text-sm">{row.original.buyerId}</span>,
+            cell: ({ row }) => <PrcPlainCell mono>{row.original.buyerId}</PrcPlainCell>,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             size: 140,
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {String(row.original.status).replace(/_/g, ' ')}
-                </StatusBadge>
+                <PrcAnimatedStatus
+                    status={String(row.original.status)}
+                    tone={prcStatusTone(String(row.original.status), PRC_PO_STATUS)}
+                />
             ),
         },
         {
@@ -346,33 +341,23 @@ const PurchaseOrderListPage = () => {
             id: 'total',
             size: 110,
             cell: ({ row }) => (
-                <span className="text-sm font-semibold">
-                    {Number(row.original.totalAmount || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                    })}
-                </span>
+                <PrcMoneyCell
+                    amount={row.original.totalAmount}
+                    currency={row.original.currency?.code}
+                />
             ),
         },
         {
-            header: 'Expected Delivery',
+            header: 'Expected',
             accessorKey: 'expectedDeliveryDate',
             size: 130,
-            cell: ({ row }) => (
-                <span className="text-sm">
-                    {row.original.expectedDeliveryDate
-                        ? new Date(row.original.expectedDeliveryDate).toLocaleDateString()
-                        : '—'}
-                </span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.expectedDeliveryDate} />,
         },
         {
             header: 'Created',
             accessorKey: 'createdAt',
             size: 120,
-            cell: ({ row }) => (
-                <span className="text-xs">{new Date(row.original.createdAt).toLocaleDateString()}</span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.createdAt} />,
         },
     ], [router])
 
@@ -381,8 +366,8 @@ const PurchaseOrderListPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Purchase Orders"
                 description="Supplier commitments with approval, delivery, and receiving tracking."
                 actions={canCreate ? (
@@ -414,16 +399,17 @@ const PurchaseOrderListPage = () => {
                 </div>
 
                 <div className="mt-4">
-                    <DataTable<MmPurchaseOrder>
+                    <ProcurementResponsiveTable<MmPurchaseOrder>
                         columns={columns}
                         data={data}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        tableMinWidthClass="min-w-[960px]"
                     />
                 </div>
             </AdaptiveCard>

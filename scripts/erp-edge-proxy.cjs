@@ -44,6 +44,55 @@ const nextProxy = httpProxy.createProxyServer({
     changeOrigin: true,
 })
 
+/**
+ * cloudflared → :3010 is plain HTTP. With changeOrigin, Host becomes
+ * 127.0.0.1:3020 (or Next's 0.0.0.0 bind) and Auth.js builds broken
+ * callback URLs like https://0.0.0.0:3020 — sign-in fails on erp.agctek.co.
+ * Always forward the browser-facing host + real proto.
+ */
+function publicHost(req) {
+    const raw =
+        req.headers['x-forwarded-host'] ||
+        req.headers['host'] ||
+        ''
+    return String(raw).split(',')[0].trim()
+}
+
+function publicProto(req) {
+    const fromHeader = req.headers['x-forwarded-proto']
+    if (fromHeader) return String(fromHeader).split(',')[0].trim()
+    const visitor = req.headers['cf-visitor']
+    if (typeof visitor === 'string') {
+        try {
+            const scheme = JSON.parse(visitor).scheme
+            if (scheme) return String(scheme)
+        } catch {
+            /* ignore */
+        }
+    }
+    // Cloudflare / public hostname over the tunnel is always HTTPS.
+    const host = publicHost(req)
+    if (host && !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && !/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(host)) {
+        return 'https'
+    }
+    return 'http'
+}
+
+function preserveForwardedHeaders(proxyReq, req) {
+    const host = publicHost(req)
+    const proto = publicProto(req)
+    if (host) proxyReq.setHeader('X-Forwarded-Host', host)
+    if (proto) proxyReq.setHeader('X-Forwarded-Proto', proto)
+    // Keep the browser Host visible to Next/Auth even after changeOrigin.
+    if (host) proxyReq.setHeader('X-Forwarded-Server', host)
+    if (req.headers['cf-connecting-ip'] && !req.headers['x-real-ip']) {
+        proxyReq.setHeader('X-Real-IP', req.headers['cf-connecting-ip'])
+    }
+}
+
+nestProxy.on('proxyReq', preserveForwardedHeaders)
+nextProxy.on('proxyReq', preserveForwardedHeaders)
+
 function onProxyError(label) {
     return (err, req, res) => {
         console.error(`[erp-edge-proxy] ${label} error:`, err.message)
@@ -140,6 +189,15 @@ function serveUpload(req, res) {
     return true
 }
 
+function proxyPath(url) {
+    const pathOnly = (url || '/').split('?')[0]
+    if (pathOnly === '/favicon.ico') {
+        const qs = url.includes('?') ? url.slice(url.indexOf('?')) : ''
+        return `/icon${qs}`
+    }
+    return url
+}
+
 const server = http.createServer((req, res) => {
     const url = req.url || '/'
     if (isNestPath(url)) {
@@ -147,6 +205,7 @@ const server = http.createServer((req, res) => {
         return
     }
     if (url.startsWith('/uploads/') && serveUpload(req, res)) return
+    req.url = proxyPath(url)
     nextProxy.web(req, res)
 })
 

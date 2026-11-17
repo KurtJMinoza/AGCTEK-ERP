@@ -3,12 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpAnimatedStatus,
+    MrpDateCell,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+    MRP_SUGGESTION_STATUS,
+    mrpStatusTone,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -19,7 +28,6 @@ import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import MrpExplanationPanel from '../components/MrpExplanationPanel'
 import type { ProcurementSuggestion } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/procurement-suggestions'
 type Opt = { value: string; label: string }
@@ -34,7 +42,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const ProcurementSuggestionsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<ProcurementSuggestion[]>([])
     const [loading, setLoading] = useState(true)
     const { companies, warehouses, loadFilterRefs } = useDeferredFilterRefs('companies', 'warehouses')
@@ -82,73 +90,90 @@ const ProcurementSuggestionsPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Type',
                 cell: ({ row }) => (
-                    <StatusBadge status={row.original.suggestionType} />
+                    <MrpAnimatedStatus status={row.original.suggestionType} tone="info" />
                 ),
             },
             {
                 header: 'Qty',
-                cell: ({ row }) => Number(row.original.quantity),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.quantity} emphasize="warning" />
+                ),
             },
             {
                 header: 'Supplier',
-                cell: ({ row }) =>
-                    row.original.preferredSupplier
-                        ? row.original.preferredSupplier.supplierCode
-                        : '—',
+                cell: ({ row }) => (
+                    <SmEntityCell
+                        kind="supplier"
+                        primary={row.original.preferredSupplier?.supplierName}
+                        secondary={row.original.preferredSupplier?.supplierCode}
+                    />
+                ),
             },
             {
                 header: 'Lead time',
-                cell: ({ row }) =>
-                    row.original.leadTimeDays != null
-                        ? `${row.original.leadTimeDays}d`
-                        : '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>
+                        {row.original.leadTimeDays != null
+                            ? `${row.original.leadTimeDays}d`
+                            : undefined}
+                    </MrpPlainCell>
+                ),
             },
             {
                 header: 'Demand source',
-                cell: ({ row }) => row.original.demandSource ?? '—',
+                cell: ({ row }) => <MrpPlainCell>{row.original.demandSource}</MrpPlainCell>,
             },
             {
                 header: 'MOQ',
-                cell: ({ row }) =>
-                    row.original.moq != null ? Number(row.original.moq) : '—',
+                cell: ({ row }) => <MrpQtyCell value={row.original.moq} />,
             },
             {
                 header: 'Reason',
-                cell: ({ row }) =>
-                    row.original.shortageReason || row.original.reason ? (
-                        <StatusBadge
-                            status={
-                                row.original.shortageReason ||
-                                row.original.reason ||
-                                ''
-                            }
-                        />
+                cell: ({ row }) => {
+                    const reason = row.original.shortageReason || row.original.reason
+                    return reason ? (
+                        <MrpAnimatedStatus status={reason} tone="warning" />
                     ) : (
-                        '—'
-                    ),
+                        <MrpPlainCell muted>—</MrpPlainCell>
+                    )
+                },
             },
             {
                 header: 'Expected',
-                cell: ({ row }) =>
-                    String(row.original.requiredDate).slice(0, 10),
+                cell: ({ row }) => <MrpDateCell iso={row.original.requiredDate} />,
             },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <MrpAnimatedStatus
+                        status={row.original.status}
+                        tone={mrpStatusTone(row.original.status, MRP_SUGGESTION_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'Request',
-                cell: ({ row }) =>
-                    row.original.purchaseRequisition?.requisitionNumber ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>
+                        {row.original.purchaseRequisition?.requisitionNumber}
+                    </MrpPlainCell>
+                ),
             },
             {
                 header: 'Actions',
@@ -208,8 +233,8 @@ const ProcurementSuggestionsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Procurement Suggestions"
                 description="MRP recommendations — convert to DRAFT purchase request on demand (never auto-PO)"
             />
@@ -247,7 +272,13 @@ const ProcurementSuggestionsPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[1200px]"
+                />
             </AdaptiveCard>
 
             <FormDialog

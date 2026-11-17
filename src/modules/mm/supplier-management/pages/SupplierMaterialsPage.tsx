@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from '../components/SupplierResponsiveTable'
+import { supplierParentBreadcrumbs } from '../utils/supplierPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -31,11 +32,9 @@ import {
     SmSupplyTermsCell,
     SmUnitPriceCell,
     SmValidityCell,
-    smTableRowEnterClass,
 } from '../components/SupplierTableCells'
 import { supplierMaterialService } from '../services/supplierMaterialService'
 import type { SupplierMaterial } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     firstError,
     hasErrors,
@@ -67,7 +66,7 @@ const blankForm = () => ({
 })
 
 const SupplierMaterialsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE_PATH)
 
     const [data, setData] = useState<SupplierMaterial[]>([])
     const [total, setTotal] = useState(0)
@@ -406,8 +405,8 @@ const SupplierMaterialsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Materials"
                 description="Manage supplier-material pricing and relationships."
                 actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add Link</Button>}
@@ -461,14 +460,12 @@ const SupplierMaterialsPage = () => {
                         {filterSearch.trim() ? ' (search filters current page)' : ''}
                     </p>
                 ) : null}
-                <DataTable<SupplierMaterial>
+                <SupplierResponsiveTable<SupplierMaterial>
                     columns={columns}
                     data={tableRows}
                     compact
-                    fit
                     loading={loading}
                     getRowId={(row) => row.id}
-                    rowClassName={(_, index) => smTableRowEnterClass(index)}
                     noData={!loading && tableRows.length === 0}
                     pagingData={{ total, pageIndex: page - 1, pageSize }}
                     onPaginationChange={(p) => setPage(p + 1)}
@@ -476,6 +473,7 @@ const SupplierMaterialsPage = () => {
                         setPageSize(size)
                         setPage(1)
                     }}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 

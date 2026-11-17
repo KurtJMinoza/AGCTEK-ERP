@@ -1,23 +1,42 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import BarcodeResponsiveTable, { type ColumnDef } from '../components/BarcodeResponsiveTable'
+import {
+    BC_RFID_STATUS,
+    BcAnimatedStatus,
+    BcDateCell,
+    BcMaterialCell,
+    BcPlainCell,
+    BcScanIdCell,
+    bcStatusTone,
+} from '../components/barcodeTableUi'
+import { barcodeParentBreadcrumbs } from '../utils/barcodePageUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import FormDialog from '@/components/shared/FormDialog'
 import { FormItem } from '@/components/ui/Form'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { supportingOpsService } from '../../supporting-ops/services/supportingOpsService'
 
 const ROUTE = '/modules/mm/barcode-rfid/rfid-tags'
 
+type RfidRow = {
+    id?: string
+    tagValue: string
+    status?: string
+    entityType?: string
+    lastReadAt?: string | null
+    material?: { materialCode?: string; materialName?: string }
+    lastKnownWarehouse?: { code?: string; name?: string }
+}
+
 const RfidTagsPage = () => {
+    const parentBreadcrumbs = barcodeParentBreadcrumbs(ROUTE)
     const [companyId, setCompanyId] = useState('')
-    const [rows, setRows] = useState<any[]>([])
+    const [rows, setRows] = useState<RfidRow[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
     const [assignOpen, setAssignOpen] = useState(false)
@@ -49,27 +68,71 @@ const RfidTagsPage = () => {
         load()
     }, [load])
 
-    const columns: ColumnDef<any>[] = [
-        { header: 'EPC / Tag', accessorKey: 'tagValue' },
-        { header: 'Status', accessorKey: 'status' },
-        { header: 'Entity', accessorKey: 'entityType' },
-        { header: 'Material', accessorKey: 'material.materialCode' },
-        { header: 'Last read', accessorKey: 'lastReadAt', cell: ({ row }) =>
-            row.original.lastReadAt ? new Date(row.original.lastReadAt).toLocaleString() : '—' },
-        { header: 'Warehouse', accessorKey: 'lastKnownWarehouse.code' },
-    ]
+    const columns: ColumnDef<RfidRow>[] = useMemo(
+        () => [
+            {
+                header: 'EPC / Tag',
+                cell: ({ row }) => (
+                    <BcScanIdCell
+                        icon="rfid"
+                        primary={row.original.tagValue}
+                        secondary={row.original.entityType}
+                    />
+                ),
+            },
+            {
+                header: 'Status',
+                cell: ({ row }) =>
+                    row.original.status ? (
+                        <BcAnimatedStatus
+                            status={row.original.status}
+                            tone={bcStatusTone(row.original.status, BC_RFID_STATUS)}
+                        />
+                    ) : (
+                        <BcPlainCell muted>—</BcPlainCell>
+                    ),
+            },
+            {
+                header: 'Material',
+                cell: ({ row }) => (
+                    <BcMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
+            },
+            {
+                header: 'Last read',
+                cell: ({ row }) => <BcDateCell iso={row.original.lastReadAt} />,
+            },
+            {
+                header: 'Warehouse',
+                cell: ({ row }) => (
+                    <BcPlainCell mono>
+                        {row.original.lastKnownWarehouse?.code ??
+                            row.original.lastKnownWarehouse?.name ??
+                            '—'}
+                    </BcPlainCell>
+                ),
+            },
+        ],
+        [],
+    )
 
     return (
         <PageContainer>
-            <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
             <PageHeader
                 title="RFID Tags"
                 description="Tag registry — reads validate context and do not post inventory by themselves."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
-                    <Button variant="solid" onClick={() => {
-                        setForm((f) => ({ ...f, companyId: companyId.trim() }))
-                        setAssignOpen(true)
-                    }}>
+                    <Button
+                        variant="solid"
+                        onClick={() => {
+                            setForm((f) => ({ ...f, companyId: companyId.trim() }))
+                            setAssignOpen(true)
+                        }}
+                    >
                         Assign tag
                     </Button>
                 }
@@ -81,12 +144,14 @@ const RfidTagsPage = () => {
                     value={companyId}
                     onChange={(e: any) => setCompanyId(e.target.value)}
                 />
-                <DataTable
+                <BarcodeResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row, index) => row.id ?? `${row.tagValue}-${index}`}
                     pagingData={{ total, pageIndex: 1, pageSize: 50 }}
                     hidePagination={total <= 50}
+                    tableMinWidthClass="min-w-[920px]"
                 />
             </AdaptiveCard>
             <FormDialog

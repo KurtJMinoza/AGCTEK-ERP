@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -37,13 +38,9 @@ import {
 import { goodsIssueService } from '../services/goodsIssueService'
 import { useLazyMaterialEntities, useLazyWarehouseEntities } from '@/modules/mm/shared/useLazyMmRefs'
 import type { GoodsIssue, StockOpsQueryParams } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
-import InfoCard from '../../shared/InfoCard'
-import { fmtMoney } from '../../shared/formatters'
-
+import GoodsIssueDetailDialog from '../components/GoodsIssueDetailDialog'
 const ROUTE = '/modules/mm/inventory-management/goods-issue'
 
 type FilterOption = { value: string; label: string }
@@ -74,15 +71,6 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     )
 }
 
-function fmtDate(iso?: string) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-    })
-}
-
 function materialLabel(line: GoodsIssue['lines'][number]) {
     return (
         line.material?.materialName ??
@@ -94,7 +82,7 @@ function materialLabel(line: GoodsIssue['lines'][number]) {
 }
 
 const GoodsIssuePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
@@ -307,44 +295,12 @@ const GoodsIssuePage = () => {
     })
     const [verifyBusy, setVerifyBusy] = useState(false)
 
-    const detailLineColumns = useMemo<ColumnDef<GoodsIssue['lines'][number]>[]>(
-        () => [
-            {
-                header: 'Material',
-                accessorKey: 'material.name',
-                size: 180,
-                cell: ({ row }) => (
-                    <span className="block truncate" title={materialLabel(row.original)}>
-                        {materialLabel(row.original)}
-                    </span>
-                ),
-            },
-            { header: 'Quantity', accessorKey: 'quantity', size: 72 },
-            {
-                header: 'UOM',
-                accessorKey: 'uom.code',
-                size: 64,
-                cell: ({ row }) => row.original.uom?.code ?? '—',
-            },
-            {
-                header: 'Unit Cost',
-                accessorKey: 'unitCost',
-                size: 88,
-                cell: ({ row }) => fmtMoney(row.original.unitCost),
-            },
-            {
-                header: 'Total Cost',
-                accessorKey: 'totalCost',
-                size: 88,
-                cell: ({ row }) => fmtMoney(row.original.totalCost),
-            },
-        ],
-        [],
-    )
-
     const columns: ColumnDef<GoodsIssue>[] = useMemo(
         () =>
             buildStockDocColumns<GoodsIssue>({
+                presentation: 'inventory',
+                docIcon: 'gi',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: {
                     header: 'Purpose',
                     value: (row) =>
@@ -472,8 +428,8 @@ const GoodsIssuePage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Goods Issue"
                 description="Issue materials from inventory — every issue posts through the inventory ledger."
                 actions={
@@ -482,8 +438,6 @@ const GoodsIssuePage = () => {
                     </Button>
                 }
             />
-            <Iso9001OutboundWorkflowStrip activeStep={3} />
-
             <FilterBar
                 className="mb-4"
                 fields={fields}
@@ -507,15 +461,17 @@ const GoodsIssuePage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 
@@ -655,15 +611,40 @@ const GoodsIssuePage = () => {
                 </Button>
             </FormDialog>
 
-            {/* Detail Dialog */}
-            <FormDialog
+            <GoodsIssueDetailDialog
+                detail={detail}
                 isOpen={detailOpen}
                 onClose={() => setDetailOpen(false)}
-                size="xl"
-                title={detail?.documentNumber ?? 'Goods Issue'}
-                icon={<HiOutlineLogout />}
-                bodyClassName="overflow-x-hidden"
-                footerClassName="!justify-between"
+                atpPreview={
+                    detail &&
+                    detail.status === 'DRAFT' &&
+                    postAtp.length > 0 ? (
+                        <AdaptiveCard className="!p-3 bg-gray-50 dark:bg-gray-800/50">
+                            <p className="mb-2 text-xs font-medium text-gray-600">
+                                ATP preview before post (backend)
+                            </p>
+                            <div className="space-y-1 text-sm">
+                                {(detail.lines ?? []).map((line, idx) => {
+                                    const atp = postAtp[idx]
+                                    const qty = Number(line.quantity)
+                                    const ok = atp && qty <= atp.available
+                                    return (
+                                        <div
+                                            key={line.id ?? idx}
+                                            className={ok ? '' : 'text-danger'}
+                                        >
+                                            {materialLabel(line)}: available{' '}
+                                            {atp?.available ?? '—'}
+                                            {qty > (atp?.available ?? 0)
+                                                ? ' — insufficient'
+                                                : ''}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </AdaptiveCard>
+                    ) : null
+                }
                 footer={
                     detail ? (
                         <>
@@ -699,7 +680,10 @@ const GoodsIssuePage = () => {
                                     </Button>
                                 )}
                                 {detail.status === 'DRAFT' && (
-                                    <Button size="sm" onClick={() => handleAction('cancel')}>
+                                    <Button
+                                        size="sm"
+                                        onClick={() => handleAction('cancel')}
+                                    >
                                         Cancel
                                     </Button>
                                 )}
@@ -709,91 +693,22 @@ const GoodsIssuePage = () => {
                                         variant="plain"
                                         onClick={() => handleAction('reverse')}
                                     >
-                                        <HiOutlineRewind className="mr-1" /> Reverse
+                                        <HiOutlineRewind className="mr-1" />{' '}
+                                        Reverse
                                     </Button>
                                 )}
                             </div>
-                            <Button size="sm" onClick={() => setDetailOpen(false)}>
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                onClick={() => setDetailOpen(false)}
+                            >
                                 Close
                             </Button>
                         </>
-                    ) : (
-                        <Button size="sm" onClick={() => setDetailOpen(false)}>
-                            Close
-                        </Button>
-                    )
+                    ) : undefined
                 }
-            >
-                {detail && (
-                    <div className="space-y-5">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                            <InfoCard label="Warehouse" value={detail.warehouse?.name} />
-                            <InfoCard label="Purpose" value={detail.issuePurpose} />
-                            <InfoCard label="Posting Date" value={fmtDate(detail.postingDate)} />
-                            <InfoCard label="Created" value={fmtDate(detail.createdAt)} />
-                            <InfoCard
-                                label="Supervisor verified"
-                                value={
-                                    detail.supervisorVerifiedAt
-                                        ? `${detail.supervisorVerifiedBy ?? '—'} · ${fmtDate(detail.supervisorVerifiedAt)}`
-                                        : 'Pending'
-                                }
-                            />
-                            {detail.verifiedSourceReference ? (
-                                <InfoCard
-                                    label="Verified reference"
-                                    value={detail.verifiedSourceReference}
-                                />
-                            ) : null}
-                        </div>
-                        {detail.remarks ? (
-                            <AdaptiveCard className="!p-3">
-                                <p className="text-xs text-gray-500">Remarks</p>
-                                <p className="mt-0.5 text-sm">{detail.remarks}</p>
-                            </AdaptiveCard>
-                        ) : null}
-                        {detail.status === 'DRAFT' && postAtp.length > 0 && (
-                            <AdaptiveCard className="!p-3 bg-gray-50 dark:bg-gray-800/50">
-                                <p className="mb-2 text-xs font-medium text-gray-600">
-                                    ATP preview before post (backend)
-                                </p>
-                                <div className="space-y-1 text-sm">
-                                    {(detail.lines ?? []).map((line, idx) => {
-                                        const atp = postAtp[idx]
-                                        const qty = Number(line.quantity)
-                                        const ok = atp && qty <= atp.available
-                                        return (
-                                            <div
-                                                key={line.id ?? idx}
-                                                className={ok ? '' : 'text-danger'}
-                                            >
-                                                {materialLabel(line)}: available{' '}
-                                                {atp?.available ?? '—'}
-                                                {qty > (atp?.available ?? 0)
-                                                    ? ' — insufficient'
-                                                    : ''}
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            </AdaptiveCard>
-                        )}
-                        <div>
-                            <h6 className="mb-3 text-sm font-semibold heading-text">
-                                Line items
-                            </h6>
-                            <DataTable
-                                columns={detailLineColumns}
-                                data={detail.lines ?? []}
-                                compact
-                                fit
-                                hidePagination
-                                noData={(detail.lines ?? []).length === 0}
-                            />
-                        </div>
-                    </div>
-                )}
-            </FormDialog>
+            />
 
             <FormDialog
                 isOpen={verifyOpen}

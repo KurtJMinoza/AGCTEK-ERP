@@ -9,8 +9,6 @@ import {
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
-import ErpBackLink from '@/components/erp/ErpBackLink'
 import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
@@ -24,7 +22,7 @@ import Alert from '@/components/ui/Alert'
 import { FormItem } from '@/components/ui/Form'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { sdParentBreadcrumbs } from '../utils/sdPageUi'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     listProducts,
@@ -123,6 +121,9 @@ type FormState = {
     promoCode: string
     validFrom: string
     validTo: string
+    previewBasePrice: number
+    previewDiscountedPrice: number
+    showPreview: boolean
 }
 
 const emptyForm = (recordType: PricingTab): FormState => ({
@@ -137,7 +138,16 @@ const emptyForm = (recordType: PricingTab): FormState => ({
     promoCode: '',
     validFrom: todayInput(),
     validTo: '',
+    // Preview state for base → discounted price
+    previewBasePrice: 0,
+    previewDiscountedPrice: 0,
 })
+
+type FormPreview = {
+    basePrice: number
+    discountedPrice: number
+    showPreview: boolean
+}
 
 const formFromRecord = (record: PricingRecord): FormState => ({
     recordType: record.kind,
@@ -176,7 +186,10 @@ const StatCard = ({
 )
 
 const PricingConditionsDashboard = () => {
-    const breadcrumbItems = useMemo(() => buildErpBreadcrumbs(ROUTE_PATH), [])
+    const parentBreadcrumbs = useMemo(
+        () => sdParentBreadcrumbs(ROUTE_PATH),
+        [],
+    )
     const { canCreate, canUpdate } = useResourceAccess('sd.pricing-conditions')
 
     const [tab, setTab] = useState<PricingTab>('BASE_PRICE')
@@ -229,6 +242,40 @@ const PricingConditionsDashboard = () => {
         }, SEARCH_DEBOUNCE_MS)
         return () => window.clearTimeout(timer)
     }, [searchInput, search])
+
+    // Live preview: base → discounted price for PERCENT_OFF when product is selected
+    useEffect(() => {
+        let cancelled = false
+        const computePreview = async () => {
+            if (form.valueType !== 'PERCENT_OFF' || form.productId === ALL_PRODUCTS) {
+                setPreviewBasePrice(0)
+                setPreviewDiscountedPrice(0)
+                setShowPreview(false)
+                return
+            }
+            // Find the selected product's catalog price
+            const product = products.find((p) => p.id === form.productId)
+            if (!product) {
+                setPreviewBasePrice(0)
+                setPreviewDiscountedPrice(0)
+                setShowPreview(false)
+                return
+            }
+            const basePrice = product.price
+            const percent = Number(form.value) || 0
+            // applyPercentOff: round(base * (1 - percent/100), 2)
+            const discountedPrice = Math.round(basePrice * (1 - percent / 100) * 100) / 100
+            if (!cancelled) {
+                setPreviewBasePrice(basePrice)
+                setPreviewDiscountedPrice(discountedPrice)
+                setShowPreview(true)
+            }
+        }
+        computePreview()
+        return () => {
+            cancelled = true
+        }
+    }, [form.productId, form.valueType, form.value, products])
 
     const selectTab = (next: PricingTab) => {
         setTab(next)
@@ -503,9 +550,8 @@ const PricingConditionsDashboard = () => {
 
     return (
         <PageContainer>
-            <ErpBackLink items={breadcrumbItems} />
-            <Breadcrumb items={breadcrumbItems} className="mb-4" />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Pricing Conditions & Rules"
                 description="Define base prices, quantity tier discounts, and promo overrides."
                 icon={<HiOutlineTag />}
@@ -732,18 +778,35 @@ const PricingConditionsDashboard = () => {
                                     }
                                 />
                             </FormItem>
-                            <FormItem label="Discount type">
-                                <Select<Option<'PERCENT_OFF' | 'FIXED_PRICE'>>
-                                    isSearchable={false}
-                                    options={VALUE_TYPE_OPTIONS}
-                                    value={VALUE_TYPE_OPTIONS.find(
-                                        (o) => o.value === form.valueType,
-                                    )}
-                                    onChange={(o) =>
-                                        o && setField('valueType', o.value)
-                                    }
-                                />
-                            </FormItem>
+<FormItem label="Discount type">
+    <Select<Option<'PERCENT_OFF' | 'FIXED_PRICE'>>
+        isSearchable={false}
+        options={VALUE_TYPE_OPTIONS}
+        value={VALUE_TYPE_OPTIONS.find(
+            (o) => o.value === form.valueType,
+        )}
+        onChange={(o) =>
+            o && setField('valueType', o.value)
+        }
+    />
+</FormItem>
+
+                    {form.showPreview && form.valueType === 'PERCENT_OFF' && form.productId !== ALL_PRODUCTS && form.productId ? (
+                        <FormItem label="Price preview">
+                            <div className="flex items-center space-x-2">
+                                <span className="text-sm text-gray-600">Base:</span>
+                                <span className="font-medium">{formatPhp(form.previewBasePrice)}</span>
+                                <span className="text-xs text-gray-400"> → </span>
+                                <span className="font-medium line-through text-gray-500">
+                                    {form.productId ? formatPhp(products.find((p) => p.id === form.productId)?.price ?? 0) : '0'}
+                                </span>
+                                <span className="text-xs text-gray-400"> = </span>
+                                <span className="font-medium text-green-600">
+                                    {formatPhp(form.previewDiscountedPrice)}
+                                </span>
+                            </div>
+                        </FormItem>
+                    ) : null}
                         </>
                     ) : null}
 

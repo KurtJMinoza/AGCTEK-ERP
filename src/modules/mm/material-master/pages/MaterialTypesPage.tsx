@@ -19,8 +19,9 @@ const MaterialTypesPage = () => {
     return (
         <RefCrudPage<MmMaterialType>
             routePath="/modules/mm/material-master/material-types"
-            title="Material Type"
-            description="Configure material types that classify materials in the master."
+            title="Material Types"
+            description="Material Master — Material Types."
+            integrateBreadcrumbs
             fields={[
                 { key: 'code', label: 'Code', autoGenerate: true, autoGenerateHint: 'Auto-generated (e.g. TYP-000001)' },
                 { key: 'name', label: 'Name', required: true, placeholder: 'e.g. Raw Material, Finished Good, Packaging' },

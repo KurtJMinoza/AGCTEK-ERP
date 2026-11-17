@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
     HiOutlineCheck,
-    HiOutlineDesktopComputer,
     HiOutlineEye,
-    HiOutlineGlobeAlt,
     HiOutlineRefresh,
     HiOutlineSearch,
     HiOutlineX,
@@ -19,11 +17,17 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { type ColumnDef } from '@/components/shared/DataTable'
 import SdDataTable from '../components/SdDataTable'
 import { SdDocCell, SdMoneyCell } from '../components/SdDataTableCells'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
-import Dialog from '@/components/ui/Dialog'
+import SalesOrderDetailDialog from '../components/SalesOrderDetailDialog'
+import {
+    formatOrderDateTime,
+    formatOrderPrice,
+    SalesOrderChannelBadge,
+    SalesOrderStatusBadge,
+} from '../components/salesOrderPresentation'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Tabs from '@/components/ui/Tabs'
@@ -40,11 +44,6 @@ import {
     type SalesOrderDateRange,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
-import {
-    isCommercialResolutionBlocked,
-    RESOLUTION_LABEL,
-    RESOLUTION_TONE,
-} from '../services/customerReturnRequestService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
@@ -79,52 +78,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         { placement: 'top-end' },
     )
 
-const formatPrice = (value: number) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-        minimumFractionDigits: 2,
-    }).format(value)
-
-const formatDateTime = (iso: string) =>
-    new Date(iso).toLocaleString('en-PH', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    })
-
-const ChannelBadge = ({ channel }: { channel: SalesOrderChannel }) => {
-    if (channel === 'POS') {
-        return (
-            <StatusBadge
-                tone="warning"
-                prefix={<HiOutlineDesktopComputer className="mr-1" />}
-            >
-                POS Fast-Track
-            </StatusBadge>
-        )
-    }
-    if (channel === 'E-commerce') {
-        return (
-            <StatusBadge
-                tone="info"
-                prefix={<HiOutlineGlobeAlt className="mr-1" />}
-            >
-                E-commerce
-            </StatusBadge>
-        )
-    }
-    return <StatusBadge>Standard</StatusBadge>
-}
-
-const STATUS_TONE: Record<SalesOrderRecord['status'], StatusTone> = {
-    Completed: 'success',
-    Delivered: 'success',
-    Dispatched: 'info',
-    'Pending Delivery': 'warning',
-    Draft: 'default',
-    Cancelled: 'danger',
-}
-
 /** Admin-only payment collection follows commercial state, not UI visibility. */
 const canRecordPayment = (order: SalesOrderRecord) => {
     if (order.channel !== 'E-commerce' || !order.payment) return false
@@ -139,42 +92,6 @@ const canRecordPayment = (order: SalesOrderRecord) => {
     // A delivery-stage collection is specifically for unpaid COD orders.
     return order.status !== 'Delivered' || order.payment.method === 'COD'
 }
-
-const StatusCell = ({ status }: { status: SalesOrderRecord['status'] }) => (
-    <StatusBadge tone={STATUS_TONE[status]}>{status}</StatusBadge>
-)
-
-const lineColumns: ColumnDef<SalesOrderRecord['lines'][number]>[] = [
-    {
-        header: 'SKU',
-        id: 'sku',
-        cell: ({ row }) => (
-            <div>
-                <div className="font-mono text-xs">{row.original.sku}</div>
-                <div className="text-xs text-gray-500">{row.original.name}</div>
-            </div>
-        ),
-    },
-    { header: 'Qty', id: 'quantity', cell: ({ row }) => row.original.quantity },
-    {
-        header: 'Unit Price',
-        id: 'unitPrice',
-        cell: ({ row }) => (
-            <span className="whitespace-nowrap">
-                {formatPrice(row.original.unitPrice)}
-            </span>
-        ),
-    },
-    {
-        header: 'Line Total',
-        id: 'lineTotal',
-        cell: ({ row }) => (
-            <span className="whitespace-nowrap">
-                {formatPrice(row.original.lineTotal)}
-            </span>
-        ),
-    },
-]
 
 const SummaryStat = ({
     label,
@@ -421,17 +338,18 @@ const SalesOrdersDashboard = () => {
                 cell: ({ row }) => (
                     <SdDocCell
                         primary={row.original.orderId}
-                        secondary={formatDateTime(row.original.createdAt)}
+                        secondary={formatOrderDateTime(row.original.createdAt)}
                     />
                 ),
             },
             {
                 header: 'Channel',
                 id: 'channel',
-                size: 96,
+                size: 152,
+                minSize: 132,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => (
-                    <ChannelBadge channel={row.original.channel} />
+                    <SalesOrderChannelBadge channel={row.original.channel} />
                 ),
             },
             {
@@ -491,8 +409,9 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Status',
                 id: 'orderStatus',
-                size: 108,
-                cell: ({ row }) => <StatusCell status={row.original.status} />,
+                size: 144,
+                minSize: 124,
+                cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
             },
             {
                 header: 'Payment',
@@ -525,7 +444,8 @@ const SalesOrdersDashboard = () => {
             {
                 header: 'Paid',
                 id: 'paymentStatus',
-                size: 96,
+                size: 152,
+                minSize: 132,
                 meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => {
                     const payment = row.original.payment
@@ -533,6 +453,7 @@ const SalesOrdersDashboard = () => {
                         return <span className="text-gray-400">—</span>
                     return (
                         <StatusBadge
+                            className="whitespace-nowrap"
                             tone={
                                 payment.status === 'Paid'
                                     ? 'success'
@@ -711,7 +632,7 @@ const SalesOrdersDashboard = () => {
                 <SummaryStat
                     className="col-span-2 sm:col-span-1"
                     label="Gross Sales"
-                    value={formatPrice(summary.totalRevenue)}
+                    value={formatOrderPrice(summary.totalRevenue)}
                 />
             </div>
 
@@ -725,187 +646,20 @@ const SalesOrdersDashboard = () => {
                 />
             </Card>
 
-            <Dialog
+            <SalesOrderDetailDialog
+                order={selected}
                 isOpen={selected !== null}
-                width={640}
+                branchName={
+                    selected ? branchNameOf(selected.branchId) : '—'
+                }
                 onClose={() => setSelected(null)}
-                onRequestClose={() => setSelected(null)}
-            >
-                {selected ? (
-                    <div>
-                        <div className="mb-4 flex flex-wrap items-center gap-2 pr-8">
-                            <h5 className="font-mono">{selected.orderId}</h5>
-                            <ChannelBadge channel={selected.channel} />
-                            <StatusCell status={selected.status} />
-                        </div>
-                        <div className="mb-4 grid gap-1 break-words text-sm sm:grid-cols-2">
-                            <div>
-                                <span className="text-gray-500">
-                                    Customer:{' '}
-                                </span>
-                                {selected.customer.name}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Email: </span>
-                                {selected.customer.email ?? '—'}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Company: </span>
-                                {selected.company?.name ?? '—'}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Branch: </span>
-                                {branchNameOf(selected.branchId)}
-                            </div>
-                            <div>
-                                <span className="text-gray-500">Created: </span>
-                                {formatDateTime(selected.createdAt)}
-                            </div>
-                        </div>
-                        <div className="sm:max-h-[40vh] sm:overflow-y-auto">
-                            <SdDataTable
-                                columns={lineColumns}
-                                data={selected.lines}
-                                hidePagination
-                            />
-                        </div>
-                        <div className="mt-4 ml-auto flex w-full flex-col gap-1 text-sm sm:max-w-xs">
-                            <div className="flex justify-between">
-                                <span className="text-gray-500">Subtotal</span>
-                                <span>{formatPrice(selected.subtotal)}</span>
-                            </div>
-                            {selected.promoCode ? (
-                                <div className="flex justify-between text-emerald-600">
-                                    <span>Promo ({selected.promoCode})</span>
-                                    <span>
-                                        −{formatPrice(selected.discountAmount)}
-                                    </span>
-                                </div>
-                            ) : null}
-                            {selected.channel === 'E-commerce' ? (
-                                <div className="flex justify-between">
-                                    <span className="text-gray-500">
-                                        Shipping
-                                    </span>
-                                    <span>
-                                        {formatPrice(selected.shipping)}
-                                    </span>
-                                </div>
-                            ) : null}
-                            <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold dark:border-gray-700">
-                                <span>Total</span>
-                                <span>{formatPrice(selected.totalAmount)}</span>
-                            </div>
-                            {selected.paymentReceived !== null ? (
-                                <>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Cash
-                                        </span>
-                                        <span>
-                                            {formatPrice(
-                                                selected.paymentReceived,
-                                            )}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-500">
-                                            Change
-                                        </span>
-                                        <span>
-                                            {formatPrice(selected.change ?? 0)}
-                                        </span>
-                                    </div>
-                                </>
-                            ) : null}
-                        </div>
-                        {selected.payment ? (
-                            <div className="mt-3 flex flex-col gap-0.5 text-sm">
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-gray-500">
-                                        Payment Method
-                                    </span>
-                                    <span className="flex items-center gap-2 font-medium">
-                                        {selected.payment.method &&
-                                        selected.payment.method in
-                                            PAYMENT_METHOD_LABEL
-                                            ? PAYMENT_METHOD_LABEL[
-                                                  selected.payment
-                                                      .method as keyof typeof PAYMENT_METHOD_LABEL
-                                              ]
-                                            : selected.payment.method}
-                                        {selected.payment.isDemo ? (
-                                            <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
-                                                Demo
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-gray-500">
-                                        Payment Status
-                                    </span>
-                                    <StatusBadge
-                                        tone={
-                                            selected.payment.status === 'Paid'
-                                                ? 'success'
-                                                : selected.payment.status ===
-                                                    'Failed'
-                                                  ? 'danger'
-                                                  : 'warning'
-                                        }
-                                    >
-                                        {selected.payment.status ?? '—'}
-                                    </StatusBadge>
-                                </div>
-                                {(() => {
-                                    const open =
-                                        selected.customerReturns?.find(
-                                            (r) =>
-                                                !isCommercialResolutionBlocked(
-                                                    r.refundStatus,
-                                                ) &&
-                                                (r.preferredResolution ===
-                                                    'REFUND' ||
-                                                    r.preferredResolution ===
-                                                        'REPLACEMENT'),
-                                        )
-                                    if (!open?.preferredResolution) return null
-                                    const res = open.preferredResolution
-                                    return (
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-gray-500">
-                                                Customer return
-                                            </span>
-                                            <StatusBadge
-                                                tone={
-                                                    RESOLUTION_TONE[res] ??
-                                                    'default'
-                                                }
-                                            >
-                                                {RESOLUTION_LABEL[res] ?? res}
-                                            </StatusBadge>
-                                        </div>
-                                    )
-                                })()}
-                                {selected.payment.reference ? (
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-gray-500">
-                                            Reference
-                                        </span>
-                                        <span className="font-mono text-xs">
-                                            {selected.payment.reference}
-                                        </span>
-                                    </div>
-                                ) : null}
-                            </div>
-                        ) : null}
-                        <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+                footer={
+                    selected ? (
+                        <>
                             {canUpdate && selected.status === 'Draft' ? (
                                 <Button
                                     size="sm"
                                     variant="solid"
-                                    className="flex-1 sm:flex-none"
                                     customColorClass={() =>
                                         'bg-emerald-600 hover:bg-emerald-700 text-white'
                                     }
@@ -921,7 +675,6 @@ const SalesOrdersDashboard = () => {
                                 <Button
                                     size="sm"
                                     variant="solid"
-                                    className="flex-1 sm:flex-none"
                                     icon={<HiOutlineCheck />}
                                     loading={paymentUpdatingId === selected.id}
                                     onClick={() => void markPaid(selected)}
@@ -939,15 +692,12 @@ const SalesOrdersDashboard = () => {
                                 <>
                                     {selected.status === 'Pending Delivery' ? (
                                         <>
-                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                                Fulfillment proceeds through
-                                                picking, packing, dispatch, and
-                                                delivery. Mark Completed is
-                                                available only after delivery.
-                                            </div>
+                                            <span className="mr-auto hidden text-xs text-gray-500 lg:inline">
+                                                Fulfillment via picking, pack,
+                                                dispatch, and delivery.
+                                            </span>
                                             <Button
                                                 size="sm"
-                                                className="flex-1 sm:flex-none"
                                                 loading={
                                                     fulfillmentStartingId ===
                                                     selected.id
@@ -967,7 +717,6 @@ const SalesOrdersDashboard = () => {
                                                 <Button
                                                     size="sm"
                                                     variant="solid"
-                                                    className="flex-1 sm:flex-none"
                                                     customColorClass={() =>
                                                         'bg-red-500 hover:bg-red-600 text-white'
                                                     }
@@ -988,15 +737,13 @@ const SalesOrdersDashboard = () => {
                                         </>
                                     ) : (
                                         <>
-                                            <div className="w-full text-xs text-gray-500 sm:mr-auto sm:w-auto">
-                                                Shipment delivered. Close the
-                                                commercial order when all
-                                                delivery evidence is accepted.
-                                            </div>
+                                            <span className="mr-auto hidden text-xs text-gray-500 lg:inline">
+                                                Mark completed after delivery
+                                                evidence is accepted.
+                                            </span>
                                             <Button
                                                 size="sm"
                                                 variant="solid"
-                                                className="flex-1 sm:flex-none"
                                                 icon={<HiOutlineCheck />}
                                                 loading={
                                                     updatingId === selected.id
@@ -1015,15 +762,15 @@ const SalesOrdersDashboard = () => {
                             ) : null}
                             <Button
                                 size="sm"
-                                className="w-full sm:w-auto"
+                                variant="solid"
                                 onClick={() => setSelected(null)}
                             >
                                 Close
                             </Button>
-                        </div>
-                    </div>
-                ) : null}
-            </Dialog>
+                        </>
+                    ) : null
+                }
+            />
 
             <ConfirmDialog
                 isOpen={confirmCancelOpen}

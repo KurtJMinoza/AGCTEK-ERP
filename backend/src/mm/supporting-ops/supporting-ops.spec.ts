@@ -2,7 +2,6 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { BarcodeRegistryService } from './barcode-registry.service'
 import { ScanOverrideService } from './scan-override.service'
 import { RfidTagService } from './rfid-tag.service'
-import { ComplianceAuditService } from './compliance-audit.service'
 
 describe('ISO supporting operations', () => {
     const prisma: any = {
@@ -31,12 +30,10 @@ describe('ISO supporting operations', () => {
             findMany: jest.fn(),
             count: jest.fn(),
         },
-        mmComplianceAuditEntry: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     }
-    const audit = new ComplianceAuditService(prisma)
 
     it('archived barcode rejected at registry assertScannable via effective dates', async () => {
-        const registry = new BarcodeRegistryService(prisma, audit)
+        const registry = new BarcodeRegistryService(prisma)
         prisma.mmBarcode.findFirst.mockResolvedValue({
             id: 'bc-1',
             effectiveTo: new Date('2020-01-01'),
@@ -45,7 +42,7 @@ describe('ISO supporting operations', () => {
     })
 
     it('scan override requester cannot self-approve', async () => {
-        const overrides = new ScanOverrideService(prisma, audit)
+        const overrides = new ScanOverrideService(prisma)
         prisma.mmScanOverride.findUnique.mockResolvedValue({
             id: 'o1',
             status: 'PENDING',
@@ -57,7 +54,7 @@ describe('ISO supporting operations', () => {
     })
 
     it('RFID read deduplicates within window', async () => {
-        const rfid = new RfidTagService(prisma, audit)
+        const rfid = new RfidTagService(prisma)
         const now = new Date()
         prisma.mmRfidTag.findUnique.mockResolvedValue({
             id: 't1',

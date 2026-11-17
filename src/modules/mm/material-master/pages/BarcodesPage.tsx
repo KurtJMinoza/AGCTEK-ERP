@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
@@ -19,7 +18,10 @@ import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { barcodeService } from '../services/referenceService'
 import type { MmBarcode } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    materialMasterFeatureDescription,
+    materialMasterParentBreadcrumbs,
+} from '../utils/materialMasterPageUi'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -38,7 +40,10 @@ const BARCODE_TYPE_OPTIONS = [
 ]
 
 const BarcodesPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => materialMasterParentBreadcrumbs(ROUTE),
+        [],
+    )
     const { canCreate, canDelete } = useResourceAccess()
     const [items, setItems] = useState<(MmBarcode & { material?: { materialCode: string; materialName: string } })[]>([])
     const [loading, setLoading] = useState(true)
@@ -116,8 +121,12 @@ const BarcodesPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Barcodes" description="Manage barcode records across all materials." actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button> : undefined} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Barcodes"
+                description={materialMasterFeatureDescription('Barcodes')}
+                actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => setAddOpen(true)}>Add barcode</Button> : undefined}
+            />
             <AdaptiveCard>
                 {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">

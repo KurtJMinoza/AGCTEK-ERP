@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -30,7 +30,6 @@ import {
     type TraceChainNode,
 } from '../services/traceabilityService'
 import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { buildTransactionColumns } from '../utils/ledgerColumns'
 import {
     movementLabel,
@@ -56,7 +55,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const TraceabilityPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const { companies, materials } = useMmFilterRefs('companies', 'materials')
     const [companyId, setCompanyId] = useState('')
     const [materialId, setMaterialId] = useState('')
@@ -188,16 +187,19 @@ const TraceabilityPage = () => {
 
     const ledgerColumns = useMemo(
         () =>
-            buildTransactionColumns([
-                'transaction',
-                'movement',
-                'material',
-                'location',
-                'quantity',
-                'reference',
-                'reverses',
-                'idempotency',
-            ]),
+            buildTransactionColumns(
+                [
+                    'transaction',
+                    'movement',
+                    'material',
+                    'location',
+                    'quantity',
+                    'reference',
+                    'reverses',
+                    'idempotency',
+                ],
+                { presentation: 'inventory' },
+            ),
         [],
     )
 
@@ -507,8 +509,8 @@ const TraceabilityPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Inventory Traceability"
                 description="Ledger search plus batch forward/backward genealogy, where-used, and serial history — all from the immutable inventory ledger."
             />
@@ -629,11 +631,12 @@ const TraceabilityPage = () => {
 
                     <div className="mt-4">
                         <TabContent value="ledger">
-                            <DataTable
+                            <InventoryResponsiveTable
                                 columns={ledgerColumns}
                                 data={rows}
                                 loading={loading}
                                 compact
+                                getRowId={(row) => row.id}
                                 noData={rows.length === 0}
                                 pagingData={{
                                     total: meta.total,
@@ -641,40 +644,49 @@ const TraceabilityPage = () => {
                                     pageSize: meta.limit,
                                 }}
                                 onPaginationChange={setPage}
+                                tableMinWidthClass="min-w-[1100px]"
                             />
                         </TabContent>
                         <TabContent value="forward">
-                            <DataTable
+                            <InventoryResponsiveTable
                                 columns={chainColumns}
                                 data={chain}
                                 loading={loading}
                                 compact
+                                getRowId={(row, index) => row.transactionNumber ?? String(index)}
                                 noData={chain.length === 0}
+                                tableMinWidthClass="min-w-[960px]"
                             />
                         </TabContent>
                         <TabContent value="backward">
-                            <DataTable
+                            <InventoryResponsiveTable
                                 columns={chainColumns}
                                 data={chain}
                                 loading={loading}
                                 compact
+                                getRowId={(row, index) => row.transactionNumber ?? String(index)}
+                                tableMinWidthClass="min-w-[960px]"
                             />
                         </TabContent>
                         <TabContent value="whereUsed">
-                            <DataTable
+                            <InventoryResponsiveTable
                                 columns={whereUsedColumns}
                                 data={whereUsed}
                                 loading={loading}
                                 compact
+                                getRowId={(row, index) => row.transactionNumber ?? String(index)}
                                 noData={whereUsed.length === 0}
+                                tableMinWidthClass="min-w-[880px]"
                             />
                         </TabContent>
                         <TabContent value="serial">
-                            <DataTable
+                            <InventoryResponsiveTable
                                 columns={chainColumns}
                                 data={chain}
                                 loading={loading}
                                 compact
+                                getRowId={(row, index) => row.transactionNumber ?? String(index)}
+                                tableMinWidthClass="min-w-[960px]"
                             />
                         </TabContent>
                     </div>

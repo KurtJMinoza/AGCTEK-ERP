@@ -3,10 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, {
+    type ColumnDef,
+} from '@/modules/mm/procurement/components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDocNumberCell,
+    PrcPlainCell,
+    PRC_EXCEPTION_STATUS,
+    prcStatusTone,
+} from '@/modules/mm/procurement/components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '@/modules/mm/procurement/utils/procurementPageUi'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
@@ -14,7 +22,6 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { threeWayMatchService } from '../services/threeWayMatchService'
 import type { MatchException } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/procurement/match-exceptions'
 type Opt = { value: string; label: string }
@@ -28,7 +35,7 @@ const STATUS_OPTS: Opt[] = [
 ]
 
 const MatchExceptionsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<MatchException[]>([])
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState('OPEN')
@@ -60,27 +67,64 @@ const MatchExceptionsPage = () => {
         () => [
             {
                 header: 'Invoice',
-                cell: ({ row }) =>
-                    row.original.invoice?.invoiceNumber || row.original.invoiceId,
+                cell: ({ row }) => (
+                    <PrcDocNumberCell
+                        icon="invoice"
+                        primary={
+                            row.original.invoice?.invoiceNumber || row.original.invoiceId
+                        }
+                        secondary={
+                            row.original.purchaseOrder?.poNumber ||
+                            row.original.invoice?.purchaseOrder?.poNumber
+                        }
+                    />
+                ),
             },
             {
                 header: 'PO',
-                cell: ({ row }) =>
-                    row.original.purchaseOrder?.poNumber ||
-                    row.original.invoice?.purchaseOrder?.poNumber ||
-                    row.original.purchaseOrderId,
+                cell: ({ row }) => (
+                    <PrcPlainCell mono>
+                        {row.original.purchaseOrder?.poNumber ||
+                            row.original.invoice?.purchaseOrder?.poNumber ||
+                            row.original.purchaseOrderId}
+                    </PrcPlainCell>
+                ),
             },
-            { header: 'Type', accessorKey: 'varianceType' },
-            { header: 'Severity', accessorKey: 'severity' },
-            { header: 'Message', accessorKey: 'message' },
+            {
+                header: 'Type',
+                accessorKey: 'varianceType',
+                cell: ({ row }) => <PrcPlainCell>{row.original.varianceType}</PrcPlainCell>,
+            },
+            {
+                header: 'Severity',
+                accessorKey: 'severity',
+                cell: ({ row }) => <PrcPlainCell mono>{row.original.severity}</PrcPlainCell>,
+            },
+            {
+                header: 'Message',
+                accessorKey: 'message',
+                cell: ({ row }) => (
+                    <span className="line-clamp-2 max-w-xs text-sm text-gray-700 dark:text-gray-300">
+                        {row.original.message}
+                    </span>
+                ),
+            },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <PrcAnimatedStatus
+                        status={row.original.status}
+                        tone={prcStatusTone(row.original.status, PRC_EXCEPTION_STATUS)}
+                    />
+                ),
             },
             {
                 header: 'Payment',
-                cell: ({ row }) =>
-                    row.original.paymentBlocked ? 'Blocked' : 'Unblocked',
+                cell: ({ row }) => (
+                    <PrcPlainCell>
+                        {row.original.paymentBlocked ? 'Blocked' : 'Unblocked'}
+                    </PrcPlainCell>
+                ),
             },
             {
                 header: 'Actions',
@@ -131,8 +175,8 @@ const MatchExceptionsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Match Exceptions"
                 description="Quantity, price, tax, and currency variances that block payment eligibility"
             />
@@ -151,7 +195,13 @@ const MatchExceptionsPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ProcurementResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[1000px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

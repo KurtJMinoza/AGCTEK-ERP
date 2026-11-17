@@ -16,6 +16,8 @@ import {
     RetrySafeChip,
     TONE_CARD,
 } from './inventoryUi'
+import { InvDocNumberCell, InvPlainCell } from '../components/inventoryTableUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 
 /**
  * The transaction table columns shared by every Inventory Management page that
@@ -42,15 +44,37 @@ export type TransactionColumnKey = (typeof TRANSACTION_COLUMN_KEYS)[number]
 
 const num = (v: string | number | undefined) => Number(v ?? 0)
 
+export type TransactionColumnOptions = {
+    presentation?: 'classic' | 'inventory'
+}
+
 export const buildTransactionColumns = (
     keys: readonly TransactionColumnKey[] = TRANSACTION_COLUMN_KEYS,
+    options?: TransactionColumnOptions,
 ): ColumnDef<InventoryTransaction>[] => {
+    const inventory = options?.presentation === 'inventory'
+
     const defs: Record<TransactionColumnKey, ColumnDef<InventoryTransaction>> = {
         transaction: {
             header: 'Transaction',
             cell: ({ row }) => {
                 const t = row.original
                 const isReversal = !!t.reversalOfId
+                const secondary = [
+                    isReversal ? 'Reversal' : t.reversedBy ? 'Reversed' : null,
+                    t.postingDate,
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
+                if (inventory) {
+                    return (
+                        <InvDocNumberCell
+                            icon="ledger"
+                            primary={t.transactionNumber}
+                            secondary={secondary || undefined}
+                        />
+                    )
+                }
                 return (
                     <div className="min-w-[10rem]">
                         <div className="whitespace-nowrap font-mono text-xs font-semibold text-gray-900">
@@ -119,6 +143,15 @@ export const buildTransactionColumns = (
             header: 'Material',
             cell: ({ row }) => {
                 const m = row.original.material
+                if (inventory) {
+                    return (
+                        <SmEntityCell
+                            kind="material"
+                            primary={m?.materialName}
+                            secondary={m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                        />
+                    )
+                }
                 return (
                     <div className="min-w-[11rem] max-w-[12rem]">
                         <div className="truncate font-semibold text-gray-900">
@@ -133,17 +166,25 @@ export const buildTransactionColumns = (
         },
         location: {
             header: 'Location',
-            cell: ({ row }) => (
-                <div className="min-w-[8rem] max-w-[8rem] whitespace-nowrap text-sm text-gray-600">
-                    <div className="truncate">
-                        {row.original.warehouse?.code ??
-                            row.original.warehouseId.slice(0, 8)}
+            cell: ({ row }) =>
+                inventory ? (
+                    <div className="min-w-[8rem]">
+                        <InvPlainCell>{row.original.warehouse?.code ?? row.original.warehouseId.slice(0, 8)}</InvPlainCell>
+                        <InvPlainCell mono muted>
+                            {row.original.storageBin?.code ?? 'No bin'}
+                        </InvPlainCell>
                     </div>
-                    <div className="truncate font-mono text-xs text-gray-400">
-                        {row.original.storageBin?.code ?? 'No bin'}
+                ) : (
+                    <div className="min-w-[8rem] max-w-[8rem] whitespace-nowrap text-sm text-gray-600">
+                        <div className="truncate">
+                            {row.original.warehouse?.code ??
+                                row.original.warehouseId.slice(0, 8)}
+                        </div>
+                        <div className="truncate font-mono text-xs text-gray-400">
+                            {row.original.storageBin?.code ?? 'No bin'}
+                        </div>
                     </div>
-                </div>
-            ),
+                ),
         },
         quantity: {
             header: 'Quantity',

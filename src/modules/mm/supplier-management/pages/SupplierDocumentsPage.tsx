@@ -3,25 +3,24 @@
 import { useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import { supplierParentBreadcrumbs } from '../utils/supplierPageUi'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
 import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useMmFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 
 const ROUTE = '/modules/mm/supplier-management/supplier-documents'
 
 const SupplierDocumentsPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE)
     const [supplierId, setSupplierId] = useState('')
     const { suppliers: supplierOpts } = useMmFilterRefs('suppliers')
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Documents"
                 description="Upload, view, and manage supplier contracts, certificates, and compliance files."
             />

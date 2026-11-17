@@ -110,6 +110,9 @@ describe('MM ↔ FICO Accounting (Phase 3D)', () => {
                 )
             }),
         },
+        ficoPostingPeriodControl: {
+            findMany: jest.fn().mockResolvedValue([]),
+        },
         mmMaterialValuation: { findMany: jest.fn().mockResolvedValue([]) },
     }
 

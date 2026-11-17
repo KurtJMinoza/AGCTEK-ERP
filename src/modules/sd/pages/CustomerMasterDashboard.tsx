@@ -47,6 +47,17 @@ const STATUS_FILTER_OPTIONS: StatusFilterOption[] = [
     { value: 'BLOCKED', label: 'Blocked' },
 ]
 
+type AccountTypeFilterOption = {
+    value: CustomerFilters['customerAccountType']
+    label: string
+}
+
+const ACCOUNT_TYPE_FILTER_OPTIONS: AccountTypeFilterOption[] = [
+    { value: 'ALL', label: 'All account types' },
+    { value: 'NON_CREDIT', label: 'Cash (Non-Credit)' },
+    { value: 'CREDIT', label: 'Credit' },
+]
+
 const formatPrice = (value: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(
         value,
@@ -59,15 +70,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         </Notification>,
         { placement: 'top-end' },
     )
-
-const SummaryStat = ({ label, value }: { label: string; value: string | number }) => (
-    <Card>
-        <div className="text-sm text-gray-500">{label}</div>
-        <div className="mt-1 break-words text-xl font-bold sm:text-2xl">
-            {value}
-        </div>
-    </Card>
-)
 
 type DialogState =
     | { mode: 'create' }
@@ -102,19 +104,6 @@ const CustomerMasterDashboard = () => {
         )
         return () => window.clearTimeout(timer)
     }, [searchInput, filters.search, setFilters])
-
-    const summary = useMemo(
-        () => ({
-            total: customers.length,
-            blocked: customers.filter((c) => c.status === 'BLOCKED').length,
-            creditLimit: customers.reduce((sum, c) => sum + c.creditLimit, 0),
-            availableCredit: customers.reduce(
-                (sum, c) => sum + c.availableCredit,
-                0,
-            ),
-        }),
-        [customers],
-    )
 
     const handleSubmit = async (values: CreateCustomerInput) => {
         if (!dialog) return
@@ -151,8 +140,8 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Customer',
                 id: 'company',
-                size: 180,
-                minSize: 140,
+                size: 150,
+                minSize: 120,
                 cell: ({ row }) => (
                     <SdCompanyIdentityCell
                         title={row.original.companyName}
@@ -162,22 +151,32 @@ const CustomerMasterDashboard = () => {
                 ),
             },
             {
-                header: 'Type',
-                id: 'customerType',
-                size: 88,
+                header: 'Account type',
+                id: 'customerAccountType',
+                size: 115,
                 meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
-                        <SdStatusBadgeCell label="Retail" tone="info" />
+                    row.original.customerAccountType === 'CREDIT' ? (
+                        <SdStatusBadgeCell label="Credit" tone="warning" />
                     ) : (
-                        <SdStatusBadgeCell label="B2B" />
+                        <SdStatusBadgeCell
+                            label={
+                                row.original.paymentMode === 'BANK_TRANSFER'
+                                    ? 'Bank Transfer'
+                                    : row.original.paymentMode ===
+                                      'LOAN_SALARY_DEDUCT'
+                                      ? 'Loan (Salary Deduction)'
+                                      : 'Cash'
+                            }
+                            tone="info"
+                        />
                     ),
             },
             {
                 header: 'Contact',
                 id: 'contact',
-                size: 180,
-                minSize: 140,
+                size: 150,
+                minSize: 120,
                 meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => (
                     <SdContactCell
@@ -188,12 +187,21 @@ const CustomerMasterDashboard = () => {
                 ),
             },
             {
+                header: 'Customer category',
+                id: 'customerCategory',
+                size: 140,
+                meta: { className: 'hidden sm:table-cell' },
+                cell: ({ row }) => (
+                    <SdStatusBadgeCell label={row.original.customerCategory} tone="info" />
+                ),
+            },
+            {
                 header: 'Credit Limit',
                 id: 'creditLimit',
-                size: 120,
+                size: 100,
                 meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
+                    row.original.customerAccountType === 'NON_CREDIT' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
                         <SdMoneyCell amount={row.original.creditLimit} />
@@ -202,10 +210,10 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Available Credit',
                 id: 'availableCredit',
-                size: 130,
+                size: 100,
                 meta: { className: 'hidden xl:table-cell' },
                 cell: ({ row }) =>
-                    row.original.customerType === 'RETAIL' ? (
+                    row.original.customerAccountType === 'NON_CREDIT' ? (
                         <span className="text-gray-400">—</span>
                     ) : (
                         <SdMoneyCell
@@ -218,7 +226,7 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Shop Account',
                 id: 'shopAccount',
-                size: 160,
+                size: 130,
                 meta: { className: 'hidden lg:table-cell' },
                 cell: ({ row }) => (
                     <SdEmailCell email={row.original.retailClient?.email} />
@@ -227,7 +235,7 @@ const CustomerMasterDashboard = () => {
             {
                 header: 'Status',
                 id: 'status',
-                size: 96,
+                size: 80,
                 cell: ({ row }) =>
                     row.original.status === 'BLOCKED' ? (
                         <SdStatusBadgeCell label="Blocked" tone="danger" />
@@ -313,22 +321,25 @@ const CustomerMasterDashboard = () => {
                         }
                     />
                 </div>
+                <div className="md:w-48">
+                    <Select<AccountTypeFilterOption>
+                        isSearchable={false}
+                        options={ACCOUNT_TYPE_FILTER_OPTIONS}
+                        value={ACCOUNT_TYPE_FILTER_OPTIONS.find(
+                            (option) =>
+                                option.value === filters.customerAccountType,
+                        )}
+                        onChange={(option) =>
+                            void setFilters({
+                                customerAccountType:
+                                    option?.value ?? 'ALL',
+                            })
+                        }
+                    />
+                </div>
             </div>
 
-            <div className="my-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <SummaryStat label="Customers" value={summary.total} />
-                <SummaryStat label="Blocked" value={summary.blocked} />
-                <SummaryStat
-                    label="Total Credit Limit"
-                    value={formatPrice(summary.creditLimit)}
-                />
-                <SummaryStat
-                    label="Total Available Credit"
-                    value={formatPrice(summary.availableCredit)}
-                />
-            </div>
-
-            <Card>
+            <Card className="mt-4">
                 <SdDataTable
                     columns={columns}
                     data={customers}

@@ -31,8 +31,6 @@ Putaway execution resolves strategy via configured rules (fallback: capacity-bas
 
 ## UI workflow strip
 
-Pages for steps 1–4 and the foundation dashboard show **ISO 9001 work instruction — MM foundation** with deep links between steps and the readiness dashboard.
-
 ## Related docs
 
 - `docs/MM_ISO9001_OUTBOUND_WORK_INSTRUCTION.md` — picking, packing, goods issue (operational outbound)

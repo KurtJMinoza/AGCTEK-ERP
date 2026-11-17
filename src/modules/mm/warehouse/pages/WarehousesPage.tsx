@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
@@ -38,7 +38,10 @@ import { useWarehouses } from '../hooks/useWarehouses'
 import { orgService } from '../../material-master/services/referenceService'
 import type { Warehouse, CreateWarehousePayload } from '../types'
 import type { MmBranch, MmCompany } from '../../material-master/types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    warehouseLifecycleStatusTone,
+    warehouseParentBreadcrumbs,
+} from '../utils/warehousePageUi'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     firstError,
@@ -80,8 +83,14 @@ function pushToast(type: 'success' | 'danger' | 'warning', title: string, msg: s
     toast.push(<Notification type={type} title={title} closable duration={3500}>{msg}</Notification>, { placement: 'top-end' })
 }
 
+function geocodeSummary(warehouse: Warehouse): string {
+    if (warehouse.geocodeConfirmed) return 'Confirmed'
+    if (warehouse.lat != null) return 'Re-confirm'
+    return 'Not set'
+}
+
 const WarehousesPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const [search, setSearch] = useState('')
@@ -357,13 +366,54 @@ const WarehousesPage = () => {
         [openEdit, openLocate, canUpdate, canDelete],
     )
 
+    const warehouseMobile = useMemo(
+        () => ({
+            title: (w: Warehouse) => w.code,
+            subtitle: (w: Warehouse) => w.name,
+            status: (w: Warehouse) => ({
+                text: w.status.replace(/_/g, ' '),
+                tone: warehouseLifecycleStatusTone(w.status),
+            }),
+            onPress: (w: Warehouse) => setViewing(w),
+            fields: [
+                {
+                    label: 'Company',
+                    value: (w: Warehouse) => w.company?.name ?? '—',
+                },
+                {
+                    label: 'Branch',
+                    value: (w: Warehouse) => w.branch?.code ?? w.branch?.name ?? '—',
+                },
+                {
+                    label: 'Type',
+                    value: (w: Warehouse) => (w.warehouseType || 'GENERAL').replace(/_/g, ' '),
+                },
+                {
+                    label: 'Timezone',
+                    value: (w: Warehouse) => w.timezone || 'UTC',
+                },
+                {
+                    label: 'Routing',
+                    value: (w: Warehouse) => geocodeSummary(w),
+                },
+            ],
+        }),
+        [],
+    )
+
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Warehouses"
                 description="Manage physical warehouse locations and their configuration."
-                actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New warehouse</Button> : undefined}
+                actions={
+                    canCreate ? (
+                        <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => void openCreate()}>
+                            New warehouse
+                        </Button>
+                    ) : undefined
+                }
             />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -379,9 +429,9 @@ const WarehousesPage = () => {
                 </div>
 
                 {canDelete && selectedRows.size > 0 && (
-                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>Delete selected</Button>
                         </div>
@@ -389,19 +439,28 @@ const WarehousesPage = () => {
                 )}
 
                 <div className="mt-4">
-                    <DataTable<Warehouse>
+                    <WarehouseResponsiveTable<Warehouse>
                         columns={columns}
                         data={warehouses}
                         compact
                         loading={loading}
+                        getRowId={(row) => row.id}
                         selectable
                         checkboxChecked={(row) => selectedRows.has(row.id)}
                         onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
                         noData={!loading && warehouses.length === 0}
                         pagingData={{ total: meta.total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        onSelectChange={(size) => {
+                            setPageSize(size)
+                            setPage(1)
+                        }}
+                        tableMinWidthClass="min-w-[980px]"
+                        mobile={warehouseMobile}
+                        instanceId="warehouses"
                     />
                 </div>
             </AdaptiveCard>

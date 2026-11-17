@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import SupplierResponsiveTable from '../components/SupplierResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
@@ -16,7 +16,13 @@ import toast from '@/components/ui/toast'
 import { FormItem } from '@/components/ui/Form'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 import { supplierPricingService, type SupplierPrice } from '../services/supplierPricingService'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    SmEntityCell,
+    SmPlainCell,
+    SmUnitPriceCell,
+    SmValidityCell,
+} from '../components/SupplierTableCells'
+import { supplierParentBreadcrumbs } from '../utils/supplierPageUi'
 import { firstError, nonNegativeNumber, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useCurrencyOptions, useMaterialOptions, useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 
@@ -27,7 +33,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const SupplierPricingPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = supplierParentBreadcrumbs(ROUTE)
     const [items, setItems] = useState<SupplierPrice[]>([])
     const [loading, setLoading] = useState(true)
     const [addOpen, setAddOpen] = useState(false)
@@ -101,22 +107,115 @@ const SupplierPricingPage = () => {
     }
 
     const columns = useMemo<ColumnDef<SupplierPrice>[]>(() => [
-        { header: 'Supplier', id: 'sup', size: 200, cell: ({ row }) => row.original.supplier ? `${row.original.supplier.supplierCode} — ${row.original.supplier.supplierName}` : '—' },
-        { header: 'Material', id: 'mat', size: 200, cell: ({ row }) => row.original.material ? `${row.original.material.materialCode} — ${row.original.material.materialName}` : '—' },
-        { header: 'Unit price', accessorKey: 'unitPrice', size: 110, cell: ({ row }) => Number(row.original.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 }) },
-        { header: 'Currency', id: 'cur', size: 90, cell: ({ row }) => row.original.currency?.code ?? '—' },
-        { header: 'Min qty', accessorKey: 'minimumQuantity', size: 90, cell: ({ row }) => Number(row.original.minimumQuantity).toLocaleString() },
-        { header: 'From', accessorKey: 'effectiveFrom', size: 120, cell: ({ row }) => new Date(row.original.effectiveFrom).toLocaleDateString() },
-        { header: 'To', accessorKey: 'effectiveTo', size: 120, cell: ({ row }) => row.original.effectiveTo ? new Date(row.original.effectiveTo).toLocaleDateString() : 'Open' },
-        { id: 'actions', header: '', size: 56, cell: ({ row }) => <Button size="xs" variant="plain" icon={<HiOutlineTrash className="text-red-500" />} onClick={() => setDeleting(row.original)} /> },
+        {
+            header: 'Supplier',
+            id: 'sup',
+            size: 200,
+            cell: ({ row }) => {
+                const s = row.original.supplier
+                return (
+                    <SmEntityCell
+                        kind="supplier"
+                        primary={s?.supplierName}
+                        secondary={s?.supplierCode}
+                    />
+                )
+            },
+        },
+        {
+            header: 'Material',
+            id: 'mat',
+            size: 200,
+            cell: ({ row }) => {
+                const m = row.original.material
+                return (
+                    <SmEntityCell
+                        kind="material"
+                        primary={m?.materialName}
+                        secondary={m?.materialCode}
+                    />
+                )
+            },
+        },
+        {
+            header: 'Unit price',
+            accessorKey: 'unitPrice',
+            size: 110,
+            cell: ({ row }) => (
+                <SmUnitPriceCell
+                    amount={row.original.unitPrice}
+                    currencyCode={row.original.currency?.code}
+                />
+            ),
+        },
+        {
+            header: 'Min qty',
+            accessorKey: 'minimumQuantity',
+            size: 90,
+            cell: ({ row }) => (
+                <SmPlainCell mono>
+                    {Number(row.original.minimumQuantity).toLocaleString()}
+                </SmPlainCell>
+            ),
+        },
+        {
+            header: 'Effective',
+            id: 'effective',
+            size: 140,
+            cell: ({ row }) => (
+                <SmValidityCell
+                    start={row.original.effectiveFrom}
+                    end={row.original.effectiveTo}
+                />
+            ),
+        },
+        {
+            id: 'actions',
+            header: '',
+            size: 56,
+            cell: ({ row }) => (
+                <Button
+                    size="xs"
+                    variant="plain"
+                    icon={<HiOutlineTrash className="text-red-500" />}
+                    onClick={() => setDeleting(row.original)}
+                />
+            ),
+        },
     ], [])
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Supplier Pricing" description="Effective-dated price bands by supplier and material." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => { reset(); setAddOpen(true) }}>Add price</Button>} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Supplier Pricing"
+                description="Effective-dated price bands by supplier and material."
+                actions={
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={() => { reset(); setAddOpen(true) }}>
+                        Add price
+                    </Button>
+                }
+            />
             <AdaptiveCard>
-                <DataTable columns={columns} data={items} compact loading={loading} />
+                <SupplierResponsiveTable
+                    columns={columns}
+                    data={items}
+                    compact
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[880px]"
+                    mobile={{
+                        title: (row) => row.supplier?.supplierCode ?? 'Price',
+                        subtitle: (row) => row.material?.materialCode,
+                        fields: [
+                            {
+                                label: 'Unit price',
+                                value: (row) => Number(row.unitPrice).toFixed(2),
+                            },
+                            { label: 'Min qty', value: (row) => String(row.minimumQuantity) },
+                        ],
+                    }}
+                />
             </AdaptiveCard>
 
             <FormDialog

@@ -86,30 +86,6 @@ export class RfidReadDto {
     @IsOptional() @IsString() performedBy?: string
 }
 
-export class CreateControlledDocumentDto {
-    @IsString() @IsNotEmpty() companyId!: string
-    @IsString() @IsNotEmpty() title!: string
-    @IsString() @IsNotEmpty() documentType!: string
-    @IsOptional() @IsString() department?: string
-    @IsOptional() @IsString() processArea?: string
-    @IsOptional() @IsString() ownerUserId?: string
-    @IsOptional() @IsString() createdBy?: string
-}
-
-export class ApproveControlledDocDto {
-    @IsString() @IsNotEmpty() revisionNumber!: string
-    @IsString() @IsNotEmpty() approverUserId!: string
-    @IsOptional() @IsString() authorUserId?: string
-    @IsOptional() @IsString() effectiveDate?: string
-}
-
-export class ComplianceAuditQueryDto {
-    @IsString() @IsNotEmpty() companyId!: string
-    @IsOptional() @IsString() domain?: string
-    @IsOptional() @Type(() => Number) @IsNumber() page?: number
-    @IsOptional() @Type(() => Number) @IsNumber() pageSize?: number
-}
-
 export class ListDevicesQueryDto {
     @IsOptional() @IsString() companyId?: string
     @IsOptional() @IsString() status?: string

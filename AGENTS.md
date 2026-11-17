@@ -38,7 +38,7 @@ backend/AGENTS.md                      = NestJS / Prisma / API conventions
 src/AGENTS.md                          = Next.js / ECME UI conventions
 .cursor/rules/*.mdc                    = Scoped Cursor rules (UI, modules, MM gate)
 .cursor/skills/*/SKILL.md              = WHAT each domain knows (load when relevant)
-docs/MM_* · docs/SCM_* · …             = Domain depth (must not contradict master flow)
+docs/MM_* · docs/SCM_* · docs/POS_* · … = Domain depth (must not contradict master flow)
 ```
 
 ```text
@@ -255,7 +255,8 @@ Quality decides whether stock may be used; inventory owns quantity and movement.
 Do not directly modify another module’s tables. Prefer: domain transaction → outbox → typed event → consumer → consumer-owned transaction.
 
 **Master ownership & event catalog:** `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`  
-**Detail:** `.cursor/skills/integration/SKILL.md`, `docs/MM_INTEGRATION_CONTRACTS.md`
+**Detail:** `.cursor/skills/integration/SKILL.md`, `docs/MM_INTEGRATION_CONTRACTS.md`  
+**Retail POS:** `docs/POS_CHECKOUT_AND_PAYMENTS.md` (staged checkout, tenders, cashier shift)
 
 ---
 

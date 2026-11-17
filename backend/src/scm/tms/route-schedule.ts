@@ -32,6 +32,13 @@ export type ScheduledStop = {
 
 const MS = 1000
 
+const DEFAULT_SERVICE_MIN = 30
+
+/** Default dwell per stop (env ROUTE_DEFAULT_SERVICE_MIN), shared by preview and dispatch. */
+export function defaultServiceMinutes(): number {
+    return Number(process.env.ROUTE_DEFAULT_SERVICE_MIN) || DEFAULT_SERVICE_MIN
+}
+
 /** Forward pass on the current sequence: cumulative ETA, waiting, window status. */
 export function computeSchedule(
     stops: ScheduleStop[],
@@ -134,6 +141,34 @@ export function latestFeasibleDeparture(
         latestDepartureAt: new Date(latest - legs[0].durationSec * MS),
         conflictKeys: conflictKeys.reverse(),
     }
+}
+
+export type WindowViolation = {
+    key: string
+    code: 'LATE' | 'WINDOW_CONFLICT'
+    lateBySec: number
+}
+
+/**
+ * Window feasibility for a fixed departure, with the same semantics as route
+ * preview: unfixable window conflicts, then stops whose service ends after the
+ * window closes.
+ */
+export function windowViolations(
+    stops: ScheduleStop[],
+    legs: ScheduleLeg[],
+    departAt: Date,
+): WindowViolation[] {
+    const { conflictKeys } = latestFeasibleDeparture(stops, legs)
+    const conflicts = conflictKeys.map<WindowViolation>((key) => ({
+        key,
+        code: 'WINDOW_CONFLICT',
+        lateBySec: 0,
+    }))
+    const late = computeSchedule(stops, legs, departAt)
+        .filter((entry) => entry.windowStatus === 'LATE')
+        .map<WindowViolation>((entry) => ({ key: entry.key, code: 'LATE', lateBySec: entry.lateBySec }))
+    return [...conflicts, ...late]
 }
 
 /**

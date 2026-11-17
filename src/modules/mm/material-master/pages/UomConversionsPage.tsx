@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
@@ -20,7 +19,10 @@ import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash } from 'react-icons/hi'
 import { uomConversionService } from '../services/referenceService'
 import { useUomOptions } from '@/modules/mm/shared/useEntityOptions'
 import type { MmUomConversion, MmUom } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    materialMasterFeatureDescription,
+    materialMasterParentBreadcrumbs,
+} from '../utils/materialMasterPageUi'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { firstError, positiveNumber, required, visibleError, type FieldErrors } from '@/modules/mm/shared/formValidation'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
@@ -34,7 +36,10 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 type Opt = { value: string; label: string }
 
 const UomConversionsPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => materialMasterParentBreadcrumbs(ROUTE),
+        [],
+    )
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
     const [items, setItems] = useState<MmUomConversion[]>([])
     const [loading, setLoading] = useState(true)
@@ -145,8 +150,12 @@ const UomConversionsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="UOM Conversions" description="Define conversion factors between units of measure." actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add conversion</Button> : undefined} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="UOM Conversions"
+                description={materialMasterFeatureDescription('UOM Conversions')}
+                actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add conversion</Button> : undefined}
+            />
             <AdaptiveCard>
                 {canDelete && selectedRows.size > 0 && (
                     <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">

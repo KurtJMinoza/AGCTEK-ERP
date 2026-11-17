@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import MrpResponsiveTable, { type ColumnDef } from '../components/MrpResponsiveTable'
+import {
+    MrpDateCell,
+    MrpMaterialCell,
+    MrpPlainCell,
+    MrpQtyCell,
+} from '../components/mrpTableUi'
+import { mrpParentBreadcrumbs } from '../utils/mrpPageUi'
 import Select from '@/components/ui/Select'
 import Card from '@/components/ui/Card'
 import Notification from '@/components/ui/Notification'
@@ -14,7 +20,6 @@ import { FormItem } from '@/components/ui/Form'
 import { planningService } from '../services/planningService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { ProjectedStockRow } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/planning-mrp/projected-stock'
 
@@ -28,7 +33,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const ProjectedStockPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = mrpParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<ProjectedStockRow[]>([])
     const [loading, setLoading] = useState(true)
     const [runLabel, setRunLabel] = useState<string | null>(null)
@@ -82,38 +87,54 @@ const ProjectedStockPage = () => {
         () => [
             {
                 header: 'Date',
-                cell: ({ row }) =>
-                    row.original.bucketDate
-                        ? String(row.original.bucketDate).slice(0, 10)
-                        : '—',
+                cell: ({ row }) => <MrpDateCell iso={row.original.bucketDate} />,
             },
             {
                 header: 'Material',
-                cell: ({ row }) => row.original.material?.materialCode ?? '—',
+                cell: ({ row }) => (
+                    <MrpMaterialCell
+                        code={row.original.material?.materialCode}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <MrpPlainCell mono>{row.original.warehouse?.code}</MrpPlainCell>
+                ),
             },
             {
                 header: 'Opening',
-                cell: ({ row }) => Number(row.original.openingQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.openingQty} />,
             },
             {
                 header: 'Demand',
-                cell: ({ row }) => Number(row.original.demandQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.demandQty} emphasize="warning" />
+                ),
             },
             {
                 header: 'Supply',
-                cell: ({ row }) => Number(row.original.supplyQty),
+                cell: ({ row }) => (
+                    <MrpQtyCell value={row.original.supplyQty} emphasize="success" />
+                ),
             },
             {
                 header: 'Reservation',
-                cell: ({ row }) => Number(row.original.reservationQty),
+                cell: ({ row }) => <MrpQtyCell value={row.original.reservationQty} />,
             },
             {
                 header: 'Closing (proj.)',
-                cell: ({ row }) => Number(row.original.closingQty),
+                cell: ({ row }) => {
+                    const closing = Number(row.original.closingQty)
+                    return (
+                        <MrpQtyCell
+                            value={row.original.closingQty}
+                            emphasize={closing < 0 ? 'danger' : undefined}
+                        />
+                    )
+                },
             },
         ],
         [],
@@ -121,8 +142,8 @@ const ProjectedStockPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Projected Stock"
                 description={
                     runLabel
@@ -182,7 +203,15 @@ const ProjectedStockPage = () => {
             </AdaptiveCard>
 
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <MrpResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row, index) =>
+                        `${row.bucketDate}-${row.material?.materialCode ?? index}`
+                    }
+                    tableMinWidthClass="min-w-[1000px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

@@ -5,8 +5,17 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RCV_USAGE_DECISION,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvMaterialCell,
+    RcvPlainCell,
+    RcvQtyCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import Input from '@/components/ui/Input'
 import { HiOutlineClipboardCheck, HiOutlineSearch } from 'react-icons/hi'
 import { qualityService } from '../services/qualityService'
@@ -14,26 +23,6 @@ import type { MmQualityDecision } from '../types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/receiving/usage-decisions'
-
-const DECISION_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    ACCEPT: 'success',
-    ACCEPT_WITH_DEVIATION: 'warning',
-    BLOCK: 'danger',
-    REJECT: 'danger',
-    REWORK: 'warning',
-    RETURN: 'danger',
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    })
-}
 
 export default function UsageDecisionsPage() {
     const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
@@ -69,46 +58,58 @@ export default function UsageDecisionsPage() {
     const columns: ColumnDef<MmQualityDecision>[] = useMemo(
         () => [
             {
-                header: 'Lot #',
+                header: 'Lot',
                 accessorKey: 'inspectionLot.lotNumber',
-                cell: ({ row }) => row.original.inspectionLot?.lotNumber ?? '—',
+                cell: ({ row }) => (
+                    <RcvDocNumberCell
+                        icon="inspection"
+                        primary={row.original.inspectionLot?.lotNumber ?? '—'}
+                    />
+                ),
             },
             {
                 header: 'Material',
                 accessorKey: 'inspectionLot.material.materialCode',
                 cell: ({ row }) => {
                     const m = row.original.inspectionLot?.material
-                    return m ? `${m.materialCode} — ${m.materialName}` : '—'
+                    return (
+                        <RcvMaterialCell code={m?.materialCode} name={m?.materialName} />
+                    )
                 },
             },
             {
                 header: 'Decision',
                 accessorKey: 'decisionCode',
                 cell: ({ row }) => (
-                    <StatusBadge tone={DECISION_TONE[row.original.decisionCode] ?? 'default'}>
-                        {row.original.decisionCode}
-                    </StatusBadge>
+                    <RcvAnimatedStatus
+                        status={row.original.decisionCode}
+                        tone={rcvStatusTone(row.original.decisionCode, RCV_USAGE_DECISION)}
+                    />
                 ),
             },
             {
                 header: 'Qty',
                 accessorKey: 'quantity',
-                cell: ({ row }) => Number(row.original.quantity),
+                cell: ({ row }) => <RcvQtyCell value={row.original.quantity} />,
             },
             {
                 header: 'Reason',
                 accessorKey: 'reason',
-                cell: ({ row }) => row.original.reason ?? '—',
+                cell: ({ row }) => <RcvPlainCell>{row.original.reason}</RcvPlainCell>,
             },
             {
                 header: 'Decided by',
                 accessorKey: 'decidedBy',
-                cell: ({ row }) => row.original.decidedBy ?? '—',
+                cell: ({ row }) => (
+                    <RcvPlainCell muted>{row.original.decidedBy}</RcvPlainCell>
+                ),
             },
             {
                 header: 'Decided at',
                 accessorKey: 'decidedAt',
-                cell: ({ row }) => fmtDate(row.original.decidedAt),
+                cell: ({ row }) => (
+                    <RcvDateCell iso={row.original.decidedAt} withTime />
+                ),
             },
         ],
         [],
@@ -137,16 +138,18 @@ export default function UsageDecisionsPage() {
                     />
                 </div>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => {
                         setPageSize(s)
                         setPage(1)
                     }}
+                    tableMinWidthClass="min-w-[900px]"
                 />
             </AdaptiveCard>
         </PageContainer>

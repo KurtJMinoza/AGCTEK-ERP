@@ -82,6 +82,20 @@ export const DocStatusBadge = ({ status }: { status?: string | null }) => (
     </StatusBadge>
 )
 
+/** Badge tone for stock status (mobile cards + animated status). */
+export function stockStatusBadgeTone(
+    status?: string | null,
+): 'success' | 'default' | 'warning' | 'danger' | 'info' {
+    const s = status ?? ''
+    if (s === 'UNRESTRICTED') return 'success'
+    if (['RESTRICTED', 'QUARANTINE', 'BLOCKED', 'DAMAGED'].includes(s)) {
+        return 'danger'
+    }
+    if (['HOLD', 'INSPECTION'].includes(s)) return 'warning'
+    if (s === 'IN_TRANSIT') return 'info'
+    return 'default'
+}
+
 /** Stock status chip (UNRESTRICTED / BLOCKED / …). */
 export const StockStatusTag = ({ status }: { status?: string | null }) => (
     <Tag className={STOCK_STATUS_TONE[status ?? ''] ?? TONE_CARD.neutral}>

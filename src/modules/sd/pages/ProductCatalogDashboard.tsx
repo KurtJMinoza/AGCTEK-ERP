@@ -12,7 +12,9 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ProductFormDialog from '../components/ProductFormDialog'
+import ProductImportDialog from '@/components/shared/ProductImportDialog'
 import AddVariantDialog from '../components/AddVariantDialog'
+import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import ProductCatalogTableSection from '../components/ProductCatalogTableSection'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import { productSellerLabel } from '../utils/productSellerLabel'
@@ -66,6 +68,7 @@ function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null
         originalPrice: values.originalPrice ?? undefined,
         imageUrl: values.imageUrl,
         badge: values.badge ?? undefined,
+        category: values.category || undefined,
         productConfig,
         sku: values.sku || undefined,
         materialDefaults: { companyId: values.companyId },
@@ -136,6 +139,8 @@ const ProductCatalogDashboard = () => {
     const [deleteBlocked, setDeleteBlocked] = useState(false)
     const [togglingId, setTogglingId] = useState<string | null>(null)
     const [addVariantProduct, setAddVariantProduct] = useState<SdProductRecord | null>(null)
+    const [importOpen, setImportOpen] = useState(false)
+    const [barcodeOpen, setBarcodeOpen] = useState(false)
 
     const fetchProducts = useCallback(async () => {
         setLoading(true)
@@ -272,7 +277,12 @@ const ProductCatalogDashboard = () => {
                 afterChange(created.divisionId)
             } else {
                 const { divisionId: _divisionId, sku: _sku, ...changes } = values
-                const updated = await updateProduct(dialog.product.id, changes)
+                const updated = await updateProduct(dialog.product.id, {
+                    ...changes,
+                    // An emptied compare-at price must clear the stored value
+                    // instead of being dropped as "unchanged".
+                    originalPrice: values.originalPrice ?? null,
+                })
                 if (values.optionsVariants) {
                     try {
                         await productOptionVariantsService.saveForProduct(
@@ -304,6 +314,9 @@ const ProductCatalogDashboard = () => {
                 dialog.mode === 'create' ? 'Product not added' : 'Product not updated',
                 err instanceof Error ? err.message : 'Please try again.',
             )
+            // Re-throw so ProductFormDialog can keep the wizard open and show
+            // the failure on the Material step instead of closing silently.
+            throw err
         } finally {
             setSaving(false)
         }
@@ -416,6 +429,8 @@ const ProductCatalogDashboard = () => {
                 }}
                 onAddProduct={() => setDialog({ mode: 'create' })}
                 onAddVariant={(product) => setAddVariantProduct(product)}
+                onBulkImport={() => setImportOpen(true)}
+                onScanBarcode={() => setBarcodeOpen(true)}
                 onRefresh={() => void fetchProducts()}
             />
 
@@ -439,6 +454,23 @@ const ProductCatalogDashboard = () => {
                     }}
                 />
             ) : null}
+
+            <ProductImportDialog
+                isOpen={importOpen}
+                source="SD"
+                defaultDivisionId={RETAIL_DIVISION_ID}
+                onClose={() => setImportOpen(false)}
+                onImported={() => void fetchProducts()}
+            />
+
+            <BarcodeQuickAddDialog
+                isOpen={barcodeOpen}
+                companyId={
+                    companyFilter === 'all' ? undefined : companyFilter
+                }
+                onClose={() => setBarcodeOpen(false)}
+                onCreated={() => void fetchProducts()}
+            />
 
             <ConfirmDialog
                 isOpen={pendingDelete !== null}

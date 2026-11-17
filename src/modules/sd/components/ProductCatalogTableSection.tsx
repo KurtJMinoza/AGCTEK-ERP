@@ -56,6 +56,8 @@ export type ProductCatalogTableSectionProps = {
     onDelete: (product: SdProductRecord) => void
     onAddProduct: () => void
     onAddVariant?: (product: SdProductRecord) => void
+    onBulkImport?: () => void
+    onScanBarcode?: () => void
     onRefresh?: () => void
     refreshing?: boolean
 }
@@ -83,6 +85,8 @@ const ProductCatalogTableSection = ({
     onDelete,
     onAddProduct,
     onAddVariant,
+    onBulkImport,
+    onScanBarcode,
     onRefresh,
     refreshing,
 }: ProductCatalogTableSectionProps) => {
@@ -381,6 +385,24 @@ const ProductCatalogTableSection = ({
                     >
                         Export
                     </Button>
+                    {canCreate && onBulkImport ? (
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineUpload className="text-lg" />}
+                            onClick={onBulkImport}
+                        >
+                            Bulk import
+                        </Button>
+                    ) : null}
+                    {canCreate && onScanBarcode ? (
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineSearch className="text-lg" />}
+                            onClick={onScanBarcode}
+                        >
+                            Scan barcode
+                        </Button>
+                    ) : null}
                     {canCreate && (
                         <Button
                             size="sm"

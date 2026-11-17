@@ -30,13 +30,28 @@ export type SdProductRecord = {
     isActive: boolean
     /** ACTIVE | INACTIVE | ARCHIVED. Only ACTIVE products are sellable. */
     status: ProductLifecycleStatus
+    /** STOCK_ITEM | NON_STOCK_ITEM | SERVICE — server-owned item nature. */
+    productType?: SdProductType
+    /** SIMPLE = one hidden variant; VARIABLE = customer-selectable options. */
+    productConfig?: 'SIMPLE' | 'VARIABLE'
     sortOrder: number
     /** Division-specific storefront content (features, specs, reviews, …). */
     attributes: ProductAttributes | null
     /** Number of child variants (0 when the product has no variants yet). */
     variantCount?: number
+    /** Sellable variants shown on the storefront card (names only, no placeholders). */
+    variants?: StorefrontProductVariant[]
     createdAt: string
     updatedAt: string
+}
+
+export type StorefrontProductVariant = {
+    id: string
+    name: string
+    sku: string
+    price: number | null
+    imageUrl: string
+    isDefault: boolean
 }
 
 export type ProductLifecycleStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
@@ -85,6 +100,11 @@ export type ProductInput = {
      * Catalog never creates a material.
      */
     materialId?: string
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material without a
+     * sale-ready tax configuration. Without it the API rejects the product.
+     */
+    allowIncompleteTaxSetup?: boolean
 }
 
 /** Stock ownership for the product (variants link existing materials). */
@@ -153,6 +173,10 @@ const fromApi = (p: ApiProduct): SdProductRecord => ({
     ...p,
     price: Number(p.price),
     originalPrice: p.originalPrice === null ? null : Number(p.originalPrice),
+    variants: p.variants?.map((variant) => ({
+        ...variant,
+        price: variant.price == null ? null : Number(variant.price),
+    })),
 })
 
 export async function listProducts(
@@ -242,8 +266,34 @@ export async function fetchStorefrontAvailability(
     }
 }
 
-export async function suggestProductSku(divisionId: string): Promise<string> {
+/**
+ * Live ATP for MANY products in one call — the POS terminal polls its whole
+ * cart here instead of one request per line. The backend answers in the same
+ * order as the requested items.
+ */
+export async function fetchStorefrontAvailabilityBatch(
+    divisionId: string,
+    items: Array<{ sku: string; variantId?: string | null }>,
+): Promise<StorefrontAvailability[]> {
+    if (!items.length) return []
     try {
+        const { data } = await ErpAxiosBase.post<StorefrontAvailability[]>(
+            '/sd/products/availability/batch',
+            {
+                divisionId,
+                items: items.map((item) => ({
+                    sku: item.sku,
+                    variantId: item.variantId ?? undefined,
+                })),
+            },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toError(error, 'Unable to load stock')
+    }
+}
+
+export async function suggestProductSku(divisionId: string): Promise<string> {    try {
         const { data } = await ErpAxiosBase.get<{ sku: string }>(
             '/sd/products/suggested-sku',
             { params: { divisionId } },

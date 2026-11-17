@@ -8,6 +8,7 @@ import classNames from '@/utils/classNames'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import {
     effectiveVariantPrice,
+    variantLabel,
     type ProductVariantDefinition,
 } from '@/modules/sd/services/productOptionVariantsService'
 import type { CartVariantInfo } from '@/modules/storefront/shared/store/createStorefrontCartStore'
@@ -122,7 +123,7 @@ const StorefrontVariantPickDialog = ({
         variant: ProductVariantDefinition,
     ): CartVariantInfo => ({
         variantId: variant.id,
-        variantName: variant.variantName,
+        variantName: variantLabel(variant),
         variantSku: variant.sku,
         materialId: variant.materialId ?? undefined,
         unitPrice: variant.price ?? product.price,
@@ -161,8 +162,6 @@ const StorefrontVariantPickDialog = ({
                     </p>
                 </div>
             </div>
-
-            <p className="mb-2 text-sm font-medium text-gray-900">Variant</p>
 
             <div className="max-h-[min(50vh,22rem)] overflow-y-auto pr-1">
                 <MaterialVariantCards

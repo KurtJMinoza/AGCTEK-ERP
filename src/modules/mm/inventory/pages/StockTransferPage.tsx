@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable from '../components/InventoryResponsiveTable'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -39,7 +40,6 @@ import {
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
 import type { BinTransfer, BinTransferLine, WarehouseTransferOrder, WtoLine } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { buildStockDocColumns } from '../utils/stockDocColumns'
 import { StatusSummaryTiles } from '../utils/summaryTiles'
 import { DocStatusBadge } from '../utils/inventoryUi'
@@ -384,6 +384,9 @@ function BinTransferTab() {
     const columns: ColumnDef<BinTransfer>[] = useMemo(
         () =>
             buildStockDocColumns<BinTransfer>({
+                presentation: 'inventory',
+                docIcon: 'xfer',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: { header: 'Movement', value: () => 'Bin to bin' },
                 warehouse: (row) => row.warehouse?.name ?? '—',
                 actions: [
@@ -473,15 +476,17 @@ function BinTransferTab() {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[960px]"
                 />
             </AdaptiveCard>
 
@@ -706,6 +711,9 @@ function WarehouseTransferTab() {
     const columns: ColumnDef<WarehouseTransferOrder>[] = useMemo(
         () =>
             buildStockDocColumns<WarehouseTransferOrder>({
+                presentation: 'inventory',
+                docIcon: 'xfer',
+                onOpenDocument: (row) => openDetail(row.id),
                 detail: {
                     header: 'Route',
                     value: (row) =>
@@ -837,15 +845,17 @@ function WarehouseTransferTab() {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[980px]"
                 />
             </AdaptiveCard>
 
@@ -943,13 +953,16 @@ function WarehouseTransferTab() {
 
 /* ─────────── Main Page ─────────── */
 const StockTransferPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const [tab, setTab] = useState('bin')
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
-            <PageHeader title="Stock Transfers" description="Request → Approve → Pick → Dispatch (in transit) → Receive → Close. Same ledger as warehouse transfers." />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Stock Transfers"
+                description="Request → Approve → Pick → Dispatch (in transit) → Receive → Close. Same ledger as warehouse transfers."
+            />
             <AdaptiveCard className="!p-0 sm:!p-5">
                 <Tabs value={tab} onChange={(val) => setTab(val as string)}>
                     <Tabs.TabList className="border-b border-gray-200 px-4 pt-4 dark:border-gray-600 sm:px-0 sm:pt-0">

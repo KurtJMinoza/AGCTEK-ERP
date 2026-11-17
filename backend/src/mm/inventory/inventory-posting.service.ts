@@ -21,6 +21,7 @@ import {
 import { reversalKey } from '../common/idempotency.util'
 import { MmScopeService } from '../common/mm-scope.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import type { MmAccountingDispatchPayload } from '../common/mm-accounting-event.types'
 import { MovementControlService } from '../inventory-control/movement-control.service'
 
 const ALLOWED_STOCK_STATUSES = new Set<string>(MM_STOCK_STATUSES)
@@ -68,6 +69,7 @@ export class InventoryPostingService {
             },
         )
 
+        this.dispatchAccounting(result.accountingDispatches)
         this.emitPostEvents(prepared, result)
         return result.transaction
     }
@@ -124,6 +126,8 @@ export class InventoryPostingService {
             },
         )
 
+        this.dispatchAccounting(result.outResult.accountingDispatches)
+        this.dispatchAccounting(result.inResult.accountingDispatches)
         this.emitPostEvents(outPrepared, result.outResult)
         this.emitPostEvents(result.inPrepared, result.inResult)
         return {
@@ -342,12 +346,20 @@ export class InventoryPostingService {
                 const dupKey = await tx.mmInventoryTransaction.findUnique({
                     where: { idempotencyKey: idemKey },
                 })
-                if (dupKey) return dupKey
+                if (dupKey)
+                    return {
+                        transaction: dupKey,
+                        accountingDispatches: [] as MmAccountingDispatchPayload[],
+                    }
 
                 const again = await tx.mmInventoryTransaction.findUnique({
                     where: { reversalOfId: transactionId },
                 })
-                if (again) return again
+                if (again)
+                    return {
+                        transaction: again,
+                        accountingDispatches: [] as MmAccountingDispatchPayload[],
+                    }
 
                 const txnNumber = await this.generateTxnNumber(tx)
 
@@ -398,7 +410,11 @@ export class InventoryPostingService {
                     reversalSignedQty,
                 )
 
-                await this.valuation.reverseInTransaction(tx, original.id, reversal.id)
+                const valuationResult = await this.valuation.reverseInTransaction(
+                    tx,
+                    original.id,
+                    reversal.id,
+                )
 
                 await tx.mmInventoryAudit.create({
                     data: {
@@ -416,7 +432,10 @@ export class InventoryPostingService {
                     },
                 })
 
-                return reversal
+                return {
+                    transaction: reversal,
+                    accountingDispatches: valuationResult?.accountingDispatches ?? [],
+                }
             },
             {
                 isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -424,8 +443,10 @@ export class InventoryPostingService {
             },
         )
 
+        const reversal = result.transaction
+        this.dispatchAccounting(result.accountingDispatches)
         this.events.emit('inventory.transaction.reversed', {
-            reversal: result,
+            reversal,
             original,
         })
         this.events.emit('inventory.stock.changed', {
@@ -436,14 +457,14 @@ export class InventoryPostingService {
         })
         void this.domainEvents.inventoryTransactionReversed({
             companyId: original.companyId,
-            reversalId: result.id,
+            reversalId: reversal.id,
             payload: {
                 originalTransactionId: original.id,
                 originalTransactionNumber: original.transactionNumber,
             },
         })
 
-        return result
+        return reversal
     }
 
     private async preparePost(dto: PostTransactionDto): Promise<PreparedPost> {
@@ -540,7 +561,11 @@ export class InventoryPostingService {
     private async runPostInTx(
         tx: Prisma.TransactionClient,
         prepared: PreparedPost,
-    ): Promise<{ transaction: any; oldBalance: Decimal | null }> {
+    ): Promise<{
+        transaction: any
+        oldBalance: Decimal | null
+        accountingDispatches: MmAccountingDispatchPayload[]
+    }> {
         const {
             dto,
             direction,
@@ -559,7 +584,12 @@ export class InventoryPostingService {
             const dup = await tx.mmInventoryTransaction.findUnique({
                 where: { idempotencyKey: dto.idempotencyKey },
             })
-            if (dup) return { transaction: dup, oldBalance: null }
+            if (dup)
+                return {
+                    transaction: dup,
+                    oldBalance: null,
+                    accountingDispatches: [],
+                }
         }
 
         const txnNumber = await this.generateTxnNumber(tx)
@@ -613,7 +643,7 @@ export class InventoryPostingService {
                 : undefined,
         )
 
-        await this.valuation.applyInTransaction(tx, {
+        const valuationResult = await this.valuation.applyInTransaction(tx, {
             inventoryTxnId: transaction.id,
             companyId: dto.companyId,
             materialId: dto.materialId,
@@ -650,7 +680,23 @@ export class InventoryPostingService {
             },
         })
 
-        return { transaction: valued ?? transaction, oldBalance }
+        return {
+            transaction: valued ?? transaction,
+            oldBalance,
+            accountingDispatches: valuationResult?.accountingDispatches ?? [],
+        }
+    }
+
+    /**
+     * Accounting events were persisted inside the just-committed transaction.
+     * Dispatch only now so FICO can see the parent `mm_accounting_events` row
+     * when it writes the journal entry (avoids the FK race).
+     */
+    private dispatchAccounting(dispatches?: MmAccountingDispatchPayload[]) {
+        if (!dispatches?.length) return
+        for (const dispatch of dispatches) {
+            this.events.emit('accounting.entry.requested', dispatch)
+        }
     }
 
     private emitPostEvents(

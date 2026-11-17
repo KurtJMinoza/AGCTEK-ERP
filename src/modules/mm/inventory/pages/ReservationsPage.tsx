@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
+import {
+    InvAnimatedStatus,
+    InvDocNumberCell,
+    fmtInvDate,
+    InvPlainCell,
+} from '../components/inventoryTableUi'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -33,8 +40,6 @@ import {
 } from '../services/inventoryService'
 import { reservationService, type Reservation } from '../services/reservationService'
 import { useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import { DocStatusBadge } from '../utils/inventoryUi'
 
 const ROUTE = '/modules/mm/inventory-management/reservations'
 
@@ -79,7 +84,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const ReservationsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<Reservation[]>([])
     const [meta, setMeta] = useState({ total: 0, page: 1, limit: 20 })
     const [summary, setSummary] = useState<
@@ -160,14 +165,11 @@ const ReservationsPage = () => {
                 cell: ({ row }) => {
                     const r = row.original
                     return (
-                        <div className="min-w-[10rem]">
-                            <div className="whitespace-nowrap font-mono text-xs font-semibold text-gray-900">
-                                {r.reservationNumber}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-gray-500">
-                                {new Date(r.createdAt).toLocaleDateString()}
-                            </div>
-                        </div>
+                        <InvDocNumberCell
+                            icon="reservation"
+                            primary={r.reservationNumber}
+                            secondary={fmtInvDate(r.createdAt)}
+                        />
                     )
                 },
             },
@@ -176,25 +178,22 @@ const ReservationsPage = () => {
                 cell: ({ row }) => {
                     const m = row.original.material
                     return (
-                        <div className="min-w-[11rem] max-w-[12rem]">
-                            <div className="truncate font-semibold text-gray-900">
-                                {m?.materialCode ?? row.original.materialId.slice(0, 8)}
-                            </div>
-                            <div className="truncate text-xs text-gray-500">
-                                {m?.materialName ?? '—'}
-                            </div>
-                        </div>
+                        <SmEntityCell
+                            kind="material"
+                            primary={m?.materialName}
+                            secondary={m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                        />
                     )
                 },
             },
             {
                 header: 'Warehouse',
                 cell: ({ row }) => (
-                    <div className="min-w-[8rem] max-w-[9rem] truncate whitespace-nowrap text-sm text-gray-600">
+                    <InvPlainCell>
                         {row.original.warehouse?.code ??
                             row.original.warehouse?.name ??
                             row.original.warehouseId.slice(0, 8)}
-                    </div>
+                    </InvPlainCell>
                 ),
             },
             {
@@ -240,7 +239,7 @@ const ReservationsPage = () => {
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <DocStatusBadge status={row.original.status} />
+                    <InvAnimatedStatus status={row.original.status} />
                 ),
             },
             {
@@ -359,8 +358,8 @@ const ReservationsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Reservations"
                 description="Allocate available stock for sales, production, maintenance, or internal demand without deducting on-hand."
                 actions={
@@ -423,11 +422,12 @@ const ReservationsPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
+                    getRowId={(row) => row.id}
                     noData={rows.length === 0}
                     pagingData={{
                         total: meta.total,
@@ -435,6 +435,7 @@ const ReservationsPage = () => {
                         pageSize: meta.limit,
                     }}
                     onPaginationChange={setPage}
+                    tableMinWidthClass="min-w-[980px]"
                 />
             </AdaptiveCard>
 

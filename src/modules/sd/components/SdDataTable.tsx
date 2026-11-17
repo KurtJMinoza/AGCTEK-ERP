@@ -7,10 +7,7 @@ import {
     sdTableRowClassName,
 } from './SdDataTableCells'
 
-export type SdDataTableProps<T> = ComponentProps<typeof DataTable> & {
-    columns: ComponentProps<typeof DataTable>['columns']
-    data?: T[]
-}
+export type SdDataTableProps<T> = ComponentProps<typeof DataTable<T>>
 
 /**
  * SD module DataTable with responsive scroll shell, compact layout, and row entrance animation.
@@ -18,7 +15,7 @@ export type SdDataTableProps<T> = ComponentProps<typeof DataTable> & {
 function SdDataTable<T>({ rowClassName, ...props }: SdDataTableProps<T>) {
     return (
         <div className="min-w-0 overflow-x-auto">
-            <DataTable
+            <DataTable<T>
                 {...SD_DATA_TABLE_LAYOUT}
                 rowClassName={(row, index) =>
                     [sdTableRowClassName(row, index), rowClassName?.(row, index)]

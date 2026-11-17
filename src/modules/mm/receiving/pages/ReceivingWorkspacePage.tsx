@@ -6,7 +6,17 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    fmtRcvDate,
+    RCV_EXPECTED_RECEIPT_STATUS,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvPartyCell,
+    RcvPlainCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -24,23 +34,11 @@ const ROUTE = '/modules/mm/receiving/receiving-inspection'
 const ER_ROUTE = '/modules/mm/receiving/expected-receipts'
 const GR_ROUTE = '/modules/mm/receiving/goods-receipt'
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    OPEN: 'info',
-    IN_PROGRESS: 'warning',
-    CLOSED: 'success',
-    CANCELLED: 'danger',
-}
-
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
         <Notification type={type} title={title} closable duration={3500}>{msg}</Notification>,
         { placement: 'top-end' },
     )
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 const ReceivingWorkspacePage = () => {
@@ -91,48 +89,56 @@ const ReceivingWorkspacePage = () => {
 
     const columns: ColumnDef<MmExpectedReceipt>[] = useMemo(() => [
         {
-            header: 'Document #',
+            header: 'Document',
             accessorKey: 'documentNumber',
             cell: ({ row }) => (
-                <Link
-                    href={`${ER_ROUTE}/${row.original.id}`}
-                    className="text-primary hover:underline"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {row.original.documentNumber}
+                <Link href={`${ER_ROUTE}/${row.original.id}`} className="block" onClick={(e) => e.stopPropagation()}>
+                    <RcvDocNumberCell
+                        icon="receipt"
+                        primary={row.original.documentNumber}
+                        secondary={fmtRcvDate(row.original.expectedDate)}
+                    />
                 </Link>
             ),
         },
         {
             header: 'Supplier',
             accessorKey: 'supplier.supplierName',
-            cell: ({ row }) => row.original.supplier?.supplierName ?? '—',
+            cell: ({ row }) => (
+                <RcvPartyCell name={row.original.supplier?.supplierName} />
+            ),
         },
         {
             header: 'PO / ASN',
             id: 'source',
-            cell: ({ row }) =>
-                row.original.purchaseOrder?.poNumber
-                ?? row.original.asn?.asnNumber
-                ?? row.original.sourceType,
+            cell: ({ row }) => (
+                <RcvPlainCell mono>
+                    {row.original.purchaseOrder?.poNumber
+                        ?? row.original.asn?.asnNumber
+                        ?? row.original.sourceType}
+                </RcvPlainCell>
+            ),
         },
         {
             header: 'Warehouse',
             accessorKey: 'warehouse.name',
-            cell: ({ row }) => row.original.warehouse?.name ?? '—',
+            cell: ({ row }) => (
+                <RcvPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+            ),
         },
         {
             header: 'Expected',
             accessorKey: 'expectedDate',
-            cell: ({ row }) => fmtDate(row.original.expectedDate),
+            cell: ({ row }) => <RcvDateCell iso={row.original.expectedDate} />,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_EXPECTED_RECEIPT_STATUS)}
+                />
             ),
         },
         {
@@ -198,13 +204,15 @@ const ReceivingWorkspacePage = () => {
                     </Tabs.TabList>
                 </Tabs>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[820px]"
                 />
             </AdaptiveCard>
 

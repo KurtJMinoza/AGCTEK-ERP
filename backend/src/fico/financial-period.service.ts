@@ -17,9 +17,14 @@ export class FicoFinancialPeriodService {
                 ? new Date(input.postingDate)
                 : input.postingDate
 
+        // This port is used by MM before it creates a physical posting.  Keep the
+        // legacy no-calendar behaviour for companies that have not yet adopted
+        // FICO, but otherwise apply the same all-account period rules as the FICO
+        // posting validator.  It must not have a weaker CLOSED-only interpretation.
         const period = await this.prisma.ficoFinancialPeriod.findFirst({
             where: {
                 companyId: input.companyId,
+                periodType: 'NORMAL',
                 startDate: { lte: postingDate },
                 endDate: { gte: postingDate },
             },
@@ -35,11 +40,34 @@ export class FicoFinancialPeriodService {
         }
 
         const periodKey = `${period.fiscalYear}-${String(period.periodNumber).padStart(2, '0')}`
-        if (period.status === 'CLOSED') {
+        if (period.status === 'CLOSED' || period.status === 'LOCKED') {
             return {
                 allowed: false,
                 periodKey,
-                reason: `Financial period ${periodKey} is closed for company ${input.companyId}`,
+                reason: `Financial period ${periodKey} is ${period.status.toLowerCase()} for company ${input.companyId}`,
+            }
+        }
+        if (period.status === 'FUTURE') {
+            return {
+                allowed: false,
+                periodKey,
+                reason: `Financial period ${periodKey} is not open yet for company ${input.companyId}`,
+            }
+        }
+
+        const controls = await this.prisma.ficoPostingPeriodControl.findMany({
+            where: {
+                companyId: input.companyId,
+                fiscalPeriodId: period.id,
+                accountTypeScope: 'ALL',
+            },
+        })
+        const control = controls[0]
+        if (control?.status === 'CLOSED' || control?.status === 'LOCKED') {
+            return {
+                allowed: false,
+                periodKey,
+                reason: `Financial period ${periodKey} is ${control.status.toLowerCase()} for company ${input.companyId}`,
             }
         }
 

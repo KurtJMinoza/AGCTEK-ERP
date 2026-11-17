@@ -21,6 +21,7 @@ import {
     type ListQuery,
 } from '../scm.utils'
 import { checkLoadCapacity, validateStopReorder } from './tms.rules'
+import { dispatchWindowIssues } from './dispatch-windows.rules'
 import { loadPlanInclude, warehouseGeoSelect } from './tms-load-plans.service'
 import {
     formatStopIssues,
@@ -574,6 +575,13 @@ export class TmsTripsService {
         }
         const issues = await this.stopLocationIssues(trip.stops)
         if (issues.length > 0) throw new BadRequestException(formatStopIssues(issues))
+
+        const windowIssues = dispatchWindowIssues(trip.stops, trip.plannedStartAt, new Date())
+        if (windowIssues.length > 0) {
+            throw new BadRequestException(
+                `Delivery windows cannot be met (estimated travel + service time): ${windowIssues.join('; ')}`,
+            )
+        }
     }
 
     /**

@@ -4,10 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcMoneyCell,
+    PrcSupplierCell,
+    PRC_QUOTE_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -15,18 +23,8 @@ import { HiOutlineSearch, HiOutlineExternalLink } from 'react-icons/hi'
 import { quotationService } from '../services/quotationService'
 import { useDeferredFilterRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import type { MmSupplierQuotation, MmQuotationListResponse } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-
 const ROUTE_PATH = '/modules/mm/procurement/supplier-quotations'
 const RFQ_PATH = '/modules/mm/procurement/rfqs'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    SUBMITTED: 'info',
-    WITHDRAWN: 'default',
-    EXPIRED: 'danger',
-    SELECTED: 'success',
-}
 
 type FilterOption = { value: string; label: string }
 
@@ -41,7 +39,7 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
 
 const SupplierQuotationsPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
 
     const [data, setData] = useState<MmSupplierQuotation[]>([])
     const [total, setTotal] = useState(0)
@@ -83,9 +81,13 @@ const SupplierQuotationsPage = () => {
         {
             header: 'Quotation',
             accessorKey: 'quotationNumber',
-            size: 150,
+            size: 170,
             cell: ({ row }) => (
-                <span className="font-mono text-xs font-semibold">{row.original.quotationNumber}</span>
+                <PrcDocNumberCell
+                    icon="quote"
+                    primary={row.original.quotationNumber}
+                    secondary={row.original.rfq?.rfqNumber}
+                />
             ),
         },
         {
@@ -97,7 +99,7 @@ const SupplierQuotationsPage = () => {
                 return (
                     <button
                         type="button"
-                        className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary hover:underline"
+                        className="inline-flex items-center gap-1 rounded-lg px-1 font-mono text-xs font-semibold text-primary hover:bg-gray-50 dark:hover:bg-gray-800/50"
                         onClick={() => router.push(`${RFQ_PATH}/${row.original.rfqId}`)}
                     >
                         {rfq?.rfqNumber || row.original.rfqId.slice(0, 8)}
@@ -112,53 +114,42 @@ const SupplierQuotationsPage = () => {
             size: 200,
             cell: ({ row }) => {
                 const s = row.original.supplier
-                return s
-                    ? <span className="text-sm">{s.supplierCode} — {s.supplierName}</span>
-                    : <span className="text-sm">{row.original.supplierId}</span>
+                return (
+                    <PrcSupplierCell
+                        code={s?.supplierCode}
+                        name={s?.supplierName ?? row.original.supplierId}
+                    />
+                )
             },
         },
         {
             header: 'Total',
             accessorKey: 'total',
             size: 110,
-            cell: ({ row }) => (
-                <span className="font-semibold">
-                    {Number(row.original.total).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                    })}
-                </span>
-            ),
+            cell: ({ row }) => <PrcMoneyCell amount={row.original.total} />,
         },
         {
             header: 'Validity',
             accessorKey: 'validityDate',
             size: 110,
-            cell: ({ row }) => (
-                <span className="text-sm">{new Date(row.original.validityDate).toLocaleDateString()}</span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.validityDate} />,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             size: 120,
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {String(row.original.status)}
-                </StatusBadge>
+                <PrcAnimatedStatus
+                    status={String(row.original.status)}
+                    tone={prcStatusTone(String(row.original.status), PRC_QUOTE_STATUS)}
+                />
             ),
         },
         {
             header: 'Submitted',
             accessorKey: 'submittedAt',
             size: 140,
-            cell: ({ row }) => (
-                <span className="text-xs">
-                    {row.original.submittedAt
-                        ? new Date(row.original.submittedAt).toLocaleString()
-                        : '—'}
-                </span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.submittedAt} />,
         },
         {
             id: 'actions',
@@ -177,8 +168,8 @@ const SupplierQuotationsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Supplier Quotations"
                 description="All supplier quotations across RFQs — filter, review, and jump to the related RFQ."
             />
@@ -207,16 +198,17 @@ const SupplierQuotationsPage = () => {
                 </div>
 
                 <div className="mt-4">
-                    <DataTable<MmSupplierQuotation>
+                    <ProcurementResponsiveTable<MmSupplierQuotation>
                         columns={columns}
                         data={data}
                         compact
-                        fit
                         loading={loading}
+                        getRowId={(row) => row.id}
                         noData={!loading && data.length === 0}
                         pagingData={{ total, pageIndex: page, pageSize }}
                         onPaginationChange={setPage}
                         onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                        tableMinWidthClass="min-w-[960px]"
                     />
                 </div>
             </AdaptiveCard>

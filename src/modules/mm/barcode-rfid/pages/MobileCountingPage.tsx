@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import BarcodeResponsiveTable, { type ColumnDef } from '../components/BarcodeResponsiveTable'
+import { BcMaterialCell, BcPlainCell } from '../components/barcodeTableUi'
 import FormSection from '@/components/shared/FormSection'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
@@ -238,19 +239,28 @@ const MobileCountingPage = () => {
                 title="Count lines"
                 description="Select a line or scan material / count line barcode."
             >
-                <DataTable
+                <BarcodeResponsiveTable
                     columns={
                         [
                             {
                                 header: 'Material',
-                                cell: ({ row }: any) =>
-                                    row.original.material?.materialCode ??
-                                    row.original.materialId,
+                                cell: ({ row }: any) => (
+                                    <BcMaterialCell
+                                        code={
+                                            row.original.material?.materialCode ??
+                                            row.original.materialId
+                                        }
+                                        name={row.original.material?.materialName}
+                                    />
+                                ),
                             },
                             {
                                 header: 'Bin',
-                                cell: ({ row }: any) =>
-                                    row.original.storageBin?.code ?? '—',
+                                cell: ({ row }: any) => (
+                                    <BcPlainCell mono>
+                                        {row.original.storageBin?.code ?? '—'}
+                                    </BcPlainCell>
+                                ),
                             },
                             {
                                 header: '',
@@ -277,6 +287,8 @@ const MobileCountingPage = () => {
                         ] as ColumnDef<any>[]
                     }
                     data={lines}
+                    getRowId={(row: any) => row.id}
+                    tableMinWidthClass="min-w-[560px]"
                 />
             </FormSection>
         </MobileScanShell>

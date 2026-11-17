@@ -1,6 +1,7 @@
 'use client'
 
-import { AnalyticsReportPage, DataTable } from './AnalyticsReportShell'
+import { AnalyticsReportPage } from './AnalyticsReportShell'
+import InventoryTurnoverContent from '../components/InventoryTurnoverContent'
 
 const InventoryTurnoverPage = () => (
     <AnalyticsReportPage
@@ -9,22 +10,8 @@ const InventoryTurnoverPage = () => (
         description="Issue quantity divided by average on-hand for the selected period"
         reportEndpoint="turnover"
         showDateRange
-        render={(data) => (
-            <>
-                {data?.definition && (
-                    <p className="mb-4 text-sm text-gray-500">{data.definition}</p>
-                )}
-                <DataTable
-                    columns={[
-                        { header: 'Code', accessorKey: 'materialCode' },
-                        { header: 'Name', accessorKey: 'materialName' },
-                        { header: 'Issue qty', accessorKey: 'issueQty' },
-                        { header: 'Avg on-hand', accessorKey: 'averageOnHand' },
-                        { header: 'Turnover', accessorKey: 'turnover' },
-                    ]}
-                    data={data?.rows ?? []}
-                />
-            </>
+        render={(data, ctx) => (
+            <InventoryTurnoverContent data={data} loading={ctx?.loading ?? false} />
         )}
     />
 )

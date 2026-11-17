@@ -114,6 +114,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/billing',
                         icon: 'fileText',
                     },
+                    {
+                        code: 'ext-platform-sales',
+                        permissionCode: 'sd.ext-platform-sales',
+                        title: 'External Platform Sales',
+                        description:
+                            'Manually record sales from Shopee, Lazada, TikTok Shop, Facebook Marketplace, distributors, resellers, and other external channels with automatic tax determination.',
+                        path: '/modules/sd/ext-platform-sales',
+                        icon: 'shoppingCart',
+                    },
                 ],
             },
             {
@@ -140,30 +149,6 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                 ],
             },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
-                    {
-                        code: 'sales-org',
-                        permissionCode: 'sd.configuration',
-                        title: 'Sales Organization',
-                        description:
-                            'Configure sales orgs, distribution channels, and divisions.',
-                        path: '/modules/sd/sales-org',
-                        icon: 'building',
-                    },
-                    {
-                        code: 'document-types',
-                        permissionCode: 'sd.configuration',
-                        title: 'Document Types',
-                        description:
-                            'Define SD document types and number ranges.',
-                        path: '/modules/sd/document-types',
-                        icon: 'settings',
-                    },
-                ],
-            },
         ],
     },
     {
@@ -181,7 +166,7 @@ export const ERP_MODULES: ErpModule[] = [
         shortTitle: 'FICO',
         title: 'Finance & Controlling',
         description:
-            'General ledger, accounts payable/receivable, asset accounting, and cost controlling.',
+            'Financial controller setup: chart of accounts and fiscal calendar configuration.',
         path: '/modules/fico',
         icon: 'calculator',
         categories: [
@@ -190,12 +175,51 @@ export const ERP_MODULES: ErpModule[] = [
                 title: 'Master Data',
                 submodules: [
                     {
+                        code: 'company-settings',
+                        permissionCode: 'fico.company-settings',
+                        title: 'Company Accounting Settings',
+                        description:
+                            'Assign the chart, fiscal calendar, currency, and accounting configuration for each company.',
+                        path: '/modules/fico/company-settings',
+                        icon: 'building',
+                        children: [
+                            {
+                                code: 'company-accounting-settings',
+                                title: 'Company Accounting Settings',
+                                description:
+                                    'Configure company-level financial accounting rules and posting controls.',
+                                path: '/modules/fico/company-accounting-settings',
+                                icon: 'building',
+                            },
+                        ],
+                    },
+                    {
                         code: 'chart-of-accounts',
+                        permissionCode: 'fico.chart-of-accounts',
                         title: 'Chart of Accounts',
                         description:
-                            'Maintain G/L accounts and account groups.',
+                            'Define the shared ledger structure: charts, account groups, G/L accounts, and posting controls.',
                         path: '/modules/fico/chart-of-accounts',
                         icon: 'landmark',
+                    },
+                    {
+                        code: 'gl-accounts',
+                        // Hosts three tabs with their own permissions; the page hides the ones the user cannot read.
+                        permissionCode: 'fico',
+                        title: 'G/L Accounts',
+                        description:
+                            'G/L accounts, account determination for MM, SD and PP, and the FICO posting monitor.',
+                        path: '/modules/fico/gl-accounts',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'account-determination',
+                        permissionCode: 'fico.account-determination',
+                        title: 'Account Determination',
+                        description:
+                            'Centralized MM, SD and PP rules: debit/credit lines, dimensions, priorities, approval and activation.',
+                        path: '/modules/fico/account-determination-rules',
+                        icon: 'fileText',
                     },
                     {
                         code: 'cost-centers',
@@ -219,14 +243,6 @@ export const ERP_MODULES: ErpModule[] = [
                 code: 'transactional',
                 title: 'Transactional',
                 submodules: [
-                    {
-                        code: 'journal-entries',
-                        title: 'Journal Entries',
-                        description:
-                            'Post and reverse financial accounting documents.',
-                        path: '/modules/fico/journal-entries',
-                        icon: 'fileText',
-                    },
                     {
                         code: 'accounts-payable',
                         title: 'Accounts Payable',
@@ -274,6 +290,24 @@ export const ERP_MODULES: ErpModule[] = [
                 title: 'Configuration',
                 submodules: [
                     {
+                        code: 'fiscal-years',
+                        permissionCode: 'fico.periods',
+                        title: 'Fiscal Years & Variants',
+                        description:
+                            'Define the shared financial calendar, generate company fiscal years, and control when posting is allowed.',
+                        path: '/modules/fico/fiscal-years',
+                        icon: 'calendar',
+                    },
+                    {
+                        code: 'fiscal-periods',
+                        permissionCode: 'fico.periods',
+                        title: 'Posting Periods',
+                        description:
+                            'Period status dashboard, generation, opening, closing, locking, reopening, details and audit history.',
+                        path: '/modules/fico/fiscal-periods',
+                        icon: 'calendar',
+                    },
+                    {
                         code: 'fiscal-year-variant',
                         permissionCode: 'fico.configuration',
                         title: 'Fiscal Year Variant',
@@ -284,12 +318,30 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'document-types-fi',
-                        permissionCode: 'fico.configuration',
-                        title: 'FI Document Types',
+                        permissionCode: 'fico.document-types',
+                        title: 'Document Types',
                         description:
-                            'Configure financial document types and number ranges.',
-                        path: '/modules/fico/document-types-fi',
+                            'Configure accounting document types, numbering, posting controls, and reversal settings.',
+                        path: '/modules/fico/document-types',
                         icon: 'settings',
+                    },
+                    {
+                        code: 'number-ranges',
+                        permissionCode: 'fico.number-ranges',
+                        title: 'Number Ranges',
+                        description:
+                            'Configure document number ranges for accounting and financial documents.',
+                        path: '/modules/fico/number-ranges',
+                        icon: 'settings',
+                    },
+                    {
+                        code: 'tax-codes',
+                        permissionCode: 'fico.tax-codes',
+                        title: 'Tax Codes',
+                        description:
+                            'Configure tax classifications, rates, calculation methods, and General Ledger mappings for financial transactions.',
+                        path: '/modules/fico/tax-codes',
+                        icon: 'receipt',
                     },
                 ],
             },

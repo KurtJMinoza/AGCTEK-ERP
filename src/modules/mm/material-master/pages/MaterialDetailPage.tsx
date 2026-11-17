@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -52,9 +51,10 @@ import { supplierMaterialService } from '@/modules/mm/supplier-management/servic
 import { useLazyBinsForWarehouse, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
 import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 import MaterialFormDialog from '../components/MaterialFormDialog'
-import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload } from '../types'
+import type { Material, MmBarcode, MmBatch, MmSerialNumber, MmMaterialAudit, CreateMaterialPayload, MaterialTaxHistoryEntry } from '../types'
 import type { SupplierMaterial } from '@/modules/mm/supplier-management/types'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { materialMasterFeatureDescription } from '../utils/materialMasterPageUi'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -99,13 +99,13 @@ const MaterialDetailPage = () => {
     const id = params?.id as string
     const { data: material, loading, refresh } = useMaterial(id)
     const { canUpdate } = useResourceAccess()
-    const breadcrumbItems = useMemo(
-        () =>
-            buildErpBreadcrumbs(`/modules/mm/material-master/materials-skus/${id}`, {
-                detailLabel: material?.materialCode,
-            }),
-        [id, material?.materialCode],
-    )
+    const parentBreadcrumbs = useMemo(() => {
+        const items = buildErpBreadcrumbs(
+            `/modules/mm/material-master/materials-skus/${id}`,
+            { detailLabel: material?.materialCode },
+        )
+        return items.length > 1 ? items.slice(0, -1) : items
+    }, [id, material?.materialCode])
 
     const [tab, setTab] = useState('overview')
     const [editOpen, setEditOpen] = useState(false)
@@ -138,7 +138,7 @@ const MaterialDetailPage = () => {
     if (loading) {
         return (
             <PageContainer>
-                <Breadcrumb items={breadcrumbItems} />
+                <PageHeader breadcrumbs={parentBreadcrumbs} title="Materials / SKUs" description={materialMasterFeatureDescription('Materials / SKUs')} />
                 <div className="flex h-64 items-center justify-center"><Spinner size={40} /></div>
             </PageContainer>
         )
@@ -147,7 +147,7 @@ const MaterialDetailPage = () => {
     if (!material) {
         return (
             <PageContainer>
-                <Breadcrumb items={breadcrumbItems} />
+                <PageHeader breadcrumbs={parentBreadcrumbs} title="Materials / SKUs" description={materialMasterFeatureDescription('Materials / SKUs')} />
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
                     <p className="text-lg font-semibold heading-text">Material not found</p>
                     <Button size="sm" onClick={() => router.push('/modules/mm/material-master/materials-skus')}>View materials</Button>
@@ -158,9 +158,8 @@ const MaterialDetailPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
-
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title={material.materialName}
                 description={`${material.materialCode}${material.sku ? ` · SKU: ${material.sku}` : ''}${material.brand ? ` · ${material.brand}` : ''}${material.model ? ` ${material.model}` : ''}`}
                 actions={
@@ -223,6 +222,7 @@ const MaterialDetailPage = () => {
                         <Tabs.TabNav value="purchasing" icon={<HiOutlineCurrencyDollar />}>Purchasing</Tabs.TabNav>
                         <Tabs.TabNav value="planning" icon={<HiOutlineScale />}>Planning</Tabs.TabNav>
                         <Tabs.TabNav value="valuation" icon={<HiOutlineCurrencyDollar />}>Valuation</Tabs.TabNav>
+                        <Tabs.TabNav value="tax" icon={<HiOutlineShieldCheck />}>Tax</Tabs.TabNav>
                         <Tabs.TabNav value="barcodes" icon={<HiOutlineQrcode />}>Barcodes</Tabs.TabNav>
                         <Tabs.TabNav value="batches" icon={<HiOutlineCollection />}>Batches</Tabs.TabNav>
                         <Tabs.TabNav value="serials" icon={<HiOutlineKey />}>Serials</Tabs.TabNav>
@@ -238,6 +238,7 @@ const MaterialDetailPage = () => {
                         <TabPanel active={tab === 'purchasing'}><PurchasingTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'planning'}><PlanningTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'valuation'}><ValuationTab material={material} /></TabPanel>
+                        <TabPanel active={tab === 'tax'}><TaxTab material={material} /></TabPanel>
                         <TabPanel active={tab === 'barcodes'}><BarcodesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'batches'}><BatchesTab material={material} onRefresh={refresh} /></TabPanel>
                         <TabPanel active={tab === 'serials'}><SerialsTab material={material} onRefresh={refresh} /></TabPanel>
@@ -581,6 +582,153 @@ const ValuationTab = ({ material }: { material: Material }) => (
         </div>
     </div>
 )
+
+const TaxTab = ({ material }: { material: Material }) => {
+    const [history, setHistory] = useState<MaterialTaxHistoryEntry[]>([])
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        let cancelled = false
+        setLoading(true)
+        materialService
+            .taxHistory(material.id)
+            .then((rows) => {
+                if (!cancelled) setHistory(Array.isArray(rows) ? rows : [])
+            })
+            .catch(() => {
+                if (!cancelled) setHistory([])
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [material.id])
+
+    const tax = material.tax
+
+    return (
+        <div className="grid gap-6 md:grid-cols-2">
+            <div>
+                <h6 className="mb-3 text-sm font-semibold heading-text">
+                    Current tax configuration
+                </h6>
+                {tax?.configured ? (
+                    <>
+                        <InfoRow
+                            label="Tax classification"
+                            value={tax.classificationLabel ?? '—'}
+                        />
+                        <InfoRow
+                            label="Tax code (FICO)"
+                            value={
+                                tax.taxCode
+                                    ? `${tax.taxCode} — ${tax.taxCodeName ?? ''}`
+                                    : '—'
+                            }
+                        />
+                        <InfoRow
+                            label="Tax rate"
+                            value={
+                                tax.taxRate == null
+                                    ? 'No active rate'
+                                    : `${tax.taxRate}%`
+                            }
+                        />
+                        <InfoRow
+                            label="Price tax treatment"
+                            value={tax.priceTaxTreatmentLabel ?? '—'}
+                        />
+                        <InfoRow label="Tax status" value={tax.status ?? '—'} />
+                        <InfoRow
+                            label="Effective status"
+                            value={tax.effectiveStatus}
+                        />
+                        <InfoRow
+                            label="Effective from"
+                            value={tax.effectiveFrom ?? '—'}
+                        />
+                        <InfoRow
+                            label="Effective to"
+                            value={tax.effectiveTo ?? '—'}
+                        />
+                        {tax.description ? (
+                            <InfoRow
+                                label="Description"
+                                value={tax.description}
+                            />
+                        ) : null}
+                        {tax.warnings.length > 0 ? (
+                            <ul className="mt-3 space-y-1 text-xs text-amber-600 dark:text-amber-400">
+                                {tax.warnings.map((warning) => (
+                                    <li key={warning}>{warning}</li>
+                                ))}
+                            </ul>
+                        ) : null}
+                    </>
+                ) : (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        Tax Classification Not Configured
+                        <p className="mt-1 text-xs">
+                            Edit the material to select a tax classification and
+                            FICO tax code.
+                        </p>
+                    </div>
+                )}
+            </div>
+            <div>
+                <h6 className="mb-3 text-sm font-semibold heading-text">
+                    Tax history
+                </h6>
+                {loading ? (
+                    <Spinner size={24} />
+                ) : history.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                        No tax changes recorded.
+                    </p>
+                ) : (
+                    <div className="space-y-2">
+                        {history.map((row) => (
+                            <div
+                                key={row.id}
+                                className="rounded-lg border border-gray-200 px-3 py-2 text-xs dark:border-gray-700"
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <Tag>{row.changeType}</Tag>
+                                    <span className="text-gray-500">
+                                        {new Date(
+                                            row.createdAt,
+                                        ).toLocaleString()}
+                                    </span>
+                                </div>
+                                <p className="mt-1 text-sm font-medium">
+                                    {row.taxClassification ?? 'Not configured'}
+                                    {row.taxCode
+                                        ? ` · ${row.taxCode}`
+                                        : ''}
+                                    {row.taxRate == null
+                                        ? ''
+                                        : ` · ${row.taxRate}%`}
+                                </p>
+                                <p className="text-gray-500">
+                                    {row.priceTaxTreatment ?? '—'} ·{' '}
+                                    {row.taxStatus ?? '—'}
+                                    {row.taxEffectiveFrom
+                                        ? ` · ${row.taxEffectiveFrom}`
+                                        : ''}
+                                    {row.taxEffectiveTo
+                                        ? ` → ${row.taxEffectiveTo}`
+                                        : ''}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
 
 const TransactionsTab = ({ materialId }: { materialId: string }) => {
     const [rows, setRows] = useState<any[]>([])

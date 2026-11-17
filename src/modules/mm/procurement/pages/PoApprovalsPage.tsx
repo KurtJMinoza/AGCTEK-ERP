@@ -4,10 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDateCell,
+    PrcDocNumberCell,
+    PrcMoneyCell,
+    PrcPlainCell,
+    PrcSupplierCell,
+    PRC_PO_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
@@ -22,7 +31,6 @@ import {
 } from 'react-icons/hi'
 import { purchaseOrderService } from '../services/purchaseOrderService'
 import type { MmPurchaseOrder, PoListResponse } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE_PATH = '/modules/mm/procurement/po-approvals'
 const PO_DETAIL = '/modules/mm/procurement/purchase-orders'
@@ -36,7 +44,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 
 const PoApprovalsPage = () => {
     const router = useRouter()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
 
     const [data, setData] = useState<MmPurchaseOrder[]>([])
     const [total, setTotal] = useState(0)
@@ -109,64 +117,57 @@ const PoApprovalsPage = () => {
 
     const columns = useMemo<ColumnDef<MmPurchaseOrder>[]>(() => [
         {
-            header: 'PO Number',
+            header: 'Purchase order',
             accessorKey: 'poNumber',
-            size: 140,
+            size: 180,
             cell: ({ row }) => (
-                <button
-                    type="button"
-                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                <PrcDocNumberCell
+                    icon="po"
+                    primary={row.original.poNumber}
+                    secondary={row.original.supplier?.supplierName}
                     onClick={() => router.push(`${PO_DETAIL}/${row.original.id}`)}
-                >
-                    {row.original.poNumber}
-                </button>
+                />
             ),
         },
         {
             header: 'Supplier',
             id: 'supplier',
             cell: ({ row }) => (
-                <span className="text-sm">
-                    {row.original.supplier
-                        ? `${row.original.supplier.supplierCode} — ${row.original.supplier.supplierName}`
-                        : row.original.supplierId}
-                </span>
+                <PrcSupplierCell
+                    code={row.original.supplier?.supplierCode}
+                    name={row.original.supplier?.supplierName ?? row.original.supplierId}
+                />
             ),
         },
         {
             header: 'Buyer',
             accessorKey: 'buyerId',
-            cell: ({ row }) => <span className="text-sm">{row.original.buyerId}</span>,
+            cell: ({ row }) => <PrcPlainCell mono>{row.original.buyerId}</PrcPlainCell>,
         },
         {
             header: 'Total',
             id: 'total',
             cell: ({ row }) => (
-                <span className="text-sm font-semibold">
-                    {Number(row.original.totalAmount || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                    })}
-                </span>
+                <PrcMoneyCell
+                    amount={row.original.totalAmount}
+                    currency={row.original.currency?.code}
+                />
             ),
         },
         {
             header: 'Status',
             accessorKey: 'status',
-            cell: () => (
-                <StatusBadge tone="warning">PENDING APPROVAL</StatusBadge>
+            cell: ({ row }) => (
+                <PrcAnimatedStatus
+                    status={row.original.status}
+                    tone={prcStatusTone(row.original.status, PRC_PO_STATUS)}
+                />
             ),
         },
         {
             header: 'Submitted',
             accessorKey: 'submittedAt',
-            cell: ({ row }) => (
-                <span className="text-xs">
-                    {row.original.submittedAt
-                        ? new Date(row.original.submittedAt).toLocaleString()
-                        : '—'}
-                </span>
-            ),
+            cell: ({ row }) => <PrcDateCell iso={row.original.submittedAt} />,
         },
         {
             id: 'actions',
@@ -213,23 +214,24 @@ const PoApprovalsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="PO Approvals"
                 description="Purchase orders awaiting approval decision."
             />
 
             <AdaptiveCard className="mt-4">
-                <DataTable<MmPurchaseOrder>
+                <ProcurementResponsiveTable<MmPurchaseOrder>
                     columns={columns}
                     data={data}
                     compact
-                    fit
                     loading={loading}
+                    getRowId={(row) => row.id}
                     noData={!loading && data.length === 0}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={setPage}
                     onSelectChange={(size) => { setPageSize(size); setPage(1) }}
+                    tableMinWidthClass="min-w-[980px]"
                 />
             </AdaptiveCard>
 

@@ -3,10 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ValuationResponsiveTable, {
+    type ColumnDef,
+} from '../components/ValuationResponsiveTable'
+import {
+    VAL_LAYER_STATUS,
+    ValAnimatedStatus,
+    ValDateCell,
+    ValMaterialCell,
+    ValMoneyCell,
+    ValPlainCell,
+    ValQtyCell,
+    valStatusTone,
+} from '../components/valuationTableUi'
+import { valuationParentBreadcrumbs } from '../utils/valuationPageUi'
 import Select from '@/components/ui/Select'
 import Button from '@/components/ui/Button'
 import Notification from '@/components/ui/Notification'
@@ -15,13 +26,12 @@ import { FormItem } from '@/components/ui/Form'
 import { valuationService } from '../services/valuationService'
 import { warehouseService } from '../../warehouse/services/warehouseService'
 import type { CostLayer } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
 const ROUTE = '/modules/mm/valuation/cost-layers'
 type Opt = { value: string; label: string }
 
 const CostLayersPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = valuationParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<CostLayer[]>([])
     const [loading, setLoading] = useState(false)
     const [warehouses, setWarehouses] = useState<Opt[]>([])
@@ -69,25 +79,47 @@ const CostLayersPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode || row.original.materialId,
+                cell: ({ row }) => (
+                    <ValMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) =>
-                    row.original.warehouse?.name || row.original.warehouseId,
+                cell: ({ row }) => (
+                    <ValPlainCell>
+                        {row.original.warehouse?.name || row.original.warehouseId}
+                    </ValPlainCell>
+                ),
             },
-            { header: 'Original Qty', accessorKey: 'originalQuantity' },
-            { header: 'Remaining', accessorKey: 'remainingQuantity' },
-            { header: 'Unit Cost', accessorKey: 'unitCost' },
             {
-                header: 'Posting Date',
-                cell: ({ row }) =>
-                    new Date(row.original.postingDate).toLocaleDateString(),
+                header: 'Original qty',
+                cell: ({ row }) => (
+                    <ValQtyCell value={row.original.originalQuantity} label="orig" />
+                ),
+            },
+            {
+                header: 'Remaining',
+                cell: ({ row }) => <ValQtyCell value={row.original.remainingQuantity} />,
+            },
+            {
+                header: 'Unit cost',
+                cell: ({ row }) => <ValMoneyCell amount={row.original.unitCost} />,
+            },
+            {
+                header: 'Posting date',
+                cell: ({ row }) => <ValDateCell iso={row.original.postingDate} />,
             },
             {
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => (
+                    <ValAnimatedStatus
+                        status={row.original.status}
+                        tone={valStatusTone(row.original.status, VAL_LAYER_STATUS)}
+                    />
+                ),
             },
         ],
         [],
@@ -102,11 +134,10 @@ const CostLayersPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Cost Layers"
                 description="FIFO receipt layers and remaining quantities"
-                
+                breadcrumbs={parentBreadcrumbs}
             />
             <AdaptiveCard className="mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -131,7 +162,13 @@ const CostLayersPage = () => {
                 </div>
             </AdaptiveCard>
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ValuationResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[1040px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

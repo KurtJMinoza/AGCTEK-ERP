@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
@@ -40,8 +39,7 @@ import type {
     PackageQueryParams,
     CreatePackagePayload,
 } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001OutboundWorkflowStrip from '@/modules/mm/shared/components/Iso9001OutboundWorkflowStrip'
+import { warehouseParentBreadcrumbs } from '../utils/warehousePageUi'
 import InfoCard from '../../shared/InfoCard'
 import {
     WmAnimatedStatus,
@@ -126,7 +124,10 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 }
 
 const PackingPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(
+        () => warehouseParentBreadcrumbs(ROUTE),
+        [],
+    )
 
     const [search, setSearch] = useState('')
     const [warehouseFilter, setWarehouseFilter] = useState('')
@@ -717,8 +718,8 @@ const PackingPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Packing"
                 description="Manage order-level packages — scan, verify, seal. Quantity mismatch blocks finalization."
                 actions={
@@ -732,8 +733,6 @@ const PackingPage = () => {
                     </Button>
                 }
             />
-            <Iso9001OutboundWorkflowStrip activeStep={2} />
-
             <AdaptiveCard className="mt-4">
                 <Tabs
                     value={statusTab}

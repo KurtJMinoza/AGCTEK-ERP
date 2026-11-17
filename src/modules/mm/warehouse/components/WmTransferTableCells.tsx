@@ -11,7 +11,7 @@ import type { WarehouseTransfer } from '../types'
 
 export const wmTransferRowEnterClass = wmTableRowEnterClass
 
-const WM_TRANSFER_TONE: Record<
+export const WM_TRANSFER_TONE: Record<
     string,
     'success' | 'default' | 'warning' | 'danger'
 > = {
@@ -71,6 +71,16 @@ export function WmTransferRouteCell({
             </p>
         </div>
     )
+}
+
+export function wmTransferStatusTone(status: string) {
+    return WM_TRANSFER_TONE[status] ?? 'default'
+}
+
+export function wmTransferProgressText(transfer: WarehouseTransfer): string {
+    const { total, done, label } = transferProgress(transfer)
+    if (!total) return '—'
+    return `${label} ${done.toLocaleString()} / ${total.toLocaleString()}`
 }
 
 function transferProgress(transfer: WarehouseTransfer) {

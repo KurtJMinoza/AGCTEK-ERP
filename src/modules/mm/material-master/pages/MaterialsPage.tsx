@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import MaterialMasterResponsiveTable from '../components/MaterialMasterResponsiveTable'
+import { MM_MATERIAL_STATUS_TONE } from '../components/materialMasterTableUi'
 import StatusBadge from '@/components/shared/StatusBadge'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -28,14 +29,16 @@ import {
     HiOutlineTrash,
     HiOutlineEye,
     HiOutlineDuplicate,
+    HiOutlineUpload,
 } from 'react-icons/hi'
 import MaterialFormDialog from '../components/MaterialFormDialog'
 import MaterialViewDialog from '../components/MaterialViewDialog'
+import ProductImportDialog from '@/components/shared/ProductImportDialog'
 import { useMaterials } from '../hooks/useMaterials'
 import { useReferenceData } from '../hooks/useReferenceData'
 import { materialService } from '../services/materialService'
 import type { Material, MaterialStatus } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import { materialMasterFeatureDescription, materialMasterParentBreadcrumbs } from '../utils/materialMasterPageUi'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
@@ -59,7 +62,10 @@ const STATUS_FILTER_OPTIONS: FilterOption[] = [
 ]
 
 const MaterialsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(MATERIALS_PATH)
+    const parentBreadcrumbs = useMemo(
+        () => materialMasterParentBreadcrumbs(MATERIALS_PATH),
+        [],
+    )
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
 
     const { materialTypes, materialCategories } = useReferenceData([
@@ -115,6 +121,8 @@ const MaterialsPage = () => {
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
     const [bulkDeleting, setBulkDeleting] = useState(false)
+    const [importOpen, setImportOpen] = useState(false)
+    const [tableVersion, setTableVersion] = useState(0)
 
     const stats = useMemo(() => {
         const total = meta.total
@@ -284,6 +292,32 @@ const MaterialsPage = () => {
                 ),
             },
             {
+                header: 'Barcode',
+                id: 'barcode',
+                enableSorting: false,
+                size: 140,
+                cell: ({ row }) => {
+                    const m = row.original
+                    const barcodes = m.barcodes ?? []
+                    const primary = barcodes.find((b) => b.isPrimary)?.barcodeValue
+                    const alt = barcodes.filter((b) => !b.isPrimary).map((b) => b.barcodeValue)
+                    const values = [primary, ...alt].filter(Boolean)
+                    if (values.length === 0) return <span className="text-xs text-gray-400">—</span>
+                    return (
+                        <div className="min-w-0">
+                            <div className="truncate text-sm font-mono text-gray-900 dark:text-gray-100">
+                                {values[0]}
+                            </div>
+                            {alt.length > 0 && (
+                                <div className="truncate text-[10px] text-gray-400 dark:text-gray-500">
+                                    +{alt.length} more
+                                </div>
+                            )}
+                        </div>
+                    )
+                },
+            },
+            {
                 header: 'Category',
                 accessorKey: 'materialCategoryId',
                 size: 110,
@@ -431,17 +465,92 @@ const MaterialsPage = () => {
                 ),
             },
         ],
-[openEdit, openDuplicate, canUpdate, canDelete],
+        [openEdit, openDuplicate, canUpdate, canDelete],
     )
+
+    const materialsMobile = useMemo(
+        () => ({
+            title: (m: Material) => m.materialCode,
+            subtitle: (m: Material) =>
+                [m.materialName, m.sku ? `SKU ${m.sku}` : null].filter(Boolean).join(' · ') ||
+                undefined,
+            status: (m: Material) => ({
+                text: m.status,
+                tone: MM_MATERIAL_STATUS_TONE[m.status] ?? 'default',
+            }),
+            onPress: (m: Material) => setViewMaterial(m),
+            fields: [
+                {
+                    label: 'Type',
+                    value: (m: Material) => m.materialType?.name ?? '—',
+                },
+                {
+                    label: 'Category',
+                    value: (m: Material) => m.materialCategory?.name ?? '—',
+                },
+                {
+                    label: 'UOM',
+                    value: (m: Material) => m.baseUom?.code ?? '—',
+                },
+                {
+                    label: 'Cost',
+                    value: (m: Material) =>
+                        formatMaterialMoney(Number(m.standardCost), m.currency?.code),
+                },
+                {
+                    label: 'Tracking',
+                    value: (m: Material) => {
+                        const flags = [
+                            m.batchManaged ? 'Batch' : null,
+                            m.serialManaged ? 'Serial' : null,
+                            m.qualityInspectionRequired ? 'QC' : null,
+                            m.expiryManaged ? 'Expiry' : null,
+                        ].filter(Boolean)
+                        return flags.length ? flags.join(', ') : '—'
+                    },
+                },
+                {
+                    label: 'Planning',
+                    value: (m: Material) =>
+                        m.inventoryManaged
+                            ? `ROP ${Number(m.reorderPoint).toLocaleString()} · Safe ${Number(m.safetyStock).toLocaleString()}`
+                            : 'Non-stock',
+                },
+            ],
+        }),
+        [],
+    )
+
+    // When the import dialog closes, refresh the materials list so newly
+    // imported / updated materials appear immediately.
+    useEffect(() => {
+        if (!importOpen) {
+            void (async () => {
+                await refresh()
+                setTableVersion(v => v + 1)
+            })()
+        }
+    }, [importOpen, refresh])
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Materials / SKUs"
-                description="Master data for all materials — codes, UOMs, tracking rules, reorder points, and valuation."
+                description={materialMasterFeatureDescription('Materials / SKUs')}
                 actions={
-                    canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button> : undefined
+                    canCreate ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                size="sm"
+                                icon={<HiOutlineUpload className="text-lg" />}
+                                onClick={() => setImportOpen(true)}
+                            >
+                                Bulk import
+                            </Button>
+                            <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button>
+                        </div>
+                    ) : undefined
                 }
             />
 
@@ -481,11 +590,11 @@ const MaterialsPage = () => {
                 </div>
 
                 {canDelete && selectedRows.size > 0 && (
-                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">
                             {selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected
                         </span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear selection</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>
                                 Delete selected
@@ -495,29 +604,39 @@ const MaterialsPage = () => {
                 )}
 
                 <div className="mt-4">
-                    <DataTable<Material>
-                        columns={columns}
-                        data={materials}
-                        compact
-                        fit
-                        loading={loading}
-                        selectable
-                        checkboxChecked={(row) => selectedRows.has(row.id)}
-                        onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
-                        noData={!loading && materials.length === 0}
-                        customNoDataIcon={
-                            <EmptyState
-                                hasFilters={hasActiveFilters}
-                                totalMaterials={meta.total}
-                                onCreate={canCreate ? openCreate : undefined}
-                                onClearFilters={clearFilters}
-                            />
-                        }
-                        pagingData={{ total: meta.total, pageIndex: page, pageSize }}
-                        onPaginationChange={setPage}
-                        onSelectChange={(size) => { setPageSize(size); setPage(1) }}
-                    />
+                    <div key={tableVersion}>
+                        <MaterialMasterResponsiveTable<Material>
+                            columns={columns}
+                            data={materials}
+                            compact
+                            loading={loading}
+                            getRowId={(row) => row.id}
+                            selectable
+                            checkboxChecked={(row) => selectedRows.has(row.id)}
+                            onCheckBoxChange={handleCheckBoxChange}
+                            onIndeterminateCheckBoxChange={(checked, rows) =>
+                                handleSelectAllChange(checked, rows as any)
+                            }
+                            noData={!loading && materials.length === 0}
+                            customNoDataIcon={
+                                <EmptyState
+                                    hasFilters={hasActiveFilters}
+                                    totalMaterials={meta.total}
+                                    onCreate={canCreate ? openCreate : undefined}
+                                    onClearFilters={clearFilters}
+                                />
+                            }
+                            pagingData={{ total: meta.total, pageIndex: page, pageSize }}
+                            onPaginationChange={setPage}
+                            onSelectChange={(size) => {
+                                setPageSize(size)
+                                setPage(1)
+                            }}
+                            tableMinWidthClass="min-w-[1040px]"
+                            mobile={materialsMobile}
+                            instanceId="materials-skus"
+                        />
+                    </div>
                 </div>
             </AdaptiveCard>
 
@@ -536,6 +655,16 @@ const MaterialsPage = () => {
                 material={viewMaterial}
                 onClose={() => setViewMaterial(null)}
                 onEdit={canUpdate ? openEdit : undefined}
+            />
+
+            <ProductImportDialog
+                isOpen={importOpen}
+                source="MM"
+                onClose={() => setImportOpen(false)}
+                onImported={async () => {
+                    await refresh()
+                    setTableVersion(v => v + 1)
+                }}
             />
 
             <ConfirmDialog

@@ -3,27 +3,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ValuationResponsiveTable, {
+    type ColumnDef,
+} from '../components/ValuationResponsiveTable'
+import {
+    VAL_VARIANCE_STATUS,
+    ValAnimatedStatus,
+    ValDateCell,
+    ValDocNumberCell,
+    ValMaterialCell,
+    ValMethodTag,
+    ValMoneyCell,
+    ValPlainCell,
+    valStatusTone,
+} from '../components/valuationTableUi'
+import { valuationParentBreadcrumbs } from '../utils/valuationPageUi'
 import Button from '@/components/ui/Button'
 import { valuationService, type PriceVarianceRow } from '../services/valuationService'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 
 const ROUTE = '/modules/mm/valuation/price-variance'
 
-const fmt = (v: number | string | null | undefined) => {
-    if (v == null || v === '') return '—'
-    const n = Number(v)
-    return Number.isFinite(n)
-        ? n.toLocaleString(undefined, { maximumFractionDigits: 6 })
-        : '—'
-}
-
 const PriceVariancePage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = valuationParentBreadcrumbs(ROUTE)
     const [rows, setRows] = useState<PriceVarianceRow[]>([])
     const [loading, setLoading] = useState(false)
 
@@ -49,47 +53,91 @@ const PriceVariancePage = () => {
 
     const columns: ColumnDef<PriceVarianceRow>[] = useMemo(
         () => [
-            { header: 'Number', accessorKey: 'varianceNumber' },
-            { header: 'Type', accessorKey: 'varianceType' },
+            {
+                header: 'Number',
+                cell: ({ row }) => (
+                    <ValDocNumberCell
+                        primary={row.original.varianceNumber}
+                        icon="variance"
+                    />
+                ),
+            },
+            {
+                header: 'Type',
+                cell: ({ row }) => (
+                    <ValMethodTag method={row.original.varianceType} />
+                ),
+            },
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material?.materialCode || row.original.materialId,
+                cell: ({ row }) => (
+                    <ValMaterialCell
+                        code={
+                            row.original.material?.materialCode ?? row.original.materialId
+                        }
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) =>
-                    row.original.warehouse?.code || row.original.warehouseId.slice(0, 8),
+                cell: ({ row }) => (
+                    <ValPlainCell mono>
+                        {row.original.warehouse?.code ||
+                            row.original.warehouseId.slice(0, 8)}
+                    </ValPlainCell>
+                ),
             },
             {
-                header: 'PO Price',
-                cell: ({ row }) => fmt(row.original.poPrice),
+                header: 'PO price',
+                cell: ({ row }) => <ValMoneyCell amount={row.original.poPrice} />,
             },
             {
                 header: 'Standard',
-                cell: ({ row }) => fmt(row.original.standardCost),
+                cell: ({ row }) => <ValMoneyCell amount={row.original.standardCost} />,
             },
             {
                 header: 'Invoice',
-                cell: ({ row }) => fmt(row.original.invoicePrice),
+                cell: ({ row }) => <ValMoneyCell amount={row.original.invoicePrice} />,
             },
             {
                 header: 'Landed',
-                cell: ({ row }) => fmt(row.original.landedUnitCost),
+                cell: ({ row }) => <ValMoneyCell amount={row.original.landedUnitCost} />,
             },
             {
                 header: 'Actual',
-                cell: ({ row }) => fmt(row.original.actualUnitCost),
+                cell: ({ row }) => <ValMoneyCell amount={row.original.actualUnitCost} />,
             },
             {
                 header: 'Variance',
-                cell: ({ row }) => fmt(row.original.varianceAmount),
+                cell: ({ row }) => {
+                    const n = Number(row.original.varianceAmount)
+                    const emphasize =
+                        Number.isFinite(n) && n !== 0
+                            ? n > 0
+                                ? 'positive'
+                                : 'negative'
+                            : undefined
+                    return (
+                        <ValMoneyCell
+                            amount={row.original.varianceAmount}
+                            emphasize={emphasize}
+                        />
+                    )
+                },
             },
-            { header: 'Status', accessorKey: 'status' },
+            {
+                header: 'Status',
+                cell: ({ row }) => (
+                    <ValAnimatedStatus
+                        status={row.original.status}
+                        tone={valStatusTone(row.original.status, VAL_VARIANCE_STATUS)}
+                    />
+                ),
+            },
             {
                 header: 'Date',
-                cell: ({ row }) =>
-                    new Date(row.original.createdAt).toLocaleString(),
+                cell: ({ row }) => <ValDateCell iso={row.original.createdAt} />,
             },
         ],
         [],
@@ -97,10 +145,10 @@ const PriceVariancePage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Price Variance"
                 description="Auditable PPV / IPV / landed / revaluation variances — PO, standard, invoice, landed, and actual unit costs."
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button variant="solid" onClick={load}>
                         Refresh
@@ -108,7 +156,13 @@ const PriceVariancePage = () => {
                 }
             />
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ValuationResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    tableMinWidthClass="min-w-[1280px]"
+                />
             </AdaptiveCard>
         </PageContainer>
     )

@@ -42,9 +42,9 @@ import StorefrontVariantPickDialog from '../components/product/StorefrontVariant
 import {
     effectiveVariantCompareAt,
     effectiveVariantPrice,
+    variantLabel,
     type ProductVariantDefinition,
     type VariantImageMode,
-    variantLabel,
 } from '@/modules/sd/services/productOptionVariantsService'
 import {
     formatReviewDate,
@@ -298,7 +298,7 @@ const ProductView = ({ product }: { product: SdProductRecord }) => {
         if (!selectedVariant) return undefined
         return {
             variantId: selectedVariant.id,
-            variantName: selectedVariant.variantName,
+            variantName: variantLabel(selectedVariant),
             variantSku: selectedVariant.sku,
             materialId: selectedVariant.materialId ?? undefined,
             unitPrice: selectedVariant.price ?? product.price,

@@ -296,8 +296,168 @@ describe('ProductService.getStorefrontAvailability', () => {
     })
 })
 
-describe('ProductService deletion lifecycle', () => {
-    const product = {
+/**
+ * The POS terminal polls the whole cart in one call. The batch must read the
+ * same live MM ledger as the single-product path and must never invent stock.
+ */
+describe('ProductService.getStorefrontAvailabilityBatch', () => {
+    const prisma: any = {
+        sdProduct: { findMany: jest.fn() },
+        sdProductMaterialAssignment: { findMany: jest.fn() },
+        sdProductVariant: { findMany: jest.fn() },
+    }
+    const availability = {
+        getCompanyMaterialLedgerBatch: jest.fn(),
+    }
+
+    let service: ProductService
+
+    beforeEach(async () => {
+        jest.clearAllMocks()
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                ProductService,
+                { provide: PrismaService, useValue: prisma },
+                {
+                    provide: CommercialAvailabilityService,
+                    useValue: availability,
+                },
+            ],
+        }).compile()
+        service = module.get(ProductService)
+    })
+
+    it('reads every line from the MM ledger in one batch per company', async () => {
+        prisma.sdProduct.findMany.mockResolvedValue([
+            { id: 'p1', sku: 'SKU-1', productType: 'STOCK_ITEM', isActive: true },
+            { id: 'p2', sku: 'SKU-2', productType: 'STOCK_ITEM', isActive: true },
+        ])
+        prisma.sdProductVariant.findMany.mockResolvedValue([])
+        prisma.sdProductMaterialAssignment.findMany.mockResolvedValue([
+            { productId: 'p1', materialId: 'mat-1', companyId: 'company-1' },
+            { productId: 'p2', materialId: 'mat-2', companyId: 'company-1' },
+        ])
+        availability.getCompanyMaterialLedgerBatch.mockImplementation(
+            async (_companyId: string, materialIds: string[]) =>
+                new Map(
+                    materialIds.map((materialId) => [
+                        materialId,
+                        {
+                            onHandQty: materialId === 'mat-1' ? 10 : 4,
+                            reservedQty: 1,
+                            availableQty: materialId === 'mat-1' ? 9 : 3,
+                        },
+                    ]),
+                ),
+        )
+
+        const result = await service.getStorefrontAvailabilityBatch(
+            'DIV_RETAIL',
+            [{ sku: 'sku-1' }, { sku: 'SKU-2' }],
+            availability as never,
+        )
+
+        expect(result).toHaveLength(2)
+        expect(result[0]).toMatchObject({
+            sku: 'SKU-1',
+            availableQuantity: 9,
+            physicalStock: 10,
+            reservedQuantity: 1,
+        })
+        expect(result[1]).toMatchObject({
+            sku: 'SKU-2',
+            availableQuantity: 3,
+            physicalStock: 4,
+        })
+        // One ledger read for the whole cart, not one per line.
+        expect(
+            availability.getCompanyMaterialLedgerBatch,
+        ).toHaveBeenCalledTimes(1)
+        expect(
+            availability.getCompanyMaterialLedgerBatch,
+        ).toHaveBeenCalledWith('company-1', ['mat-1', 'mat-2'])
+    })
+
+    it('reads the selected variant material, never the parent product', async () => {
+        prisma.sdProduct.findMany.mockResolvedValue([
+            { id: 'p1', sku: 'SKU-1', productType: 'STOCK_ITEM', isActive: true },
+        ])
+        prisma.sdProductVariant.findMany.mockResolvedValue([
+            {
+                id: 'v-default',
+                productId: 'p1',
+                materialId: 'mat-default',
+                companyId: 'company-1',
+                isActive: true,
+                isDefault: true,
+            },
+            {
+                id: 'v-picked',
+                productId: 'p1',
+                materialId: 'mat-picked',
+                companyId: 'company-1',
+                isActive: true,
+                isDefault: false,
+            },
+        ])
+        prisma.sdProductMaterialAssignment.findMany.mockResolvedValue([
+            {
+                productId: 'p1',
+                materialId: 'mat-parent',
+                companyId: 'company-1',
+            },
+        ])
+        availability.getCompanyMaterialLedgerBatch.mockResolvedValue(
+            new Map([
+                [
+                    'mat-picked',
+                    { onHandQty: 7, reservedQty: 1, availableQty: 6 },
+                ],
+            ]),
+        )
+
+        const result = await service.getStorefrontAvailabilityBatch(
+            'DIV_RETAIL',
+            [{ sku: 'SKU-1', variantId: 'v-picked' }],
+            availability as never,
+        )
+
+        expect(result[0]).toMatchObject({
+            variantId: 'v-picked',
+            materialId: 'mat-picked',
+            availableQuantity: 6,
+            state: 'LOW_STOCK',
+        })
+        expect(
+            availability.getCompanyMaterialLedgerBatch,
+        ).toHaveBeenCalledWith('company-1', ['mat-picked'])
+    })
+
+    it('reports NOT_MAPPED without reading the ledger for an unmapped product', async () => {
+        prisma.sdProduct.findMany.mockResolvedValue([
+            { id: 'p1', sku: 'SKU-1', productType: 'STOCK_ITEM', isActive: true },
+        ])
+        prisma.sdProductVariant.findMany.mockResolvedValue([])
+        prisma.sdProductMaterialAssignment.findMany.mockResolvedValue([])
+
+        const result = await service.getStorefrontAvailabilityBatch(
+            'DIV_RETAIL',
+            [{ sku: 'SKU-1' }],
+            availability as never,
+        )
+
+        expect(result[0]).toMatchObject({
+            sku: 'SKU-1',
+            state: 'NOT_MAPPED',
+            availableQuantity: 0,
+        })
+        expect(
+            availability.getCompanyMaterialLedgerBatch,
+        ).not.toHaveBeenCalled()
+    })
+})
+
+describe('ProductService deletion lifecycle', () => {    const product = {
         id: 'product-1',
         sku: 'SKU-1',
         status: 'ACTIVE',

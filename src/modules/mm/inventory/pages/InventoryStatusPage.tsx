@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import InventoryResponsiveTable, { type ColumnDef } from '../components/InventoryResponsiveTable'
+import { InvPlainCell, InvQtyCell } from '../components/inventoryTableUi'
+import { inventoryParentBreadcrumbs } from '../utils/inventoryPageUi'
+import { SmEntityCell } from '@/modules/mm/supplier-management/components/SupplierTableCells'
 import FilterBar, {
     type FilterChip,
     type FilterField,
@@ -31,8 +33,8 @@ import {
     type InventoryBalance,
 } from '../services/inventoryService'
 import { useDeferredFilterRefs, useLazyMmRefs } from '@/modules/mm/shared/useLazyMmRefs'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { StockStatusTag } from '../utils/inventoryUi'
+import { buildInventoryBalanceMobileConfig } from '../utils/inventoryBalanceMobile'
 
 const ROUTE = '/modules/mm/inventory-management/inventory-status'
 
@@ -48,7 +50,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const InventoryStatusPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryParentBreadcrumbs(ROUTE)
     const { companies, warehouses, materials, loadFilterRefs } = useDeferredFilterRefs(
         'companies',
         'warehouses',
@@ -131,8 +133,49 @@ const InventoryStatusPage = () => {
 
     const openStatusChange = useCallback(async () => {
         await ensureFormRefs('companies', 'warehouses', 'materials')
+        setChangeForm({
+            companyId: '',
+            warehouseId: '',
+            materialId: '',
+            fromStatus: 'UNRESTRICTED',
+            toStatus: 'BLOCKED',
+            quantity: 1,
+            uomId: '',
+            postingDate: new Date().toISOString().slice(0, 10),
+            documentDate: new Date().toISOString().slice(0, 10),
+        })
         setChangeOpen(true)
     }, [ensureFormRefs])
+
+    const openStatusChangeFromBalance = useCallback(
+        async (row: InventoryBalance) => {
+            await ensureFormRefs('companies', 'warehouses', 'materials')
+            const matOpt = materials.find((m) => m.value === row.materialId)
+            const baseUomId = (matOpt?.meta as { baseUomId?: string } | undefined)
+                ?.baseUomId
+            const onHand = Number(row.quantity ?? 0)
+            const available = Number(row.availableQuantity ?? 0)
+            const qty = available > 0 ? available : onHand > 0 ? onHand : 1
+            const from = row.stockStatus || 'UNRESTRICTED'
+            const to =
+                from === 'BLOCKED' || from === 'QUARANTINE' || from === 'RESTRICTED'
+                    ? 'UNRESTRICTED'
+                    : 'BLOCKED'
+            setChangeForm({
+                companyId: row.companyId,
+                warehouseId: row.warehouseId,
+                materialId: row.materialId,
+                fromStatus: from,
+                toStatus: to,
+                quantity: qty,
+                uomId: baseUomId ?? '',
+                postingDate: new Date().toISOString().slice(0, 10),
+                documentDate: new Date().toISOString().slice(0, 10),
+            })
+            setChangeOpen(true)
+        },
+        [ensureFormRefs, materials],
+    )
 
     const submitStatusChange = async () => {
         const mat = materials.find((m) => m.value === changeForm.materialId)
@@ -167,14 +210,11 @@ const InventoryStatusPage = () => {
                 cell: ({ row }) => {
                     const m = row.original.material
                     return (
-                        <div className="min-w-[11rem] max-w-[12rem]">
-                            <div className="truncate font-semibold text-gray-900">
-                                {m?.materialCode ?? row.original.materialId.slice(0, 8)}
-                            </div>
-                            <div className="truncate text-xs text-gray-500">
-                                {m?.materialName ?? '—'}
-                            </div>
-                        </div>
+                        <SmEntityCell
+                            kind="material"
+                            primary={m?.materialName}
+                            secondary={m?.materialCode ?? row.original.materialId.slice(0, 8)}
+                        />
                     )
                 },
             },
@@ -187,35 +227,41 @@ const InventoryStatusPage = () => {
             {
                 header: 'Location',
                 cell: ({ row }) => (
-                    <div className="min-w-[8rem] max-w-[9rem] whitespace-nowrap text-sm text-gray-600">
-                        <div className="truncate">
+                    <div className="min-w-[8rem]">
+                        <InvPlainCell>
                             {row.original.warehouse?.code ??
                                 row.original.warehouseId.slice(0, 8)}
-                        </div>
-                        <div className="truncate font-mono text-xs text-gray-400">
+                        </InvPlainCell>
+                        <InvPlainCell mono muted>
                             {row.original.storageBin?.code ?? 'No bin'}
-                        </div>
+                        </InvPlainCell>
                     </div>
                 ),
             },
             {
                 header: 'Quantity',
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap text-right font-semibold text-gray-900">
-                        {Number(row.original.quantity ?? 0).toLocaleString()}
-                    </div>
+                    <InvQtyCell value={Number(row.original.quantity ?? 0)} />
                 ),
             },
             {
                 header: 'Available',
                 cell: ({ row }) => (
-                    <div className="whitespace-nowrap text-right font-semibold text-emerald-600">
-                        {Number(row.original.availableQuantity ?? 0).toLocaleString()}
-                    </div>
+                    <InvQtyCell value={Number(row.original.availableQuantity ?? 0)} />
                 ),
             },
         ],
         [],
+    )
+
+    const balanceMobile = useMemo(
+        () =>
+            buildInventoryBalanceMobileConfig({
+                onPress: (row) => {
+                    void openStatusChangeFromBalance(row)
+                },
+            }),
+        [openStatusChangeFromBalance],
     )
 
     const statusCodes = statusOpts.filter((o) => o.value)
@@ -318,14 +364,15 @@ const InventoryStatusPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Inventory Status"
                 description="Balances by stock status. Post status changes through the ledger engine."
                 actions={
-                    <>
+                    <div className="flex flex-wrap gap-2">
                         <Button
                             variant="plain"
+                            size="sm"
                             icon={<HiOutlineRefresh />}
                             loading={loading}
                             onClick={load}
@@ -334,12 +381,13 @@ const InventoryStatusPage = () => {
                         </Button>
                         <Button
                             variant="solid"
+                            size="sm"
                             icon={<HiOutlinePlus />}
-                            onClick={openStatusChange}
+                            onClick={() => void openStatusChange()}
                         >
                             Status Change
                         </Button>
-                    </>
+                    </div>
                 }
             />
 
@@ -412,18 +460,24 @@ const InventoryStatusPage = () => {
             </div>
 
             <AdaptiveCard>
-                <DataTable
+                <InventoryResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
                     compact
-                    noData={rows.length === 0}
+                    getRowId={(row, index) =>
+                        `${row.materialId}-${row.warehouseId}-${row.storageBinId ?? index}`
+                    }
+                    noData={!loading && rows.length === 0}
                     pagingData={{
                         total: meta.total,
                         pageIndex: page,
                         pageSize: meta.limit,
                     }}
                     onPaginationChange={setPage}
+                    tableMinWidthClass="min-w-[880px]"
+                    mobile={balanceMobile}
+                    instanceId="inventory-status"
                 />
             </AdaptiveCard>
 

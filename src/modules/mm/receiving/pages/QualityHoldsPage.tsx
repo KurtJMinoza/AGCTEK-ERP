@@ -5,8 +5,16 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RCV_HOLD_STATUS,
+    RcvAnimatedStatus,
+    RcvDateCell,
+    RcvDocNumberCell,
+    RcvHoldReasonCell,
+    RcvPlainCell,
+    rcvStatusTone,
+} from '../components/receivingTableUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -29,21 +37,11 @@ const HOLD_TYPE_OPTIONS = [
     { value: 'BLOCKED', label: 'Blocked' },
 ]
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    ACTIVE: 'warning',
-    RELEASED: 'success',
-}
-
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
     toast.push(
         <Notification type={type} title={title} closable duration={3500}>{msg}</Notification>,
         { placement: 'top-end' },
     )
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 const QualityHoldsPage = () => {
@@ -138,35 +136,49 @@ const QualityHoldsPage = () => {
     }
 
     const columns: ColumnDef<MmQualityHold>[] = useMemo(() => [
-        { header: 'Hold #', accessorKey: 'holdNumber' },
+        {
+            header: 'Hold',
+            accessorKey: 'holdNumber',
+            cell: ({ row }) => (
+                <RcvDocNumberCell icon="nc" primary={row.original.holdNumber} />
+            ),
+        },
         {
             header: 'Inspection lot',
             accessorKey: 'inspectionLot.lotNumber',
-            cell: ({ row }) => row.original.inspectionLot?.lotNumber ?? '—',
+            cell: ({ row }) => (
+                <RcvDocNumberCell
+                    icon="inspection"
+                    primary={row.original.inspectionLot?.lotNumber ?? '—'}
+                />
+            ),
         },
         {
             header: 'Type',
             accessorKey: 'holdType',
-            cell: ({ row }) => row.original.holdType ?? 'QUALITY_HOLD',
+            cell: ({ row }) => (
+                <RcvPlainCell>{row.original.holdType ?? 'QUALITY_HOLD'}</RcvPlainCell>
+            ),
         },
         {
             header: 'Reason',
             accessorKey: 'reason',
-            cell: ({ row }) => row.original.reason,
+            cell: ({ row }) => <RcvHoldReasonCell reason={row.original.reason} />,
         },
         {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {row.original.status}
-                </StatusBadge>
+                <RcvAnimatedStatus
+                    status={row.original.status}
+                    tone={rcvStatusTone(row.original.status, RCV_HOLD_STATUS)}
+                />
             ),
         },
         {
             header: 'Held',
             accessorKey: 'heldAt',
-            cell: ({ row }) => fmtDate(row.original.heldAt),
+            cell: ({ row }) => <RcvDateCell iso={row.original.heldAt} />,
         },
         {
             header: '',
@@ -223,13 +235,15 @@ const QualityHoldsPage = () => {
                     </Tabs.TabList>
                 </Tabs>
 
-                <DataTable
+                <ReceivingResponsiveTable
                     columns={columns}
                     data={data}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => { setPageSize(s); setPage(1) }}
+                    tableMinWidthClass="min-w-[860px]"
                 />
             </AdaptiveCard>
 

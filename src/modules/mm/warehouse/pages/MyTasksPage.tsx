@@ -2,16 +2,14 @@
 
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import WarehouseTaskTable from '../components/WarehouseTaskTable'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-
+import { warehouseParentBreadcrumbs } from '../utils/warehousePageUi'
 const ROUTE = '/modules/mm/warehouse-management/my-tasks'
 
 const MyTasksPage = () => (
     <PageContainer>
-        <Breadcrumb items={buildErpBreadcrumbs(ROUTE)} />
         <PageHeader
+            breadcrumbs={warehouseParentBreadcrumbs(ROUTE)}
             title="My Tasks"
             description="Tasks assigned to you — start, complete, or report exceptions from the floor."
         />

@@ -68,6 +68,7 @@ function setup(overrides: Partial<typeof activeOrder> = {}) {
             findMany: jest.fn().mockResolvedValue([]),
         },
         sdSalesOrderPayment: {
+            findFirst: jest.fn().mockResolvedValue(null),
             upsert: jest
                 .fn()
                 .mockResolvedValue({
@@ -97,7 +98,7 @@ function setup(overrides: Partial<typeof activeOrder> = {}) {
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest
+        assertCheckoutAvailability: jest
             .fn()
             .mockResolvedValue(true),
     }

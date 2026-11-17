@@ -6,6 +6,9 @@ import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ReceivingResponsiveTable, {
+    type ReceivingMobileConfig,
+} from '@/modules/mm/receiving/components/ReceivingResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -205,6 +208,12 @@ interface RefCrudPageProps<T extends { id: string }> {
     formDialogIcon?: React.ReactNode
     formDialogTitle?: (editing: T | null) => React.ReactNode
     formDialogDescription?: (editing: T | null) => React.ReactNode
+    /** Staggered row animation + horizontal scroll (Receiving hub table pattern). */
+    animatedTable?: boolean
+    tableMinWidthClass?: string
+    tableMobile?: ReceivingMobileConfig<T>
+    /** Put breadcrumbs on PageHeader and omit duplicate leaf title in the trail. */
+    integrateBreadcrumbs?: boolean
 }
 
 export default function RefCrudPage<T extends { id: string }>({
@@ -225,8 +234,14 @@ export default function RefCrudPage<T extends { id: string }>({
     formDialogIcon,
     formDialogTitle,
     formDialogDescription,
+    animatedTable = false,
+    tableMinWidthClass,
+    tableMobile,
+    integrateBreadcrumbs = false,
 }: RefCrudPageProps<T>) {
     const breadcrumbItems = buildErpBreadcrumbs(routePath)
+    const parentBreadcrumbs =
+        breadcrumbItems.length > 1 ? breadcrumbItems.slice(0, -1) : breadcrumbItems
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<T[]>([])
@@ -558,8 +573,9 @@ export default function RefCrudPage<T extends { id: string }>({
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
+            {!integrateBreadcrumbs ? <Breadcrumb items={breadcrumbItems} /> : null}
             <PageHeader
+                breadcrumbs={integrateBreadcrumbs ? parentBreadcrumbs : undefined}
                 title={title}
                 description={description}
                 actions={canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add {title.toLowerCase()}</Button> : undefined}
@@ -586,17 +602,38 @@ export default function RefCrudPage<T extends { id: string }>({
                         </div>
                     </div>
                 )}
-                <DataTable<T>
-                    columns={allColumns}
-                    data={filteredItems}
-                    compact
-                    loading={loading}
-                    noData={!loading && filteredItems.length === 0}
-                    selectable
-                    checkboxChecked={(row) => selectedRows.has(row.id)}
-                    onCheckBoxChange={handleCheckBoxChange}
-                    onIndeterminateCheckBoxChange={(checked, rows) => handleSelectAllChange(checked, rows as any)}
-                />
+                {animatedTable ? (
+                    <ReceivingResponsiveTable<T>
+                        columns={allColumns}
+                        data={filteredItems}
+                        compact
+                        loading={loading}
+                        noData={!loading && filteredItems.length === 0}
+                        selectable
+                        getRowId={(row) => row.id}
+                        checkboxChecked={(row) => selectedRows.has(row.id)}
+                        onCheckBoxChange={handleCheckBoxChange}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
+                        tableMinWidthClass={tableMinWidthClass}
+                        mobile={tableMobile}
+                    />
+                ) : (
+                    <DataTable<T>
+                        columns={allColumns}
+                        data={filteredItems}
+                        compact
+                        loading={loading}
+                        noData={!loading && filteredItems.length === 0}
+                        selectable
+                        checkboxChecked={(row) => selectedRows.has(row.id)}
+                        onCheckBoxChange={handleCheckBoxChange}
+                        onIndeterminateCheckBoxChange={(checked, rows) =>
+                            handleSelectAllChange(checked, rows as any)
+                        }
+                    />
+                )}
             </AdaptiveCard>
 
             <FormDialog

@@ -3,10 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import InventoryControlResponsiveTable, {
+    type ColumnDef,
+} from '../components/InventoryControlResponsiveTable'
+import {
+    IC_COUNT_STATUS,
+    IcAnimatedStatus,
+    IcDocCell,
+    IcMethodTag,
+    IcPartyCell,
+    IcPlainCell,
+    icStatusTone,
+} from '../components/inventoryControlTableUi'
+import { inventoryControlParentBreadcrumbs } from '../utils/inventoryControlPageUi'
 import Button from '@/components/ui/Button'
 import Tabs from '@/components/ui/Tabs'
 import Notification from '@/components/ui/Notification'
@@ -16,8 +26,6 @@ import { inventoryControlService } from '../services/inventoryControlService'
 import { adjustmentService } from '../../inventory/services/adjustmentService'
 import type { InventoryCount, CountAdjustmentRequest } from '../types'
 import type { InventoryAdjustment } from '../../inventory/types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-import Iso9001WorkflowStrip from '../components/Iso9001WorkflowStrip'
 
 const ROUTE = '/modules/mm/inventory-control/adjustment-approval'
 type ApprovalTab = 'counts' | 'requests' | 'adjustments'
@@ -34,7 +42,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const AdjustmentApprovalPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = inventoryControlParentBreadcrumbs(ROUTE)
     const [counts, setCounts] = useState<InventoryCount[]>([])
     const [adjustments, setAdjustments] = useState<InventoryAdjustment[]>([])
     const [requests, setRequests] = useState<CountAdjustmentRequest[]>([])
@@ -72,26 +80,45 @@ const AdjustmentApprovalPage = () => {
 
     const countColumns: ColumnDef<InventoryCount>[] = useMemo(
         () => [
-            { header: 'Count #', accessorKey: 'countNumber' },
+            {
+                header: 'Count',
+                cell: ({ row }) => (
+                    <IcDocCell
+                        primary={row.original.countNumber}
+                        secondary={row.original.countType}
+                    />
+                ),
+            },
             {
                 header: 'Type',
-                accessorKey: 'countType',
+                cell: ({ row }) => (
+                    <IcMethodTag label={row.original.countType} />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                cell: ({ row }) => (
+                    <IcPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Adjustment',
                 cell: ({ row }) =>
-                    row.original.adjustment
-                        ? `${row.original.adjustment.documentNumber} (${row.original.adjustment.status})`
-                        : '—',
+                    row.original.adjustment ? (
+                        <IcPlainCell mono>
+                            {`${row.original.adjustment.documentNumber} (${row.original.adjustment.status})`}
+                        </IcPlainCell>
+                    ) : (
+                        <IcPlainCell muted>—</IcPlainCell>
+                    ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="warning">{row.original.status}</StatusBadge>
+                    <IcAnimatedStatus
+                        status={row.original.status}
+                        tone={icStatusTone(row.original.status, IC_COUNT_STATUS)}
+                    />
                 ),
             },
             {
@@ -158,15 +185,26 @@ const AdjustmentApprovalPage = () => {
 
     const adjColumns: ColumnDef<InventoryAdjustment>[] = useMemo(
         () => [
-            { header: 'Document', accessorKey: 'documentNumber' },
+            {
+                header: 'Document',
+                cell: ({ row }) => (
+                    <IcDocCell
+                        icon="variance"
+                        primary={row.original.documentNumber}
+                        secondary={row.original.adjustmentReason}
+                    />
+                ),
+            },
             {
                 header: 'Reason',
-                accessorKey: 'adjustmentReason',
+                cell: ({ row }) => (
+                    <IcMethodTag label={row.original.adjustmentReason} />
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="warning">{row.original.status}</StatusBadge>
+                    <IcAnimatedStatus status={row.original.status} tone="warning" />
                 ),
             },
             {
@@ -220,15 +258,22 @@ const AdjustmentApprovalPage = () => {
 
     const requestColumns: ColumnDef<CountAdjustmentRequest>[] = useMemo(
         () => [
-            { header: 'Request #', accessorKey: 'requestNumber' },
+            {
+                header: 'Request',
+                cell: ({ row }) => (
+                    <IcDocCell primary={row.original.requestNumber} icon="variance" />
+                ),
+            },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.code ?? '—',
+                cell: ({ row }) => (
+                    <IcPartyCell kind="warehouse" name={row.original.warehouse?.code} />
+                ),
             },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="warning">{row.original.status}</StatusBadge>
+                    <IcAnimatedStatus status={row.original.status} tone="warning" />
                 ),
             },
             {
@@ -365,14 +410,12 @@ const AdjustmentApprovalPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Adjustment Approval"
-                description="ISO 9001 step 4: management approval before posting count variances to the inventory ledger."
+                description="Approve count adjustment requests before inventory posting."
+                breadcrumbs={parentBreadcrumbs}
                 actions={<Button onClick={load}>Refresh</Button>}
             />
-            <Iso9001WorkflowStrip activeStep={4} />
-
             <AdaptiveCard>
                 <Tabs
                     value={activeTab}
@@ -391,24 +434,30 @@ const AdjustmentApprovalPage = () => {
                     </TabList>
                     <div className="mt-4">
                         <TabContent value="counts">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={countColumns}
                                 data={counts}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[980px]"
                             />
                         </TabContent>
                         <TabContent value="requests">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={requestColumns}
                                 data={requests}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[880px]"
                             />
                         </TabContent>
                         <TabContent value="adjustments">
-                            <DataTable
+                            <InventoryControlResponsiveTable
                                 columns={adjColumns}
                                 data={adjustments}
                                 loading={loading}
+                                getRowId={(row) => row.id}
+                                tableMinWidthClass="min-w-[720px]"
                             />
                         </TabContent>
                     </div>

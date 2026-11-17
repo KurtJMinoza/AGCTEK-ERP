@@ -5,10 +5,15 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
 import FormDialog from '@/components/shared/FormDialog'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import StatusBadge from '@/components/shared/StatusBadge'
+import {
+    RcvAnimatedStatus,
+    RcvCodeCell,
+    RcvPlainCell,
+    RcvQtyCell,
+} from '../components/receivingTableUi'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -191,16 +196,34 @@ export default function InspectionRulesPage() {
 
     const columns: ColumnDef<MmInspectionRule>[] = useMemo(
         () => [
-            { header: 'Code', accessorKey: 'ruleCode' },
-            { header: 'Name', accessorKey: 'name' },
-            { header: 'Priority', accessorKey: 'priority' },
-            { header: 'Action', accessorKey: 'action' },
+            {
+                header: 'Rule',
+                accessorKey: 'ruleCode',
+                cell: ({ row }) => (
+                    <RcvCodeCell code={row.original.ruleCode} description={row.original.name} />
+                ),
+            },
+            {
+                header: 'Priority',
+                accessorKey: 'priority',
+                cell: ({ row }) => (
+                    <RcvQtyCell value={row.original.priority} label="Priority" />
+                ),
+            },
+            {
+                header: 'Action',
+                accessorKey: 'action',
+                cell: ({ row }) => (
+                    <RcvPlainCell>{row.original.action?.replace(/_/g, ' ')}</RcvPlainCell>
+                ),
+            },
             {
                 header: 'Status',
                 cell: ({ row }) => (
-                    <StatusBadge tone={row.original.active ? 'success' : 'default'}>
-                        {row.original.active ? 'Active' : 'Inactive'}
-                    </StatusBadge>
+                    <RcvAnimatedStatus
+                        status={row.original.active ? 'ACTIVE' : 'INACTIVE'}
+                        tone={row.original.active ? 'success' : 'default'}
+                    />
                 ),
             },
             {
@@ -258,7 +281,24 @@ export default function InspectionRulesPage() {
             </AdaptiveCard>
 
             <AdaptiveCard>
-                <DataTable columns={columns} data={rows} loading={loading} />
+                <ReceivingResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    mobile={{
+                        title: (row) => row.ruleCode,
+                        subtitle: (row) => row.name,
+                        status: (row) => ({
+                            text: row.active ? 'ACTIVE' : 'INACTIVE',
+                            tone: row.active ? 'success' : 'default',
+                        }),
+                        fields: [
+                            { label: 'Priority', value: (row) => String(row.priority) },
+                            { label: 'Action', value: (row) => row.action ?? '—' },
+                        ],
+                    }}
+                />
             </AdaptiveCard>
 
             <FormDialog

@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import { type ColumnDef } from '@/components/shared/DataTable'
+import WarehouseResponsiveTable from '../components/WarehouseResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -20,13 +20,15 @@ import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineViewGrid, HiOu
 import { storageSectionService } from '../services/storageSectionService'
 import { storageTypeService } from '../services/storageTypeService'
 import type { StorageSection, StorageType } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import {
+    warehouseParentBreadcrumbs,
+    warehouseStorageStatusTone,
+} from '../utils/warehousePageUi'
 import { filterTableRows } from '@/modules/mm/shared/clientTableFilter'
 import {
     WmStorageSectionCell,
     WmStorageStatusCell,
     WmStorageTypeRefCell,
-    storageTableRowEnterClass,
 } from '../components/StorageTableCells'
 
 const ROUTE = '/modules/mm/warehouse-management/storage-sections'
@@ -38,7 +40,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 }
 
 const StorageSectionsPage = () => {
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = useMemo(() => warehouseParentBreadcrumbs(ROUTE), [])
     const [search, setSearch] = useState('')
     const [items, setItems] = useState<StorageSection[]>([])
     const [storageTypes, setStorageTypes] = useState<StorageType[]>([])
@@ -76,13 +78,13 @@ const StorageSectionsPage = () => {
         }).catch(() => {})
     }, [])
 
-    const openCreate = () => {
+    const openCreate = useCallback(() => {
         setEditing(null)
         setFormData({ code: '', name: '', description: '', storageTypeId: storageTypes[0]?.id ?? '' })
         setFormOpen(true)
-    }
+    }, [storageTypes])
 
-    const openEdit = (item: StorageSection) => {
+    const openEdit = useCallback((item: StorageSection) => {
         setEditing(item)
         setFormData({
             code: item.code,
@@ -91,7 +93,7 @@ const StorageSectionsPage = () => {
             storageTypeId: item.storageTypeId,
         })
         setFormOpen(true)
-    }
+    }, [])
 
     const handleSave = async () => {
         try {
@@ -192,7 +194,38 @@ const StorageSectionsPage = () => {
                 ),
             },
         ],
-        [],
+        [openEdit],
+    )
+
+    const sectionMobile = useMemo(
+        () => ({
+            title: (item: StorageSection) => item.code,
+            subtitle: (item: StorageSection) => item.name,
+            status: (item: StorageSection) => ({
+                text: item.status.replace(/_/g, ' '),
+                tone: warehouseStorageStatusTone(item.status),
+            }),
+            onPress: (item: StorageSection) => openEdit(item),
+            fields: [
+                {
+                    label: 'Description',
+                    value: (item: StorageSection) => item.description?.trim() || '—',
+                },
+                {
+                    label: 'Storage type',
+                    value: (item: StorageSection) =>
+                        item.storageType
+                            ? `${item.storageType.code} — ${item.storageType.name}`
+                            : '—',
+                },
+                {
+                    label: 'Warehouse',
+                    value: (item: StorageSection) =>
+                        item.storageType?.warehouse?.name ?? '—',
+                },
+            ],
+        }),
+        [openEdit],
     )
 
     const filteredItems = useMemo(
@@ -202,8 +235,16 @@ const StorageSectionsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbs} />
-            <PageHeader title="Storage Sections" description="Define sections within storage types for organizing inventory." actions={<Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>Add section</Button>} />
+            <PageHeader
+                breadcrumbs={parentBreadcrumbs}
+                title="Storage Sections"
+                description="Define sections within storage types for organizing inventory."
+                actions={
+                    <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>
+                        Add section
+                    </Button>
+                }
+            />
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 sm:max-w-xl">
                     <Input
@@ -220,22 +261,20 @@ const StorageSectionsPage = () => {
                     </p>
                 ) : null}
                 {selectedRows.size > 0 && (
-                    <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10">
+                    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/30 dark:bg-red-500/10 sm:flex-row sm:items-center">
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedRows.size} item{selectedRows.size > 1 ? 's' : ''} selected</span>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                             <Button size="xs" onClick={() => setSelectedRows(new Set())}>Clear</Button>
                             <Button size="xs" variant="solid" customColorClass={() => 'bg-red-500 hover:bg-red-600 text-white'} icon={<HiOutlineTrash />} onClick={() => setBulkDeleteOpen(true)}>Delete selected</Button>
                         </div>
                     </div>
                 )}
-                <DataTable<StorageSection>
+                <WarehouseResponsiveTable<StorageSection>
                     columns={columns}
                     data={filteredItems}
                     compact
-                    fit
                     loading={loading}
                     getRowId={(row) => row.id}
-                    rowClassName={(_, index) => storageTableRowEnterClass(index)}
                     noData={!loading && filteredItems.length === 0}
                     selectable
                     checkboxChecked={(row) => selectedRows.has(row.id)}
@@ -243,6 +282,9 @@ const StorageSectionsPage = () => {
                     onIndeterminateCheckBoxChange={(checked, rows) =>
                         handleSelectAllChange(checked, rows as any)
                     }
+                    tableMinWidthClass="min-w-[640px]"
+                    mobile={sectionMobile}
+                    instanceId="storage-sections"
                 />
             </AdaptiveCard>
 

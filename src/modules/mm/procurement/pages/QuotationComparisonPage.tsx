@@ -4,10 +4,17 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ProcurementResponsiveTable, { type ColumnDef } from '../components/ProcurementResponsiveTable'
+import {
+    PrcAnimatedStatus,
+    PrcDocNumberCell,
+    PrcSupplierCell,
+    PRC_QUOTE_STATUS,
+    PRC_RFQ_STATUS,
+    prcStatusTone,
+} from '../components/procurementTableUi'
+import { procurementParentBreadcrumbs } from '../utils/procurementPageUi'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
@@ -24,7 +31,6 @@ import type {
     RfqComparisonResponse,
     RfqComparisonRow,
 } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     required,
     visibleError,
@@ -42,19 +48,6 @@ const COMPARABLE_STATUSES = [
     'AWARDED',
 ]
 
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'info'> = {
-    DRAFT: 'default',
-    ISSUED: 'info',
-    PARTIALLY_RESPONDED: 'warning',
-    RESPONDED: 'info',
-    EVALUATION: 'warning',
-    AWARDED: 'success',
-    SUBMITTED: 'info',
-    WITHDRAWN: 'default',
-    EXPIRED: 'danger',
-    SELECTED: 'success',
-}
-
 type FilterOption = { value: string; label: string }
 
 function pushToast(type: 'success' | 'danger', title: string, msg: string) {
@@ -67,7 +60,7 @@ function pushToast(type: 'success' | 'danger', title: string, msg: string) {
 const QuotationComparisonPageInner = () => {
     const router = useRouter()
     const searchParams = useSearchParams()
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE_PATH)
+    const parentBreadcrumbs = procurementParentBreadcrumbs(ROUTE_PATH)
 
     const [rfqOptions, setRfqOptions] = useState<FilterOption[]>([])
     const [rfqMap, setRfqMap] = useState<Record<string, MmRfq>>({})
@@ -202,15 +195,16 @@ const QuotationComparisonPageInner = () => {
             cell: ({ row }) => {
                 const isCheapest = comparison?.cheapestQuotationId === row.original.quotationId
                 return (
-                    <div className="flex flex-col">
-                        <span className={`text-sm font-medium ${isCheapest ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
-                            {row.original.supplierCode} — {row.original.supplierName}
-                        </span>
-                        {isCheapest && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                    <div className={isCheapest ? 'rounded-lg ring-1 ring-emerald-500/30 px-1' : undefined}>
+                        <PrcSupplierCell
+                            code={row.original.supplierCode}
+                            name={row.original.supplierName}
+                        />
+                        {isCheapest ? (
+                            <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
                                 Lowest total
                             </span>
-                        )}
+                        ) : null}
                     </div>
                 )
             },
@@ -218,7 +212,9 @@ const QuotationComparisonPageInner = () => {
         {
             header: 'Quotation',
             accessorKey: 'quotationNumber',
-            cell: ({ row }) => <span className="font-mono text-xs">{row.original.quotationNumber}</span>,
+            cell: ({ row }) => (
+                <PrcDocNumberCell icon="quote" primary={row.original.quotationNumber} />
+            ),
         },
         {
             header: 'Avg Price',
@@ -288,10 +284,17 @@ const QuotationComparisonPageInner = () => {
             header: 'Status',
             accessorKey: 'status',
             cell: ({ row }) => (
-                <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>
-                    {String(row.original.status)}
-                    {row.original.expired ? ' (EXPIRED)' : ''}
-                </StatusBadge>
+                <PrcAnimatedStatus
+                    status={
+                        row.original.expired
+                            ? `${row.original.status} (EXPIRED)`
+                            : String(row.original.status)
+                    }
+                    tone={prcStatusTone(
+                        row.original.expired ? 'EXPIRED' : String(row.original.status),
+                        PRC_QUOTE_STATUS,
+                    )}
+                />
             ),
         },
     ], [comparison])
@@ -302,8 +305,8 @@ const QuotationComparisonPageInner = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 title="Quotation Comparison"
                 description="Compare submitted quotations side by side. Cheapest is highlighted — never auto-awarded unless enabled on the RFQ."
                 actions={
@@ -337,9 +340,10 @@ const QuotationComparisonPageInner = () => {
 
                     {selectedRfq && (
                         <div className="flex flex-wrap items-center gap-3">
-                            <StatusBadge tone={STATUS_TONE[selectedRfq.status] ?? 'default'}>
-                                {String(selectedRfq.status).replace(/_/g, ' ')}
-                            </StatusBadge>
+                            <PrcAnimatedStatus
+                                status={String(selectedRfq.status)}
+                                tone={prcStatusTone(String(selectedRfq.status), PRC_RFQ_STATUS)}
+                            />
                             <span className="text-sm text-gray-500">
                                 Deadline:{' '}
                                 {new Date(
@@ -380,12 +384,13 @@ const QuotationComparisonPageInner = () => {
                                 </div>
                             )}
 
-                            <DataTable<RfqComparisonRow>
+                            <ProcurementResponsiveTable<RfqComparisonRow>
                                 columns={columns}
                                 data={comparison.quotations}
                                 compact
-                                fit
+                                getRowId={(row) => row.quotationId}
                                 noData={comparison.quotations.length === 0}
+                                tableMinWidthClass="min-w-[1100px]"
                             />
 
                             {canAward && (

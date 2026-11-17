@@ -269,12 +269,6 @@ export const MM_FEATURES = {
         ['mobile-packing', 'Mobile Packing'],
         ['warehouse-devices', 'Warehouse Devices'],
     ],
-    'supporting-operations': [
-        ['document-management', 'Document Management'],
-        ['audit-trail', 'Audit Trail'],
-        ['workflow-admin', 'Workflow & Approvals'],
-        ['compliance-dashboard', 'Compliance Dashboard'],
-    ],
     'reports-analytics': [
         ['stock-reports', 'Stock Reports'],
         ['inventory-valuation-reports', 'Inventory Valuation'],
@@ -372,14 +366,14 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ],
         ['billing', 'Billing', 'Customer invoices and billing documents.'],
         [
+            'ext-platform-sales',
+            'External Platform Sales',
+            'Manual entry of Shopee, Lazada, TikTok and other external channel sales.',
+        ],
+        [
             'reports',
             'Reports & Analytics',
             'Sales analysis and backorder reports.',
-        ],
-        [
-            'configuration',
-            'Configuration',
-            'Sales organizations and document types.',
         ],
     ]),
     ...group('mm', [
@@ -458,17 +452,72 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'MM Reports & Analytics',
             'Stock, valuation, procurement, and warehouse analytics.',
         ],
-        [
-            'supporting-operations',
-            'Supporting Operations',
-            'Controlled documents, audit trail, and compliance monitoring.',
-        ],
     ]),
     ...group('fico', [
         [
+            'overview',
+            'Finance Overview',
+            'Company accounting health, open periods, and recent activity.',
+        ],
+        [
+            'company-settings',
+            'Company Accounting Settings',
+            'Base currency, chart of accounts, fiscal variants, and activation.',
+        ],
+        [
             'chart-of-accounts',
             'Chart of Accounts',
-            'G/L accounts and account groups.',
+            'Charts of accounts and account groups.',
+        ],
+        [
+            'gl-accounts',
+            'G/L Accounts',
+            'G/L account master data and company assignments.',
+        ],
+        [
+            'periods',
+            'Fiscal Years & Periods',
+            'Fiscal calendar generation and posting period control.',
+        ],
+        [
+            'period-reopen',
+            'Period Reopen',
+            'Reopen a closed posting period (reason required).',
+        ],
+        [
+            'period-unlock',
+            'Period Unlock',
+            'Unlock a locked posting period (privileged action).',
+        ],
+        [
+            'account-determination',
+            'Account Determination',
+            'Transaction keys, profiles, and MM account mappings.',
+        ],
+        [
+            'journal-entries',
+            'Journal Entries',
+            'Post and reverse accounting documents.',
+        ],
+        [
+            'journal-reversal',
+            'Journal Reversal',
+            'Reverse posted accounting documents with an audit reason.',
+        ],
+        [
+            'reports',
+            'Reports & Analytics',
+            'Financial statements and cost center reporting.',
+        ],
+        [
+            'audit',
+            'Accounting Audit Trail',
+            'Read the append-only accounting audit log.',
+        ],
+        [
+            'configuration',
+            'Configuration',
+            'Fiscal year variants and FI document configuration.',
         ],
         [
             'cost-centers',
@@ -481,11 +530,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Profit centers for internal reporting.',
         ],
         [
-            'journal-entries',
-            'Journal Entries',
-            'Post and reverse accounting documents.',
-        ],
-        [
             'accounts-payable',
             'Accounts Payable',
             'Vendor invoices and outgoing payments.',
@@ -496,14 +540,19 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Customer invoices and incoming payments.',
         ],
         [
-            'reports',
-            'Reports & Analytics',
-            'Financial statements and cost center reporting.',
+            'number-ranges',
+            'Number Ranges',
+            'Document number ranges for accounting and financial documents.',
         ],
         [
-            'configuration',
-            'Configuration',
-            'Fiscal year variants and FI document types.',
+            'tax-codes',
+            'Tax Codes',
+            'Tax codes, rates, calculation, and G/L account mappings for financial documents.',
+        ],
+        [
+            'document-types',
+            'Document Types',
+            'Accounting document types, numbering, posting controls, and reversal configuration.',
         ],
     ]),
     ...group('scm', [

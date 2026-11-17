@@ -4,8 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import Button from '@/components/ui/Button'
+import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import ReceivingResponsiveTable, { type ColumnDef } from '../components/ReceivingResponsiveTable'
+import {
+    RcvCodeCell,
+    RcvPlainCell,
+    RcvSeverityCell,
+} from '../components/receivingTableUi'
 import { qualityService, type MmDefectCode } from '../services/qualityService'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 
@@ -29,10 +34,28 @@ export default function DefectCodesPage() {
 
     const columns: ColumnDef<MmDefectCode>[] = useMemo(
         () => [
-            { header: 'Code', accessorKey: 'code' },
-            { header: 'Description', accessorKey: 'description' },
-            { header: 'Category', accessorKey: 'category' },
-            { header: 'Default severity', accessorKey: 'severityDefault' },
+            {
+                header: 'Code',
+                accessorKey: 'code',
+                cell: ({ row }) => (
+                    <RcvCodeCell
+                        code={row.original.code}
+                        description={row.original.description}
+                    />
+                ),
+            },
+            {
+                header: 'Category',
+                accessorKey: 'category',
+                cell: ({ row }) => <RcvPlainCell>{row.original.category}</RcvPlainCell>,
+            },
+            {
+                header: 'Default severity',
+                accessorKey: 'severityDefault',
+                cell: ({ row }) => (
+                    <RcvSeverityCell severity={row.original.severityDefault} />
+                ),
+            },
         ],
         [],
     )
@@ -44,7 +67,25 @@ export default function DefectCodesPage() {
                 title="Defect codes"
                 description="Master defect codes used during inspection execution."
             />
-            <DataTable columns={columns} data={rows} loading={loading} />
+            <AdaptiveCard>
+                <ReceivingResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    mobile={{
+                        title: (row) => row.code,
+                        subtitle: (row) => row.description,
+                        fields: [
+                            { label: 'Category', value: (row) => row.category ?? '—' },
+                            {
+                                label: 'Severity',
+                                value: (row) => row.severityDefault ?? '—',
+                            },
+                        ],
+                    }}
+                />
+            </AdaptiveCard>
         </PageContainer>
     )
 }

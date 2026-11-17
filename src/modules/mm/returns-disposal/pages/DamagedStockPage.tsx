@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
-import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
+import ReturnsResponsiveTable, { type ColumnDef } from '../components/ReturnsResponsiveTable'
+import {
+    RD_BLOCKED_STOCK_STATUS,
+    RdAnimatedStatus,
+    RdMaterialCell,
+    RdPartyCell,
+    RdPlainCell,
+    RdQtyCell,
+    rdStatusTone,
+} from '../components/returnsTableUi'
+import { returnsParentBreadcrumbs } from '../utils/returnsPageUi'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
@@ -17,7 +25,6 @@ import { HiOutlineExclamation } from 'react-icons/hi'
 import { returnsDisposalService } from '../services/returnsDisposalService'
 import { supplierService } from '../../supplier-management/services/supplierService'
 import type { BlockedBalance } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { useRouter } from 'next/navigation'
 
 const ROUTE = '/modules/mm/returns-disposal/damaged-stock'
@@ -45,7 +52,7 @@ function balanceLine(row: BlockedBalance) {
 }
 
 const DamagedStockPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = returnsParentBreadcrumbs(ROUTE)
     const router = useRouter()
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
@@ -130,32 +137,47 @@ const DamagedStockPage = () => {
         () => [
             {
                 header: 'Material',
-                cell: ({ row }) =>
-                    row.original.material
-                        ? `${row.original.material.materialCode} — ${row.original.material.materialName}`
-                        : row.original.materialId,
+                cell: ({ row }) => (
+                    <RdMaterialCell
+                        code={row.original.material?.materialCode ?? row.original.materialId}
+                        name={row.original.material?.materialName}
+                    />
+                ),
             },
             {
                 header: 'Warehouse',
-                cell: ({ row }) => row.original.warehouse?.name ?? '—',
+                cell: ({ row }) => (
+                    <RdPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
             },
             {
                 header: 'Batch',
-                cell: ({ row }) => row.original.batch?.batchNumber ?? '—',
+                cell: ({ row }) => (
+                    <RdPlainCell mono>
+                        {row.original.batch?.batchNumber ?? '—'}
+                    </RdPlainCell>
+                ),
             },
             {
                 header: 'Bin',
-                cell: ({ row }) => row.original.storageBin?.binCode ?? '—',
+                cell: ({ row }) => (
+                    <RdPlainCell mono>
+                        {row.original.storageBin?.binCode ?? '—'}
+                    </RdPlainCell>
+                ),
             },
             {
-                header: 'Stock Status',
+                header: 'Stock status',
                 cell: ({ row }) => (
-                    <StatusBadge tone="danger">{row.original.stockStatus}</StatusBadge>
+                    <RdAnimatedStatus
+                        status={row.original.stockStatus}
+                        tone={rdStatusTone(row.original.stockStatus, RD_BLOCKED_STOCK_STATUS)}
+                    />
                 ),
             },
             {
                 header: 'Quantity',
-                cell: ({ row }) => Number(row.original.quantity),
+                cell: ({ row }) => <RdQtyCell value={row.original.quantity} />,
             },
             {
                 header: 'Actions',
@@ -176,27 +198,28 @@ const DamagedStockPage = () => {
                 ),
             },
         ],
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [suppliers],
+        [],
     )
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Damaged Stock"
                 description="Blocked / damaged balances — prefill supplier return or disposal."
                 icon={<HiOutlineExclamation />}
+                breadcrumbs={parentBreadcrumbs}
             />
 
             <AdaptiveCard>
-                <DataTable
+                <ReturnsResponsiveTable
                     columns={columns}
                     data={rows}
                     loading={loading}
+                    getRowId={(row) => row.id}
                     pagingData={{ total, pageIndex: page, pageSize }}
                     onPaginationChange={(p) => setPage(p)}
                     onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[1040px]"
                 />
             </AdaptiveCard>
 

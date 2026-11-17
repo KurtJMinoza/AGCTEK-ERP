@@ -12,9 +12,21 @@ import Select from '@/components/ui/Select'
 type Props = {
     isOpen: boolean
     onClose: () => void
-    /** Fired once per successful decode; dialog closes afterward. */
+    /**
+     * Fired once per successful decode. Single-shot dialogs close afterward;
+     * continuous dialogs (POS) stay open so the cashier can scan item by item.
+     */
     onDetected: (value: string) => void
+    /** Keep the camera open after a hit and report every new code. */
+    continuous?: boolean
 }
+
+/** Same code seen again within this window is the same item, not a new one. */
+const REPEAT_WINDOW_MS = 3000
+
+const hasNativeBarcodeDetector = () =>
+    typeof (globalThis as typeof globalThis & { BarcodeDetector?: unknown })
+        .BarcodeDetector === 'function'
 
 type CameraOption = { value: string; label: string }
 
@@ -62,16 +74,32 @@ async function tryNativeBarcodeDetect(
     }
 }
 
-const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
+const CameraBarcodeScanner = ({
+    isOpen,
+    onClose,
+    onDetected,
+    continuous = false,
+}: Props) => {
     const videoRef = useRef<HTMLVideoElement>(null)
     const scannerControlsRef = useRef<IScannerControls | null>(null)
     const nativeLoopRef = useRef<number | null>(null)
     const handledRef = useRef(false)
+    const lastScanRef = useRef<{ value: string; at: number } | null>(null)
+    // Latest callbacks without restarting the camera stream on parent renders.
+    const onDetectedRef = useRef(onDetected)
+    const onCloseRef = useRef(onClose)
+
+    useEffect(() => {
+        onDetectedRef.current = onDetected
+        onCloseRef.current = onClose
+    }, [onDetected, onClose])
 
     const [error, setError] = useState<string | null>(null)
     const [starting, setStarting] = useState(false)
     const [cameraOptions, setCameraOptions] = useState<CameraOption[]>([])
     const [selectedCamera, setSelectedCamera] = useState<string>('')
+    const [lastScan, setLastScan] = useState<string | null>(null)
+    const [scanCount, setScanCount] = useState(0)
 
     const stopStreams = useCallback(() => {
         handledRef.current = false
@@ -96,16 +124,30 @@ const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
 
     const finishWithCode = useCallback(
         (value: string) => {
+            if (continuous) {
+                const now = Date.now()
+                const last = lastScanRef.current
+                // The camera sees the same barcode every frame: count it once.
+                if (last?.value === value && now - last.at < REPEAT_WINDOW_MS) {
+                    return
+                }
+                lastScanRef.current = { value, at: now }
+                setLastScan(value)
+                setScanCount((count) => count + 1)
+                onDetectedRef.current(value)
+                return
+            }
             if (handledRef.current) return
             handledRef.current = true
             stopStreams()
-            onDetected(value)
-            onClose()
+            onDetectedRef.current(value)
+            onCloseRef.current()
         },
-        [onClose, onDetected, stopStreams],
+        [continuous, stopStreams],
     )
 
     const startNativeLoop = useCallback(() => {
+        if (!hasNativeBarcodeDetector()) return
         const video = videoRef.current
         if (!video) return
 
@@ -156,6 +198,9 @@ const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
             stopStreams()
             setError(null)
             setStarting(false)
+            setLastScan(null)
+            setScanCount(0)
+            lastScanRef.current = null
             return
         }
 
@@ -165,15 +210,45 @@ const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
             setStarting(true)
             setError(null)
             handledRef.current = false
+            setLastScan(null)
+            setScanCount(0)
+            lastScanRef.current = null
+
+            // A phone reaches the terminal over the LAN; browsers only expose
+            // the camera on a secure origin (https or localhost).
+            if (!navigator.mediaDevices?.getUserMedia) {
+                setError(
+                    window.isSecureContext
+                        ? 'This browser does not expose a camera. Use a USB barcode scanner or type the code instead.'
+                        : `Camera scanning needs a secure connection. Open ${window.location.host} over https:// (or on localhost) and allow camera permission.`,
+                )
+                setStarting(false)
+                return
+            }
 
             try {
+                // Ask for the rear camera first: the permission prompt also
+                // reveals device labels, so the rear camera can be picked on a
+                // phone instead of defaulting to the selfie camera.
+                try {
+                    const probe = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' } },
+                    })
+                    probe.getTracks().forEach((track) => track.stop())
+                } catch {
+                    /* permission handled by the device list below */
+                }
+                if (cancelled) return
+
                 const devices =
                     await BrowserMultiFormatReader.listVideoInputDevices()
                 if (cancelled) return
 
                 if (!devices.length) {
                     setError(
-                        'No camera found. Use HTTPS or localhost and allow camera permission.',
+                        window.isSecureContext
+                            ? 'No camera found. Connect a camera and allow the browser permission.'
+                            : `Camera scanning needs a secure connection. Open ${window.location.host} over https:// (or on localhost) and allow camera permission.`,
                     )
                     setStarting(false)
                     return
@@ -247,11 +322,12 @@ const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
         >
             <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
                 <h3 className="text-lg font-semibold heading-text">
-                    Scan with camera
+                    {continuous ? 'Scan items with camera' : 'Scan with camera'}
                 </h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Point at a barcode or QR code. Supports Code 128, EAN, QR,
-                    and common warehouse formats.
+                    {continuous
+                        ? 'Point the rear camera at a barcode or QR code. Each new code is added to the cart; the camera stays open for the next item.'
+                        : 'Point at a barcode or QR code. Supports Code 128, EAN, QR, and common warehouse formats.'}
                 </p>
             </div>
 
@@ -292,8 +368,21 @@ const CameraBarcodeScanner = ({ isOpen, onClose, onDetected }: Props) => {
                         {error}
                     </p>
                 )}
-                <Button block variant="plain" onClick={onClose}>
-                    Cancel
+                {continuous && lastScan && !error && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+                        <span className="min-w-0 truncate">
+                            Added{' '}
+                            <span className="font-mono font-semibold">
+                                {lastScan}
+                            </span>
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums">
+                            {scanCount} scanned
+                        </span>
+                    </div>
+                )}
+                <Button block variant={continuous ? 'solid' : 'plain'} onClick={onClose}>
+                    {continuous ? 'Done' : 'Cancel'}
                 </Button>
             </div>
         </Dialog>

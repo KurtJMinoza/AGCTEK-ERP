@@ -6,6 +6,8 @@ import RefCrudPage from '@/modules/mm/material-master/components/RefCrudPage'
 import type { RefCrudField } from '@/modules/mm/material-master/components/RefCrudPage'
 import { supplierCategoryService } from '../services/supplierCategoryService'
 import type { SupplierCategory } from '../types'
+import { SmCodeNameCell, SmPlainCell } from '../components/SupplierTableCells'
+import { supplierRefCrudTableDefaults } from '../utils/supplierPageUi'
 
 const ROUTE_PATH = '/modules/mm/supplier-management/supplier-categories'
 
@@ -19,10 +21,26 @@ const fields: RefCrudField[] = [
 const SupplierCategoriesPage = () => {
     const columns = useMemo<ColumnDef<SupplierCategory>[]>(
         () => [
-            { header: 'Code', accessorKey: 'code', size: 120 },
-            { header: 'Name', accessorKey: 'name', size: 200 },
-            { header: 'Description', accessorKey: 'description', cell: ({ row }) => <span>{row.original.description || '—'}</span> },
-            { header: 'Position', accessorKey: 'sortOrder', size: 100 },
+            {
+                header: 'Category',
+                accessorKey: 'code',
+                size: 280,
+                cell: ({ row }) => (
+                    <SmCodeNameCell
+                        code={row.original.code}
+                        name={row.original.name}
+                        description={row.original.description}
+                    />
+                ),
+            },
+            {
+                header: 'Position',
+                accessorKey: 'sortOrder',
+                size: 100,
+                cell: ({ row }) => (
+                    <SmPlainCell mono>{row.original.sortOrder ?? '—'}</SmPlainCell>
+                ),
+            },
         ],
         [],
     )
@@ -39,6 +57,15 @@ const SupplierCategoriesPage = () => {
             updateItem={supplierCategoryService.update}
             deleteItem={supplierCategoryService.delete}
             getItemLabel={(item) => `${item.code} — ${item.name}`}
+            {...supplierRefCrudTableDefaults}
+            tableMobile={{
+                title: (row) => row.code,
+                subtitle: (row) => row.name,
+                fields: [
+                    { label: 'Description', value: (row) => row.description ?? '—' },
+                    { label: 'Position', value: (row) => String(row.sortOrder ?? '—') },
+                ],
+            }}
         />
     )
 }

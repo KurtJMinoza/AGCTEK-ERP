@@ -110,8 +110,9 @@ const MaterialCategoriesPage = () => {
     return (
         <RefCrudPage<MmMaterialCategory>
             routePath="/modules/mm/material-master/material-categories"
-            title="Material Category"
-            description="Manage the category hierarchy for materials — images appear in the shop's popular categories."
+            title="Material Categories"
+            description="Material Master — Material Categories."
+            integrateBreadcrumbs
             fields={fields}
             columns={columns}
             fetchAll={fetchAll}

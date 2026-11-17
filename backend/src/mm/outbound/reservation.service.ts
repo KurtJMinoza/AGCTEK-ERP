@@ -209,6 +209,55 @@ export class ReservationService {
         return updated
     }
 
+    /**
+     * Releases the quantity that a goods-issue reversal put back on hold.
+     *
+     * Reversing a goods issue returns the stock and reserves it again for the
+     * demand of the sale. When that sale is voided, the reservation has to go
+     * as well: the stock stays on the shelf and is available again.
+     */
+    async releaseRestoredQuantity(
+        reservationId: string,
+        quantity?: number | Decimal,
+    ) {
+        const reservation = await this.findOne(reservationId)
+        const restored = new Decimal(reservation.reservedQuantity).minus(
+            new Decimal(reservation.fulfilledQuantity),
+        )
+        const release =
+            quantity === undefined ? restored : new Decimal(quantity)
+        if (release.lte(0)) return reservation
+
+        const updated = await this.prisma.$transaction(async (tx) => {
+            await this.releaseReserved(tx, {
+                companyId: reservation.companyId,
+                warehouseId: reservation.warehouseId,
+                materialId: reservation.materialId,
+                storageBinId: reservation.storageBinId,
+                batchId: reservation.batchId,
+                serialNumberId: reservation.serialNumberId,
+                quantity: release,
+            })
+
+            return tx.mmInventoryReservation.update({
+                where: { id: reservationId },
+                data: {
+                    status: 'CANCELLED',
+                    reservedQuantity: reservation.fulfilledQuantity,
+                },
+                include: this.includes,
+            })
+        })
+
+        void this.domainEvents.reservationReleased({
+            companyId: reservation.companyId,
+            reservationId,
+            payload: { reason: 'CANCELLED', releasedQuantity: Number(release) },
+        })
+
+        return updated
+    }
+
     async expireDue() {
         const now = new Date()
         const due = await this.prisma.mmInventoryReservation.findMany({

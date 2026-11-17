@@ -4,8 +4,8 @@ import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import { barcodeParentBreadcrumbs } from '../utils/barcodePageUi'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -16,8 +16,6 @@ import {
     HiOutlineQrcode,
     HiOutlineDeviceMobile,
 } from 'react-icons/hi'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
-
 const CameraBarcodeScanner = dynamic(
     () => import('./CameraBarcodeScanner'),
     { ssr: false },
@@ -72,7 +70,7 @@ const MobileScanShell = ({
     workflowSteps,
 }: Props) => {
     const inputRef = useRef<HTMLInputElement>(null)
-    const breadcrumbItems = buildErpBreadcrumbs(route)
+    const parentBreadcrumbs = barcodeParentBreadcrumbs(route)
     const [cameraOpen, setCameraOpen] = useState(false)
 
     const handleCameraDetected = useCallback(
@@ -91,9 +89,8 @@ const MobileScanShell = ({
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
-
             <PageHeader
+                breadcrumbs={parentBreadcrumbs}
                 icon={
                     <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-subtle text-primary-deep">
                         <ErpIcon icon={icon} className="text-xl" />

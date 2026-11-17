@@ -6,6 +6,12 @@ import RefCrudPage from '@/modules/mm/material-master/components/RefCrudPage'
 import type { RefCrudField } from '@/modules/mm/material-master/components/RefCrudPage'
 import { paymentTermsService } from '../services/paymentTermsService'
 import type { PaymentTerms } from '../types'
+import {
+    SmCodeNameCell,
+    SmPaymentDiscountCell,
+    SmPlainCell,
+} from '../components/SupplierTableCells'
+import { supplierRefCrudTableDefaults } from '../utils/supplierPageUi'
 
 const ROUTE_PATH = '/modules/mm/supplier-management/payment-terms'
 
@@ -21,18 +27,37 @@ const fields: RefCrudField[] = [
 const PaymentTermsPage = () => {
     const columns = useMemo<ColumnDef<PaymentTerms>[]>(
         () => [
-            { header: 'Code', accessorKey: 'code', size: 120 },
-            { header: 'Name', accessorKey: 'name', size: 200 },
-            { header: 'Description', accessorKey: 'description', cell: ({ row }) => <span>{row.original.description || '—'}</span> },
-            { header: 'Due Days', accessorKey: 'dueDays', size: 100 },
+            {
+                header: 'Terms',
+                accessorKey: 'code',
+                size: 260,
+                cell: ({ row }) => (
+                    <SmCodeNameCell
+                        code={row.original.code}
+                        name={row.original.name}
+                        description={row.original.description}
+                    />
+                ),
+            },
+            {
+                header: 'Due',
+                accessorKey: 'dueDays',
+                size: 100,
+                cell: ({ row }) => (
+                    <SmPlainCell mono>{row.original.dueDays}</SmPlainCell>
+                ),
+            },
             {
                 header: 'Discount',
                 id: 'discount',
-                cell: ({ row }) => {
-                    const p = row.original
-                    if (!p.discountDays) return <span>—</span>
-                    return <span>{p.discountPercent}% if paid in {p.discountDays}d</span>
-                },
+                size: 140,
+                cell: ({ row }) => (
+                    <SmPaymentDiscountCell
+                        discountDays={row.original.discountDays}
+                        discountPercent={row.original.discountPercent}
+                        dueDays={row.original.dueDays}
+                    />
+                ),
             },
         ],
         [],
@@ -50,6 +75,21 @@ const PaymentTermsPage = () => {
             updateItem={paymentTermsService.update}
             deleteItem={paymentTermsService.delete}
             getItemLabel={(item) => `${item.code} — ${item.name}`}
+            {...supplierRefCrudTableDefaults}
+            tableMobile={{
+                title: (row) => row.code,
+                subtitle: (row) => row.name,
+                fields: [
+                    { label: 'Due days', value: (row) => String(row.dueDays) },
+                    {
+                        label: 'Discount',
+                        value: (row) =>
+                            row.discountDays
+                                ? `${row.discountPercent}% / ${row.discountDays}d`
+                                : '—',
+                    },
+                ],
+            }}
         />
     )
 }

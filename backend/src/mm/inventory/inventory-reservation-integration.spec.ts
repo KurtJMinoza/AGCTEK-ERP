@@ -12,6 +12,7 @@ import { ValuationEngineService } from '../valuation/valuation-engine.service'
 import { UomConversionsService } from '../uom-conversions/uom-conversions.service'
 import { MmScopeService } from '../common/mm-scope.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MovementControlService } from '../inventory-control/movement-control.service'
 
 function baseDto(overrides: Record<string, unknown> = {}) {
     return {
@@ -197,6 +198,12 @@ describe('Inventory reservation integration (Phase 1)', () => {
                     useValue: {
                         reservationCreated: jest.fn(),
                         inventoryTransactionPosted: jest.fn(),
+                    },
+                },
+                {
+                    provide: MovementControlService,
+                    useValue: {
+                        assertMovementAllowed: jest.fn().mockResolvedValue(undefined),
                     },
                 },
             ],

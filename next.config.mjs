@@ -7,6 +7,9 @@ const nestOrigin = process.env.API_INTERNAL_URL || 'http://127.0.0.1:3011'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     skipTrailingSlashRedirect: true,
+    // `next dev` (3010) and `next start` (3020) run side by side. A production
+    // build must not replace the dev server's chunks (ChunkLoadError + 500).
+    distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
     typescript: {
         // Local WIP + origin/main MM pull still have a few call-site mismatches.
         // Prefer shipping a working build; clean these up in a follow-up.

@@ -3,10 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
-import Breadcrumb from '@/components/shared/Breadcrumb'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
-import StatusBadge from '@/components/shared/StatusBadge'
+import ReturnsResponsiveTable from '../components/ReturnsResponsiveTable'
+import {
+    RD_SUPPLIER_RETURN_STATUS,
+    RdAnimatedStatus,
+    RdDateCell,
+    RdDocNumberCell,
+    RdPartyCell,
+    RdPlainCell,
+    RdQtyCell,
+    rdStatusTone,
+} from '../components/returnsTableUi'
+import { returnsParentBreadcrumbs } from '../utils/returnsPageUi'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import FormDialog from '@/components/shared/FormDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
@@ -35,24 +45,11 @@ import {
     useLazyWarehouseEntities,
 } from '@/modules/mm/shared/useLazyMmRefs'
 import type { SupplierReturn } from '../types'
-import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import InfoCard from '../../shared/InfoCard'
 import { fmtMoney } from '../../shared/formatters'
 import type { ReturnLine, AuditEntry } from '../types'
 
 const ROUTE = '/modules/mm/returns-disposal/supplier-returns'
-
-const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
-    DRAFT: 'default',
-    SUBMITTED: 'warning',
-    PENDING_APPROVAL: 'warning',
-    APPROVED: 'success',
-    REJECTED: 'danger',
-    SHIPPED: 'success',
-    COMPLETED: 'success',
-    CANCELLED: 'danger',
-    REVERSED: 'warning',
-}
 
 const TAB_OPTIONS = [
     { value: '', label: 'All' },
@@ -100,7 +97,7 @@ function fmtDate(iso?: string | null) {
 }
 
 const SupplierReturnsPage = () => {
-    const breadcrumbItems = buildErpBreadcrumbs(ROUTE)
+    const parentBreadcrumbs = returnsParentBreadcrumbs(ROUTE)
 
     const [search, setSearch] = useState('')
     const [statusTab, setStatusTab] = useState('')
@@ -265,14 +262,68 @@ const SupplierReturnsPage = () => {
 
     const columns: ColumnDef<SupplierReturn>[] = useMemo(
         () => [
-            { header: 'Return #', accessorKey: 'returnNumber' },
-            { header: 'Supplier', accessorKey: 'supplier.supplierName', cell: ({ row }) => row.original.supplier?.supplierName ?? '—' },
-            { header: 'Warehouse', accessorKey: 'warehouse.name', cell: ({ row }) => row.original.warehouse?.name ?? '—' },
-            { header: 'Reason', accessorKey: 'reason' },
-            { header: 'Value', accessorKey: 'estimatedValue', cell: ({ row }) => Number(row.original.estimatedValue).toLocaleString() },
-            { header: 'Qty', accessorKey: 'totalQuantity', cell: ({ row }) => Number(row.original.totalQuantity) },
-            { header: 'Status', accessorKey: 'status', cell: ({ row }) => <StatusBadge tone={STATUS_TONE[row.original.status] ?? 'default'}>{row.original.status}</StatusBadge> },
-            { header: 'Created', accessorKey: 'createdAt', cell: ({ row }) => fmtDate(row.original.createdAt) },
+            {
+                header: 'Return',
+                accessorKey: 'returnNumber',
+                cell: ({ row }) => (
+                    <RdDocNumberCell
+                        icon="return"
+                        primary={row.original.returnNumber}
+                        secondary={fmtDate(row.original.createdAt)}
+                    />
+                ),
+            },
+            {
+                header: 'Supplier',
+                accessorKey: 'supplier.supplierName',
+                cell: ({ row }) => (
+                    <RdPartyCell name={row.original.supplier?.supplierName} />
+                ),
+            },
+            {
+                header: 'Warehouse',
+                accessorKey: 'warehouse.name',
+                cell: ({ row }) => (
+                    <RdPartyCell kind="warehouse" name={row.original.warehouse?.name} />
+                ),
+            },
+            {
+                header: 'Reason',
+                accessorKey: 'reason',
+                cell: ({ row }) => (
+                    <RdPlainCell>{row.original.reason?.replace(/_/g, ' ')}</RdPlainCell>
+                ),
+            },
+            {
+                header: 'Value',
+                accessorKey: 'estimatedValue',
+                cell: ({ row }) => (
+                    <RdQtyCell
+                        value={Number(row.original.estimatedValue).toLocaleString()}
+                        label="Est. value"
+                    />
+                ),
+            },
+            {
+                header: 'Qty',
+                accessorKey: 'totalQuantity',
+                cell: ({ row }) => <RdQtyCell value={row.original.totalQuantity} />,
+            },
+            {
+                header: 'Status',
+                accessorKey: 'status',
+                cell: ({ row }) => (
+                    <RdAnimatedStatus
+                        status={row.original.status}
+                        tone={rdStatusTone(row.original.status, RD_SUPPLIER_RETURN_STATUS)}
+                    />
+                ),
+            },
+            {
+                header: 'Created',
+                accessorKey: 'createdAt',
+                cell: ({ row }) => <RdDateCell iso={row.original.createdAt} />,
+            },
             {
                 header: '',
                 id: 'actions',
@@ -315,17 +366,16 @@ const SupplierReturnsPage = () => {
 
     return (
         <PageContainer>
-            <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title="Supplier Returns"
                 description="Manage supplier return requests, approvals, and shipments"
+                breadcrumbs={parentBreadcrumbs}
                 actions={
                     <Button variant="solid" icon={<HiOutlinePlus />} onClick={openCreate}>
                         New Return
                     </Button>
                 }
             />
-
             <AdaptiveCard>
                 <div className="flex flex-wrap items-center gap-4 mb-4">
                     <Input prefix={<HiOutlineSearch />} placeholder="Search return #..." value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(1) }} className="max-w-xs" />
@@ -339,7 +389,16 @@ const SupplierReturnsPage = () => {
                     </Tabs.TabList>
                 </Tabs>
 
-                <DataTable columns={columns} data={rows} loading={loading} pagingData={{ total, pageIndex: page, pageSize }} onPaginationChange={(p) => setPage(p)} onSelectChange={(s) => setPageSize(s)} />
+                <ReturnsResponsiveTable
+                    columns={columns}
+                    data={rows}
+                    loading={loading}
+                    getRowId={(row) => row.id}
+                    pagingData={{ total, pageIndex: page, pageSize }}
+                    onPaginationChange={(p) => setPage(p)}
+                    onSelectChange={(s) => setPageSize(s)}
+                    tableMinWidthClass="min-w-[980px]"
+                />
             </AdaptiveCard>
 
             {/* Create Dialog */}
@@ -403,7 +462,14 @@ const SupplierReturnsPage = () => {
                 size="xl"
                 title={detail?.returnNumber ?? 'Supplier Return'}
                 icon={<HiOutlineTruck />}
-                headerExtra={detail ? <StatusBadge tone={STATUS_TONE[detail.status] ?? 'default'}>{detail.status}</StatusBadge> : undefined}
+                headerExtra={
+                    detail ? (
+                        <RdAnimatedStatus
+                            status={detail.status}
+                            tone={rdStatusTone(detail.status, RD_SUPPLIER_RETURN_STATUS)}
+                        />
+                    ) : undefined
+                }
                 bodyClassName="overflow-x-hidden"
                 footerClassName="!justify-between"
                 footer={

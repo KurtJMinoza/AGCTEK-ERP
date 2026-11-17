@@ -74,8 +74,17 @@ export type SalesOrderRecord = {
         productImage: string | null
         productName: string | null
         variantName?: string
+        /** Scannable barcode snapshot of the sold variant. */
+        variantBarcode?: string
         /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
         integrationStatus: string | null
+        /** VAT frozen at sale time (POS): VATABLE | VAT_EXEMPT | ZERO_RATED; null = none. */
+        taxClassification: string | null
+        taxRate: number | null
+        /** VAT_INCLUSIVE | VAT_EXCLUSIVE */
+        taxTreatment: string | null
+        taxAmount: number
+        taxableAmount: number | null
     })[]
     subtotal: number
     promoCode: string | null
@@ -98,6 +107,12 @@ export type SalesOrderRecord = {
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
+    /** Outstanding balance of a partially paid POS sale (0 when fully paid). */
+    outstandingBalance: number | null
+    downPaymentType: string | null
+    downPaymentPct: number | null
+    downPaymentAmount: number | null
+    dueDate: string | null
     /** Demo payment snapshot (null for non-checkout orders). */
     payment: {
         method: string | null
@@ -156,10 +171,17 @@ type ApiSalesOrderLine = {
     productNameSnapshot: string | null
     productImageSnapshot: string | null
     variantName: string | null
+    variantSku: string | null
+    variantBarcode: string | null
     integrationStatus: string | null
     quantity: DecimalString
     unitPrice: DecimalString
     lineTotal: DecimalString
+    taxClassification?: string | null
+    taxRate?: DecimalString
+    taxTreatment?: string | null
+    taxAmount?: DecimalString
+    taxableAmount?: DecimalString
 }
 
 type ApiSalesOrder = {
@@ -180,6 +202,11 @@ type ApiSalesOrder = {
     totalAmount: DecimalString
     paymentReceived: DecimalString
     changeAmount: DecimalString
+    outstandingBalance?: DecimalString | null
+    downPaymentType?: string | null
+    downPaymentPct?: DecimalString | null
+    downPaymentAmount?: DecimalString | null
+    dueDate?: string | null
     paymentMethod: string | null
     paymentStatus: string | null
     paymentReference: string | null
@@ -279,10 +306,16 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             productImage: line.productImageSnapshot,
             productName: line.productNameSnapshot,
             variantName: line.variantName ?? undefined,
+            variantBarcode: line.variantBarcode ?? undefined,
             integrationStatus: line.integrationStatus ?? null,
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),
             lineTotal: num(line.lineTotal),
+            taxClassification: line.taxClassification ?? null,
+            taxRate: numOrNull(line.taxRate ?? null),
+            taxTreatment: line.taxTreatment ?? null,
+            taxAmount: num(line.taxAmount ?? 0),
+            taxableAmount: numOrNull(line.taxableAmount ?? null),
         })),
         subtotal: num(order.subtotal),
         promoCode: order.promoCode,
@@ -300,6 +333,11 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             })) ?? [],
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
+        outstandingBalance: numOrNull(order.outstandingBalance ?? null),
+        downPaymentType: order.downPaymentType ?? null,
+        downPaymentPct: numOrNull(order.downPaymentPct ?? null),
+        downPaymentAmount: numOrNull(order.downPaymentAmount ?? null),
+        dueDate: order.dueDate ?? null,
         payment:
             order.paymentMethod !== undefined && order.paymentMethod !== null
                 ? {
