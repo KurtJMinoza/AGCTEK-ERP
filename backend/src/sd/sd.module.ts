@@ -29,11 +29,9 @@ import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
 import { QuotationEmailService } from './quotation-email.service'
 import {
-    PdfLayoutProfileController,
     QuotationEmailController,
     QuotationEmailTemplateController,
 } from './quotation-email.controller'
-import { PdfLayoutProfileService } from './pdf-layout-profile.service'
 import { SalesReturnService } from './sales-return.service'
 import { SalesReturnController } from './sales-return.controller'
 import { SalesInvoiceService } from './sales-invoice.service'
@@ -74,7 +72,6 @@ import { BackorderReportService } from './backorder-report.service'
         QuotationController,
         QuotationEmailController,
         QuotationEmailTemplateController,
-        PdfLayoutProfileController,
         SalesReturnController,
         ReturnRequestController,
         DeliveryController,
@@ -103,7 +100,6 @@ import { BackorderReportService } from './backorder-report.service'
         QuotationPdfService,
         QuotationMailService,
         QuotationEmailService,
-        PdfLayoutProfileService,
         SalesReturnService,
         SalesInvoiceService,
         SdFulfillmentEventsListener,
@@ -126,6 +122,8 @@ import { BackorderReportService } from './backorder-report.service'
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        QuotationEmailService,
+        QuotationMailService,
         SalesReturnService,
         ReturnRequestService,
         ReviewModule,

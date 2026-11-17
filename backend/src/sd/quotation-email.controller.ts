@@ -9,8 +9,6 @@ import {
     UpdateQuotationEmailTemplateDto,
 } from './dto/quotation-email.dto'
 import { QuotationEmailService } from './quotation-email.service'
-import { UpdatePdfLayoutProfileDto } from './dto/pdf-layout-profile.dto'
-import { PdfLayoutProfileService } from './pdf-layout-profile.service'
 
 /**
  * SD-owned quotation email. Sending the quotation (DRAFT → SENT) never emails by itself: the CRM
@@ -76,44 +74,26 @@ export class QuotationEmailController {
     }
 }
 
-/** Quotation PDF layout profiles (CRM › Documents › PDF templates); layout only, never data. */
-@Controller('sd/pdf-layout-profiles')
-export class PdfLayoutProfileController {
-    constructor(private readonly profiles: PdfLayoutProfileService) {}
-
-    @Get()
-    @RequirePermission('sd.quotations', 'read')
-    list() {
-        return this.profiles.list()
-    }
-
-    @Patch(':key')
-    @RequirePermission('sd.quotations', 'update')
-    update(@Param('key') key: string, @Body() dto: UpdatePdfLayoutProfileDto) {
-        return this.profiles.update(key, dto)
-    }
-}
-
-/** Quotation email template copy (admin edit surface; v1 read + update, no structural builder). */
+/** Quotation email template copy (Tools › Emails; v1 read + update, no structural builder). */
 @Controller('sd/email-templates')
 export class QuotationEmailTemplateController {
     constructor(private readonly email: QuotationEmailService) {}
 
     @Get()
-    @RequirePermission('sd.quotations', 'read')
+    @RequirePermission('emails.templates', 'read')
     list(@Query('includeInactive') includeInactive?: string) {
         return this.email.listTemplates(includeInactive === '1' || includeInactive === 'true')
     }
 
     @Get(':key')
-    @RequirePermission('sd.quotations', 'read')
+    @RequirePermission('emails.templates', 'read')
     async findOne(@Param('key') key: string) {
         const templates = await this.email.listTemplates(true)
         return templates.find((template) => template.key === key) ?? null
     }
 
     @Patch(':key')
-    @RequirePermission('sd.quotations', 'update')
+    @RequirePermission('emails.templates', 'update')
     update(@Param('key') key: string, @Body() dto: UpdateQuotationEmailTemplateDto) {
         return this.email.updateTemplate(key, dto)
     }

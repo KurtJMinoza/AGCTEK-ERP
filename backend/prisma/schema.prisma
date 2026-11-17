@@ -3919,6 +3919,7 @@ model SdCustomer {
   crmLoyaltyAccount CrmLoyaltyAccount?
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
+  crmEmailMessages  CrmEmailMessage[]
 
   @@index([status])
   @@index([companyName])
@@ -4380,6 +4381,7 @@ model SdQuotation {
   events             SdQuotationEvent[]
   documents          SdQuotationDocument[]
   salesOrder         SdSalesOrder?
+  crmEmailMessages   CrmEmailMessage[]
 
   @@unique([quotationNumber, revision])
   @@index([crmOpportunityId, createdAt])
@@ -4458,6 +4460,7 @@ model SdQuotationDocument {
   checksum    String
   createdBy   String?
   createdAt   DateTime    @default(now())
+  crmEmailAttachments CrmEmailAttachment[]
 
   @@unique([quotationId, revision])
   @@map("sd_quotation_documents")
@@ -4491,8 +4494,25 @@ model SdPdfLayoutProfile {
   id          String   @id @default(cuid())
   key         String   @unique
   name        String
-  /// { showTin, showOpportunity, showPaymentTerms, marginTop, marginSide, disclaimer }
+  /// { showLetterhead, showTin, showOpportunity, showPaymentTerms, marginTop, marginSide, contentStartY, disclaimer }
   config      Json?
+  /// Imported one-page PDF design drawn under every page (uploads/sd/pdf-designs); null = none.
+  designStorageKey String?
+  designFileName   String?
+  designByteSize   Int?
+  designUploadedAt DateTime?
+  designUploadedBy String?
+  /// Increments on every upload / removal, so a replaced design is visible in the audit of the profile.
+  designVersion    Int      @default(0)
+  /// Company logo (PNG / JPEG, uploads/sd/pdf-logos) drawn instead of the company name; null = name.
+  logoStorageKey   String?
+  logoFileName     String?
+  logoMimeType     String?
+  logoByteSize     Int?
+  logoUploadedAt   DateTime?
+  logoUploadedBy   String?
+  /// Increments on every upload / removal, like designVersion.
+  logoVersion      Int      @default(0)
   isDefault   Boolean  @default(false)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -8061,12 +8081,82 @@ model CrmOpportunity {
   activities        CrmActivity[]
   messages          CrmMessage[]
   attachments       CrmAttachment[]
+  emailMessages     CrmEmailMessage[]
 
   @@index([customerId])
   @@index([stage])
   @@index([assignedTo])
   @@index([leadId])
   @@map("crm_opportunities")
+}
+
+/// CRM email hub (Communications › Emails): outbound drafts/sent + MailDev inbound inbox/spam.
+model CrmEmailMessage {
+  id                 String               @id @default(cuid())
+  /// OUTBOUND | INBOUND
+  direction          String               @default("OUTBOUND")
+  /// OUTBOUND: DRAFT | SENT | FAILED · INBOUND: RECEIVED
+  status             String               @default("DRAFT")
+  toEmail            String
+  toName             String?
+  fromEmail          String?
+  subject            String               @default("")
+  bodyText           String               @default("")
+  bodyHtml           String?
+  customerId         String?
+  customer           SdCustomer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  opportunityId      String?
+  opportunity        CrmOpportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  quotationId        String?
+  quotation          SdQuotation?         @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  quotationRevision  Int?
+  templateKey        String?
+  starred            Boolean              @default(false)
+  /// Inbound only: Spam folder when true.
+  isSpam             Boolean              @default(false)
+  /// e.g. MAILDEV
+  provider           String?
+  /// Provider-native id (MailDev email id) for idempotent import.
+  providerMessageId  String?              @unique
+  /// Outbound SMTP Message-ID; used to skip re-import of our own sends from MailDev.
+  smtpMessageId      String?
+  sentAt             DateTime?
+  receivedAt         DateTime?
+  lastError          String?
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  attachments        CrmEmailAttachment[]
+
+  @@index([status, sentAt])
+  @@index([createdBy, status])
+  @@index([quotationId])
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([direction, isSpam, receivedAt])
+  @@index([smtpMessageId])
+  @@map("crm_email_messages")
+}
+
+/// Attachment on a CRM email: uploaded file or a reference to the quotation PDF snapshot.
+model CrmEmailAttachment {
+  id                   String              @id @default(cuid())
+  messageId            String
+  message              CrmEmailMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// QUOTATION_PDF | UPLOAD
+  kind                 String
+  fileName             String
+  mimeType             String?
+  byteSize             Int
+  /// Disk key under uploads/crm/emails (UPLOAD); may be empty when quotationDocumentId is set.
+  storageKey           String?
+  quotationDocumentId  String?
+  quotationDocument    SdQuotationDocument? @relation(fields: [quotationDocumentId], references: [id], onDelete: SetNull)
+  createdAt            DateTime            @default(now())
+
+  @@index([messageId])
+  @@map("crm_email_attachments")
 }
 
 /// Customer support ticket.

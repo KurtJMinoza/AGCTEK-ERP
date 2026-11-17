@@ -419,12 +419,14 @@ describe('QuotationService section headings', () => {
             { title: 'Main units', beforeLineNumber: 1 },
             { title: 'Accessories', beforeLineNumber: 2 },
         ])
-        // The active default profile (CRM › Documents) styles the PDF.
+        // The active default profile (Documents › PDF templates) styles the PDF.
         expect(layoutProfile.findFirst).toHaveBeenCalledWith({
             where: { isDefault: true, isActive: true },
-            select: { config: true },
+            select: { config: true, designStorageKey: true, logoStorageKey: true },
         })
         expect(pdf.layout).toEqual({ showTin: false })
+        expect(pdf.design).toBeNull()
+        expect(pdf.logo).toBeNull()
     })
 })
 

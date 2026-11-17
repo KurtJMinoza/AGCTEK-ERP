@@ -360,13 +360,21 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/crm/tickets',
                         icon: 'clipboard',
                     },
+                ],
+            },
+            {
+                code: 'communications',
+                title: 'Communications',
+                submodules: [
                     {
-                        code: 'documents',
-                        title: 'Documents',
+                        code: 'emails',
+                        title: 'Emails',
                         description:
-                            'Quotation cover-email templates and the PDF layout sent to customers.',
-                        path: '/crm/documents',
-                        icon: 'fileText',
+                            'Cover letters sent with quotations: subject, message, placeholders, default and active.',
+                        path: '/emails',
+                        icon: 'mail',
+                        // Mail hub; messages for compose/sent, templates for cover letters.
+                        permissionCode: 'emails.messages',
                     },
                 ],
             },

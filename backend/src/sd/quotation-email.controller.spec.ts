@@ -89,9 +89,9 @@ describe('QuotationEmailTemplateController', () => {
         ['list', 'read'],
         ['findOne', 'read'],
         ['update', 'update'],
-    ] as const)('%s requires sd.quotations:%s', (handler, action) => {
+    ] as const)('%s requires emails.templates:%s', (handler, action) => {
         expect(Reflect.getMetadata(PERMISSION_KEY, proto[handler])).toEqual({
-            resource: 'sd.quotations',
+            resource: 'emails.templates',
             action,
         })
     })

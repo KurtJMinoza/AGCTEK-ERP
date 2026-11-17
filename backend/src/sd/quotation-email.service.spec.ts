@@ -75,6 +75,8 @@ type PrismaMock = {
     sdQuotationDocument: { findUnique: jest.Mock; create: jest.Mock; update: jest.Mock }
     sdQuotation: { update: jest.Mock; updateMany: jest.Mock }
     sdQuotationEvent: { create: jest.Mock }
+    crmEmailMessage: { create: jest.Mock; update: jest.Mock }
+    crmEmailAttachment: { create: jest.Mock; deleteMany: jest.Mock }
     $transaction: jest.Mock
 }
 
@@ -117,6 +119,14 @@ function setup(options: { quote?: Record<string, unknown>; customer?: Record<str
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
         sdQuotationEvent: { create: jest.fn().mockResolvedValue({}) },
+        crmEmailMessage: {
+            create: jest.fn().mockResolvedValue({ id: 'crm-mail-1' }),
+            update: jest.fn().mockResolvedValue({ id: 'crm-mail-existing' }),
+        },
+        crmEmailAttachment: {
+            create: jest.fn().mockResolvedValue({ id: 'crm-att-1' }),
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
         $transaction: jest.fn(),
     } as PrismaMock
     prisma.$transaction.mockImplementation((cb: (tx: PrismaMock) => unknown) => cb(prisma))
@@ -309,6 +319,69 @@ describe('QuotationEmailService.send', () => {
     it('rejects statuses that can no longer be emailed', async () => {
         const { service } = setup({ quote: { status: 'EXPIRED', effectiveStatus: 'EXPIRED' } })
         await expect(service.send('q-1', {}, 'user-1')).rejects.toBeInstanceOf(ConflictException)
+    })
+
+    it('upserts a CRM Sent row with quotation PDF metadata after SMTP success', async () => {
+        const { service, prisma } = setup()
+
+        await service.send('q-1', {}, 'user-1')
+
+        expect(prisma.crmEmailMessage.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                status: 'SENT',
+                toEmail: 'ann@acme.test',
+                quotationId: 'q-1',
+                customerId: 'cust-1',
+                opportunityId: 'opp-1',
+                createdBy: 'user-1',
+            }),
+        })
+        expect(prisma.crmEmailAttachment.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                messageId: 'crm-mail-1',
+                kind: 'QUOTATION_PDF',
+                fileName: 'Q-000012_rev2.pdf',
+                quotationDocumentId: 'doc-1',
+            }),
+        })
+    })
+
+    it('records a CRM FAILED row on soft SMTP failure (not SENT)', async () => {
+        const { service, prisma, mail } = setup()
+        mail.sendQuotationEmail.mockResolvedValue({ sent: false, error: 'Quotation email delivery failed' })
+
+        await service.send('q-1', {}, 'user-1')
+
+        expect(prisma.crmEmailMessage.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                status: 'FAILED',
+                lastError: 'Quotation email delivery failed',
+                sentAt: null,
+            }),
+        })
+        expect(
+            (prisma.crmEmailMessage.create.mock.calls as [{ data: { status: string } }][]).every(
+                ([call]) => call.data.status !== 'SENT',
+            ),
+        ).toBe(true)
+    })
+
+    it('updates an existing CRM draft when crmMessageId is provided', async () => {
+        const { service, prisma } = setup()
+
+        await service.send('q-1', {}, 'user-1', { crmMessageId: 'crm-draft-1' })
+
+        expect(prisma.crmEmailMessage.update).toHaveBeenCalledWith({
+            where: { id: 'crm-draft-1' },
+            data: expect.objectContaining({ status: 'SENT', quotationId: 'q-1' }),
+        })
+        expect(prisma.crmEmailMessage.create).not.toHaveBeenCalled()
+        expect(prisma.crmEmailAttachment.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                messageId: 'crm-mail-existing',
+                kind: 'QUOTATION_PDF',
+            }),
+        })
     })
 })
 

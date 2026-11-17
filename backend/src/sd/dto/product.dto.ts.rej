@@ -1,0 +1,10 @@
+--- backend/src/sd/dto/product.dto.ts
++++ backend/src/sd/dto/product.dto.ts
+@@ -113,7 +113,6 @@
+     @ValidateIf((_, value) => value !== null)
+     @IsNumber({ maxDecimalPlaces: 2 })
+     @Min(0.01)
+     @Max(999_999_999.99)
+-    originalPrice?: number | null
+ 
+     /** Ignored for stock items: the linked MM material's category is used. */

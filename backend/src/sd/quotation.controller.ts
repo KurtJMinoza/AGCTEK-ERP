@@ -69,15 +69,16 @@ export class QuotationController {
         @Res() res: FastifyReply,
     ) {
         const input = await this.quotations.pdfInput(id)
-        const doc = this.pdf.createDocument(input)
+        // Buffered (not streamed) so an imported PDF design can be composed under the quotation.
+        const buffer = await this.pdf.render(input)
         const filename = `${input.quotationNumber}_rev${input.revision}.pdf`
         res.header('Content-Type', 'application/pdf')
+        res.header('Content-Length', String(buffer.length))
         res.header(
             'Content-Disposition',
             `${inline === '1' ? 'inline' : 'attachment'}; filename="${filename}"`,
         )
-        doc.end()
-        return res.send(doc)
+        return res.send(buffer)
     }
 
     @Patch(':id')

@@ -124,6 +124,21 @@ export type QuotationPriceChange = {
 const path = (id: string, action = '') =>
     `/sd/quotations/${encodeURIComponent(id)}${action}`
 
+export type ListQuotationsParams = {
+    crmOpportunityId?: string
+    customerId?: string
+    status?: QuotationStatus
+    limit?: number
+}
+
+/** Lists quotations (newest first). Status is exact; omit it and filter client-side when needed. */
+export async function listQuotations(params: ListQuotationsParams = {}) {
+    const { data } = await ErpAxiosBase.get<Quotation[]>('/sd/quotations', {
+        params,
+    })
+    return data
+}
+
 /** Soft stock signal for quotation lines (OK / LOW / NONE / NOT_TRACKED / UNKNOWN). */
 export async function checkQuotationStock(lines: ProductLineInput[]) {
     const { data } = await ErpAxiosBase.post<QuotationLineStock[]>(
@@ -322,7 +337,7 @@ export const QUOTATION_EMAIL_PLACEHOLDERS = [
     'opportunityName',
 ] as const
 
-/** Every QUOTATION email template, inactive ones included (CRM › Documents). */
+/** Every QUOTATION email template, inactive ones included (CRM › Emails). */
 export async function listQuotationEmailTemplates() {
     const { data } = await ErpAxiosBase.get<QuotationEmailTemplate[]>(
         '/sd/email-templates',
@@ -346,48 +361,6 @@ export async function updateQuotationEmailTemplate(
 ) {
     const { data } = await ErpAxiosBase.patch<QuotationEmailTemplate>(
         `/sd/email-templates/${encodeURIComponent(key)}`,
-        body,
-    )
-    return data
-}
-
-/** Quotation PDF layout (look only); the active default profile styles every quotation PDF. */
-export type QuotationPdfLayout = {
-    showTin: boolean
-    showOpportunity: boolean
-    showPaymentTerms: boolean
-    marginTop: number
-    marginSide: number
-    disclaimer: string
-}
-
-export type PdfLayoutProfile = {
-    key: string
-    name: string
-    isDefault: boolean
-    isActive: boolean
-    /** Resolved layout (defaults filled in), exactly what the next PDF uses. */
-    layout: QuotationPdfLayout
-    updatedAt: string
-}
-
-export const PDF_LAYOUT_MARGIN_MIN = 24
-export const PDF_LAYOUT_MARGIN_MAX = 96
-
-export async function listPdfLayoutProfiles() {
-    const { data } = await ErpAxiosBase.get<PdfLayoutProfile[]>(
-        '/sd/pdf-layout-profiles',
-    )
-    return data
-}
-
-/** Merges the given layout keys; an empty disclaimer restores the default footer text. */
-export async function updatePdfLayoutProfile(
-    key: string,
-    body: { name?: string; config?: Partial<QuotationPdfLayout> },
-) {
-    const { data } = await ErpAxiosBase.patch<PdfLayoutProfile>(
-        `/sd/pdf-layout-profiles/${encodeURIComponent(key)}`,
         body,
     )
     return data

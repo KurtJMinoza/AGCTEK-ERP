@@ -58,6 +58,10 @@ export type QuotationPdfInput = {
     company?: QuotationPdfCompanyInput | null
     /** Stored layout profile (Documents › PDF templates); missing fields use the defaults. */
     layout?: QuotationPdfLayoutConfig | null
+    /** Imported one-page design drawn under the quotation (see composeOverPdfDesign). */
+    design?: Buffer | null
+    /** Company logo (PNG / JPEG) drawn instead of the company name in the letterhead. */
+    logo?: Buffer | null
 }
 
 export type QuotationPdfLine = {
@@ -73,7 +77,7 @@ export type QuotationPdfLine = {
 }
 
 export type QuotationPdfModel = {
-    company: { name: string; address: string; tin: string }
+    company: { name: string; address: string; tin: string; logo: Buffer | null }
     quotation: {
         number: string
         revision: number
@@ -171,6 +175,7 @@ export function buildQuotationPdfModel(input: QuotationPdfInput): QuotationPdfMo
             name: trimmed(input.company?.name) ?? QUOTATION_PDF_DEFAULT_COMPANY,
             address: trimmed(input.company?.address) ?? '',
             tin: trimmed(input.company?.tin) ?? '',
+            logo: input.logo && input.logo.length > 0 ? input.logo : null,
         },
         quotation: {
             number: input.quotationNumber,

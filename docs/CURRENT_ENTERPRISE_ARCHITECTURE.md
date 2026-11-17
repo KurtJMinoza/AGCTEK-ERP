@@ -429,11 +429,11 @@ CRM Opportunity (PROPOSAL / NEGOTIATION, no SD order yet)
   - The cover letter comes from `sd_email_templates` (`{{placeholders}}`).
   - The PDF bytes are stored once per revision (`sd_quotation_documents`, `QUOTATION_DOCUMENT_DIR`) and reused for resends.
   - Results are recorded as EMAIL_SENT / RESENT / FAILED / SKIPPED events. `npm run mail:dev` runs Maildev locally.
-- **CRM › Documents** (`/crm/documents`) edits the email templates and the PDF layout profile; SD stores both.
-  - **PDF layout profile:** `sd_pdf_layout_profiles` (migration `20261113180000_sd_pdf_layout_profiles`). The active default profile styles every quotation PDF.
-  - **Profile config:** TIN / opportunity / payment-terms rows, margins (24–96 pt) and footer disclaimer. Look only, never data.
-  - `resolveQuotationPdfLayout()` fills defaults that reproduce the original PDF.
-  - **API:** `GET` / `PATCH /sd/pdf-layout-profiles` and `/sd/email-templates` (sd.quotations read / update).
+- **Emails** (CRM › Communications › Emails, `/emails`, permission `emails.templates`): cover-letter templates and Gmail-style Compose for quotation PDFs. Not a sidebar/Home module (avoids redundancy with CRM).
+  - Compose picks a SENT / ACCEPTED quotation, then opens the existing floating `QuotationEmailComposer`; send still uses `POST /sd/quotations/:id/email` (`sd.quotations` update) and always attaches the PDF.
+  - `/sd/email-templates` (`GET` list / `:key`, `PATCH :key`) uses `emails.templates` read / update.
+  - Old `/crm/documents`, `/modules/documents`, and `/documents/*` URLs redirect to `/emails`.
+  - Quotation PDF rendering still reads the active default `sd_pdf_layout_profiles` row (config / optional design / logo) when present; there is no PDF template editor or `/sd/pdf-layout-profiles` API.
 - **Permissions:**
   - Creating from CRM needs crm:update and sd:create.
   - SD endpoints use sd:read and sd:update.

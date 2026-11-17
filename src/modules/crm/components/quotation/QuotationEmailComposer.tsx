@@ -381,6 +381,8 @@ export default function QuotationEmailComposer({
                 isResend,
             })
             if (!result.sent) {
+                // Soft failure still writes EMAIL_FAILED / EMAIL_SKIPPED — refresh CRM history.
+                onSent()
                 setError(notDeliveredMessage(result))
                 return
             }
@@ -398,6 +400,8 @@ export default function QuotationEmailComposer({
             onSent()
             onClose()
         } catch (err) {
+            // Hard failures (e.g. no customer email) also refresh so the trail stays current.
+            onSent()
             setError(getApiErrorMessage(err, 'Could not email the quotation'))
         } finally {
             setSending(false)
@@ -495,7 +499,12 @@ export default function QuotationEmailComposer({
     const selectedTemplate = templates.find(
         (template) => template.key === templateKey,
     )
-    const canSend = Boolean(preview?.to) && !loading && !sending
+    const canSend =
+        Boolean(preview?.to) &&
+        Boolean(subject.trim()) &&
+        Boolean(body.trim()) &&
+        !loading &&
+        !sending
 
     return (
         <Dialog

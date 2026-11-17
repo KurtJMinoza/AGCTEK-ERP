@@ -76,6 +76,14 @@ export type SendQuotationEmailInput = {
     isResend?: boolean
 }
 
+/** Optional CRM emailer context when send is driven from Communications › Emails. */
+export type SendQuotationEmailOptions = {
+    crmMessageId?: string
+    extraAttachments?: { filename: string; content: Buffer; contentType?: string }[]
+    toOverride?: string
+    toName?: string | null
+}
+
 export type SaveQuotationEmailTemplateInput = {
     name: string
     subject: string
@@ -255,12 +263,17 @@ export class QuotationEmailService {
      * override the subject and body for this send only. Requires SENT / ACCEPTED and a customer
      * email; the stored PDF is created on first use and reused by resends.
      */
-    async send(id: string, input: SendQuotationEmailInput, userId: string): Promise<QuotationEmailSendResult> {
+    async send(
+        id: string,
+        input: SendQuotationEmailInput,
+        userId: string,
+        options: SendQuotationEmailOptions = {},
+    ): Promise<QuotationEmailSendResult> {
         const quote = await this.quotations.findOne(id)
         this.assertEmailable(quote)
 
         const customer = await this.loadCustomer(quote.customerId)
-        const to = customer?.email?.trim()
+        const to = options.toOverride?.trim() || customer?.email?.trim()
         if (!to) {
             throw new BadRequestException({
                 code: 'QUOTATION_NO_CUSTOMER_EMAIL',
@@ -286,6 +299,14 @@ export class QuotationEmailService {
 
         const { document, buffer } = await this.ensureDocument(active, userId)
         const attachmentFilename = quotationDocumentFilename(active.quotationNumber, active.revision)
+        const attachments = [
+            {
+                filename: attachmentFilename,
+                content: buffer,
+                contentType: document.contentType,
+            },
+            ...(options.extraAttachments ?? []),
+        ]
 
         let result: Awaited<ReturnType<QuotationMailService['sendQuotationEmail']>>
         try {
@@ -294,22 +315,35 @@ export class QuotationEmailService {
                 subject,
                 text: bodyText,
                 html: bodyHtml,
-                attachments: [
-                    {
-                        filename: attachmentFilename,
-                        content: buffer,
-                        contentType: document.contentType,
-                    },
-                ],
+                attachments,
             })
         } catch (error) {
+            const detail = error instanceof Error ? error.message : 'Quotation email delivery failed'
             await recordQuotationEvent(this.prisma, {
                 quotationId: id,
                 action: 'EMAIL_FAILED',
                 fromStatus: active.status,
                 toStatus: active.status,
                 actorId: userId,
-                note: error instanceof Error ? error.message : 'Quotation email delivery failed',
+                note: `To ${to} · ${subject} · ${detail}`,
+            })
+            await this.syncCrmOutbound({
+                quote: active,
+                customer,
+                to,
+                toName: options.toName ?? customer?.contactName ?? customer?.companyName ?? null,
+                subject,
+                bodyText,
+                bodyHtml,
+                templateKey: key,
+                userId,
+                documentId: document.id,
+                attachmentFilename,
+                byteSize: document.byteSize,
+                contentType: document.contentType,
+                crmMessageId: options.crmMessageId,
+                status: 'FAILED',
+                lastError: detail,
             })
             throw error
         }
@@ -326,7 +360,26 @@ export class QuotationEmailService {
                 fromStatus: active.status,
                 toStatus: active.status,
                 actorId: userId,
-                note: `Emailed to ${to} (${attachmentFilename})`,
+                note: `To ${to} · ${subject} · ${attachmentFilename}`,
+            })
+            await this.syncCrmOutbound({
+                quote: active,
+                customer,
+                to,
+                toName: options.toName ?? customer?.contactName ?? customer?.companyName ?? null,
+                subject,
+                bodyText,
+                bodyHtml,
+                templateKey: key,
+                userId,
+                documentId: document.id,
+                attachmentFilename,
+                byteSize: document.byteSize,
+                contentType: document.contentType,
+                crmMessageId: options.crmMessageId,
+                status: 'SENT',
+                sentAt: now,
+                smtpMessageId: result.messageId,
             })
             this.log.log(
                 `Quotation ${quote.quotationNumber} rev ${quote.revision} emailed to ${to}${resend ? ' (resend)' : ''}`,
@@ -348,7 +401,25 @@ export class QuotationEmailService {
             fromStatus: active.status,
             toStatus: active.status,
             actorId: userId,
-            note: reason,
+            note: `To ${to} · ${subject} · ${reason}`,
+        })
+        await this.syncCrmOutbound({
+            quote: active,
+            customer,
+            to,
+            toName: options.toName ?? customer?.contactName ?? customer?.companyName ?? null,
+            subject,
+            bodyText,
+            bodyHtml,
+            templateKey: key,
+            userId,
+            documentId: document.id,
+            attachmentFilename,
+            byteSize: document.byteSize,
+            contentType: document.contentType,
+            crmMessageId: options.crmMessageId,
+            status: 'FAILED',
+            lastError: reason,
         })
         this.log.warn(
             `Quotation ${quote.quotationNumber} rev ${quote.revision} not emailed to ${to}: ${
@@ -364,6 +435,79 @@ export class QuotationEmailService {
             attachmentFilename,
             lastEmailedAt: active.lastEmailedAt,
         }
+    }
+
+    /** One Sent/Failed row in the CRM emailer for quote-page and hub sends. */
+    private async syncCrmOutbound(input: {
+        quote: QuotationView
+        customer: CustomerRow
+        to: string
+        toName: string | null
+        subject: string
+        bodyText: string
+        bodyHtml: string
+        templateKey: string
+        userId: string
+        documentId: string
+        attachmentFilename: string
+        byteSize: number
+        contentType: string
+        crmMessageId?: string
+        status: 'SENT' | 'FAILED'
+        sentAt?: Date
+        lastError?: string
+        smtpMessageId?: string
+    }) {
+        const smtpMessageId = input.smtpMessageId?.trim().replace(/^<|>$/g, '') || null
+        const data = {
+            direction: 'OUTBOUND',
+            status: input.status,
+            toEmail: input.to,
+            toName: input.toName,
+            subject: input.subject,
+            bodyText: input.bodyText,
+            bodyHtml: input.bodyHtml,
+            customerId: input.quote.customerId,
+            opportunityId: input.quote.crmOpportunityId,
+            quotationId: input.quote.id,
+            quotationRevision: input.quote.revision,
+            templateKey: input.templateKey,
+            sentAt: input.status === 'SENT' ? (input.sentAt ?? new Date()) : null,
+            lastError: input.lastError ?? null,
+            updatedBy: input.userId,
+            ...(smtpMessageId ? { smtpMessageId } : {}),
+        }
+
+        const messageId = input.crmMessageId
+            ? (
+                  await this.prisma.crmEmailMessage.update({
+                      where: { id: input.crmMessageId },
+                      data,
+                  })
+              ).id
+            : (
+                  await this.prisma.crmEmailMessage.create({
+                      data: {
+                          ...data,
+                          createdBy: input.userId,
+                      },
+                  })
+              ).id
+
+        await this.prisma.crmEmailAttachment.deleteMany({
+            where: { messageId, kind: 'QUOTATION_PDF' },
+        })
+        await this.prisma.crmEmailAttachment.create({
+            data: {
+                messageId,
+                kind: 'QUOTATION_PDF',
+                fileName: input.attachmentFilename,
+                mimeType: input.contentType,
+                byteSize: input.byteSize,
+                storageKey: null,
+                quotationDocumentId: input.documentId,
+            },
+        })
     }
 
     /**

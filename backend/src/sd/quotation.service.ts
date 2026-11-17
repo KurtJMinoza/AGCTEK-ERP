@@ -30,6 +30,8 @@ import {
 } from './quotation.rules'
 import { QUOTATION_PDF_DEFAULT_COMPANY, type QuotationPdfInput } from './quotation-pdf.model'
 import type { QuotationPdfLayoutConfig } from './quotation-pdf-layout'
+import { readQuotationPdfDesign } from './quotation-pdf-design'
+import { readQuotationPdfLogo } from './quotation-pdf-logo'
 
 type Client = Prisma.TransactionClient
 
@@ -139,7 +141,7 @@ export class QuotationService {
             }),
             this.prisma.sdPdfLayoutProfile.findFirst({
                 where: { isDefault: true, isActive: true },
-                select: { config: true },
+                select: { config: true, designStorageKey: true, logoStorageKey: true },
             }),
         ])
         return {
@@ -166,6 +168,9 @@ export class QuotationService {
             opportunityName: opportunity?.name ?? null,
             company,
             layout: (layoutProfile?.config as QuotationPdfLayoutConfig | null | undefined) ?? null,
+            // A missing design or logo file degrades to the plain PDF instead of blocking quotations.
+            design: readQuotationPdfDesign(layoutProfile?.designStorageKey),
+            logo: readQuotationPdfLogo(layoutProfile?.logoStorageKey),
         }
     }
 
